@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import upload, chat, papers
+from routers import upload, chat, papers, sessions, duplication
  
 app = FastAPI(title='ThesisRAG API', version='1.0.0')
  
@@ -15,6 +15,8 @@ app.add_middleware(
 app.include_router(upload.router)
 app.include_router(chat.router)
 app.include_router(papers.router)
+app.include_router(sessions.router)
+app.include_router(duplication.router)
  
 @app.get('/health')
 def health(): return {'status': 'ok'}

@@ -2,13 +2,26 @@ import { useState, useRef } from 'react'
 import { uploadPaper } from '../api'
 import { Upload, FileText, CheckCircle, AlertCircle, X } from 'lucide-react'
 
+const DEPARTMENTS = [
+  'College of Computing Studies, Information and Communication Technology (CCSICT)',
+  'College of Business, Accountancy and Public Administration (CBAPA)',
+  'College of Agriculture (CA)',
+  'College of Education (CEd)',
+  'College of Arts and Sciences (CAS)',
+  'College of Engineering (COE)',
+  'College of Criminal Justice Education (CCJE)',
+  'College of Nursing (CON)',
+  'College of Veterinary Medicine (CVM)',
+  'Institute of Fisheries (IF)'
+]
+
 function UploadPage() {
   const [file, setFile] = useState(null)
   const [title, setTitle] = useState('')
   const [authors, setAuthors] = useState('')
   const [year, setYear] = useState('')
   const [abstract, setAbstract] = useState('')
-  const [adminSecret, setAdminSecret] = useState('')
+  const [department, setDepartment] = useState(DEPARTMENTS[0])
   const [loading, setLoading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [toast, setToast] = useState(null)
@@ -74,7 +87,6 @@ function UploadPage() {
       setLoading(true)
       setProgress('Uploading and extracting text...')
 
-      // Simulate progress stages
       const progressTimer = setTimeout(() => {
         setProgress('Chunking text and generating embeddings...')
       }, 2000)
@@ -83,7 +95,14 @@ function UploadPage() {
         setProgress('Storing in vector database...')
       }, 5000)
 
-      const result = await uploadPaper(file, title.trim(), authors.trim(), year.trim(), abstract.trim(), adminSecret)
+      const result = await uploadPaper(
+        file, 
+        title.trim(), 
+        authors.trim(), 
+        year.trim(), 
+        abstract.trim(), 
+        department
+      )
 
       clearTimeout(progressTimer)
       clearTimeout(progressTimer2)
@@ -96,6 +115,7 @@ function UploadPage() {
       setAuthors('')
       setYear('')
       setAbstract('')
+      setDepartment(DEPARTMENTS[0])
       if (fileInputRef.current) fileInputRef.current.value = ''
       setProgress(null)
     } catch (err) {
@@ -211,24 +231,28 @@ function UploadPage() {
           </div>
 
           <div className="form-group">
+            <label className="form-label">Department *</label>
+            <select
+              className="form-input"
+              value={department}
+              onChange={e => setDepartment(e.target.value)}
+              required
+              disabled={loading}
+              style={{ appearance: 'auto' }}
+            >
+              {DEPARTMENTS.map(dept => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
             <label className="form-label">Abstract</label>
             <textarea
               className="form-textarea"
               placeholder="Brief abstract or summary (optional)"
               value={abstract}
               onChange={e => setAbstract(e.target.value)}
-              disabled={loading}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Admin Secret *</label>
-            <input
-              type="password"
-              className="form-input"
-              placeholder="Enter admin secret to authorize upload"
-              value={adminSecret}
-              onChange={e => setAdminSecret(e.target.value)}
-              required
               disabled={loading}
             />
           </div>

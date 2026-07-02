@@ -9,6 +9,8 @@ export default defineConfig({
       '/chat': 'http://localhost:8000',
       '/papers': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
+      '/sessions': 'http://localhost:8000',
+      '/duplication': 'http://localhost:8000',
     }
   }
 })
