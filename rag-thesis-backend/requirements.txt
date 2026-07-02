@@ -1,11 +1,27 @@
+# ISU Thesis AI Library — backend dependencies
 fastapi
 uvicorn[standard]
 python-multipart
-langchain
-langchain-google-genai
-langchain-community
-supabase
-pymupdf
-python-dotenv
 pydantic
 pydantic-settings
+python-dotenv
+
+# RAG orchestration (LangChain + Gemini + Supabase pgvector)
+langchain
+langchain-core
+langchain-text-splitters
+langchain-google-genai
+supabase
+
+# Document digitization
+pymupdf
+pytesseract          # OCR fallback for scanned manuscripts (needs the Tesseract binary)
+Pillow
+
+# Production hardening
+slowapi
+
+# Testing (ISO/IEC 25010 — Functional Suitability / Maintainability)
+pytest
+httpx
+pylint

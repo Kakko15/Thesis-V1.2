@@ -1,0 +1,66 @@
+{
+  "description": "Golden Dataset for Objective 2 (thesis paper, Section 3.2.1). Expand to 30-50 standardized academic queries. Every ground_truth answer must be derived directly from the CCSICT thesis corpus and validated by a panel of three CCSICT faculty members before serving as the benchmark for the Ragas evaluation.",
+  "validated_by_faculty_panel": false,
+  "queries": [
+    {
+      "id": 1,
+      "question": "What CCSICT theses have applied Retrieval-Augmented Generation to institutional data?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 2,
+      "question": "Which data mining techniques were used in past CCSICT theses to classify student performance data?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 3,
+      "question": "What web development frameworks were most commonly adopted in CCSICT capstone systems?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 4,
+      "question": "Summarize prior CCSICT research on network intrusion detection systems.",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 5,
+      "question": "Have any CCSICT theses evaluated OCR accuracy for digitizing printed documents?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 6,
+      "question": "What recommendation systems have been developed in previous CCSICT undergraduate studies?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 7,
+      "question": "Which CCSICT theses used cosine similarity or vector embeddings in their methodology?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 8,
+      "question": "What mobile applications targeting agriculture were built by CCSICT students?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 9,
+      "question": "Describe evaluation methods used in CCSICT theses that applied the ISO/IEC 25010 standard.",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 10,
+      "question": "What datasets were used by CCSICT theses in the Data Mining track between 2020 and 2024?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    }
+  ]
+}

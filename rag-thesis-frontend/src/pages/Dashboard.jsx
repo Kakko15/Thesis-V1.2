@@ -1,214 +1,196 @@
-import { useState, useEffect } from 'react'
-import { listPapers, deletePaper } from '../api'
-import { FileText, Users, Calendar, Trash2, BookOpen, RefreshCw, AlertCircle, Building2 } from 'lucide-react'
+import { useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { useQuery } from '@tanstack/react-query'
+import {
+  BookMarked, GitBranch, CalendarRange, Layers, MessageSquareText,
+  ShieldCheck, UploadCloud, ArrowRight, Library, Sparkles,
+} from 'lucide-react'
+import { listPapers } from '../api'
 import { useAuth } from '../context/AuthContext'
+import { GlassCard } from '../components/ui/GlassCard'
+import { Skeleton } from '../components/ui/Skeleton'
+import { Badge } from '../components/ui/Badge'
+import { PageTransition, AnimatedCounter, staggerContainer, staggerItem } from '../components/ui/Motion'
+import { Button } from '../components/ui/Button'
+import { formatDate } from '../lib/utils'
 
-function Dashboard() {
-  const [papers, setPapers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [deleting, setDeleting] = useState(null)
-  const [toast, setToast] = useState(null)
-  const { isAdmin } = useAuth()
-
-  const fetchPapers = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await listPapers()
-      setPapers(data)
-    } catch (err) {
-      setError('Failed to fetch papers. Make sure you are logged in and the backend is running.')
-      console.error('Failed to fetch papers:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchPapers()
-  }, [])
-
-  const handleDelete = async (paperId, title) => {
-    if (!window.confirm(`Are you sure you want to delete "${title}"? This will also remove all associated chunks.`)) {
-      return
-    }
-
-    try {
-      setDeleting(paperId)
-      await deletePaper(paperId)
-      setPapers(prev => prev.filter(p => p.id !== paperId))
-      showToast('success', `"${title}" has been deleted.`)
-    } catch (err) {
-      showToast('error', 'Failed to delete paper. You may not have permission.')
-      console.error('Delete error:', err)
-    } finally {
-      setDeleting(null)
-    }
-  }
-
-  const showToast = (type, message) => {
-    setToast({ type, message })
-    setTimeout(() => setToast(null), 4000)
-  }
-
-  const formatDate = (dateStr) => {
-    if (!dateStr) return '—'
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric', month: 'short', day: 'numeric'
-    })
-  }
-
-  // Get department abbreviation for tag
-  const getDeptAbbreviation = (deptStr) => {
-    if (!deptStr) return null;
-    const match = deptStr.match(/\(([^)]+)\)/);
-    return match ? match[1] : deptStr.substring(0, 5) + '...';
-  }
-
+function StatTile({ icon: Icon, label, value, suffix = '' }) {
   return (
-    <div className="page" id="dashboard-page">
-      <div className="page-header">
-        <h1>
-          <BookOpen size={28} />
-          Dashboard
-        </h1>
-        <p>Overview of your thesis archive</p>
-      </div>
-
-      {/* Stats */}
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-icon purple">
-            <FileText size={22} />
-          </div>
-          <div className="stat-value">{papers.length}</div>
-          <div className="stat-label">Total Papers</div>
+    <motion.div variants={staggerItem}>
+      <GlassCard hover className="relative overflow-hidden p-6">
+        <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gold-400/10 blur-2xl" />
+        <Icon size={20} className="mb-3 text-gold-400" />
+        <div className="font-display text-3xl font-extrabold">
+          <AnimatedCounter value={value} suffix={suffix} />
         </div>
-        <div className="stat-card">
-          <div className="stat-icon blue">
-            <Users size={22} />
-          </div>
-          <div className="stat-value">
-            {new Set(papers.map(p => p.authors).filter(Boolean)).size}
-          </div>
-          <div className="stat-label">Unique Authors</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon green">
-            <Calendar size={22} />
-          </div>
-          <div className="stat-value">
-            {papers.length > 0
-              ? `${Math.min(...papers.map(p => p.year).filter(Boolean))}–${Math.max(...papers.map(p => p.year).filter(Boolean))}`
-              : '—'}
-          </div>
-          <div className="stat-label">Year Range</div>
-        </div>
-      </div>
-
-      {/* Papers List */}
-      <div className="papers-section">
-        <h2>
-          <FileText size={20} />
-          Uploaded Papers
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={fetchPapers}
-            disabled={loading}
-            style={{ marginLeft: 'auto' }}
-          >
-            <RefreshCw size={14} className={loading ? 'spin' : ''} />
-            Refresh
-          </button>
-        </h2>
-
-        {loading && (
-          <div className="papers-list">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="paper-card">
-                <div className="paper-info">
-                  <div className="loading-skeleton" style={{ height: 20, width: '60%', marginBottom: 8 }} />
-                  <div className="loading-skeleton" style={{ height: 14, width: '40%' }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {error && (
-          <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-            <AlertCircle size={40} style={{ color: 'var(--error)', marginBottom: 12 }} />
-            <p style={{ color: 'var(--error)' }}>{error}</p>
-            <button className="btn btn-secondary" onClick={fetchPapers} style={{ marginTop: 16 }}>
-              Try Again
-            </button>
-          </div>
-        )}
-
-        {!loading && !error && papers.length === 0 && (
-          <div className="empty-state">
-            <FileText className="empty-state-icon" size={64} />
-            <h3>No papers uploaded yet</h3>
-            <p>Upload your first thesis PDF to get started with the RAG-powered archive.</p>
-          </div>
-        )}
-
-        {!loading && !error && papers.length > 0 && (
-          <div className="papers-list">
-            {papers.map((paper, index) => (
-              <div
-                key={paper.id}
-                className="paper-card"
-                style={{ animationDelay: `${index * 0.05}s` }}
-              >
-                <div className="paper-info">
-                  <div className="paper-title">{paper.title}</div>
-                  <div className="paper-meta">
-                    {paper.department && (
-                      <span style={{ color: 'var(--primary)', background: 'var(--primary-transparent)', padding: '2px 6px', borderRadius: 4 }}>
-                        <Building2 size={13} style={{ marginRight: 4 }} /> 
-                        {getDeptAbbreviation(paper.department)}
-                      </span>
-                    )}
-                    {paper.authors && (
-                      <span><Users size={13} /> {paper.authors}</span>
-                    )}
-                    {paper.year && (
-                      <span><Calendar size={13} /> {paper.year}</span>
-                    )}
-                    <span><FileText size={13} /> {formatDate(paper.created_at)}</span>
-                  </div>
-                </div>
-                {isAdmin && (
-                  <div className="paper-actions">
-                    <button
-                      className="btn btn-danger btn-icon"
-                      onClick={() => handleDelete(paper.id, paper.title)}
-                      disabled={deleting === paper.id}
-                      title="Delete paper"
-                    >
-                      {deleting === paper.id
-                        ? <span className="loading-spinner" />
-                        : <Trash2 size={16} />
-                      }
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Toast */}
-      {toast && (
-        <div className={`toast ${toast.type}`}>
-          {toast.type === 'success' ? '✓' : '✕'} {toast.message}
-        </div>
-      )}
-    </div>
+        <div className="mt-1 text-xs font-semibold uppercase tracking-wider opacity-55">{label}</div>
+      </GlassCard>
+    </motion.div>
   )
 }
 
-export default Dashboard
+function QuickAction({ icon: Icon, title, text, onClick, tone = 'forest' }) {
+  return (
+    <GlassCard hover className="group cursor-pointer p-6" onClick={onClick}>
+      <div className="flex items-start justify-between">
+        <div
+          className={
+            tone === 'gold'
+              ? 'flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-gold-300 to-gold-400 shadow-lg shadow-gold-400/25'
+              : 'flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-lg shadow-forest-900/25'
+          }
+        >
+          <Icon size={20} className={tone === 'gold' ? 'text-forest-950' : 'text-gold-300'} />
+        </div>
+        <ArrowRight size={17} className="opacity-30 transition-all duration-300 group-hover:translate-x-1 group-hover:opacity-80" />
+      </div>
+      <h3 className="font-display mt-4 text-base font-bold">{title}</h3>
+      <p className="mt-1 text-xs leading-relaxed opacity-60">{text}</p>
+    </GlassCard>
+  )
+}
+
+export default function Dashboard() {
+  const { displayName, role, canScan, isAdmin } = useAuth()
+  const navigate = useNavigate()
+  const { data: papers, isLoading } = useQuery({ queryKey: ['papers'], queryFn: listPapers })
+
+  const stats = useMemo(() => {
+    const list = papers || []
+    const tracks = new Set(list.map((p) => p.track).filter(Boolean))
+    const years = list.map((p) => p.year).filter(Boolean)
+    const chunks = list.reduce((acc, p) => acc + (p.chunk_count || 0), 0)
+    return {
+      total: list.length,
+      tracks: tracks.size,
+      span: years.length ? Math.max(...years) - Math.min(...years) + 1 : 0,
+      chunks,
+    }
+  }, [papers])
+
+  const recent = (papers || []).slice(0, 5)
+  const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'
+
+  return (
+    <PageTransition className="mx-auto max-w-6xl space-y-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-gold-500 dark:text-gold-300">{greeting},</p>
+          <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
+            {displayName}
+          </h1>
+          <p className="mt-1 text-sm opacity-55">
+            {role === 'admin'
+              ? 'Manage the archive, monitor usage, and validate research novelty.'
+              : role === 'faculty'
+                ? 'Validate topic novelty and explore accumulated CCSICT research.'
+                : 'Explore the CCSICT thesis archive with AI-powered semantic search.'}
+          </p>
+        </div>
+        <Button variant="gold" onClick={() => navigate('/chat')}>
+          <Sparkles size={16} /> Ask the archive
+        </Button>
+      </div>
+
+      {/* Stats bento */}
+      <motion.div
+        variants={staggerContainer}
+        initial="hidden"
+        animate="show"
+        className="grid grid-cols-2 gap-4 lg:grid-cols-4"
+      >
+        {isLoading ? (
+          [...Array(4)].map((_, i) => <Skeleton key={i} className="h-32" />)
+        ) : (
+          <>
+            <StatTile icon={BookMarked} label="Theses indexed" value={stats.total} />
+            <StatTile icon={GitBranch} label="Academic tracks" value={stats.tracks} />
+            <StatTile icon={CalendarRange} label="Years covered" value={stats.span} />
+            <StatTile icon={Layers} label="Semantic chunks" value={stats.chunks} />
+          </>
+        )}
+      </motion.div>
+
+      {/* Quick actions + recent papers */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="space-y-4">
+          <QuickAction
+            icon={MessageSquareText}
+            title="AI Chat"
+            text="Ask natural-language questions and receive citation-backed answers."
+            onClick={() => navigate('/chat')}
+          />
+          <QuickAction
+            icon={Library}
+            title="Browse archive"
+            text="Explore thesis metadata by track, year, and author."
+            onClick={() => navigate('/archive')}
+          />
+          {canScan && (
+            <QuickAction
+              icon={ShieldCheck}
+              title="Novelty check"
+              text="Scan a proposal against the archive at the 85% duplication threshold."
+              tone="gold"
+              onClick={() => navigate('/novelty')}
+            />
+          )}
+          {isAdmin && (
+            <QuickAction
+              icon={UploadCloud}
+              title="Upload thesis"
+              text="Digitize and index a new manuscript into the vector archive."
+              tone="gold"
+              onClick={() => navigate('/upload')}
+            />
+          )}
+        </div>
+
+        {/* Recent additions */}
+        <GlassCard className="p-6 lg:col-span-2">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-display text-lg font-bold">Recently indexed</h2>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/archive')}>
+              View all <ArrowRight size={14} />
+            </Button>
+          </div>
+          {isLoading ? (
+            <div className="space-y-3">
+              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16" />)}
+            </div>
+          ) : recent.length === 0 ? (
+            <p className="py-10 text-center text-sm opacity-50">
+              The archive is empty. {isAdmin ? 'Upload the first thesis to begin.' : 'Check back soon.'}
+            </p>
+          ) : (
+            <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-2.5">
+              {recent.map((p) => (
+                <motion.div
+                  key={p.id}
+                  variants={staggerItem}
+                  className="glass flex items-center gap-4 rounded-2xl p-4"
+                >
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-forest-600/12 dark:bg-forest-400/12">
+                    <BookMarked size={16} className="text-forest-600 dark:text-forest-300" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">{p.title}</div>
+                    <div className="mt-0.5 truncate text-xs opacity-55">
+                      {p.authors || 'Unknown authors'}{p.year ? ` · ${p.year}` : ''}
+                    </div>
+                  </div>
+                  <div className="hidden shrink-0 items-center gap-2 sm:flex">
+                    {p.track && <Badge tone="forest">{p.track}</Badge>}
+                    <span className="text-xs opacity-40">{formatDate(p.created_at)}</span>
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
+        </GlassCard>
+      </div>
+    </PageTransition>
+  )
+}
