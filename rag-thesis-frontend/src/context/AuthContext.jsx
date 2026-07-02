@@ -7,6 +7,29 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  // True when the account has a verified TOTP factor but this session is
+  // still aal1 — i.e. the user must pass the 2FA challenge before the app.
+  const [needsMfa, setNeedsMfa] = useState(false)
+
+  const checkMfa = useCallback(async (currentUser) => {
+    if (!currentUser) {
+      setNeedsMfa(false)
+      return false
+    }
+    try {
+      const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      if (error || !data) {
+        setNeedsMfa(false)
+        return false
+      }
+      const needed = data.nextLevel === 'aal2' && data.nextLevel !== data.currentLevel
+      setNeedsMfa(needed)
+      return needed
+    } catch {
+      setNeedsMfa(false)
+      return false
+    }
+  }, [])
 
   const fetchProfile = useCallback(async (userId) => {
     try {
@@ -29,6 +52,7 @@ export const AuthProvider = ({ children }) => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       const currentUser = session?.user ?? null
+      await checkMfa(currentUser)
       setUser(currentUser)
       if (currentUser) await fetchProfile(currentUser.id)
       else setProfile(null)
@@ -38,6 +62,7 @@ export const AuthProvider = ({ children }) => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const currentUser = session?.user ?? null
+      await checkMfa(currentUser)
       setUser(currentUser)
       if (currentUser) await fetchProfile(currentUser.id)
       else setProfile(null)
@@ -45,7 +70,7 @@ export const AuthProvider = ({ children }) => {
     })
 
     return () => subscription.unsubscribe()
-  }, [fetchProfile])
+  }, [fetchProfile, checkMfa])
 
   const role = profile?.role ?? null
 
@@ -54,6 +79,8 @@ export const AuthProvider = ({ children }) => {
     profile,
     role,
     loading,
+    needsMfa,
+    refreshMfa: () => checkMfa(user),
     isAdmin: role === 'admin',
     isFaculty: role === 'faculty',
     isStudent: role === 'student',
