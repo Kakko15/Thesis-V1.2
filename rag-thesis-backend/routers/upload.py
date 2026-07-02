@@ -1,12 +1,12 @@
 import fitz  # PyMuPDF
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Header
-from supabase import create_client
-from config import settings
+import uuid
+import mimetypes
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from dependencies.auth import require_admin, sb
 from services.chunker import split_text
 from services.embedder import embed_texts
  
 router = APIRouter(prefix='/upload', tags=['upload'])
-sb = create_client(settings.supabase_url, settings.supabase_key)
  
 def extract_text(file_bytes: bytes, filename: str) -> str:
     if filename.lower().endswith('.pdf'):
@@ -21,21 +21,34 @@ async def upload_paper(
     authors: str = Form(''),
     year: str = Form(''),
     abstract: str = Form(''),
-    x_admin_secret: str = Header(default=''),
+    department: str = Form(''),
+    user = Depends(require_admin)
 ):
-    if x_admin_secret != settings.admin_secret:
-        raise HTTPException(403, 'Invalid admin secret')
- 
-    content = extract_text(await file.read(), file.filename)
+    file_bytes = await file.read()
+    content = extract_text(file_bytes, file.filename)
     if not content.strip():
         raise HTTPException(400, 'Could not extract text from file')
  
+    # Upload to Supabase Storage
+    unique_filename = f"{uuid.uuid4()}_{file.filename}"
+    content_type = mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
+    
+    try:
+        # supabase-py upload accepts bytes directly
+        sb.storage.from_("pdfs").upload(unique_filename, file_bytes, file_options={"content-type": content_type})
+        public_url = sb.storage.from_("pdfs").get_public_url(unique_filename)
+    except Exception as e:
+        print(f"Storage upload failed: {e}")
+        public_url = None
+
     # Save paper metadata
     paper_data = {
         'title': title, 'authors': authors,
         'year': int(year) if year.isdigit() else None,
         'abstract': abstract, 'content': content,
-        'filename': file.filename
+        'department': department,
+        'filename': file.filename,
+        'pdf_url': public_url
     }
     paper_res = sb.table('papers').insert(paper_data).execute()
     paper = paper_res.data[0]

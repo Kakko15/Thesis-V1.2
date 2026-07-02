@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { listPapers, deletePaper } from '../api'
-import { FileText, Users, Calendar, Trash2, BookOpen, RefreshCw, AlertCircle } from 'lucide-react'
+import { FileText, Users, Calendar, Trash2, BookOpen, RefreshCw, AlertCircle, Building2 } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 
 function Dashboard() {
   const [papers, setPapers] = useState([])
@@ -8,6 +9,7 @@ function Dashboard() {
   const [error, setError] = useState(null)
   const [deleting, setDeleting] = useState(null)
   const [toast, setToast] = useState(null)
+  const { isAdmin } = useAuth()
 
   const fetchPapers = async () => {
     try {
@@ -16,7 +18,7 @@ function Dashboard() {
       const data = await listPapers()
       setPapers(data)
     } catch (err) {
-      setError('Failed to connect to backend. Make sure the server is running on port 8000.')
+      setError('Failed to fetch papers. Make sure you are logged in and the backend is running.')
       console.error('Failed to fetch papers:', err)
     } finally {
       setLoading(false)
@@ -28,22 +30,17 @@ function Dashboard() {
   }, [])
 
   const handleDelete = async (paperId, title) => {
-    const adminSecret = window.prompt(`Are you sure you want to delete "${title}"? This will also remove all associated chunks.\n\nPlease enter the Admin Secret to confirm:`)
-    if (adminSecret === null) {
-      return // User cancelled
-    }
-    if (!adminSecret.trim()) {
-      showToast('error', 'Admin Secret is required to delete a paper.')
+    if (!window.confirm(`Are you sure you want to delete "${title}"? This will also remove all associated chunks.`)) {
       return
     }
 
     try {
       setDeleting(paperId)
-      await deletePaper(paperId, adminSecret.trim())
+      await deletePaper(paperId)
       setPapers(prev => prev.filter(p => p.id !== paperId))
       showToast('success', `"${title}" has been deleted.`)
     } catch (err) {
-      showToast('error', 'Failed to delete paper.')
+      showToast('error', 'Failed to delete paper. You may not have permission.')
       console.error('Delete error:', err)
     } finally {
       setDeleting(null)
@@ -60,6 +57,13 @@ function Dashboard() {
     return new Date(dateStr).toLocaleDateString('en-US', {
       year: 'numeric', month: 'short', day: 'numeric'
     })
+  }
+
+  // Get department abbreviation for tag
+  const getDeptAbbreviation = (deptStr) => {
+    if (!deptStr) return null;
+    const match = deptStr.match(/\(([^)]+)\)/);
+    return match ? match[1] : deptStr.substring(0, 5) + '...';
   }
 
   return (
@@ -161,6 +165,12 @@ function Dashboard() {
                 <div className="paper-info">
                   <div className="paper-title">{paper.title}</div>
                   <div className="paper-meta">
+                    {paper.department && (
+                      <span style={{ color: 'var(--primary)', background: 'var(--primary-transparent)', padding: '2px 6px', borderRadius: 4 }}>
+                        <Building2 size={13} style={{ marginRight: 4 }} /> 
+                        {getDeptAbbreviation(paper.department)}
+                      </span>
+                    )}
                     {paper.authors && (
                       <span><Users size={13} /> {paper.authors}</span>
                     )}
@@ -170,19 +180,21 @@ function Dashboard() {
                     <span><FileText size={13} /> {formatDate(paper.created_at)}</span>
                   </div>
                 </div>
-                <div className="paper-actions">
-                  <button
-                    className="btn btn-danger btn-icon"
-                    onClick={() => handleDelete(paper.id, paper.title)}
-                    disabled={deleting === paper.id}
-                    title="Delete paper"
-                  >
-                    {deleting === paper.id
-                      ? <span className="loading-spinner" />
-                      : <Trash2 size={16} />
-                    }
-                  </button>
-                </div>
+                {isAdmin && (
+                  <div className="paper-actions">
+                    <button
+                      className="btn btn-danger btn-icon"
+                      onClick={() => handleDelete(paper.id, paper.title)}
+                      disabled={deleting === paper.id}
+                      title="Delete paper"
+                    >
+                      {deleting === paper.id
+                        ? <span className="loading-spinner" />
+                        : <Trash2 size={16} />
+                      }
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
