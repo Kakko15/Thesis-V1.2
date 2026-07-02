@@ -1,18 +1,20 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import {
   BookMarked, GitBranch, CalendarRange, Layers, MessageSquareText,
-  ShieldCheck, UploadCloud, ArrowRight, Library, Sparkles,
+  ShieldCheck, UploadCloud, ArrowRight, Library, Sparkles, Fingerprint,
 } from 'lucide-react'
 import { listPapers } from '../api'
+import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Skeleton } from '../components/ui/Skeleton'
 import { Badge } from '../components/ui/Badge'
 import { PageTransition, AnimatedCounter, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { Button } from '../components/ui/Button'
+import { MfaEnrollDialog } from '../components/MfaEnrollDialog'
 import { formatDate } from '../lib/utils'
 
 function StatTile({ icon: Icon, label, value, suffix = '' }) {
@@ -48,6 +50,58 @@ function QuickAction({ icon: Icon, title, text, onClick, tone = 'forest' }) {
       <h3 className="font-display mt-4 text-base font-bold">{title}</h3>
       <p className="mt-1 text-xs leading-relaxed opacity-60">{text}</p>
     </GlassCard>
+  )
+}
+
+function SecurityCard() {
+  const [open, setOpen] = useState(false)
+  const { data, refetch } = useQuery({
+    queryKey: ['mfa-factors'],
+    queryFn: async () => (await supabase.auth.mfa.listFactors()).data,
+  })
+  const enabled = !!data?.totp?.some((f) => f.status === 'verified')
+
+  return (
+    <>
+      <GlassCard className="p-6">
+        <div className="flex items-start justify-between">
+          <div
+            className={
+              enabled
+                ? 'flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-lg shadow-forest-900/25'
+                : 'flex h-12 w-12 items-center justify-center rounded-2xl bg-forest-900/8 dark:bg-white/8'
+            }
+          >
+            <Fingerprint size={20} className={enabled ? 'text-gold-300' : 'opacity-50'} />
+          </div>
+          <span
+            className={
+              enabled
+                ? 'inline-flex items-center gap-1.5 rounded-full bg-forest-500/12 px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider text-forest-600 dark:text-forest-300'
+                : 'inline-flex items-center gap-1.5 rounded-full bg-forest-900/8 px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider opacity-60 dark:bg-white/8'
+            }
+          >
+            <span className={enabled ? 'h-1.5 w-1.5 rounded-full bg-forest-500' : 'h-1.5 w-1.5 rounded-full bg-forest-900/30 dark:bg-white/30'} />
+            {enabled ? '2FA on' : '2FA off'}
+          </span>
+        </div>
+        <h3 className="font-display mt-4 text-base font-bold">Account security</h3>
+        <p className="mt-1 text-xs leading-relaxed opacity-60">
+          {enabled
+            ? 'Sign-ins require your authenticator code. Manage or disable it here.'
+            : 'Protect your account with an authenticator app — takes about a minute.'}
+        </p>
+        <Button
+          variant={enabled ? 'outline' : 'primary'}
+          size="sm"
+          className="mt-4 w-full"
+          onClick={() => setOpen(true)}
+        >
+          {enabled ? 'Manage 2FA' : 'Enable 2FA'}
+        </Button>
+      </GlassCard>
+      <MfaEnrollDialog open={open} onClose={() => setOpen(false)} onChanged={refetch} />
+    </>
   )
 }
 
@@ -146,6 +200,7 @@ export default function Dashboard() {
               onClick={() => navigate('/upload')}
             />
           )}
+          <SecurityCard />
         </div>
 
         {/* Recent additions */}

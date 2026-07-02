@@ -9,7 +9,7 @@ import { Spinner } from './ui/Spinner'
  *   <ProtectedRoute roles={['faculty','admin']}>...         — faculty + admins
  */
 export function ProtectedRoute({ children, roles }) {
-  const { user, role, loading } = useAuth()
+  const { user, role, loading, needsMfa } = useAuth()
 
   if (loading) {
     return (
@@ -20,6 +20,9 @@ export function ProtectedRoute({ children, roles }) {
   }
 
   if (!user) return <Navigate to="/login" replace />
+  // 2FA-enrolled accounts must complete the TOTP challenge (aal2) first —
+  // /login detects needsMfa and presents the challenge step.
+  if (needsMfa) return <Navigate to="/login" replace />
   if (roles && !roles.includes(role)) return <Navigate to="/dashboard" replace />
 
   return children
