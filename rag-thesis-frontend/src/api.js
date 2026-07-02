@@ -2,11 +2,11 @@ import axios from 'axios'
 import { supabase } from './supabaseClient'
 
 const api = axios.create({
-  baseURL: '',
-  timeout: 120000, // 2 min timeout for embedding operations
+  baseURL: import.meta.env.VITE_API_URL || '',
+  timeout: 180000, // embedding-heavy operations
 })
 
-// Add an interceptor to automatically attach the Supabase JWT token to every request
+// Attach the Supabase JWT to every request
 api.interceptors.request.use(async (config) => {
   const { data: { session } } = await supabase.auth.getSession()
   if (session?.access_token) {
@@ -15,86 +15,121 @@ api.interceptors.request.use(async (config) => {
   return config
 })
 
-export async function uploadPaper(file, title, authors, year, abstract, department) {
+// ---------- Health ----------
+export async function healthCheck() {
+  const { data } = await api.get('/health')
+  return data
+}
+
+// ---------- Chat (RAG) ----------
+export async function chatQuery(question, sessionId = null) {
+  const { data } = await api.post('/chat', { question, session_id: sessionId })
+  return data
+}
+
+// ---------- Sessions ----------
+export async function getSessions() {
+  const { data } = await api.get('/sessions')
+  return data
+}
+export async function createSession(title) {
+  const { data } = await api.post('/sessions', { title })
+  return data
+}
+export async function renameSession(sessionId, title) {
+  const { data } = await api.put(`/sessions/${sessionId}`, { title })
+  return data
+}
+export async function deleteSession(sessionId) {
+  const { data } = await api.delete(`/sessions/${sessionId}`)
+  return data
+}
+export async function getSessionMessages(sessionId) {
+  const { data } = await api.get(`/sessions/${sessionId}/messages`)
+  return data
+}
+
+// ---------- Papers (metadata only — indirect access model) ----------
+export async function listPapers() {
+  const { data } = await api.get('/papers')
+  return data
+}
+export async function deletePaper(paperId) {
+  const { data } = await api.delete(`/papers/${paperId}`)
+  return data
+}
+export async function getTracks() {
+  const { data } = await api.get('/upload/tracks')
+  return data.tracks
+}
+
+// ---------- Upload (background ingestion) ----------
+export async function uploadPaper({ file, title, authors, year, abstract, track }) {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('title', title)
   formData.append('authors', authors || '')
   formData.append('year', year || '')
   formData.append('abstract', abstract || '')
-  formData.append('department', department || '')
-
-  const response = await api.post('/upload/paper', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
+  formData.append('track', track || '')
+  const { data } = await api.post('/upload/paper', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
   })
-  return response.data
+  return data // { job_id, status, message }
+}
+export async function getUploadStatus(jobId) {
+  const { data } = await api.get(`/upload/status/${jobId}`)
+  return data
 }
 
-export async function chatQuery(question, sessionId = null, matchCount = 5, matchThreshold = 0.3) {
-  const response = await api.post('/chat', {
-    question,
-    session_id: sessionId,
-    match_count: matchCount,
-    match_threshold: matchThreshold,
-  })
-  return response.data
-}
-
-export async function getSessions() {
-  const response = await api.get('/sessions')
-  return response.data
-}
-
-export async function createSession(title) {
-  const response = await api.post('/sessions', { title })
-  return response.data
-}
-
-export async function renameSession(sessionId, title) {
-  const response = await api.put(`/sessions/${sessionId}`, { title })
-  return response.data
-}
-
-export async function deleteSession(sessionId) {
-  const response = await api.delete(`/sessions/${sessionId}`)
-  return response.data
-}
-
-export async function getSessionMessages(sessionId) {
-  const response = await api.get(`/sessions/${sessionId}/messages`)
-  return response.data
-}
-
-export async function listPapers() {
-  const response = await api.get('/papers')
-  return response.data
-}
-
-export async function deletePaper(paperId) {
-  const response = await api.delete(`/papers/${paperId}`)
-  return response.data
-}
-
-export async function healthCheck() {
-  const response = await api.get('/health')
-  return response.data
-}
-
+// ---------- Topic novelty / duplication (faculty + admin) ----------
 export async function scanDuplication(file) {
   const formData = new FormData()
   formData.append('file', file)
-  const response = await api.post('/duplication/scan', formData)
-  return response.data
+  const { data } = await api.post('/duplication/scan', formData)
+  return data
 }
-
 export async function getScanHistory() {
-  const response = await api.get('/duplication/history')
-  return response.data
+  const { data } = await api.get('/duplication/history')
+  return data
+}
+export async function scanDuplicationChat(scanId, question) {
+  const { data } = await api.post('/duplication/chat', { scan_id: scanId, question })
+  return data
 }
 
-export async function scanDuplicationChat(scan_id, question) {
-  const response = await api.post('/duplication/chat', { scan_id, question })
-  return response.data
+// ---------- Analytics ----------
+export async function getPublicSummary() {
+  const { data } = await api.get('/analytics/summary')
+  return data
+}
+export async function getAnalyticsOverview() {
+  const { data } = await api.get('/analytics/overview')
+  return data
+}
+export async function getRecentActivity(limit = 25) {
+  const { data } = await api.get('/analytics/activity', { params: { limit } })
+  return data
+}
+export async function getMyProfile() {
+  const { data } = await api.get('/analytics/me')
+  return data
+}
+
+// ---------- User management (admin) ----------
+export async function listUsers() {
+  const { data } = await api.get('/analytics/users')
+  return data
+}
+export async function updateUserRole(userId, role) {
+  const { data } = await api.put(`/analytics/users/${userId}/role`, { role })
+  return data
+}
+
+export function apiErrorMessage(error, fallback = 'Something went wrong. Please try again.') {
+  return (
+    error?.response?.data?.detail ||
+    error?.message ||
+    fallback
+  )
 }

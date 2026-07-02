@@ -1,213 +1,239 @@
-/* ============================================
-   THESIS ARCHIVE — DESIGN SYSTEM
-   Dark Glassmorphism Theme
-   ============================================ */
+@import "tailwindcss";
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@custom-variant dark (&:where(.dark, .dark *));
 
-/* --- CSS Custom Properties --- */
-:root {
-  /* Colors */
-  --bg-primary: #0a0e1a;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1a1f35;
-  --bg-card: rgba(17, 24, 39, 0.7);
-  --bg-card-hover: rgba(26, 31, 53, 0.85);
-  --bg-glass: rgba(255, 255, 255, 0.03);
-  --bg-glass-hover: rgba(255, 255, 255, 0.06);
-  --bg-input: rgba(255, 255, 255, 0.05);
-  --bg-input-focus: rgba(255, 255, 255, 0.08);
+/* ============================================================
+   ISU MATERIAL 3 YOU DESIGN SYSTEM
+   Colorway derived from the Isabela State University seal:
+   emerald green field, golden rays, flame red torch, ivory book.
+   ============================================================ */
+@theme {
+  /* Emerald green (ISU field) */
+  --color-forest-50: #ecfdf3;
+  --color-forest-100: #d1fae1;
+  --color-forest-200: #a7f3c9;
+  --color-forest-300: #6ee7ab;
+  --color-forest-400: #34d388;
+  --color-forest-500: #10b96c;
+  --color-forest-600: #059656;
+  --color-forest-700: #046a38;
+  --color-forest-800: #065f38;
+  --color-forest-900: #064e30;
+  --color-forest-950: #02291a;
 
-  /* Accent */
-  --accent: #8b5cf6;
-  --accent-light: #a78bfa;
-  --accent-dark: #7c3aed;
-  --accent-glow: rgba(139, 92, 246, 0.3);
-  --accent-bg: rgba(139, 92, 246, 0.1);
-  --accent-bg-hover: rgba(139, 92, 246, 0.2);
+  /* Gold (ISU rays and rope) */
+  --color-gold-50: #fffbeb;
+  --color-gold-100: #fef3c7;
+  --color-gold-200: #fde68a;
+  --color-gold-300: #ffc72c;
+  --color-gold-400: #f2a900;
+  --color-gold-500: #d97706;
+  --color-gold-600: #b45309;
+  --color-gold-700: #92400e;
+  --color-gold-800: #78350f;
+  --color-gold-900: #451a03;
 
-  /* Semantic */
-  --success: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.1);
-  --error: #ef4444;
-  --error-bg: rgba(239, 68, 68, 0.1);
-  --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.1);
-  --info: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.1);
+  /* Flame red (ISU torch) */
+  --color-flame-400: #f87171;
+  --color-flame-500: #ef4444;
+  --color-flame-600: #d22630;
+  --color-flame-700: #b91c1c;
 
-  /* Text */
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-tertiary: #64748b;
-  --text-accent: #a78bfa;
+  /* Ivory (ISU book pages) */
+  --color-ivory-50: #fdfcf8;
+  --color-ivory-100: #faf7f0;
+  --color-ivory-200: #f3eee0;
 
-  /* Borders */
-  --border: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.15);
-  --border-accent: rgba(139, 92, 246, 0.3);
+  /* Deep canvas (dark mode surfaces, green-tinted) */
+  --color-canvas-950: #04160c;
+  --color-canvas-900: #071f12;
+  --color-canvas-800: #0a2a19;
+  --color-canvas-700: #0f3822;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 30px rgba(139, 92, 246, 0.15);
+  --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Typography */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  /* Material 3 expressive corner radii */
+  --radius-m3-xs: 0.5rem;
+  --radius-m3-sm: 0.75rem;
+  --radius-m3: 1rem;
+  --radius-m3-lg: 1.5rem;
+  --radius-m3-xl: 2rem;
+  --radius-m3-2xl: 2.5rem;
 
-  /* Spacing */
-  --sidebar-width: 260px;
-  --header-height: 64px;
+  /* Motion */
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  /* Transitions */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+  --animate-aurora: aurora 24s ease-in-out infinite alternate;
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-float-slow: float 11s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  --animate-marquee: marquee 36s linear infinite;
+  --animate-pulse-glow: pulse-glow 3.2s ease-in-out infinite;
+  --animate-spin-slow: spin 14s linear infinite;
+  --animate-gradient-x: gradient-x 8s ease infinite;
 
-  /* Border Radius */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  @keyframes aurora {
+    0% { transform: translate(-8%, -6%) rotate(0deg) scale(1); }
+    33% { transform: translate(6%, 4%) rotate(40deg) scale(1.15); }
+    66% { transform: translate(-4%, 8%) rotate(80deg) scale(0.95); }
+    100% { transform: translate(8%, -4%) rotate(120deg) scale(1.1); }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-16px); }
+  }
+  @keyframes shimmer {
+    0% { background-position: -700px 0; }
+    100% { background-position: 700px 0; }
+  }
+  @keyframes marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+  @keyframes gradient-x {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
 }
 
-/* --- Global Reset --- */
-*,
-*::before,
-*::after {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* ============================================================
+   BASE
+   ============================================================ */
+@layer base {
+  * {
+    min-width: 0;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply font-sans antialiased bg-ivory-100 text-canvas-900 dark:bg-canvas-950 dark:text-ivory-100;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    @apply bg-gold-400/40 text-canvas-950 dark:text-ivory-50;
+  }
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-forest-700/40 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-forest-600/60;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
-html {
-  font-size: 16px;
-  scroll-behavior: smooth;
+/* ============================================================
+   GLASSMORPHISM SURFACES (Material 3 tonal elevation + blur)
+   ============================================================ */
+@layer components {
+  .glass {
+    @apply bg-white/65 dark:bg-white/[0.045] backdrop-blur-2xl
+           border border-forest-900/10 dark:border-white/10
+           shadow-[0_8px_32px_rgba(4,42,24,0.08)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.35)];
+  }
+  .glass-strong {
+    @apply bg-white/80 dark:bg-canvas-900/80 backdrop-blur-2xl
+           border border-forest-900/10 dark:border-white/10
+           shadow-[0_16px_48px_rgba(4,42,24,0.12)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.5)];
+  }
+  .glass-subtle {
+    @apply bg-white/40 dark:bg-white/[0.03] backdrop-blur-xl
+           border border-forest-900/[0.07] dark:border-white/[0.07];
+  }
+
+  /* Material 3 state layer for interactive surfaces */
+  .state-layer {
+    @apply relative overflow-hidden;
+  }
+  .state-layer::after {
+    content: "";
+    @apply absolute inset-0 bg-current opacity-0 transition-opacity duration-200 pointer-events-none;
+  }
+  .state-layer:hover::after {
+    opacity: 0.08;
+  }
+  .state-layer:active::after {
+    opacity: 0.14;
+  }
+
+  .text-gradient-isu {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-forest-600 via-forest-500 to-gold-400 dark:from-forest-300 dark:via-forest-400 dark:to-gold-300;
+  }
+  .text-gradient-gold {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-gold-400 via-gold-300 to-gold-400;
+  }
+
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.09) 50%,
+      transparent 100%
+    );
+    background-size: 700px 100%;
+    @apply animate-shimmer;
+  }
+
+  .prose-chat {
+    @apply text-[0.925rem] leading-relaxed;
+  }
+  .prose-chat p { @apply mb-3 last:mb-0; }
+  .prose-chat ul { @apply list-disc pl-5 mb-3 space-y-1; }
+  .prose-chat ol { @apply list-decimal pl-5 mb-3 space-y-1; }
+  .prose-chat h1, .prose-chat h2, .prose-chat h3, .prose-chat h4 {
+    @apply font-display font-bold mt-4 mb-2 first:mt-0;
+  }
+  .prose-chat h3 { @apply text-lg; }
+  .prose-chat strong { @apply font-semibold text-forest-800 dark:text-gold-200; }
+  .prose-chat code {
+    @apply font-mono text-[0.85em] px-1.5 py-0.5 rounded-md bg-forest-900/8 dark:bg-white/10;
+  }
+  .prose-chat pre {
+    @apply p-4 rounded-2xl bg-canvas-900 text-ivory-100 overflow-x-auto mb-3 text-sm;
+  }
+  .prose-chat pre code { @apply bg-transparent p-0; }
+  .prose-chat blockquote {
+    @apply border-l-4 border-gold-400 pl-4 italic opacity-90 mb-3;
+  }
+  .prose-chat a { @apply text-forest-600 dark:text-gold-300 underline underline-offset-2; }
+  .prose-chat table { @apply w-full text-sm mb-3 border-collapse; }
+  .prose-chat th, .prose-chat td {
+    @apply border border-forest-900/15 dark:border-white/15 px-3 py-1.5 text-left;
+  }
 }
 
-body {
-  font-family: var(--font-sans);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
-  min-height: 100vh;
-}
-
-/* Animated gradient background */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background:
-    radial-gradient(ellipse 80% 50% at 20% 40%, rgba(139, 92, 246, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 80% 20%, rgba(59, 130, 246, 0.05) 0%, transparent 50%),
-    radial-gradient(ellipse 50% 60% at 50% 80%, rgba(139, 92, 246, 0.04) 0%, transparent 50%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-#root {
-  position: relative;
-  z-index: 1;
-  min-height: 100vh;
-}
-
-/* --- Typography --- */
-h1, h2, h3, h4, h5, h6 {
-  color: var(--text-primary);
-  font-weight: 600;
-  line-height: 1.3;
-  letter-spacing: -0.02em;
-}
-
-h1 { font-size: 2rem; }
-h2 { font-size: 1.5rem; }
-h3 { font-size: 1.25rem; }
-h4 { font-size: 1.1rem; }
-
-p {
-  color: var(--text-secondary);
-  line-height: 1.7;
-}
-
-a {
-  color: var(--accent-light);
-  text-decoration: none;
-  transition: color var(--transition-fast);
-}
-a:hover { color: var(--accent); }
-
-/* --- Scrollbar --- */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-/* --- Selection --- */
-::selection {
-  background: rgba(139, 92, 246, 0.3);
-  color: #fff;
-}
-
-/* --- Keyframe Animations --- */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(24px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes typing {
-  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
-  30% { opacity: 1; transform: translateY(-4px); }
-}
-
-@keyframes glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(139, 92, 246, 0.1); }
-  50% { box-shadow: 0 0 40px rgba(139, 92, 246, 0.25); }
-}
-
-@keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+@layer utilities {
+  .bg-noise {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  }
+  .mask-fade-x {
+    mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+  }
+  .mask-fade-b {
+    mask-image: linear-gradient(to bottom, black 60%, transparent);
+  }
 }

@@ -1,5 +1,15 @@
 # Ignore environment variables
 .env
+!.env.example
 
 # Ignore virtual environment folder
 venv/
+.venv/
+
+# Python artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Evaluation outputs
+evaluation/results/

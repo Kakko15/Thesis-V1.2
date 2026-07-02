@@ -1,0 +1,29 @@
+[MAIN]
+ignore=venv,.venv,tests
+py-version=3.12
+
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    unused-argument,
+    too-few-public-methods,
+    too-many-locals,
+    too-many-statements,
+    too-many-branches,
+    too-many-arguments,
+    too-many-positional-arguments,
+    broad-exception-caught,
+    duplicate-code,
+    import-outside-toplevel,
+    wrong-import-position
+
+[FORMAT]
+max-line-length=120
+
+[DESIGN]
+max-args=10
+
+[BASIC]
+good-names=i,j,k,e,q,p,c,n,sb,db,id

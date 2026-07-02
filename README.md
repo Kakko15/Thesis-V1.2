@@ -1,0 +1,107 @@
+# ISU Centralized AI-Powered Thesis Library
+
+A production web application implementing the thesis *"A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"* (Barlis & Gallardo, BSCS Data Mining Track) for the College of Computing Studies, Information and Communication Technology (CCSICT), Isabela State University, Echague.
+
+The system is an **indirect** thesis library: users never view or download full manuscripts. Instead, a closed-domain RAG pipeline retrieves semantically relevant chunks from the CCSICT vector archive and synthesizes citation-backed answers with Gemini.
+
+## Repository layout
+
+| Path | Description |
+|------|-------------|
+| `rag-thesis-backend/` | FastAPI + LangChain + Supabase pgvector RAG backend |
+| `rag-thesis-frontend/` | React 19 + Vite frontend (Tailwind v4, Framer Motion, ISU Material 3 design system) |
+| `rag-thesis-backend/evaluation/` | Objective 2 harness: baseline LLM vs RAG comparison scored with Ragas |
+| `rag-thesis-backend/tests/` | Objective 4 PyTest suite (Functional Suitability) |
+| `rag-thesis-backend/jmeter/` | Objective 4 Apache JMeter load-test plan (Performance Efficiency) |
+
+## Paper-objective mapping
+
+| Objective | Where it lives |
+|-----------|----------------|
+| 1 — RAG + LLM knowledge retrieval model | `services/` (document_processor, chunker, embedder, retriever) + `routers/chat.py` |
+| 2 — Baseline LLM vs RAG comparison | `evaluation/run_comparison.py` + `evaluation/golden_dataset.json` (Ragas: Faithfulness, Context Precision) |
+| 3 — Web-based Thesis Library System | Full stack (this repository) |
+| 4 — ISO/IEC 25010 internal quality | PyTest (`tests/`), JMeter (`jmeter/`), Pylint (`.pylintrc`), ESLint (frontend `eslint.config.js`) |
+
+Key paper parameters enforced in code:
+
+- **85% cosine similarity duplication threshold** (`DUPLICATION_THRESHOLD=0.85`) — both at scan time (`/duplication/scan`) and query time (chat duplication guard).
+- **800-token chunks / 100-token overlap** via `RecursiveCharacterTextSplitter`.
+- **Metadata tagging** — every chunk carries `{title, author, track, year}` JSON.
+- **LongContextReorder** — most relevant sources placed at the start and end of the prompt window ("Lost in the Middle" mitigation).
+- **Data cleaning pipeline** — page numbers, headers/footers, TOC and bibliography stripped; chunks with >15% non-alphanumeric characters discarded; `FIGURE REDACTED FOR SEMANTIC INDEXING` placeholders injected.
+- **Indirect access model** — private storage bucket; API responses expose citation metadata only.
+- **Knowledge isolation** — the LLM answers exclusively from retrieved CCSICT context.
+
+## Setup
+
+### 1. Supabase
+
+1. Create a Supabase project.
+2. Open the SQL Editor and run `rag-thesis-backend/supabase_setup.sql` (idempotent, single run).
+3. After signing up your first user through the app, promote them:
+   ```sql
+   update public.profiles set role = 'admin' where email = 'you@isu.edu.ph';
+   ```
+
+### 2. Backend
+
+```bash
+cd rag-thesis-backend
+python -m venv venv && venv\Scripts\activate   # Windows
+pip install -r requirements.txt
+copy .env.example .env                          # then fill in the values
+uvicorn main:app --reload --port 8000
+```
+
+- `SUPABASE_KEY` must be the **service_role** key.
+- Optional: install the [Tesseract OCR binary](https://github.com/UB-Mannheim/tesseract/wiki) to digitize scanned manuscripts.
+- API docs: http://localhost:8000/docs
+
+### 3. Frontend
+
+```bash
+cd rag-thesis-frontend
+npm install
+copy .env.example .env    # VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
+npm run dev
+```
+
+Open http://localhost:5173.
+
+## Roles
+
+| Role | Capabilities |
+|------|--------------|
+| Guest | Landing page, chat (no saved history) |
+| Student | Chat with sessions, dashboard, archive metadata browsing |
+| Faculty | Student capabilities + topic novelty scanning and scan history |
+| Admin | Everything + paper upload/deletion, analytics, user role management |
+
+## Evaluation and testing
+
+```bash
+cd rag-thesis-backend
+
+# Objective 4 — Functional Suitability
+pytest
+
+# Objective 4 — Maintainability
+pylint --rcfile=.pylintrc routers services dependencies main.py config.py models.py
+cd ../rag-thesis-frontend && npm run lint
+
+# Objective 2 — Baseline vs RAG (requires: pip install -r evaluation/requirements-eval.txt)
+cd ../rag-thesis-backend
+python -m evaluation.run_comparison
+
+# Objective 4 — Performance Efficiency
+# Open jmeter/thesis_load_test.jmx in Apache JMeter 5.6+ and run against your host.
+```
+
+LangSmith latency tracing activates automatically when `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY` are set in `.env`.
+
+## Production deployment
+
+- **Backend:** `docker build -t isu-thesis-api rag-thesis-backend && docker run -p 8000:8000 --env-file rag-thesis-backend/.env isu-thesis-api` (or deploy to Railway/Render/Fly.io). Set `CORS_ORIGINS` to your frontend URL.
+- **Frontend:** `npm run build` then host `dist/` on any static host (Vercel/Netlify/Cloudflare Pages). Set `VITE_API_URL` to the deployed backend URL.
+- **Database:** Supabase handles PostgreSQL + pgvector + Auth + Storage.

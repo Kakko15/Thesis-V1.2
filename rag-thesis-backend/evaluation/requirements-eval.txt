@@ -1,0 +1,5 @@
+# Extra dependencies for the Objective 2 evaluation harness
+ragas
+datasets
+pandas
+scipy      # Shapiro-Wilk + paired t-test / Wilcoxon Signed-Rank
