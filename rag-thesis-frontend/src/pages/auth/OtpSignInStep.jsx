@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { MailCheck } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
 import { OtpInput } from '../../components/ui/OtpInput'
 import { StepHeader } from './StepHeader'
+import { ErrorAlert, formStagger, Rise, Shine, UnderlineLink } from './AuthFx'
 import { friendlyAuthError, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
 
 /** Passwordless sign-in: verify the 6-digit code emailed by signInWithOtp. */
@@ -68,47 +70,54 @@ export function OtpSignInStep({ email, onBack }) {
         backLabel="Sign in another way"
       />
 
-      <OtpInput
-        value={code}
-        onChange={setCode}
-        onComplete={verify}
-        disabled={verifying}
-        error={!!error}
-        shakeNonce={shakeNonce}
-        ariaLabel="Email sign-in code"
-      />
+      <motion.div variants={formStagger} initial="hidden" animate="show">
+        <Rise>
+          <OtpInput
+            value={code}
+            onChange={setCode}
+            onComplete={verify}
+            disabled={verifying}
+            error={!!error}
+            shakeNonce={shakeNonce}
+            ariaLabel="Email sign-in code"
+          />
+        </Rise>
 
-      {error && (
-        <p role="alert" aria-live="polite" className="mt-4 text-center text-xs font-medium text-flame-500">
-          {error}
-        </p>
-      )}
-
-      <Button
-        size="lg"
-        loading={verifying}
-        disabled={code.length !== 6}
-        onClick={() => verify(code)}
-        className="mt-6 w-full"
-      >
-        Verify & sign in
-      </Button>
-
-      <div className="mt-5 text-center text-xs opacity-60">
-        Didn't get it?{' '}
-        {cooldown > 0 ? (
-          <span className="font-semibold tabular-nums">Resend in {cooldown}s</span>
-        ) : (
-          <button
-            type="button"
-            onClick={resend}
-            disabled={resending}
-            className="font-semibold text-forest-600 hover:underline disabled:opacity-50 dark:text-gold-300"
-          >
-            {resending ? 'Sending…' : 'Resend code'}
-          </button>
+        {error && (
+          <ErrorAlert key={shakeNonce} className="mt-4 bg-transparent px-0 py-0 text-center">
+            {error}
+          </ErrorAlert>
         )}
-      </div>
+
+        <Rise>
+          <Button
+            size="lg"
+            loading={verifying}
+            disabled={code.length !== 6}
+            onClick={() => verify(code)}
+            whileHover={{ scale: 1.015, y: -1 }}
+            className="group relative mt-6 w-full overflow-hidden"
+          >
+            <Shine />
+            Verify & sign in
+          </Button>
+        </Rise>
+
+        <Rise className="mt-5 text-center text-xs opacity-60">
+          Didn't get it?{' '}
+          {cooldown > 0 ? (
+            <span className="font-semibold tabular-nums">Resend in {cooldown}s</span>
+          ) : (
+            <UnderlineLink
+              onClick={resend}
+              disabled={resending}
+              className="text-forest-600 disabled:opacity-50 dark:text-gold-300"
+            >
+              {resending ? 'Sending…' : 'Resend code'}
+            </UnderlineLink>
+          )}
+        </Rise>
+      </motion.div>
     </div>
   )
 }
