@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { Fingerprint } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
@@ -6,6 +7,7 @@ import { Button } from '../../components/ui/Button'
 import { OtpInput } from '../../components/ui/OtpInput'
 import { Spinner } from '../../components/ui/Spinner'
 import { StepHeader } from './StepHeader'
+import { ErrorAlert, formStagger, Rise, Shine } from './AuthFx'
 import { friendlyAuthError } from './authUtils'
 
 /**
@@ -65,41 +67,47 @@ export function MfaChallengeStep({ onUseAnotherAccount }) {
           <Spinner size={28} />
         </div>
       ) : factorError ? (
-        <p role="alert" className="rounded-xl bg-flame-500/10 px-3.5 py-3 text-center text-xs font-medium text-flame-600 dark:text-flame-400">
-          {factorError}
-        </p>
+        <ErrorAlert className="px-3.5 py-3 text-center">{factorError}</ErrorAlert>
       ) : (
-        <>
-          <OtpInput
-            value={code}
-            onChange={setCode}
-            onComplete={verify}
-            disabled={verifying}
-            error={!!error}
-            shakeNonce={shakeNonce}
-            ariaLabel="Authenticator code"
-          />
+        <motion.div variants={formStagger} initial="hidden" animate="show">
+          <Rise>
+            <OtpInput
+              value={code}
+              onChange={setCode}
+              onComplete={verify}
+              disabled={verifying}
+              error={!!error}
+              shakeNonce={shakeNonce}
+              ariaLabel="Authenticator code"
+            />
+          </Rise>
 
           {error && (
-            <p role="alert" aria-live="polite" className="mt-4 text-center text-xs font-medium text-flame-500">
+            <ErrorAlert key={shakeNonce} className="mt-4 bg-transparent px-0 py-0 text-center">
               {error}
-            </p>
+            </ErrorAlert>
           )}
 
-          <Button
-            size="lg"
-            loading={verifying}
-            disabled={code.length !== 6}
-            onClick={() => verify(code)}
-            className="mt-6 w-full"
-          >
-            Verify & continue
-          </Button>
+          <Rise>
+            <Button
+              size="lg"
+              loading={verifying}
+              disabled={code.length !== 6}
+              onClick={() => verify(code)}
+              whileHover={{ scale: 1.015, y: -1 }}
+              className="group relative mt-6 w-full overflow-hidden"
+            >
+              <Shine />
+              Verify & continue
+            </Button>
+          </Rise>
 
-          <p className="mt-4 text-center text-[0.68rem] leading-relaxed opacity-45">
-            Codes rotate every 30 seconds — use the current one.
-          </p>
-        </>
+          <Rise>
+            <p className="mt-4 text-center text-[0.68rem] leading-relaxed opacity-45">
+              Codes rotate every 30 seconds — use the current one.
+            </p>
+          </Rise>
+        </motion.div>
       )}
 
       <div className="mt-5 border-t border-forest-900/10 pt-4 text-center dark:border-white/10">

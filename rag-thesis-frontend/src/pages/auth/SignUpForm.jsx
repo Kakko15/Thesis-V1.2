@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { ArrowRight, Check, Eye, EyeOff, Lock, Mail, User } from 'lucide-react'
+import { ArrowRight, Check, Lock, Mail, User } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
 import { Input, Field } from '../../components/ui/Input'
@@ -10,6 +10,9 @@ import {
   friendlyAuthError, isValidEmail, passwordStrength,
   PASSWORD_RULES, STRENGTH_COLORS, STRENGTH_LABELS,
 } from './authUtils'
+import {
+  ErrorAlert, FieldIcon, formStagger, PasswordEye, Rise, Shine, UnderlineLink, ValidTick,
+} from './AuthFx'
 
 /** Create-account form → email verification step (or straight in when
     confirmation is disabled on the project). */
@@ -18,17 +21,23 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [errors, setErrors] = useState({})
+  const [errorNonce, setErrorNonce] = useState(0)
   const [loading, setLoading] = useState(false)
   const [exists, setExists] = useState(false)
 
   const strength = useMemo(() => passwordStrength(password), [password])
+
+  const failWith = (next) => {
+    setErrors(next)
+    setErrorNonce((n) => n + 1)
+  }
 
   const validate = () => {
     const next = {}
     if (fullName.trim().length < 2) next.fullName = 'Please enter your full name'
     if (!isValidEmail(email)) next.email = 'Enter a valid email address'
     if (password.length < 8) next.password = 'Password must be at least 8 characters'
-    setErrors(next)
+    failWith(next)
     return Object.keys(next).length === 0
   }
 
@@ -58,7 +67,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
         setExists(true)
         setErrors({})
       } else {
-        setErrors({ form: friendlyAuthError(err) })
+        failWith({ form: friendlyAuthError(err) })
       }
     } finally {
       setLoading(false)
@@ -66,105 +75,120 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-      <Field label="Full name" error={errors.fullName} required>
-        <div className="relative">
-          <User size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
-          <Input
-            className="pl-11"
-            name="name"
-            placeholder="Juan D. Dela Cruz"
-            value={fullName}
-            error={errors.fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            autoComplete="name"
-            autoFocus
-          />
-        </div>
-      </Field>
+    <motion.form
+      variants={formStagger}
+      initial="hidden"
+      animate="show"
+      onSubmit={handleSubmit}
+      className="space-y-5"
+      noValidate
+    >
+      <Rise>
+        <Field label="Full name" error={errors.fullName} required>
+          <div className="group relative">
+            <FieldIcon icon={User} />
+            <Input
+              className="pl-11 pr-11"
+              name="name"
+              placeholder="Juan D. Dela Cruz"
+              value={fullName}
+              error={errors.fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              autoComplete="name"
+              autoFocus
+            />
+            <ValidTick show={fullName.trim().length >= 2 && !errors.fullName} />
+          </div>
+        </Field>
+      </Rise>
 
-      <Field label="Email" error={errors.email} required>
-        <div className="relative">
-          <Mail size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
-          <Input
-            className="pl-11"
-            type="email"
-            name="email"
-            placeholder="you@isu.edu.ph"
-            value={email}
-            error={errors.email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-          />
-        </div>
-      </Field>
+      <Rise>
+        <Field label="Email" error={errors.email} required>
+          <div className="group relative">
+            <FieldIcon icon={Mail} />
+            <Input
+              className="pl-11 pr-11"
+              type="email"
+              name="email"
+              placeholder="you@isu.edu.ph"
+              value={email}
+              error={errors.email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+            />
+            <ValidTick show={isValidEmail(email) && !errors.email} />
+          </div>
+        </Field>
+      </Rise>
 
-      <Field label="Password" error={errors.password} required>
-        <div className="relative">
-          <Lock size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
-          <Input
-            className="pl-11 pr-11"
-            type={showPassword ? 'text' : 'password'}
-            name="new-password"
-            placeholder="At least 8 characters"
-            value={password}
-            error={errors.password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="new-password"
-          />
-          <button
-            type="button"
-            onClick={() => setShowPassword((s) => !s)}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
-            className="absolute right-4 top-1/2 -translate-y-1/2 opacity-40 transition-opacity hover:opacity-90"
-          >
-            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
-        </div>
+      <Rise>
+        <Field label="Password" error={errors.password} required>
+          <div className="group relative">
+            <FieldIcon icon={Lock} />
+            <Input
+              className="pl-11 pr-11"
+              type={showPassword ? 'text' : 'password'}
+              name="new-password"
+              placeholder="At least 8 characters"
+              value={password}
+              error={errors.password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+            <PasswordEye show={showPassword} onToggle={() => setShowPassword((s) => !s)} />
+          </div>
 
-        {/* Strength meter + live requirement ticks */}
-        <AnimatePresence>
-          {password && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.3, ease: [0.2, 0, 0, 1] }}
-              className="overflow-hidden"
-            >
-              <div className="mt-2.5 flex gap-1.5">
-                {[0, 1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      'h-1 flex-1 rounded-full transition-colors duration-300',
-                      i < strength ? STRENGTH_COLORS[strength] : 'bg-forest-900/10 dark:bg-white/10',
-                    )}
-                  />
-                ))}
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="text-[0.68rem] font-semibold opacity-55">{STRENGTH_LABELS[strength]}</span>
-                {PASSWORD_RULES.map((rule) => {
-                  const ok = rule.test(password)
-                  return (
-                    <span
-                      key={rule.key}
+          {/* Strength meter + live requirement ticks */}
+          <AnimatePresence>
+            {password && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3, ease: [0.2, 0, 0, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="mt-2.5 flex gap-1.5">
+                  {[0, 1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      style={{ transitionDelay: `${i * 45}ms` }}
                       className={cn(
-                        'inline-flex items-center gap-1 text-[0.65rem] font-medium transition-colors duration-300',
-                        ok ? 'text-forest-600 dark:text-forest-300' : 'opacity-40',
+                        'h-1 flex-1 rounded-full transition-colors duration-300',
+                        i < strength ? STRENGTH_COLORS[strength] : 'bg-forest-900/10 dark:bg-white/10',
                       )}
-                    >
-                      <Check size={10} className={cn('transition-opacity', ok ? 'opacity-100' : 'opacity-30')} />
-                      {rule.label}
-                    </span>
-                  )
-                })}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </Field>
+                    />
+                  ))}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-[0.68rem] font-semibold opacity-55">{STRENGTH_LABELS[strength]}</span>
+                  {PASSWORD_RULES.map((rule) => {
+                    const ok = rule.test(password)
+                    return (
+                      <span
+                        key={rule.key}
+                        className={cn(
+                          'inline-flex items-center gap-1 text-[0.65rem] font-medium transition-colors duration-300',
+                          ok ? 'text-forest-600 dark:text-forest-300' : 'opacity-40',
+                        )}
+                      >
+                        <motion.span
+                          animate={ok ? { scale: [1, 1.35, 1] } : {}}
+                          transition={{ duration: 0.3 }}
+                          className="inline-flex"
+                        >
+                          <Check size={10} className={cn('transition-opacity', ok ? 'opacity-100' : 'opacity-30')} />
+                        </motion.span>
+                        {rule.label}
+                      </span>
+                    )
+                  })}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </Field>
+      </Rise>
 
       {exists && (
         <motion.div
@@ -174,34 +198,36 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
           className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-gold-400/12 px-3.5 py-2.5 text-xs font-medium"
         >
           <span>An account with this email already exists.</span>
-          <button
-            type="button"
+          <UnderlineLink
             onClick={onSwitchToSignIn}
-            className="font-bold text-forest-600 hover:underline dark:text-gold-300"
+            className="font-bold text-forest-600 dark:text-gold-300"
           >
             Sign in instead →
-          </button>
+          </UnderlineLink>
         </motion.div>
       )}
 
-      {errors.form && (
-        <p
-          role="alert"
-          aria-live="polite"
-          className="rounded-xl bg-flame-500/10 px-3.5 py-2.5 text-xs font-medium leading-relaxed text-flame-600 dark:text-flame-400"
+      {errors.form && <ErrorAlert key={errorNonce}>{errors.form}</ErrorAlert>}
+
+      <Rise>
+        <Button
+          type="submit"
+          size="lg"
+          loading={loading}
+          whileHover={{ scale: 1.015, y: -1 }}
+          className="group relative w-full overflow-hidden"
         >
-          {errors.form}
+          <Shine />
+          Create my account
+          <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
+        </Button>
+      </Rise>
+
+      <Rise>
+        <p className="text-center text-[0.68rem] leading-relaxed opacity-45">
+          We'll send a 6-digit code to verify your email.
         </p>
-      )}
-
-      <Button type="submit" size="lg" loading={loading} className="group w-full">
-        Create my account
-        <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
-      </Button>
-
-      <p className="text-center text-[0.68rem] leading-relaxed opacity-45">
-        We'll send a 6-digit code to verify your email.
-      </p>
-    </form>
+      </Rise>
+    </motion.form>
   )
 }

@@ -47,9 +47,10 @@ export default defineConfig([
     },
   },
   {
-    // Context providers export hooks and Motion exports shared animation
-    // variants alongside components — intentional, not a fast-refresh concern.
-    files: ['**/context/**/*.jsx', '**/components/ui/Motion.jsx'],
+    // Context providers export hooks; Motion and AuthFx export shared
+    // animation variants alongside components — intentional, not a
+    // fast-refresh concern.
+    files: ['**/context/**/*.jsx', '**/components/ui/Motion.jsx', '**/pages/auth/AuthFx.jsx'],
     rules: { 'react-refresh/only-export-components': 'off' },
   },
 ])

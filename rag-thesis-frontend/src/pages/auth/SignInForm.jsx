@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { ArrowRight, Eye, EyeOff, KeyRound, Lock, Mail, TriangleAlert } from 'lucide-react'
+import { ArrowRight, KeyRound, Lock, Mail, TriangleAlert } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
-import { Input, Field } from '../../components/ui/Input'
+import { Input } from '../../components/ui/Input'
 import { friendlyAuthError, isValidEmail } from './authUtils'
+import {
+  ErrorAlert, FieldIcon, formStagger, PasswordEye, Rise, Shine, UnderlineLink, ValidTick,
+} from './AuthFx'
 
 /**
  * Email + password sign-in, with a passwordless "email me a code" path.
@@ -17,14 +20,20 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
   const [showPassword, setShowPassword] = useState(false)
   const [capsLock, setCapsLock] = useState(false)
   const [errors, setErrors] = useState({})
+  const [errorNonce, setErrorNonce] = useState(0)
   const [loading, setLoading] = useState(false)
   const [otpLoading, setOtpLoading] = useState(false)
+
+  const failWith = (next) => {
+    setErrors(next)
+    setErrorNonce((n) => n + 1)
+  }
 
   const validate = (needPassword = true) => {
     const next = {}
     if (!isValidEmail(email)) next.email = 'Enter a valid email address'
     if (needPassword && password.length < 8) next.password = 'Password must be at least 8 characters'
-    setErrors(next)
+    failWith(next)
     return Object.keys(next).length === 0
   }
 
@@ -43,7 +52,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
         onNeedsVerify?.(email.trim())
         toast.info('Almost there', { description: 'Verify your email to finish setting up.' })
       } else {
-        setErrors({ form: friendly })
+        failWith({ form: friendly })
       }
     } finally {
       setLoading(false)
@@ -61,46 +70,61 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
       if (error) throw error
       onOtpSent?.(email.trim())
     } catch (err) {
-      setErrors({ form: friendlyAuthError(err) })
+      failWith({ form: friendlyAuthError(err) })
     } finally {
       setOtpLoading(false)
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-      <Field label="Email" error={errors.email} required>
-        <div className="relative">
-          <Mail size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
-          <Input
-            className="pl-11"
-            type="email"
-            name="email"
-            placeholder="you@isu.edu.ph"
-            value={email}
-            error={errors.email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-            autoFocus
-          />
-        </div>
-      </Field>
+    <motion.form
+      variants={formStagger}
+      initial="hidden"
+      animate="show"
+      onSubmit={handleSubmit}
+      className="space-y-5"
+      noValidate
+    >
+      <Rise>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider opacity-70">
+            Email <span className="text-flame-500">*</span>
+          </span>
+          <div className="group relative">
+            <FieldIcon icon={Mail} />
+            <Input
+              className="pl-11 pr-11"
+              type="email"
+              name="email"
+              placeholder="you@isu.edu.ph"
+              value={email}
+              error={errors.email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              autoFocus
+            />
+            <ValidTick show={isValidEmail(email) && !errors.email} />
+          </div>
+          {errors.email && (
+            <span className="mt-1.5 block text-xs font-medium text-flame-500">{errors.email}</span>
+          )}
+        </label>
+      </Rise>
 
-      <div>
+      <Rise>
         <div className="mb-1.5 flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider opacity-70">
             Password <span className="text-flame-500">*</span>
           </span>
-          <button
-            type="button"
+          <UnderlineLink
             onClick={onForgot}
-            className="text-xs font-semibold text-forest-600 transition-colors hover:text-forest-500 dark:text-gold-300 dark:hover:text-gold-200"
+            className="text-xs text-forest-600 hover:text-forest-500 dark:text-gold-300 dark:hover:text-gold-200"
           >
             Forgot password?
-          </button>
+          </UnderlineLink>
         </div>
-        <div className="relative">
-          <Lock size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
+        <div className="group relative">
+          <FieldIcon icon={Lock} />
           <Input
             className="pl-11 pr-11"
             type={showPassword ? 'text' : 'password'}
@@ -113,14 +137,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
             onKeyUp={(e) => setCapsLock(e.getModifierState?.('CapsLock') ?? false)}
             autoComplete="current-password"
           />
-          <button
-            type="button"
-            onClick={() => setShowPassword((s) => !s)}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
-            className="absolute right-4 top-1/2 -translate-y-1/2 opacity-40 transition-opacity hover:opacity-90"
-          >
-            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
+          <PasswordEye show={showPassword} onToggle={() => setShowPassword((s) => !s)} />
         </div>
         {errors.password && (
           <span className="mt-1.5 block text-xs font-medium text-flame-500">{errors.password}</span>
@@ -134,42 +151,45 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
             <TriangleAlert size={11} /> Caps Lock is on
           </motion.span>
         )}
-      </div>
+      </Rise>
 
-      {errors.form && (
-        <motion.p
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
-          role="alert"
-          aria-live="polite"
-          className="rounded-xl bg-flame-500/10 px-3.5 py-2.5 text-xs font-medium leading-relaxed text-flame-600 dark:text-flame-400"
+      {errors.form && <ErrorAlert key={errorNonce}>{errors.form}</ErrorAlert>}
+
+      <Rise>
+        <Button
+          type="submit"
+          size="lg"
+          loading={loading}
+          whileHover={{ scale: 1.015, y: -1 }}
+          className="group relative w-full overflow-hidden"
         >
-          {errors.form}
-        </motion.p>
-      )}
+          <Shine />
+          Sign in
+          <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
+        </Button>
+      </Rise>
 
-      <Button type="submit" size="lg" loading={loading} className="group w-full">
-        Sign in
-        <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
-      </Button>
-
-      <div className="flex items-center gap-3 py-1" aria-hidden="true">
+      <Rise className="flex items-center gap-3 py-1" aria-hidden="true">
         <span className="h-px flex-1 bg-forest-900/10 dark:bg-white/10" />
         <span className="text-[0.65rem] font-bold uppercase tracking-widest opacity-40">or</span>
         <span className="h-px flex-1 bg-forest-900/10 dark:bg-white/10" />
-      </div>
+      </Rise>
 
-      <Button
-        type="button"
-        variant="secondary"
-        size="lg"
-        loading={otpLoading}
-        onClick={handleOtpRequest}
-        className="w-full"
-      >
-        <KeyRound size={16} />
-        Email me a one-time code
-      </Button>
-    </form>
+      <Rise>
+        <Button
+          type="button"
+          variant="secondary"
+          size="lg"
+          loading={otpLoading}
+          onClick={handleOtpRequest}
+          whileHover={{ scale: 1.01 }}
+          className="group relative w-full overflow-hidden"
+        >
+          <Shine />
+          <KeyRound size={16} className="transition-transform duration-300 group-hover:-rotate-12" />
+          Email me a one-time code
+        </Button>
+      </Rise>
+    </motion.form>
   )
 }
