@@ -1,66 +1,340 @@
 {
-  "description": "Golden Dataset for Objective 2 (thesis paper, Section 3.2.1). Expand to 30-50 standardized academic queries. Every ground_truth answer must be derived directly from the CCSICT thesis corpus and validated by a panel of three CCSICT faculty members before serving as the benchmark for the Ragas evaluation.",
+  "description": "Golden Dataset for Objective 2 (thesis paper, Section 3.2.1). Forty standardized academic queries spanning the five CCSICT tracks plus cross-track and negative-control items. Every ground_truth answer must be derived directly from the archived CCSICT thesis corpus and validated by a panel of three CCSICT faculty members before serving as the absolute mathematical benchmark for the Ragas evaluation.",
   "validated_by_faculty_panel": false,
+  "validation": {
+    "workflow": [
+      "1. Ingest the full 50-thesis corpus into the system.",
+      "2. For each query, the researchers draft a ground_truth answer strictly from the archived manuscripts and record the exact source thesis (title, authors, year).",
+      "3. Queries marked query_type=negative_control must be checked against the corpus; if no thesis covers the topic, the ground_truth states that explicitly.",
+      "4. Each of the three faculty panel members reviews every ground_truth against the corpus and signs off below.",
+      "5. Set validated_by_faculty_panel to true only after all three sign-offs. run_comparison.py warns until then."
+    ],
+    "panel": [
+      { "name": "", "position": "", "date_validated": "" },
+      { "name": "", "position": "", "date_validated": "" },
+      { "name": "", "position": "", "date_validated": "" }
+    ]
+  },
   "queries": [
     {
       "id": 1,
+      "category": "Data Mining",
+      "query_type": "factual_lookup",
       "question": "What CCSICT theses have applied Retrieval-Augmented Generation to institutional data?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 2,
+      "category": "Data Mining",
+      "query_type": "methodology",
       "question": "Which data mining techniques were used in past CCSICT theses to classify student performance data?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 3,
+      "category": "Web Development",
+      "query_type": "synthesis",
       "question": "What web development frameworks were most commonly adopted in CCSICT capstone systems?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 4,
+      "category": "Network Security",
+      "query_type": "synthesis",
       "question": "Summarize prior CCSICT research on network intrusion detection systems.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 5,
+      "category": "Intelligent Systems",
+      "query_type": "factual_lookup",
       "question": "Have any CCSICT theses evaluated OCR accuracy for digitizing printed documents?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 6,
+      "category": "Intelligent Systems",
+      "query_type": "factual_lookup",
       "question": "What recommendation systems have been developed in previous CCSICT undergraduate studies?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 7,
+      "category": "Data Mining",
+      "query_type": "methodology",
       "question": "Which CCSICT theses used cosine similarity or vector embeddings in their methodology?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 8,
+      "category": "Intelligent Systems",
+      "query_type": "factual_lookup",
       "question": "What mobile applications targeting agriculture were built by CCSICT students?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 9,
+      "category": "Cross-track",
+      "query_type": "methodology",
       "question": "Describe evaluation methods used in CCSICT theses that applied the ISO/IEC 25010 standard.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 10,
+      "category": "Data Mining",
+      "query_type": "factual_lookup",
       "question": "What datasets were used by CCSICT theses in the Data Mining track between 2020 and 2024?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 11,
+      "category": "Data Mining",
+      "query_type": "methodology",
+      "question": "Which classification algorithms (e.g. decision trees, Naive Bayes, k-NN) appear most often in CCSICT Data Mining theses, and for what problems were they applied?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 12,
+      "category": "Data Mining",
+      "query_type": "factual_lookup",
+      "question": "Have any CCSICT theses applied sentiment analysis to student or customer feedback, and what tools did they use?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 13,
+      "category": "Data Mining",
+      "query_type": "synthesis",
+      "question": "Summarize CCSICT research that predicted crop yield or agricultural outcomes using historical data.",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 14,
+      "category": "Data Mining",
+      "query_type": "methodology",
+      "question": "What data preprocessing and cleaning steps were reported in CCSICT Data Mining theses before model training?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 15,
+      "category": "Data Mining",
+      "query_type": "factual_lookup",
+      "question": "Which CCSICT theses used clustering techniques such as k-means, and what did they cluster?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 16,
+      "category": "Web Development",
+      "query_type": "factual_lookup",
+      "question": "What enrollment, registration, or student information systems have been developed as CCSICT theses?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 17,
+      "category": "Web Development",
+      "query_type": "factual_lookup",
+      "question": "Which CCSICT theses built document tracking or records management systems for university offices?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 18,
+      "category": "Web Development",
+      "query_type": "methodology",
+      "question": "What software development life cycle models (e.g. Agile, waterfall, iterative) were adopted in CCSICT web development theses?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 19,
+      "category": "Web Development",
+      "query_type": "synthesis",
+      "question": "Summarize CCSICT theses that developed e-commerce or online marketplace platforms for local products.",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 20,
+      "category": "Web Development",
+      "query_type": "methodology",
+      "question": "How did CCSICT web development theses evaluate the usability or acceptability of their systems?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 21,
+      "category": "Web Development",
+      "query_type": "factual_lookup",
+      "question": "Which CCSICT theses developed scheduling, queuing, or appointment systems, and for what offices or services?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 22,
+      "category": "Network Security",
+      "query_type": "factual_lookup",
+      "question": "What CCSICT theses assessed Wi-Fi or local area network security within a university campus?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 23,
+      "category": "Network Security",
+      "query_type": "methodology",
+      "question": "Which penetration testing or vulnerability assessment tools were used in CCSICT Network Security theses?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 24,
+      "category": "Network Security",
+      "query_type": "synthesis",
+      "question": "Summarize CCSICT research on phishing detection or social engineering awareness among students.",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 25,
+      "category": "Network Security",
+      "query_type": "factual_lookup",
+      "question": "Have any CCSICT theses implemented network monitoring or bandwidth management systems, and what technologies did they use?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 26,
+      "category": "Network Security",
+      "query_type": "methodology",
+      "question": "What encryption or authentication schemes were proposed or evaluated in CCSICT Network Security theses?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 27,
+      "category": "Intelligent Systems",
+      "query_type": "factual_lookup",
+      "question": "Which CCSICT theses used image processing or computer vision for plant disease or pest detection?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 28,
+      "category": "Intelligent Systems",
+      "query_type": "factual_lookup",
+      "question": "What chatbot or virtual assistant systems have been developed in CCSICT theses, and what domains did they serve?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 29,
+      "category": "Intelligent Systems",
+      "query_type": "methodology",
+      "question": "Which neural network architectures or deep learning frameworks were used in CCSICT Intelligent Systems theses?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 30,
+      "category": "Intelligent Systems",
+      "query_type": "synthesis",
+      "question": "Summarize CCSICT research on IoT-based monitoring systems, including the sensors and microcontrollers used.",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 31,
+      "category": "Information Management",
+      "query_type": "factual_lookup",
+      "question": "What inventory or supply management systems were developed as CCSICT theses, and for which organizations?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 32,
+      "category": "Information Management",
+      "query_type": "factual_lookup",
+      "question": "Which CCSICT theses digitized or automated library services, and what features did they implement?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 33,
+      "category": "Information Management",
+      "query_type": "methodology",
+      "question": "What database management systems and schema design approaches were used in CCSICT Information Management theses?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 34,
+      "category": "Information Management",
+      "query_type": "synthesis",
+      "question": "Summarize CCSICT theses that implemented attendance monitoring using QR codes, RFID, or biometrics.",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 35,
+      "category": "Information Management",
+      "query_type": "factual_lookup",
+      "question": "Have any CCSICT theses addressed data privacy or Republic Act 10173 compliance in their system designs?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 36,
+      "category": "Cross-track",
+      "query_type": "synthesis",
+      "question": "Across all tracks, which CCSICT theses focused on serving the Isabela State University Echague campus itself, and what campus problems did they solve?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 37,
+      "category": "Cross-track",
+      "query_type": "methodology",
+      "question": "What statistical treatments (e.g. t-tests, weighted means, Likert scales) were used in CCSICT theses to analyze their evaluation results?",
+      "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
+      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+    },
+    {
+      "id": 38,
+      "category": "Negative control",
+      "query_type": "negative_control",
+      "question": "Which CCSICT theses studied quantum computing algorithms for cryptographic key distribution?",
+      "ground_truth": "REPLACE: expected form — 'The CCSICT archive contains no thesis on this topic'; verify against the corpus and adjust if a match exists.",
+      "source_thesis": "REPLACE: 'none' if verified absent from the corpus."
+    },
+    {
+      "id": 39,
+      "category": "Negative control",
+      "query_type": "negative_control",
+      "question": "Summarize the CCSICT thesis that developed a self-driving vehicle navigation system.",
+      "ground_truth": "REPLACE: expected form — 'The CCSICT archive contains no thesis on this topic'; verify against the corpus and adjust if a match exists.",
+      "source_thesis": "REPLACE: 'none' if verified absent from the corpus."
+    },
+    {
+      "id": 40,
+      "category": "Negative control",
+      "query_type": "negative_control",
+      "question": "What did the 2019 CCSICT thesis by author 'J. Rizal' conclude about blockchain-based voting?",
+      "ground_truth": "REPLACE: expected form — 'No such thesis or author exists in the CCSICT archive'; verify against the corpus and adjust if a match exists.",
+      "source_thesis": "REPLACE: 'none' if verified absent from the corpus."
     }
   ]
 }

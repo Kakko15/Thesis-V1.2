@@ -15,9 +15,14 @@ router = APIRouter(prefix='/papers', tags=['papers'])
 
 @router.get('', response_model=list[PaperOut])
 def list_papers(user=Depends(get_current_user)):
-    """Citation metadata only — never full text, file paths, or URLs."""
+    """Citation metadata only — never full text, file paths, or URLs.
+
+    duplication_scan holds the automatic ingest-time screening result
+    (metadata + percentages only), so overlapping studies are visible in
+    the archive per the paper's originality goal.
+    """
     res = sb.table('papers') \
-        .select('id,title,authors,year,track,abstract,chunk_count,created_at') \
+        .select('id,title,authors,year,track,abstract,chunk_count,duplication_scan,created_at') \
         .order('created_at', desc=True).execute()
     return res.data or []
 

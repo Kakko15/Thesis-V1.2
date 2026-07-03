@@ -75,6 +75,7 @@ create table if not exists public.papers (
   filename text,
   storage_path text,
   chunk_count integer default 0,
+  duplication_scan jsonb,
   uploaded_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now()
 );
@@ -83,6 +84,10 @@ create table if not exists public.papers (
 alter table public.papers add column if not exists track text;
 alter table public.papers add column if not exists storage_path text;
 alter table public.papers add column if not exists chunk_count integer default 0;
+-- Result of the automatic ingest-time duplication screening
+-- (thesis paper, Section 3.2.3 Phase 3): {flagged, duplication_percentage,
+-- threshold, matched_papers}.
+alter table public.papers add column if not exists duplication_scan jsonb;
 alter table public.papers add column if not exists uploaded_by uuid;
 
 create index if not exists papers_track_idx on public.papers (track);
@@ -288,13 +293,14 @@ create policy "profiles_update_own_name" on public.profiles
   for update using (auth.uid() = id)
   with check (auth.uid() = id and role = (select p.role from public.profiles p where p.id = auth.uid()));
 
--- Papers: authenticated users may read METADATA (indirect access model —
--- full content/storage_path are still returned by this policy at the SQL
--- level, so the frontend must query via the backend; anon-key clients are
--- limited to select and cannot modify anything).
+-- Papers: NO client policies — backend only (indirect access model).
+-- The table stores the full extracted manuscript in `content`, so any
+-- direct anon-key read would leak full thesis text and defeat the paper's
+-- indirect access delimitation (Section 1.3). All metadata reads go through
+-- the backend /papers endpoint, which selects citation metadata columns
+-- only. RLS enabled with no policies = deny all for anon/authenticated.
+-- The drop below also removes the exposure from existing installations.
 drop policy if exists "papers_select_authenticated" on public.papers;
-create policy "papers_select_authenticated" on public.papers
-  for select using (auth.role() = 'authenticated');
 
 -- Chunks: never directly readable by clients (backend only)
 -- (RLS enabled with no policies = deny all for anon/authenticated)

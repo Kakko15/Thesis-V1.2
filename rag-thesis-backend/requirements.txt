@@ -1,27 +1,30 @@
 # ISU Thesis AI Library — backend dependencies
-fastapi
-uvicorn[standard]
-python-multipart
-pydantic
-pydantic-settings
-python-dotenv
+# Pinned to the verified production set (regenerate the thesis paper's
+# version tables from these values).
+fastapi==0.139.0
+uvicorn[standard]==0.49.0
+python-multipart==0.0.32
+pydantic==2.13.4
+pydantic-settings==2.14.2
+python-dotenv==1.2.2
 
 # RAG orchestration (LangChain + Gemini + Supabase pgvector)
-langchain
-langchain-core
-langchain-text-splitters
-langchain-google-genai
-supabase
+langchain==1.3.11
+langchain-core==1.4.8
+langchain-text-splitters==1.1.2
+langchain-google-genai==4.2.6
+supabase==2.31.0
 
 # Document digitization
-pymupdf
-pytesseract          # OCR fallback for scanned manuscripts (needs the Tesseract binary)
-Pillow
+pymupdf==1.28.0
+pytesseract==0.3.13  # OCR fallback for scanned manuscripts (needs the Tesseract binary)
+Pillow==12.3.0
 
 # Production hardening
-slowapi
+slowapi==0.1.10
 
 # Testing (ISO/IEC 25010 — Functional Suitability / Maintainability)
-pytest
-httpx
-pylint
+pytest==9.1.1
+pytest-cov==7.1.0    # coverage.xml for the SonarQube Reliability analysis
+httpx==0.28.1
+pylint==4.0.6

@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     rate_limit_chat: str = '30/minute'
     rate_limit_upload: str = '10/minute'
     max_upload_mb: int = 25
+    # Optional: Supabase legacy JWT secret (Project Settings -> API). When set,
+    # rate limiting keys on the HS256-VERIFIED user id instead of the client
+    # IP, so users behind one campus NAT get individual quotas. Signature
+    # verification is required — otherwise forged tokens could mint fresh
+    # rate-limit buckets. Falls back to IP when unset or verification fails.
+    supabase_jwt_secret: str = ''
 
     # --- Optional LangSmith tracing (Performance Efficiency, ISO/IEC 25010) ---
     langchain_tracing_v2: str = ''

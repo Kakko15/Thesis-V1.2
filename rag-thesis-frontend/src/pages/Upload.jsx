@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import {
   UploadCloud, FileText, X, ArrowRight, ArrowLeft, CheckCircle2,
   ScanText, Archive, Scissors, BrainCircuit, Database, PartyPopper, AlertTriangle,
+  ShieldAlert,
 } from 'lucide-react'
 import { uploadPaper, getUploadStatus, getTracks, apiErrorMessage } from '../api'
 import { GlassCard } from '../components/ui/GlassCard'
@@ -22,6 +23,7 @@ const PIPELINE_STAGES = [
   { key: 'store', label: 'Archive original', icon: Archive },
   { key: 'chunk', label: 'Chunk (800 tokens)', icon: Scissors },
   { key: 'embed', label: 'Embed (768d)', icon: BrainCircuit },
+  { key: 'screen', label: 'Screen novelty (85%)', icon: ShieldAlert },
   { key: 'index', label: 'Index vectors', icon: Database },
 ]
 
@@ -144,7 +146,7 @@ function PipelineProgress({ job }) {
           transition={{ duration: 0.6, ease: [0.2, 0, 0, 1] }}
         />
       </div>
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-6 gap-2">
         {PIPELINE_STAGES.map((stage, i) => {
           const done = job?.status === 'completed' || i < currentIdx
           const active = i === currentIdx && job?.status === 'processing'
@@ -213,6 +215,11 @@ export default function Upload() {
           toast.success('Thesis indexed!', {
             description: `${status.chunks} semantic chunks embedded into the archive.`,
           })
+          if (status.duplication?.flagged) {
+            toast.warning('Potential duplication detected', {
+              description: `${status.duplication.duplication_percentage}% of the manuscript matched the archive at the ${status.duplication.threshold}% similarity threshold.`,
+            })
+          }
         } else if (status.status === 'failed') {
           clearInterval(pollRef.current)
           toast.error('Ingestion failed', { description: status.error })
@@ -389,6 +396,27 @@ export default function Upload() {
                   <p className="mt-2 max-w-sm text-sm opacity-60">
                     "{form.title}" is now part of the semantic archive with {job.chunks} embedded chunks.
                   </p>
+                  {job.duplication?.flagged && (
+                    <div className="mt-6 w-full max-w-md rounded-2xl border border-gold-400/40 bg-gold-400/10 p-4 text-left">
+                      <div className="flex items-center gap-2 text-sm font-bold">
+                        <ShieldAlert size={15} className="shrink-0 text-gold-500" />
+                        Potential duplication — {job.duplication.duplication_percentage}% of the manuscript
+                        matched the archive at the {job.duplication.threshold}% similarity threshold
+                      </div>
+                      <ul className="mt-2 space-y-1 text-xs opacity-75">
+                        {(job.duplication.matched_papers || []).map((p) => (
+                          <li key={p.id}>
+                            "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} — top match {p.similarity}%
+                            · {p.match_count} chunk{p.match_count === 1 ? '' : 's'}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 text-[0.7rem] opacity-55">
+                        The manuscript was still indexed. Review it against the matched studies per the 85%
+                        duplication delimitation before accepting the topic.
+                      </p>
+                    </div>
+                  )}
                   <div className="mt-7 flex gap-3">
                     <Button variant="secondary" onClick={reset}>Upload another</Button>
                     <Button onClick={() => navigate('/archive')}>View archive <ArrowRight size={15} /></Button>

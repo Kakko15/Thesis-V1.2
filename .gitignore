@@ -1,1 +1,7 @@
 .claude/
+
+# Working notes / extracted proposal text (not source)
+thesis_extract.txt
+
+# SonarQube scanner cache
+.scannerwork/

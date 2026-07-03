@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Search, BookMarked, Trash2, Library, Lock, X } from 'lucide-react'
+import { Search, BookMarked, Trash2, Library, Lock, X, ShieldAlert } from 'lucide-react'
 import { listPapers, deletePaper, getTracks, apiErrorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
@@ -14,6 +14,31 @@ import { ConfirmDialog, Modal } from '../components/ui/Modal'
 import { PageTransition, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { Button } from '../components/ui/Button'
 import { formatDate } from '../lib/utils'
+
+function ScreeningDetail({ scan }) {
+  if (!scan?.flagged) return null
+  return (
+    <div>
+      <div className="text-xs font-bold uppercase tracking-wider opacity-50">
+        Duplication screening (at upload)
+      </div>
+      <div className="mt-1.5 rounded-xl border border-flame-500/25 bg-flame-500/8 px-3.5 py-2.5 text-xs leading-relaxed">
+        <div className="flex items-center gap-1.5 font-semibold">
+          <ShieldAlert size={13} className="shrink-0 text-flame-500" />
+          {scan.duplication_percentage}% of this manuscript matched the archive
+          at the {scan.threshold}% similarity threshold
+        </div>
+        <ul className="mt-1.5 space-y-0.5 opacity-75">
+          {(scan.matched_papers || []).map((p) => (
+            <li key={p.id}>
+              "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} — top match {p.similarity}%
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
 
 function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
   return (
@@ -42,6 +67,11 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-4">
           {paper.track && <Badge tone="forest">{paper.track}</Badge>}
           {paper.year && <Badge tone="neutral">{paper.year}</Badge>}
+          {paper.duplication_scan?.flagged && (
+            <Badge tone="flame">
+              <ShieldAlert size={11} /> {paper.duplication_scan.duplication_percentage}% overlap
+            </Badge>
+          )}
         </div>
       </GlassCard>
     </motion.div>
@@ -190,6 +220,7 @@ export default function Archive() {
               </p>
             </div>
           )}
+          <ScreeningDetail scan={detail?.duplication_scan} />
           <div className="glass flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs opacity-70">
             <Lock size={13} className="shrink-0 text-gold-400" />
             Full text is available only through AI-mediated synthesis in Chat — this protects the
