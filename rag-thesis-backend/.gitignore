@@ -11,5 +11,10 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Coverage output (consumed by SonarQube)
+.coverage
+coverage.xml
+.scannerwork/
+
 # Evaluation outputs
 evaluation/results/

@@ -21,11 +21,11 @@ The system is an **indirect** thesis library: users never view or download full 
 | 1 — RAG + LLM knowledge retrieval model | `services/` (document_processor, chunker, embedder, retriever) + `routers/chat.py` |
 | 2 — Baseline LLM vs RAG comparison | `evaluation/run_comparison.py` + `evaluation/golden_dataset.json` (Ragas: Faithfulness, Context Precision) |
 | 3 — Web-based Thesis Library System | Full stack (this repository) |
-| 4 — ISO/IEC 25010 internal quality | PyTest (`tests/`), JMeter (`jmeter/`), Pylint (`.pylintrc`), ESLint (frontend `eslint.config.js`) |
+| 4 — ISO/IEC 25010 internal quality | PyTest (`tests/`), JMeter (`jmeter/`), SonarQube (`sonar-project.properties` + CI), Pylint (`.pylintrc`), ESLint (frontend `eslint.config.js`) |
 
 Key paper parameters enforced in code:
 
-- **85% cosine similarity duplication threshold** (`DUPLICATION_THRESHOLD=0.85`) — both at scan time (`/duplication/scan`) and query time (chat duplication guard).
+- **85% cosine similarity duplication threshold** (`DUPLICATION_THRESHOLD=0.85`) — enforced three ways: automatically on every new submission during upload ingestion (Section 3.2.3 Phase 3, result stored in `papers.duplication_scan`), on demand at scan time (`/duplication/scan`), and at query time (chat duplication guard).
 - **800-token chunks / 100-token overlap** via `RecursiveCharacterTextSplitter`.
 - **Metadata tagging** — every chunk carries `{title, author, track, year}` JSON.
 - **LongContextReorder** — most relevant sources placed at the start and end of the prompt window ("Lost in the Middle" mitigation).
@@ -83,8 +83,8 @@ Open http://localhost:5173.
 ```bash
 cd rag-thesis-backend
 
-# Objective 4 — Functional Suitability
-pytest
+# Objective 4 — Functional Suitability (with coverage for SonarQube)
+pytest --cov=routers --cov=services --cov=dependencies --cov=main --cov=config --cov=models --cov-report=xml
 
 # Objective 4 — Maintainability
 pylint --rcfile=.pylintrc routers services dependencies main.py config.py models.py
@@ -97,6 +97,18 @@ python -m evaluation.run_comparison
 # Objective 4 — Performance Efficiency
 # Open jmeter/thesis_load_test.jmx in Apache JMeter 5.6+ and run against your host.
 ```
+
+### Objective 4 — Reliability (SonarQube)
+
+Static analysis is configured in `sonar-project.properties` (repo root). Against a local SonarQube server (paper: v10.4):
+
+```bash
+docker run -d --name sonarqube -p 9000:9000 sonarqube:10.4-community
+# create a project + token at http://localhost:9000, then generate coverage (pytest --cov, above) and run:
+sonar-scanner -Dsonar.host.url=http://localhost:9000 -Dsonar.token=<your-token>
+```
+
+Alternatively, add a `SONAR_TOKEN` repository secret (SonarCloud, or set the `SONAR_HOST_URL` repository variable for a reachable server) and the GitHub Actions workflow `.github/workflows/quality.yml` runs PyTest + coverage, Pylint, ESLint, the production build, and the SonarQube scan on every push to `main`. Without the secret, the scan step skips gracefully and the rest of the quality gate still runs.
 
 LangSmith latency tracing activates automatically when `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY` are set in `.env`.
 

@@ -53,6 +53,7 @@ class PaperOut(BaseModel):
     abstract: Optional[str] = None
     track: Optional[str] = None
     chunk_count: Optional[int] = 0
+    duplication_scan: Optional[dict] = None  # ingest-time 85% screening result (metadata only)
     created_at: str
 
 
@@ -65,11 +66,12 @@ class UploadAccepted(BaseModel):
 class UploadJobStatus(BaseModel):
     job_id: str
     status: str            # queued | processing | completed | failed
-    stage: str             # extract | clean | chunk | embed | index | done
+    stage: str             # extract | store | chunk | embed | screen | index | done
     progress: int          # 0-100
     message: str = ''
     paper_id: Optional[str] = None
     chunks: Optional[int] = None
+    duplication: Optional[dict] = None  # automatic 85% screening result (paper, Section 3.2.3 Phase 3)
     error: Optional[str] = None
 
 

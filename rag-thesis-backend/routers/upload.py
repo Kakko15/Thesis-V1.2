@@ -2,7 +2,9 @@
 
 Pipeline stages: extract (PyMuPDF + OCR fallback) -> clean (regex GIGO
 mitigation) -> chunk (800-token / 100-token overlap) -> embed (Gemini,
-768d) -> index (Supabase pgvector + metadata tagging).
+768d) -> screen (automatic 85% duplication check against the archive,
+paper Section 3.2.3 Phase 3) -> index (Supabase pgvector + metadata
+tagging).
 
 Runs as a background job with a polleable status endpoint so the admin UI
 can display live pipeline progress. Original PDFs are stored in the
@@ -24,6 +26,7 @@ from services.activity import log_activity
 from services.chunker import build_chunk_metadata, split_text
 from services.document_processor import extract_text, filter_noise_chunks
 from services.embedder import embed_texts
+from services.novelty import screen_new_submission
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +101,25 @@ def _ingest(job_id: str, file_bytes: bytes, filename: str,
                  message=f'Generating {len(chunks)} vector embeddings (Gemini, 768d)...')
         embeddings = embed_texts(chunks)
 
-        # Stage 6: Semantic indexing with per-chunk metadata tagging
+        # Stage 6: Automatic duplication screening (paper, Section 3.2.3
+        # Phase 3) — the new submission is compared against the archive at
+        # the 85% threshold BEFORE its own chunks are indexed, so the
+        # manuscript never matches itself. Flags, never blocks.
+        _set_job(job_id, stage='screen', progress=72,
+                 message='Screening submission against the archive (85% duplication threshold)...')
+        duplication_scan = None
+        try:
+            duplication_scan = screen_new_submission(embeddings)
+        except Exception as e:
+            logger.warning('Duplication screening failed; ingestion continues: %s', e)
+        if duplication_scan:
+            try:
+                sb.table('papers').update({'duplication_scan': duplication_scan}) \
+                    .eq('id', paper_id).execute()
+            except Exception as e:
+                logger.warning('Failed to persist duplication scan for paper %s: %s', paper_id, e)
+
+        # Stage 7: Semantic indexing with per-chunk metadata tagging
         _set_job(job_id, stage='index', progress=85, message='Indexing vectors in Supabase pgvector...')
         metadata = build_chunk_metadata(title, authors, track, year_int)
         chunk_rows = [
@@ -110,9 +131,13 @@ def _ingest(job_id: str, file_bytes: bytes, filename: str,
             sb.table('chunks').insert(chunk_rows[start:start + 100]).execute()
 
         _set_job(job_id, status='completed', stage='done', progress=100,
-                 message='Thesis indexed successfully.', paper_id=paper_id, chunks=len(chunks))
-        log_activity(uploader_id, 'paper_upload', {'paper_id': paper_id, 'title': title,
-                                                   'track': track, 'chunks': len(chunks)})
+                 message='Thesis indexed successfully.', paper_id=paper_id, chunks=len(chunks),
+                 duplication=duplication_scan)
+        log_activity(uploader_id, 'paper_upload', {
+            'paper_id': paper_id, 'title': title, 'track': track, 'chunks': len(chunks),
+            'duplication_flagged': bool(duplication_scan and duplication_scan.get('flagged')),
+            'duplication_percentage': (duplication_scan or {}).get('duplication_percentage', 0.0),
+        })
     except Exception as e:
         logger.exception('Ingestion job %s failed', job_id)
         # Roll back the partial paper row so the archive never holds
@@ -171,6 +196,7 @@ def upload_status(job_id: str, user=Depends(require_admin)):
         message=job.get('message', ''),
         paper_id=job.get('paper_id'),
         chunks=job.get('chunks'),
+        duplication=job.get('duplication'),
         error=job.get('error'),
     )
 

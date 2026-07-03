@@ -1,0 +1,112 @@
+# ISO/IEC 25010 internal quality gate (thesis paper, Objective 4 / Table 4):
+#   * PyTest  — Functional Suitability
+#   * Pylint  — Maintainability (backend)
+#   * ESLint  — Maintainability (frontend)
+#   * SonarQube — Reliability (runs only when the SONAR_TOKEN secret is set)
+
+name: Quality — ISO/IEC 25010
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend · PyTest + Pylint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rag-thesis-backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: rag-thesis-backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: PyTest with coverage (Functional Suitability)
+        run: >
+          pytest --cov=routers --cov=services --cov=dependencies
+          --cov=main --cov=config --cov=models
+          --cov-report=xml --cov-report=term
+
+      - name: Pylint (Maintainability)
+        run: pylint --rcfile=.pylintrc routers services dependencies main.py config.py models.py
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: rag-thesis-backend/coverage.xml
+
+  frontend:
+    name: Frontend · ESLint + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rag-thesis-frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: rag-thesis-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint (Maintainability)
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+  sonarqube:
+    name: SonarQube (Reliability)
+    runs-on: ubuntu-latest
+    needs: backend
+    steps:
+      - name: Checkout (full history for accurate blame data)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for SonarQube token
+        id: sonar
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -n "$SONAR_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "SONAR_TOKEN secret not set — skipping the scan (see README, SonarQube section)."
+          fi
+
+      - name: Download backend coverage
+        if: steps.sonar.outputs.enabled == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: rag-thesis-backend
+
+      - name: SonarQube scan
+        if: steps.sonar.outputs.enabled == 'true'
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
