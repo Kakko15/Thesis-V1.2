@@ -9,7 +9,7 @@ import {
   AlertTriangle, BookMarked, History, X, Info, GraduationCap,
 } from 'lucide-react'
 import {
-  chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage,
+  chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getPaperUrl
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/Button'
@@ -33,12 +33,34 @@ const STARTERS = [
 /* Citation source card                                                */
 /* ------------------------------------------------------------------ */
 function SourceCard({ source, index }) {
+  const { isAdmin } = useAuth()
+  const [loading, setLoading] = useState(false)
+
+  const handleClick = async () => {
+    if (!isAdmin) return
+    setLoading(true)
+    try {
+      const url = await getPaperUrl(source.id)
+      window.open(url, '_blank')
+    } catch (err) {
+      toast.error('Could not load PDF', { description: apiErrorMessage(err) })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.15 + index * 0.08, duration: 0.4 }}
-      className="glass flex items-start gap-3 rounded-2xl p-3.5"
+      onClick={handleClick}
+      className={cn(
+        "glass flex items-start gap-3 rounded-2xl p-3.5 transition duration-200",
+        isAdmin ? "cursor-pointer hover:bg-forest-900/5 dark:hover:bg-white/5 active:scale-[0.98]" : "",
+        loading ? "opacity-60 pointer-events-none animate-pulse" : ""
+      )}
+      title={isAdmin ? "Click to view original PDF" : ""}
     >
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gold-400/20 font-mono text-xs font-bold text-gold-600 dark:text-gold-300">
         {index + 1}

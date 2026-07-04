@@ -1,5 +1,6 @@
 import { forwardRef } from 'react'
 import { cn } from '../../lib/utils'
+import { ChevronDown } from 'lucide-react'
 
 const baseField =
   'w-full rounded-2xl border bg-white/60 dark:bg-white/[0.05] backdrop-blur-xl px-4 text-sm ' +
@@ -27,15 +28,23 @@ export const Textarea = forwardRef(function Textarea({ className, error, ...prop
   )
 })
 
-export const Select = forwardRef(function Select({ className, children, ...props }, ref) {
+export const Select = forwardRef(function Select({ className, error, children, ...props }, ref) {
   return (
-    <select
-      ref={ref}
-      className={cn(baseField, 'h-11 appearance-none pr-10 dark:[&>option]:bg-canvas-900', className)}
-      {...props}
-    >
-      {children}
-    </select>
+    <div className="relative">
+      <select
+        ref={ref}
+        className={cn(
+          baseField,
+          'h-11 appearance-none pr-10 backdrop-blur-none dark:[&>option]:bg-canvas-900',
+          error && 'border-flame-500 focus:border-flame-500 focus:ring-flame-500/10',
+          className
+        )}
+        {...props}
+      >
+        {children}
+      </select>
+      <ChevronDown size={15} className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 opacity-50" />
+    </div>
   )
 })
 
