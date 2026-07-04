@@ -55,6 +55,7 @@ class PaperOut(BaseModel):
     chunk_count: Optional[int] = 0
     duplication_scan: Optional[dict] = None  # ingest-time 85% screening result (metadata only)
     created_at: str
+    uploader_name: Optional[str] = None
 
 
 class UploadAccepted(BaseModel):

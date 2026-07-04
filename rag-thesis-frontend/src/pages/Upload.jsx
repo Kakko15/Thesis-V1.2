@@ -8,12 +8,13 @@ import {
   ScanText, Archive, Scissors, BrainCircuit, Database, PartyPopper, AlertTriangle,
   ShieldAlert,
 } from 'lucide-react'
-import { uploadPaper, getUploadStatus, getTracks, apiErrorMessage } from '../api'
+import { uploadPaper, getUploadStatus, getTracks, apiErrorMessage, extractMetadata } from '../api'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Button } from '../components/ui/Button'
 import { Input, Textarea, Select, Field } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
 import { PageTransition } from '../components/ui/Motion'
+import { ConfirmDialog } from '../components/ui/Modal'
 import { cn } from '../lib/utils'
 
 const STEPS = ['Manuscript', 'Metadata', 'Review']
@@ -183,6 +184,8 @@ export default function Upload() {
   const [errors, setErrors] = useState({})
   const [job, setJob] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [parsing, setParsing] = useState(false)
+  const [pendingFile, setPendingFile] = useState(null)
   const pollRef = useRef(null)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -192,6 +195,38 @@ export default function Upload() {
   useEffect(() => () => clearInterval(pollRef.current), [])
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+
+  const runAutofill = async (f) => {
+    setParsing(true)
+    toast.info('Extracting metadata...', { description: 'Analyzing the document to autofill information.' })
+    try {
+      const metadata = await extractMetadata(f)
+      setForm((prev) => ({
+        ...prev,
+        title: metadata.title || prev.title,
+        authors: metadata.authors || prev.authors,
+        year: metadata.year || prev.year,
+      }))
+      if (metadata.title || metadata.authors || metadata.year) {
+        toast.success('Metadata autofilled', { description: 'Extracted available information from the document.' })
+      } else {
+        toast.warning('Extraction incomplete', { description: 'Could not confidently identify thesis details.' })
+      }
+    } catch (err) {
+      toast.error('Autofill failed', { description: 'Please enter the metadata manually.' })
+    } finally {
+      setParsing(false)
+    }
+  }
+
+  const handleFileSelect = (f) => {
+    if (!f) {
+      setFile(null)
+      setForm({ title: '', authors: '', year: '', abstract: '', track: '' })
+      return
+    }
+    setPendingFile(f)
+  }
 
   const validateMetadata = () => {
     const next = {}
@@ -275,10 +310,10 @@ export default function Upload() {
               initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
               transition={{ duration: 0.3 }}
             >
-              <Dropzone file={file} onFile={setFile} />
+              <Dropzone file={file} onFile={handleFileSelect} />
               <div className="mt-6 flex justify-end">
-                <Button disabled={!file} onClick={() => setStep(1)} className="group">
-                  Continue <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
+                <Button disabled={!file || parsing} loading={parsing} onClick={() => setStep(1)} className="group">
+                  {parsing ? 'Extracting...' : 'Continue'} <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
                 </Button>
               </div>
             </motion.div>
@@ -438,6 +473,23 @@ export default function Upload() {
           )}
         </AnimatePresence>
       </GlassCard>
+
+      <ConfirmDialog
+        open={!!pendingFile}
+        onClose={() => {
+          setFile(pendingFile)
+          setPendingFile(null)
+        }}
+        onConfirm={() => {
+          const f = pendingFile
+          setFile(f)
+          setPendingFile(null)
+          runAutofill(f)
+        }}
+        title="Autofilling the field"
+        message="Confirm the file and move on the next step"
+        confirmLabel="Confirm"
+      />
     </PageTransition>
   )
 }

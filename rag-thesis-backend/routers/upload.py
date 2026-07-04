@@ -16,8 +16,11 @@ import mimetypes
 import threading
 import time
 import uuid
+import json
 
+import fitz
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from config import settings
 from dependencies.auth import require_admin, sb
@@ -205,3 +208,51 @@ def upload_status(job_id: str, user=Depends(require_admin)):
 def list_tracks():
     """CCSICT academic tracks for the upload form and archive filters."""
     return {'tracks': CCSICT_TRACKS}
+
+
+@router.post('/extract-metadata')
+async def extract_metadata(file: UploadFile = File(...), user=Depends(require_admin)):
+    """Extract Title and Authors from the first 3 pages using Gemini."""
+    if not file.filename.lower().endswith('.pdf'):
+        return {'title': '', 'authors': ''}
+        
+    try:
+        file_bytes = await file.read()
+        doc = fitz.open(stream=file_bytes, filetype='pdf')
+        
+        # Read up to 3 pages
+        text = ""
+        for i in range(min(3, len(doc))):
+            text += doc[i].get_text() + "\n"
+        doc.close()
+
+        if not text.strip():
+            return {'title': '', 'authors': ''}
+
+        llm = ChatGoogleGenerativeAI(
+            model=settings.gemini_chat_model,
+            google_api_key=settings.gemini_api_key,
+            temperature=0.1,
+        )
+
+        prompt = f"""Extract the Title, Authors, and Year completed of the thesis from the text below. 
+Return ONLY a valid JSON object with the keys "title", "authors", and "year".
+If you cannot find them, return an empty string for the values.
+Do not wrap in markdown code blocks.
+
+Text:
+{text[:8000]}
+"""
+        result = llm.invoke(prompt)
+        content = result.content if hasattr(result, 'content') else str(result)
+        clean_json = content.strip().lstrip('`').lstrip('json').rstrip('`').strip()
+        data = json.loads(clean_json)
+        
+        return {
+            'title': data.get('title', ''),
+            'authors': data.get('authors', ''),
+            'year': str(data.get('year', ''))
+        }
+    except Exception as e:
+        logger.error(f"Metadata extraction failed: {e}")
+        return {'title': '', 'authors': '', 'year': ''}

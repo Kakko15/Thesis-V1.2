@@ -58,6 +58,10 @@ export async function deletePaper(paperId) {
   const { data } = await api.delete(`/papers/${paperId}`)
   return data
 }
+export async function getPaperUrl(paperId) {
+  const { data } = await api.get(`/papers/${paperId}/url`)
+  return data.url
+}
 export async function getTracks() {
   const { data } = await api.get('/upload/tracks')
   return data.tracks
@@ -80,6 +84,14 @@ export async function uploadPaper({ file, title, authors, year, abstract, track 
 export async function getUploadStatus(jobId) {
   const { data } = await api.get(`/upload/status/${jobId}`)
   return data
+}
+export async function extractMetadata(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await api.post('/upload/extract-metadata', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data // { title, authors }
 }
 
 // ---------- Topic novelty / duplication (faculty + admin) ----------
