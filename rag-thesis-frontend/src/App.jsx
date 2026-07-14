@@ -41,7 +41,7 @@ function ShellRoutes() {
               path="/archive"
               element={<ProtectedRoute isAllowed={canArchive}><Archive /></ProtectedRoute>}
             />
-            <Route path="/chat" element={<ProtectedRoute isAllowed={canChat}><Chat /></ProtectedRoute>} />
+            <Route path="/chat" element={<ProtectedRoute isAllowed={canChat} allowGuest={true}><Chat /></ProtectedRoute>} />
             <Route
               path="/novelty"
               element={<ProtectedRoute isAllowed={canScan}><Novelty /></ProtectedRoute>}
