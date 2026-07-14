@@ -9,7 +9,7 @@ import { AlertTriangle, XCircle } from 'lucide-react'
  *   <ProtectedRoute roles={['admin']}>...</ProtectedRoute>  — admins only
  *   <ProtectedRoute roles={['faculty','admin']}>...         — faculty + admins
  */
-export function ProtectedRoute({ children, roles, isAllowed }) {
+export function ProtectedRoute({ children, roles, isAllowed, allowGuest = false }) {
   const { user, role, loading, needsMfa, isPending, isRejected, signOut } = useAuth()
 
   if (loading) {
@@ -20,7 +20,10 @@ export function ProtectedRoute({ children, roles, isAllowed }) {
     )
   }
 
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) {
+    if (allowGuest) return children
+    return <Navigate to="/login" replace />
+  }
   // 2FA-enrolled accounts must complete the TOTP challenge (aal2) first —
   // /login detects needsMfa and presents the challenge step.
   if (needsMfa) return <Navigate to="/login" replace />

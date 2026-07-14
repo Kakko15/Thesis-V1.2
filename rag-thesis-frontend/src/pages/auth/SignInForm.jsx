@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useAuth } from '../../context/AuthContext'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { ArrowRight, KeyRound, Lock, Mail, TriangleAlert } from 'lucide-react'
@@ -16,6 +17,7 @@ import {
  * orchestrator reacts to `needsMfa` from AuthContext after this succeeds.
  */
 export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify }) {
+  const { reloadSession } = useAuth()
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [capsLock, setCapsLock] = useState(false)
@@ -44,8 +46,8 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
     try {
       const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
       if (error) throw error
-      // Success: AuthContext picks up the session; the orchestrator either
-      // routes to the dashboard or into the 2FA challenge (needsMfa).
+      // Success: force a reload of the session state so AuthContext updates immediately.
+      await reloadSession()
     } catch (err) {
       const friendly = friendlyAuthError(err)
       if ((err?.message || '').toLowerCase().includes('email not confirmed')) {

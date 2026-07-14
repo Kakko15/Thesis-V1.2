@@ -50,20 +50,21 @@ export const AuthProvider = ({ children }) => {
     }
   }, [])
 
-  useEffect(() => {
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      const currentUser = session?.user ?? null
-      await checkMfa(currentUser)
-      setUser(currentUser)
-      if (currentUser) {
-        await fetchProfile(currentUser.id)
-        getFeaturePermissions().then(setFeatures).catch(() => {})
-      }
-      else setProfile(null)
-      setLoading(false)
+  const reloadSession = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const currentUser = session?.user ?? null
+    await checkMfa(currentUser)
+    setUser(currentUser)
+    if (currentUser) {
+      await fetchProfile(currentUser.id)
+      getFeaturePermissions().then(setFeatures).catch(() => {})
     }
-    init()
+    else setProfile(null)
+    setLoading(false)
+  }, [checkMfa, fetchProfile])
+
+  useEffect(() => {
+    reloadSession()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const currentUser = session?.user ?? null
@@ -118,6 +119,7 @@ export const AuthProvider = ({ children }) => {
     isRejected: status === 'rejected',
     refreshMfa: () => checkMfa(user),
     refreshProfile: () => { if (user) fetchProfile(user.id) },
+    reloadSession,
     isAdmin: role === 'admin' || role === 'superadmin',
     isSuperadmin: role === 'superadmin',
     isFaculty: role === 'faculty',
