@@ -15,6 +15,7 @@ CCSICT_TRACKS = [
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=4000)
     session_id: Optional[str] = None
+    department_filter: Optional[str] = None
     match_count: int = Field(default=5, ge=1, le=20)
     match_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
 
@@ -37,6 +38,13 @@ class ChatResponse(BaseModel):
     no_relevant_thesis: bool = False
 
 
+class MetadataExtractionResponse(BaseModel):
+    title: Optional[str] = None
+    authors: Optional[list[str]] = None
+    year: Optional[int] = None
+    department: Optional[str] = None
+
+
 class SessionCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=120)
 
@@ -56,6 +64,7 @@ class PaperOut(BaseModel):
     duplication_scan: Optional[dict] = None  # ingest-time 85% screening result (metadata only)
     created_at: str
     uploader_name: Optional[str] = None
+    department: Optional[str] = None
 
 
 class UploadAccepted(BaseModel):
@@ -86,4 +95,37 @@ class ScanHistoryOut(BaseModel):
 
 
 class RoleUpdate(BaseModel):
-    role: str = Field(..., pattern='^(student|faculty|admin)$')
+    role: str = Field(..., pattern='^(student|faculty|admin|superadmin)$')
+    status: Optional[str] = Field(None, pattern='^(pending|approved|rejected)$')
+
+class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
+
+class UserUpdate(BaseModel):
+    full_name: str = Field(..., min_length=1, max_length=120)
+    role: str = Field(..., pattern='^(student|faculty|admin|superadmin)$')
+    department: Optional[str] = None
+    status: Optional[str] = Field(None, pattern='^(pending|approved|rejected)$')
+
+
+class DepartmentOut(BaseModel):
+    id: str
+    name: str
+    track_label: str
+    tracks: list[str]
+    created_at: str
+
+
+class DepartmentCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    track_label: str = Field(default="Academic track", min_length=1, max_length=50)
+    tracks: list[str] = []
+
+
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    track_label: Optional[str] = Field(None, min_length=1, max_length=50)
+    tracks: Optional[list[str]] = None

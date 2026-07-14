@@ -8,7 +8,7 @@ import {
   ScanText, Archive, Scissors, BrainCircuit, Database, PartyPopper, AlertTriangle,
   ShieldAlert,
 } from 'lucide-react'
-import { uploadPaper, getUploadStatus, getTracks, apiErrorMessage, extractMetadata } from '../api'
+import { uploadPaper, getUploadStatus, getDepartments, apiErrorMessage, extractMetadata } from '../api'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Button } from '../components/ui/Button'
 import { Input, Textarea, Select, Field } from '../components/ui/Input'
@@ -180,7 +180,7 @@ function PipelineProgress({ job }) {
 export default function Upload() {
   const [step, setStep] = useState(0)
   const [file, setFile] = useState(null)
-  const [form, setForm] = useState({ title: '', authors: '', year: '', abstract: '', track: '' })
+  const [form, setForm] = useState({ title: '', authors: '', year: '', abstract: '', track: '', department: '' })
   const [errors, setErrors] = useState({})
   const [job, setJob] = useState(null)
   const [submitting, setSubmitting] = useState(false)
@@ -190,7 +190,12 @@ export default function Upload() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  const { data: tracks = [] } = useQuery({ queryKey: ['tracks'], queryFn: getTracks })
+  const { data: departments = [], isLoading: loadingDepts } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
+  
+  // Find the currently selected department object
+  const currentDept = departments.find(d => d.name === form.department)
+  const trackLabel = currentDept?.track_label || 'Track'
+  const currentTracks = currentDept?.tracks || []
 
   useEffect(() => () => clearInterval(pollRef.current), [])
 
@@ -206,8 +211,9 @@ export default function Upload() {
         title: metadata.title || prev.title,
         authors: metadata.authors || prev.authors,
         year: metadata.year || prev.year,
+        department: metadata.department || prev.department,
       }))
-      if (metadata.title || metadata.authors || metadata.year) {
+      if (metadata.title || metadata.authors || metadata.year || metadata.department) {
         toast.success('Metadata autofilled', { description: 'Extracted available information from the document.' })
       } else {
         toast.warning('Extraction incomplete', { description: 'Could not confidently identify thesis details.' })
@@ -222,7 +228,7 @@ export default function Upload() {
   const handleFileSelect = (f) => {
     if (!f) {
       setFile(null)
-      setForm({ title: '', authors: '', year: '', abstract: '', track: '' })
+      setForm({ title: '', authors: '', year: '', abstract: '', track: '', department: '' })
       return
     }
     setPendingFile(f)
@@ -232,6 +238,7 @@ export default function Upload() {
     const next = {}
     if (form.title.trim().length < 5) next.title = 'Enter the full thesis title'
     if (!form.track) next.track = 'Select the academic track'
+    if (!form.department) next.department = 'Select the department'
     if (form.year && (!/^\d{4}$/.test(form.year) || +form.year < 1978 || +form.year > new Date().getFullYear() + 1)) {
       next.year = 'Enter a valid year'
     }
@@ -283,7 +290,7 @@ export default function Upload() {
     clearInterval(pollRef.current)
     setStep(0)
     setFile(null)
-    setForm({ title: '', authors: '', year: '', abstract: '', track: '' })
+    setForm({ title: '', authors: '', year: '', abstract: '', track: '', department: '' })
     setJob(null)
     setErrors({})
   }
@@ -338,12 +345,25 @@ export default function Upload() {
                   <Input value={form.year} onChange={set('year')} placeholder="2024" inputMode="numeric" maxLength={4} error={errors.year} />
                 </Field>
               </div>
-              <Field label="Academic track" error={errors.track} required hint="Metadata tag attached to every semantic chunk">
-                <Select value={form.track} onChange={set('track')} error={errors.track}>
-                  <option value="">Select a CCSICT track…</option>
-                  {tracks.map((t) => <option key={t} value={t}>{t}</option>)}
-                </Select>
-              </Field>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field 
+                  label={trackLabel} 
+                  error={errors.track} 
+                  required 
+                  hint="Metadata tag attached to semantic chunk"
+                >
+                  <Select value={form.track} onChange={set('track')} error={errors.track} disabled={!form.department || currentTracks.length === 0}>
+                    <option value="">Select {trackLabel}…</option>
+                    {currentTracks.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Department" error={errors.department} required hint="Department this thesis belongs to">
+                  <Select value={form.department} onChange={(e) => setForm(f => ({...f, department: e.target.value, track: ''}))} error={errors.department} disabled={loadingDepts}>
+                    <option value="">Select a Department…</option>
+                    {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+                  </Select>
+                </Field>
+              </div>
               <Field label="Abstract" hint="Optional but improves archive browsing">
                 <Textarea value={form.abstract} onChange={set('abstract')} placeholder="Paste the thesis abstract…" rows={4} />
               </Field>
@@ -386,6 +406,10 @@ export default function Upload() {
                   <div>
                     <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Track</div>
                     <div className="mt-0.5"><Badge tone="forest">{form.track}</Badge></div>
+                  </div>
+                  <div>
+                    <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Department</div>
+                    <div className="mt-0.5"><Badge tone="neutral">{form.department}</Badge></div>
                   </div>
                   <div>
                     <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Year</div>

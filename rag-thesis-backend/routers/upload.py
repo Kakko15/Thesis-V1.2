@@ -23,7 +23,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from config import settings
-from dependencies.auth import require_admin, sb
+from dependencies.auth import require_upload_access, sb
 from models import CCSICT_TRACKS, UploadAccepted, UploadJobStatus
 from services.activity import log_activity
 from services.chunker import build_chunk_metadata, split_text
@@ -57,7 +57,7 @@ def _prune_jobs():
 
 def _ingest(job_id: str, file_bytes: bytes, filename: str,
             title: str, authors: str, year: str, abstract: str, track: str,
-            uploader_id: str):
+            department: str, uploader_id: str):
     """Full ingestion pipeline executed in the background."""
     paper_id = None
     try:
@@ -94,6 +94,7 @@ def _ingest(job_id: str, file_bytes: bytes, filename: str,
             'abstract': abstract, 'track': track, 'content': content,
             'filename': filename, 'storage_path': storage_path,
             'chunk_count': len(chunks), 'uploaded_by': uploader_id,
+            'department': department,
         }
         paper_res = sb.table('papers').insert(paper_data).execute()
         paper = paper_res.data[0]
@@ -163,10 +164,16 @@ async def upload_paper(
     year: str = Form(''),
     abstract: str = Form(''),
     track: str = Form(''),
-    user=Depends(require_admin),
+    department: str = Form('CCSICT'),
+    user=Depends(require_upload_access),
 ):
-    if track and track not in CCSICT_TRACKS:
-        raise HTTPException(422, f'Unknown CCSICT track. Valid tracks: {", ".join(CCSICT_TRACKS)}')
+    if track:
+        # Dynamically fetch valid tracks for the given department
+        dept_res = sb.table('departments').select('tracks').eq('name', department).execute()
+        valid_tracks = dept_res.data[0]['tracks'] if dept_res.data else CCSICT_TRACKS
+        
+        if track not in valid_tracks:
+            raise HTTPException(422, f'Unknown track for department {department}. Valid tracks: {", ".join(valid_tracks)}')
 
     file_bytes = await file.read()
     if len(file_bytes) > settings.max_upload_mb * 1024 * 1024:
@@ -179,14 +186,14 @@ async def upload_paper(
     _set_job(job_id, status='queued', stage='extract', progress=0,
              message='Queued for processing...')
     background_tasks.add_task(_ingest, job_id, file_bytes, file.filename,
-                              title, authors, year, abstract, track, user.id)
+                              title, authors, year, abstract, track, department, user.id)
 
     return UploadAccepted(job_id=job_id, status='queued',
                           message='Upload accepted. Poll /upload/status/{job_id} for progress.')
 
 
 @router.get('/status/{job_id}', response_model=UploadJobStatus)
-def upload_status(job_id: str, user=Depends(require_admin)):
+def upload_status(job_id: str, user=Depends(require_upload_access)):
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
     if not job:
@@ -211,7 +218,7 @@ def list_tracks():
 
 
 @router.post('/extract-metadata')
-async def extract_metadata(file: UploadFile = File(...), user=Depends(require_admin)):
+async def extract_metadata(file: UploadFile = File(...), user=Depends(require_upload_access)):
     """Extract Title and Authors from the first 3 pages using Gemini."""
     if not file.filename.lower().endswith('.pdf'):
         return {'title': '', 'authors': ''}
@@ -229,14 +236,20 @@ async def extract_metadata(file: UploadFile = File(...), user=Depends(require_ad
         if not text.strip():
             return {'title': '', 'authors': ''}
 
+        # Fetch dynamic departments for prompt injection
+        depts_res = sb.table('departments').select('name').execute()
+        dept_names = [d['name'] for d in depts_res.data] if depts_res.data else ['CCSICT', 'CAS']
+        dept_str = ", ".join(f'"{name}"' for name in dept_names)
+
         llm = ChatGoogleGenerativeAI(
             model=settings.gemini_chat_model,
             google_api_key=settings.gemini_api_key,
             temperature=0.1,
         )
 
-        prompt = f"""Extract the Title, Authors, and Year completed of the thesis from the text below. 
-Return ONLY a valid JSON object with the keys "title", "authors", and "year".
+        prompt = f"""Extract the Title, Authors, Year completed, and Department of the thesis from the text below. 
+The Department should be exactly one of the following: {dept_str} or left blank if none of these are clearly found.
+Return ONLY a valid JSON object with the keys "title", "authors", "year", and "department".
 If you cannot find them, return an empty string for the values.
 Do not wrap in markdown code blocks.
 
@@ -251,7 +264,8 @@ Text:
         return {
             'title': data.get('title', ''),
             'authors': data.get('authors', ''),
-            'year': str(data.get('year', ''))
+            'year': str(data.get('year', '')),
+            'department': data.get('department', '')
         }
     except Exception as e:
         logger.error(f"Metadata extraction failed: {e}")

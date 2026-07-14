@@ -1,53 +1,38 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { MailCheck } from 'lucide-react'
+import { MailCheck, ExternalLink } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
-import { OtpInput } from '../../components/ui/OtpInput'
 import { StepHeader } from './StepHeader'
-import { ErrorAlert, formStagger, Rise, Shine, UnderlineLink } from './AuthFx'
+import { formStagger, Rise, Shine, UnderlineLink } from './AuthFx'
 import { friendlyAuthError, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
 
-/** Passwordless sign-in: verify the 6-digit code emailed by signInWithOtp. */
+const getEmailLink = (email) => {
+  const e = email.toLowerCase()
+  if (e.endsWith('@gmail.com') || e.endsWith('@isu.edu.ph')) return 'https://mail.google.com'
+  if (e.endsWith('@yahoo.com')) return 'https://mail.yahoo.com'
+  if (e.endsWith('@outlook.com') || e.endsWith('@hotmail.com')) return 'https://outlook.live.com'
+  return 'mailto:'
+}
+
+/** Passwordless sign-in: tells the user to click the magic link in their email. */
 export function OtpSignInStep({ email, onBack }) {
-  const [code, setCode] = useState('')
-  const [error, setError] = useState('')
-  const [shakeNonce, setShakeNonce] = useState(0)
-  const [verifying, setVerifying] = useState(false)
   const [resending, setResending] = useState(false)
   const [cooldown, setCooldown] = useResendTimer(60)
 
-  const verify = async (token) => {
-    setVerifying(true)
-    setError('')
-    try {
-      const { error: err } = await supabase.auth.verifyOtp({ email, token, type: 'email' })
-      if (err) throw err
-      toast.success('Welcome back!')
-      // Session lands in AuthContext → orchestrator redirects.
-    } catch (err) {
-      setError(friendlyAuthError(err))
-      setShakeNonce((n) => n + 1)
-      setCode('')
-    } finally {
-      setVerifying(false)
-    }
-  }
-
   const resend = async () => {
     setResending(true)
-    setError('')
     try {
       const { error: err } = await supabase.auth.signInWithOtp({
         email,
         options: { shouldCreateUser: false },
       })
       if (err) throw err
-      toast.success('New code sent', { description: `Check ${maskEmail(email)}` })
+      toast.success('New link sent', { description: `Check ${maskEmail(email)}` })
       setCooldown(60)
     } catch (err) {
-      setError(friendlyAuthError(err))
+      toast.error('Failed to resend', { description: friendlyAuthError(err) })
       const wait = retryAfterSeconds(err)
       if (wait) setCooldown(wait)
     } finally {
@@ -62,8 +47,8 @@ export function OtpSignInStep({ email, onBack }) {
         title="Check your inbox"
         subtitle={
           <>
-            We sent a 6-digit code to <span className="font-semibold">{maskEmail(email)}</span>.
-            Clicking the magic link in the email works too.
+            We sent a secure sign-in link to <span className="font-semibold">{maskEmail(email)}</span>.
+            Click the link in the email to sign in instantly.
           </>
         }
         onBack={onBack}
@@ -72,34 +57,15 @@ export function OtpSignInStep({ email, onBack }) {
 
       <motion.div variants={formStagger} initial="hidden" animate="show">
         <Rise>
-          <OtpInput
-            value={code}
-            onChange={setCode}
-            onComplete={verify}
-            disabled={verifying}
-            error={!!error}
-            shakeNonce={shakeNonce}
-            ariaLabel="Email sign-in code"
-          />
-        </Rise>
-
-        {error && (
-          <ErrorAlert key={shakeNonce} className="mt-4 bg-transparent px-0 py-0 text-center">
-            {error}
-          </ErrorAlert>
-        )}
-
-        <Rise>
           <Button
             size="lg"
-            loading={verifying}
-            disabled={code.length !== 6}
-            onClick={() => verify(code)}
+            onClick={() => window.open(getEmailLink(email), '_blank')}
             whileHover={{ scale: 1.015, y: -1 }}
             className="group relative mt-6 w-full overflow-hidden"
           >
             <Shine />
-            Verify & sign in
+            Go to email
+            <ExternalLink size={16} className="ml-2 opacity-70" />
           </Button>
         </Rise>
 
@@ -113,7 +79,7 @@ export function OtpSignInStep({ email, onBack }) {
               disabled={resending}
               className="text-forest-600 disabled:opacity-50 dark:text-gold-300"
             >
-              {resending ? 'Sending…' : 'Resend code'}
+              {resending ? 'Sending…' : 'Resend link'}
             </UnderlineLink>
           )}
         </Rise>

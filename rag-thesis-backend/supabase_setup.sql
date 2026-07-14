@@ -29,7 +29,9 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
   full_name text,
-  role text not null default 'student' check (role in ('student', 'faculty', 'admin')),
+  role text not null default 'student' check (role in ('student', 'faculty', 'admin', 'superadmin')),
+  department text not null default 'CCSICT',
+  status text not null default 'approved' check (status in ('pending', 'approved', 'rejected')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -40,12 +42,17 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, full_name, role)
+  insert into public.profiles (id, email, full_name, role, department, status)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
-    'student'
+    coalesce(new.raw_user_meta_data ->> 'requested_role', 'student'),
+    coalesce(new.raw_user_meta_data ->> 'department', 'CCSICT'),
+    case 
+      when (new.raw_user_meta_data ->> 'requested_role') in ('faculty', 'admin') then 'pending'
+      else 'approved'
+    end
   )
   on conflict (id) do nothing;
   return new;
@@ -77,6 +84,7 @@ create table if not exists public.papers (
   chunk_count integer default 0,
   duplication_scan jsonb,
   uploaded_by uuid references auth.users(id) on delete set null,
+  department text not null default 'CCSICT',
   created_at timestamptz not null default now()
 );
 
@@ -195,10 +203,13 @@ create index if not exists activity_log_action_idx on public.activity_log (actio
 -- 8. RPC: match_chunks — cosine similarity vector search (returns metadata)
 -- ============================================================================
 drop function if exists public.match_chunks(vector(768), int, float);
+drop function if exists public.match_chunks(vector(768), int, float, text);
+
 create or replace function public.match_chunks(
   query_embedding vector(768),
   match_count int default 5,
-  match_threshold float default 0.3
+  match_threshold float default 0.3,
+  p_department text default null
 )
 returns table (
   id bigint,
@@ -220,7 +231,9 @@ begin
     c.metadata,
     1 - (c.embedding <=> query_embedding) as similarity
   from public.chunks c
+  join public.papers p on p.id = c.paper_id
   where 1 - (c.embedding <=> query_embedding) > match_threshold
+    and (p_department is null or p.department = p_department)
   order by c.embedding <=> query_embedding
   limit match_count;
 end;

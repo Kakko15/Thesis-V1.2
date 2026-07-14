@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '../../lib/utils'
 
@@ -16,10 +16,17 @@ const BURST = Array.from({ length: 12 }, (_, i) => {
 
 /** Animated checkmark ceremony, then hands control back (navigate). */
 export function SuccessStep({ title = 'You’re in!', subtitle, onDone, delay = 1500 }) {
+  const onDoneRef = React.useRef(onDone)
   useEffect(() => {
-    const t = setTimeout(() => onDone?.(), delay)
+    onDoneRef.current = onDone
+  }, [onDone])
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      onDoneRef.current?.()
+    }, delay)
     return () => clearTimeout(t)
-  }, [onDone, delay])
+  }, [delay])
 
   return (
     <div className="py-6 text-center">

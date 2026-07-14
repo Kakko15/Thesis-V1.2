@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -9,15 +9,17 @@ import { toast } from 'sonner'
 import {
   BarChart3, Users, BookMarked, MessageSquareText, ShieldCheck,
   Activity, UserCog, Layers, Sparkles, FileText, ScanText, Scissors, Brain, Database, ChevronRight,
+  Trash2, TerminalSquare, Save, Plus, X as CloseIcon, Pencil, Search
 } from 'lucide-react'
 import {
-  getAnalyticsOverview, getRecentActivity, listUsers, updateUserRole, apiErrorMessage, listPapers,
+  getAnalyticsOverview, getRecentActivity, listUsers, updateUserRole, apiErrorMessage, listPapers, deleteUser, updateUserDetails, getSystemLogs, getPaperUrl, getDepartments, createDepartment, updateDepartment, deleteDepartment, getFeaturePermissions, updateFeaturePermissions, getTracks
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Skeleton } from '../components/ui/Skeleton'
 import { Badge, RoleBadge } from '../components/ui/Badge'
-import { Select } from '../components/ui/Input'
+import { Select, Input } from '../components/ui/Input'
+import { Button } from '../components/ui/Button'
 import { PageTransition, AnimatedCounter, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { timeAgo, cn, formatDate } from '../lib/utils'
 
@@ -82,11 +84,59 @@ function PipelineNode({ icon: Icon, label, active, delay }) {
   )
 }
 
+function PaginationControls({ page, setPage, total, limit }) {
+  const totalPages = Math.ceil(total / limit)
+  if (total <= limit) return null
+  return (
+    <div className="flex items-center justify-between px-6 py-3 border-t border-forest-900/10 dark:border-white/10">
+      <div className="text-xs opacity-60">Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total}</div>
+      <div className="flex gap-2">
+        <Button size="sm" variant="secondary" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="py-1 px-3 h-auto text-xs">Prev</Button>
+        <Button size="sm" variant="secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="py-1 px-3 h-auto text-xs">Next</Button>
+      </div>
+    </div>
+  )
+}
+
 function UploadHistoryTab() {
+  const { role, department: userDept } = useAuth()
   const { data: papers = [], isLoading } = useQuery({
-    queryKey: ['papers'],
-    queryFn: listPapers,
+    queryKey: ['papers', role, userDept],
+    queryFn: () => listPapers(role === 'admin' ? userDept : null),
   })
+
+  const [query, setQuery] = useState('')
+  const [trackFilter, setTrackFilter] = useState('')
+  const [yearFilter, setYearFilter] = useState('')
+  const [deptFilter, setDeptFilter] = useState(role === 'admin' ? userDept : '')
+
+  const { data: tracks = [] } = useQuery({ queryKey: ['tracks'], queryFn: getTracks })
+  const { data: departments = [] } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
+
+  const years = useMemo(() => {
+    const ys = [...new Set((papers || []).map((p) => p.year).filter(Boolean))]
+    return ys.sort((a, b) => b - a)
+  }, [papers])
+
+  const { activeTracks, trackLabel } = useMemo(() => {
+    if (!deptFilter) return { activeTracks: tracks, trackLabel: 'track' }
+    const dept = departments.find(d => d.name === deptFilter)
+    if (dept) return { activeTracks: dept.tracks || [], trackLabel: dept.track_label?.toLowerCase() || 'track' }
+    return { activeTracks: tracks, trackLabel: 'track' }
+  }, [deptFilter, departments, tracks])
+
+  const filteredPapers = useMemo(() => {
+    return (papers || []).filter((p) => {
+      const q = query.trim().toLowerCase()
+      const matchQ = !q ||
+        p.title?.toLowerCase().includes(q) ||
+        p.authors?.toLowerCase().includes(q)
+      const matchTrack = !trackFilter || p.track === trackFilter
+      const matchYear = !yearFilter || String(p.year) === yearFilter
+      const matchDepartment = !deptFilter || p.department === deptFilter
+      return matchQ && matchTrack && matchYear && matchDepartment
+    })
+  }, [papers, query, trackFilter, yearFilter, deptFilter])
 
   return (
     <div className="space-y-6">
@@ -108,6 +158,35 @@ function UploadHistoryTab() {
         </div>
       </GlassCard>
 
+      {/* Filters */}
+      <GlassCard className="flex flex-col gap-3 p-4 sm:flex-row">
+        <div className="relative flex-1">
+          <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
+          <Input
+            className="pl-11"
+            placeholder="Search titles or authors…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        {deptFilter && (
+          <Select value={trackFilter} onChange={(e) => setTrackFilter(e.target.value)} className="sm:w-52" aria-label={`Filter by ${trackLabel}`}>
+            <option value="">All {trackLabel}s</option>
+            {activeTracks.map((t) => <option key={t} value={t}>{t}</option>)}
+          </Select>
+        )}
+        {role !== 'admin' && (
+          <Select value={deptFilter} onChange={(e) => { setDeptFilter(e.target.value); setTrackFilter(''); }} className="sm:w-40" aria-label="Filter by department">
+            <option value="">All depts</option>
+            {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+          </Select>
+        )}
+        <Select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} className="sm:w-36" aria-label="Filter by year">
+          <option value="">All years</option>
+          {years.map((y) => <option key={y} value={y}>{y}</option>)}
+        </Select>
+      </GlassCard>
+
       <GlassCard className="overflow-hidden">
         <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10">
           <div className="text-sm font-bold uppercase tracking-wider opacity-70">Archived Theses</div>
@@ -118,6 +197,7 @@ function UploadHistoryTab() {
               <tr>
                 <th className="px-6 py-3">Title & Authors</th>
                 <th className="px-6 py-3">Track</th>
+                <th className="px-6 py-3">Dept</th>
                 <th className="px-6 py-3">Year</th>
                 <th className="px-6 py-3">Uploaded By</th>
                 <th className="px-6 py-3">Chunks</th>
@@ -126,17 +206,18 @@ function UploadHistoryTab() {
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
               {isLoading ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center opacity-50">Loading history...</td></tr>
-              ) : papers.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center opacity-50">No theses uploaded yet.</td></tr>
+                <tr><td colSpan={7} className="px-6 py-8 text-center opacity-50">Loading history...</td></tr>
+              ) : filteredPapers.length === 0 ? (
+                <tr><td colSpan={7} className="px-6 py-8 text-center opacity-50">No matching theses found.</td></tr>
               ) : (
-                papers.map(p => (
+                filteredPapers.map(p => (
                   <tr key={p.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
                     <td className="px-6 py-4 max-w-md">
                       <div className="font-bold line-clamp-1">{p.title}</div>
                       <div className="text-xs opacity-60 line-clamp-1 mt-0.5">{p.authors || 'Unknown'}</div>
                     </td>
                     <td className="px-6 py-4"><Badge tone="forest">{p.track}</Badge></td>
+                    <td className="px-6 py-4"><Badge tone="neutral">{p.department}</Badge></td>
                     <td className="px-6 py-4">{p.year}</td>
                     <td className="px-6 py-4 text-xs font-semibold opacity-80">{p.uploader_name || 'Unknown'}</td>
                     <td className="px-6 py-4 font-mono text-xs opacity-70">{p.chunk_count}</td>
@@ -152,8 +233,614 @@ function UploadHistoryTab() {
   )
 }
 
+function FeaturePermissionsManagement() {
+  const { broadcastFeatureUpdate } = useAuth()
+  const queryClient = useQueryClient()
+  const { data: features, isLoading } = useQuery({ queryKey: ['features'], queryFn: getFeaturePermissions })
+
+  const handleToggle = async (role, feature) => {
+    if (!features) return
+    const current = features[role] || {}
+    const newValue = !current[feature]
+    const payload = {
+      ...features,
+      [role]: { ...current, [feature]: newValue }
+    }
+    
+    // Optimistic update
+    queryClient.setQueryData(['features'], payload)
+    
+    try {
+      await updateFeaturePermissions(payload)
+      toast.success(`${feature} for ${role} ${newValue ? 'enabled' : 'disabled'}`)
+      
+      // Fire a realtime broadcast so all connected clients instantly refetch without needing table RLS
+      broadcastFeatureUpdate?.()
+    } catch (err) {
+      toast.error('Failed to update feature', { description: apiErrorMessage(err) })
+      queryClient.invalidateQueries({ queryKey: ['features'] })
+    }
+  }
+
+  return (
+    <GlassCard className="overflow-hidden mb-6">
+      <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex items-center justify-between">
+        <div className="text-sm font-bold uppercase tracking-wider opacity-70">Role Feature Permissions</div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider opacity-60 dark:bg-white/5">
+            <tr>
+              <th className="px-6 py-3 w-1/4">Role</th>
+              <th className="px-6 py-3 w-3/4">Granted Features</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
+            {isLoading ? (
+              <tr><td colSpan={2} className="px-6 py-8 text-center opacity-50">Loading features...</td></tr>
+            ) : (
+              ['student', 'faculty'].map(role => (
+                <tr key={role} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
+                  <td className="px-6 py-4 font-bold capitalize">{role}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-4">
+                      {['chat', 'archive', 'novelty', 'upload'].map(feature => {
+                        const isEnabled = features?.[role]?.[feature] || false
+                        const labelMap = {
+                          chat: 'AI Chat',
+                          archive: 'Archive',
+                          novelty: 'Novelty Check',
+                          upload: 'Upload Thesis'
+                        }
+                        return (
+                          <label key={feature} className="flex items-center gap-2 cursor-pointer group">
+                            <div className="relative inline-flex items-center">
+                              <input 
+                                type="checkbox" 
+                                className="sr-only peer"
+                                checked={isEnabled}
+                                onChange={() => handleToggle(role, feature)}
+                              />
+                              <div className="w-9 h-5 bg-forest-900/20 peer-focus:outline-none rounded-full peer dark:bg-white/10 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-forest-500"></div>
+                            </div>
+                            <span className="text-sm font-medium group-hover:text-forest-600 dark:group-hover:text-gold-400 transition-colors">
+                              {labelMap[feature]}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </GlassCard>
+  )
+}
+
+function DepartmentsManagement() {
+  const queryClient = useQueryClient()
+  const { data: departments = [], isLoading } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
+  
+  const [editingId, setEditingId] = useState(null)
+  const [form, setForm] = useState({ name: '', track_label: '', tracks: '' })
+  const [page, setPage] = useState(1)
+
+  const paginated = departments.slice((page - 1) * 5, page * 5)
+
+  const startEdit = (d) => {
+    setEditingId(d.id)
+    setForm({ name: d.name, track_label: d.track_label, tracks: d.tracks.join(', ') })
+  }
+  
+  const startCreate = () => {
+    setEditingId('new')
+    setForm({ name: '', track_label: 'Academic track', tracks: '' })
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+  }
+
+  const handleSave = async () => {
+    try {
+      const payload = {
+        name: form.name.trim(),
+        track_label: form.track_label.trim(),
+        tracks: form.tracks.split(',').map(t => t.trim()).filter(Boolean)
+      }
+      if (editingId === 'new') {
+        await createDepartment(payload)
+        toast.success('Department created')
+      } else {
+        await updateDepartment(editingId, payload)
+        toast.success('Department updated')
+      }
+      queryClient.invalidateQueries({ queryKey: ['departments'] })
+      setEditingId(null)
+    } catch (err) {
+      toast.error('Failed to save department', { description: apiErrorMessage(err) })
+    }
+  }
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this department?')) return
+    try {
+      await deleteDepartment(id)
+      queryClient.invalidateQueries({ queryKey: ['departments'] })
+      toast.success('Department deleted')
+    } catch (err) {
+      toast.error('Failed to delete department', { description: apiErrorMessage(err) })
+    }
+  }
+
+  return (
+    <GlassCard className="overflow-hidden mb-6">
+      <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex items-center justify-between">
+        <div className="text-sm font-bold uppercase tracking-wider opacity-70">Departments & Tracks Configuration</div>
+        <Button size="sm" onClick={startCreate} disabled={editingId !== null}><Plus size={14} className="mr-1" /> Add Dept</Button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider opacity-60 dark:bg-white/5">
+            <tr>
+              <th className="px-6 py-3">Dept Name</th>
+              <th className="px-6 py-3">Track Label</th>
+              <th className="px-6 py-3">Tracks (Options)</th>
+              <th className="px-6 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
+            {isLoading ? (
+              <tr><td colSpan={4} className="px-6 py-8 text-center opacity-50">Loading departments...</td></tr>
+            ) : (
+              <>
+                {paginated.map(d => (
+                  <tr key={d.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
+                    <td className="px-6 py-4">
+                      {editingId === d.id ? <Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="h-8 text-xs max-w-[120px]" /> : <div className="font-bold">{d.name}</div>}
+                    </td>
+                    <td className="px-6 py-4">
+                      {editingId === d.id ? <Input value={form.track_label} onChange={e => setForm({...form, track_label: e.target.value})} className="h-8 text-xs max-w-[150px]" /> : d.track_label}
+                    </td>
+                    <td className="px-6 py-4">
+                      {editingId === d.id ? (
+                        <Input value={form.tracks} onChange={e => setForm({...form, tracks: e.target.value})} placeholder="Comma-separated" className="h-8 text-xs w-full min-w-[200px]" />
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {d.tracks.map(t => <Badge key={t} tone="neutral" className="text-[10px] py-0">{t}</Badge>)}
+                          {d.tracks.length === 0 && <span className="opacity-40 italic text-xs">No tracks</span>}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-2">
+                        {editingId === d.id ? (
+                          <>
+                            <Button size="icon-sm" onClick={handleSave} aria-label="Save"><Save size={14} /></Button>
+                            <Button size="icon-sm" variant="ghost" onClick={cancelEdit} aria-label="Cancel"><CloseIcon size={14} /></Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button size="icon-sm" variant="ghost" onClick={() => startEdit(d)} aria-label="Edit"><Pencil size={14} /></Button>
+                            <Button size="icon-sm" variant="ghost" className="text-flame-500 hover:text-flame-600 hover:bg-flame-500/10" onClick={() => handleDelete(d.id)} aria-label="Delete"><Trash2 size={14} /></Button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {editingId === 'new' && (
+                  <tr className="bg-forest-900/5 dark:bg-white/5">
+                    <td className="px-6 py-4"><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="E.g. CBEA" className="h-8 text-xs max-w-[120px]" /></td>
+                    <td className="px-6 py-4"><Input value={form.track_label} onChange={e => setForm({...form, track_label: e.target.value})} placeholder="E.g. Program" className="h-8 text-xs max-w-[150px]" /></td>
+                    <td className="px-6 py-4"><Input value={form.tracks} onChange={e => setForm({...form, tracks: e.target.value})} placeholder="Comma-separated tracks" className="h-8 text-xs w-full min-w-[200px]" /></td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button size="icon-sm" onClick={handleSave} aria-label="Save"><Save size={14} /></Button>
+                        <Button size="icon-sm" variant="ghost" onClick={cancelEdit} aria-label="Cancel"><CloseIcon size={14} /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <PaginationControls page={page} setPage={setPage} total={departments.length} limit={5} />
+    </GlassCard>
+  )
+}
+
+function SystemManagementTab() {
+  const { user: me, role: myRole, isSuperadmin, department: myDept } = useAuth()
+  const queryClient = useQueryClient()
+  const [editingUser, setEditingUser] = useState(null)
+  const [deptFilter, setDeptFilter] = useState(isSuperadmin ? 'all' : (myDept || 'all'))
+  const [roleFilter, setRoleFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [userPage, setUserPage] = useState(1)
+  const [paperSearchQuery, setPaperSearchQuery] = useState('')
+  const [paperDeptFilter, setPaperDeptFilter] = useState(isSuperadmin ? 'all' : (myDept || 'all'))
+  const [paperPage, setPaperPage] = useState(1)
+  
+  const { data: users = [], isLoading: loadingUsers } = useQuery({
+    queryKey: ['users'],
+    queryFn: listUsers,
+  })
+  
+  const filteredUsers = users.filter(u => {
+    if (deptFilter !== 'all' && u.department !== deptFilter) return false
+    if (roleFilter !== 'all' && u.role !== roleFilter) return false
+    if (statusFilter !== 'all' && u.status !== statusFilter) return false
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      if (!u.full_name?.toLowerCase().includes(q) && !u.email?.toLowerCase().includes(q)) return false
+    }
+    return true
+  })
+  const paginatedUsers = filteredUsers.slice((userPage - 1) * 5, userPage * 5)
+  
+  const { data: logs = [], isLoading: loadingLogs } = useQuery({
+    queryKey: ['system-logs'],
+    queryFn: () => getSystemLogs(200),
+  })
+
+  const { data: papers = [], isLoading: loadingPapers } = useQuery({
+    queryKey: ['papers', 'all'],
+    queryFn: () => listPapers(null),
+  })
+  const filteredPapers = papers.filter(p => {
+    if (paperDeptFilter !== 'all' && p.department !== paperDeptFilter) return false
+    if (paperSearchQuery) {
+      const q = paperSearchQuery.toLowerCase()
+      if (!p.title?.toLowerCase().includes(q) && !p.authors?.toLowerCase().includes(q)) return false
+    }
+    return true
+  })
+  const paginatedPapers = filteredPapers.slice((paperPage - 1) * 5, paperPage * 5)
+
+  const handleUpdate = async (userId, data) => {
+    try {
+      await updateUserDetails(userId, data)
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success('User updated')
+      setEditingUser(null)
+    } catch (err) {
+      toast.error('Update failed', { description: apiErrorMessage(err) })
+    }
+  }
+
+  const handleDelete = async (userId) => {
+    if (!window.confirm('Are you sure you want to permanently delete this user? This action cannot be undone.')) return
+    try {
+      await deleteUser(userId)
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success('User deleted')
+    } catch (err) {
+      toast.error('Delete failed', { description: apiErrorMessage(err) })
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <GlassCard className="overflow-hidden">
+        <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-col gap-4 sm:flex-row sm:items-center justify-between">
+          <div className="text-sm font-bold uppercase tracking-wider opacity-70">User Directory</div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative">
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
+              <Input
+                className="pl-9 h-8 text-xs w-[160px] rounded-xl"
+                placeholder="Search users..."
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setUserPage(1); }}
+              />
+            </div>
+            {isSuperadmin && (
+              <Select value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setUserPage(1); }} className="h-8 rounded-xl px-2.5 text-xs w-[110px]">
+                <option value="all">All Depts</option>
+                <option value="CCSICT">CCSICT</option>
+                <option value="CAS">CAS</option>
+              </Select>
+            )}
+            <Select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setUserPage(1); }} className="h-8 rounded-xl px-2.5 text-xs w-[110px]">
+              <option value="all">All Roles</option>
+              <option value="student">Student</option>
+              <option value="faculty">Faculty</option>
+              <option value="admin">Admin</option>
+              {isSuperadmin && <option value="superadmin">Superadmin</option>}
+            </Select>
+            <Select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setUserPage(1); }} className="h-8 rounded-xl px-2.5 text-xs w-[110px]">
+              <option value="all">All Status</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+              <option value="rejected">Rejected</option>
+            </Select>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider opacity-60 dark:bg-white/5">
+              <tr>
+                <th className="px-6 py-3">User</th>
+                <th className="px-6 py-3">Role</th>
+                <th className="px-6 py-3">Status</th>
+                <th className="px-6 py-3">Dept</th>
+                <th className="px-6 py-3">Joined</th>
+                <th className="px-6 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
+              {loadingUsers ? (
+                <tr><td colSpan={6} className="px-6 py-8 text-center opacity-50">Loading users...</td></tr>
+              ) : filteredUsers.length === 0 ? (
+                <tr><td colSpan={6} className="px-6 py-8 text-center opacity-50">No users found.</td></tr>
+              ) : (
+                paginatedUsers.map(u => (
+                  <tr key={u.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
+                    <td className="px-6 py-4">
+                      {editingUser?.id === u.id ? (
+                        <Input 
+                          value={editingUser.full_name} 
+                          onChange={(e) => setEditingUser({ ...editingUser, full_name: e.target.value })} 
+                          className="h-8 text-xs max-w-[200px]"
+                        />
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          {u.avatar_url ? (
+                            <img src={u.avatar_url} alt={u.full_name || u.email} className="h-10 w-10 shrink-0 rounded-full object-cover shadow-sm" />
+                          ) : (
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-forest-900/10 text-xs font-bold text-forest-700 dark:bg-white/10 dark:text-forest-300 shadow-sm uppercase">
+                              {(u.full_name || u.email || '?').charAt(0)}
+                            </div>
+                          )}
+                          <div>
+                            <div className="font-bold">{u.full_name || u.email}</div>
+                            <div className="mt-0.5 text-[0.65rem] font-semibold text-forest-600 dark:text-gold-400 capitalize">
+                              {u.role === 'superadmin' ? 'Super Admin at System' : <>{u.role === 'admin' ? 'Administrator' : u.role} at {u.department || 'Unassigned'}</>}
+                            </div>
+                            <div className="mt-0.5 text-xs opacity-60">{u.email}</div>
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {editingUser?.id === u.id ? (
+                        <Select
+                          value={editingUser.role}
+                          onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
+                          className="h-8 rounded-xl px-2.5 text-xs w-[120px]"
+                        >
+                          <option value="student">Student</option>
+                          <option value="faculty">Faculty</option>
+                          {isSuperadmin && <option value="admin">Admin</option>}
+                          {isSuperadmin && <option value="superadmin">Superadmin</option>}
+                        </Select>
+                      ) : (
+                        <RoleBadge role={u.role} />
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {editingUser?.id === u.id && isSuperadmin ? (
+                        <Select
+                          value={editingUser.status || 'approved'}
+                          onChange={(e) => setEditingUser({ ...editingUser, status: e.target.value })}
+                          className="h-8 rounded-xl px-2.5 text-xs w-[100px]"
+                        >
+                          <option value="approved">Approved</option>
+                          <option value="pending">Pending</option>
+                          <option value="rejected">Rejected</option>
+                        </Select>
+                      ) : (
+                        <Badge tone={u.status === 'pending' ? 'warning' : u.status === 'rejected' ? 'critical' : 'success'}>
+                          {u.status || 'approved'}
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {editingUser?.id === u.id ? (
+                        <Select
+                          value={editingUser.department || ''}
+                          onChange={(e) => setEditingUser({ ...editingUser, department: e.target.value })}
+                          className="h-8 rounded-xl px-2.5 text-xs w-[100px]"
+                        >
+                          <option value="CCSICT">CCSICT</option>
+                          <option value="CAS">CAS</option>
+                        </Select>
+                      ) : (
+                        <Badge tone="neutral">{u.department || 'Unassigned'}</Badge>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-xs opacity-70">{formatDate(u.created_at)}</td>
+                    <td className="px-6 py-4 text-right">
+                      {u.id !== me?.id && (
+                        <div className="flex justify-end gap-2">
+                          {u.status === 'pending' && (isSuperadmin || !['admin', 'superadmin'].includes(u.role)) && (
+                            <>
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="h-8 py-0 px-3 text-xs text-flame-500 hover:text-flame-600 hover:bg-flame-500/10"
+                                onClick={() => {
+                                  if (!window.confirm('Are you sure you want to reject this user?')) return
+                                  if (myRole === 'superadmin') {
+                                    updateUserDetails(u.id, { full_name: u.full_name || u.email.split('@')[0] || 'Unknown', role: u.role, department: u.department, status: 'rejected' })
+                                      .then(() => {
+                                        queryClient.invalidateQueries({ queryKey: ['users'] })
+                                        toast.success('User rejected')
+                                      })
+                                      .catch(err => toast.error('Failed to reject', { description: apiErrorMessage(err) }))
+                                  } else {
+                                    updateUserRole(u.id, { role: u.role, status: 'rejected' })
+                                      .then(() => {
+                                        queryClient.invalidateQueries({ queryKey: ['users'] })
+                                        toast.success('User rejected')
+                                      })
+                                      .catch(err => toast.error('Failed to reject', { description: apiErrorMessage(err) }))
+                                  }
+                                }}
+                              >
+                                Reject
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="primary" 
+                                className="h-8 py-0 px-3 text-xs"
+                                onClick={() => {
+                                  if (!window.confirm('Are you sure you want to approve this user?')) return
+                                  if (myRole === 'superadmin') {
+                                    updateUserDetails(u.id, { full_name: u.full_name || u.email.split('@')[0] || 'Unknown', role: u.role, department: u.department, status: 'approved' })
+                                      .then(() => {
+                                        queryClient.invalidateQueries({ queryKey: ['users'] })
+                                        toast.success('User approved')
+                                      })
+                                      .catch(err => toast.error('Failed to approve', { description: apiErrorMessage(err) }))
+                                  } else {
+                                    updateUserRole(u.id, { role: u.role, status: 'approved' })
+                                      .then(() => {
+                                        queryClient.invalidateQueries({ queryKey: ['users'] })
+                                        toast.success('User approved')
+                                      })
+                                      .catch(err => toast.error('Failed to approve', { description: apiErrorMessage(err) }))
+                                  }
+                                }}
+                              >
+                                Approve
+                              </Button>
+                            </>
+                          )}
+                          {editingUser?.id === u.id ? (
+                            <Button size="icon-sm" onClick={() => handleUpdate(u.id, editingUser)} aria-label="Save"><Save size={14} /></Button>
+                          ) : (
+                            (isSuperadmin || !['admin', 'superadmin'].includes(u.role)) && (
+                              <Button size="icon-sm" variant="ghost" onClick={() => setEditingUser(u)} aria-label="Edit"><UserCog size={14} /></Button>
+                            )
+                          )}
+                          {(isSuperadmin || !['admin', 'superadmin'].includes(u.role)) && (
+                            <Button size="icon-sm" variant="ghost" className="text-flame-500 hover:text-flame-600 hover:bg-flame-500/10" onClick={() => handleDelete(u.id)} aria-label="Delete"><Trash2 size={14} /></Button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls page={userPage} setPage={setUserPage} total={filteredUsers.length} limit={5} />
+      </GlassCard>
+
+      <GlassCard className="p-6">
+        <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-50">
+          <TerminalSquare size={13} /> Raw System Logs
+        </div>
+        <div className="bg-canvas-950 text-white rounded-2xl p-4 font-mono text-[0.65rem] max-h-96 overflow-y-auto space-y-2">
+          {loadingLogs ? <div className="opacity-50">Loading system logs...</div> : (
+            logs.map(log => (
+              <div key={log.id} className="border-b border-white/10 pb-2">
+                <span className="text-forest-400">[{new Date(log.created_at).toISOString()}]</span>{' '}
+                <span className="text-gold-400">{log.action}</span>{' '}
+                <span className="opacity-60">USER:{log.user?.email || log.user_id || 'system'}</span>{' '}
+                <span className="text-white/80">{JSON.stringify(log.detail)}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </GlassCard>
+
+      {myRole === 'superadmin' && (
+        <>
+          <FeaturePermissionsManagement />
+          <DepartmentsManagement />
+        </>
+      )}
+
+      <GlassCard className="overflow-hidden">
+        <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-col gap-4 sm:flex-row sm:items-center justify-between">
+          <div className="text-sm font-bold uppercase tracking-wider opacity-70">Database Papers & Buckets</div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative">
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
+              <Input
+                className="pl-9 h-8 text-xs w-[160px] rounded-xl"
+                placeholder="Search titles, authors..."
+                value={paperSearchQuery}
+                onChange={(e) => { setPaperSearchQuery(e.target.value); setPaperPage(1); }}
+              />
+            </div>
+            {isSuperadmin && (
+              <Select value={paperDeptFilter} onChange={e => { setPaperDeptFilter(e.target.value); setPaperPage(1); }} className="h-8 rounded-xl px-2.5 text-xs w-[110px]">
+                <option value="all">All Depts</option>
+                <option value="CCSICT">CCSICT</option>
+                <option value="CAS">CAS</option>
+              </Select>
+            )}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider opacity-60 dark:bg-white/5">
+              <tr>
+                <th className="px-6 py-3">Title & Authors</th>
+                <th className="px-6 py-3">Dept / Track</th>
+                <th className="px-6 py-3">File Link (Bucket)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
+              {loadingPapers ? (
+                <tr><td colSpan={3} className="px-6 py-8 text-center opacity-50">Loading database papers...</td></tr>
+              ) : filteredPapers.length === 0 ? (
+                <tr><td colSpan={3} className="px-6 py-8 text-center opacity-50">No papers found.</td></tr>
+              ) : (
+                paginatedPapers.map(p => (
+                  <tr key={p.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
+                    <td className="px-6 py-4 max-w-sm">
+                      <div className="font-bold line-clamp-1">{p.title}</div>
+                      <div className="text-xs opacity-60 line-clamp-1 mt-0.5">{p.authors || 'Unknown'}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex gap-1">
+                        <Badge tone="neutral">{p.department || 'Unassigned'}</Badge>
+                        <Badge tone="forest">{p.track}</Badge>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-xs font-semibold">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={async () => {
+                          try {
+                            const url = await getPaperUrl(p.id);
+                            window.open(url, '_blank');
+                          } catch (err) {
+                            toast.error('Failed to get URL', { description: apiErrorMessage(err) });
+                          }
+                        }}
+                      >
+                        <BookMarked size={14} className="mr-1.5" /> Open PDF
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls page={paperPage} setPage={setPaperPage} total={filteredPapers.length} limit={5} />
+      </GlassCard>
+    </div>
+  )
+}
+
 export default function Admin() {
-  const { user: me } = useAuth()
+  const { user: me, isSuperadmin, displayName, role, department } = useAuth()
   const queryClient = useQueryClient()
   const [changing, setChanging] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
@@ -192,11 +879,14 @@ export default function Admin() {
     <PageTransition className="mx-auto max-w-6xl space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
+          <p className="text-sm font-semibold text-gold-500 dark:text-gold-300">
+            {displayName} • <span className="capitalize">{role === 'superadmin' ? 'Super Admin at System' : <>{role === 'admin' ? 'Administrator' : role} at {department || 'Unassigned'}</>}</span>
+          </p>
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
             Institutional <span className="text-gradient-isu">Analytics</span>
           </h1>
           <p className="mt-1 text-sm opacity-55">
-            Research usage, archive composition, and access management for CCSICT.
+            Research usage, archive composition, and access management.
           </p>
         </div>
         <div className="glass flex items-center rounded-2xl p-1">
@@ -217,6 +907,15 @@ export default function Admin() {
             )}
           >
             Upload history
+          </button>
+          <button
+            onClick={() => setActiveTab('system')}
+            className={cn(
+              "rounded-xl px-4 py-1.5 text-sm font-semibold transition-all duration-300",
+              activeTab === 'system' ? "bg-gradient-to-br from-forest-600 to-forest-800 text-white shadow-md" : "opacity-60 hover:opacity-100"
+            )}
+          >
+            System Management
           </button>
         </div>
       </div>
@@ -417,7 +1116,7 @@ export default function Admin() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{meta.label}</div>
                     <div className="truncate text-[0.65rem] opacity-45">
-                      {a.detail?.title || a.detail?.filename || a.detail?.target_email || ''}
+                      {typeof a.detail === 'object' ? JSON.stringify(a.detail) : (a.detail?.title || a.detail?.filename || a.detail?.target_email || a.detail || '')}
                     </div>
                   </div>
                   <span className="shrink-0 text-[0.65rem] opacity-40">{timeAgo(a.created_at)}</span>
@@ -443,7 +1142,7 @@ export default function Admin() {
                   <div className="truncate text-sm font-semibold">{u.full_name || u.email}</div>
                   <div className="mt-0.5"><RoleBadge role={u.role} /></div>
                 </div>
-                {u.id !== me?.id && (
+                {u.id !== me?.id && (isSuperadmin || !['admin', 'superadmin'].includes(u.role)) && (
                   <Select
                     value={u.role}
                     disabled={changing === u.id}
@@ -453,7 +1152,8 @@ export default function Admin() {
                   >
                     <option value="student">Student</option>
                     <option value="faculty">Faculty</option>
-                    <option value="admin">Admin</option>
+                    {isSuperadmin && <option value="admin">Admin</option>}
+                    {isSuperadmin && <option value="superadmin">Superadmin</option>}
                   </Select>
                 )}
               </div>
@@ -462,9 +1162,11 @@ export default function Admin() {
         </GlassCard>
       </div>
         </div>
-      ) : (
+      ) : activeTab === 'upload_history' ? (
         <UploadHistoryTab />
-      )}
+      ) : activeTab === 'system' ? (
+        <SystemManagementTab />
+      ) : null}
     </PageTransition>
   )
 }

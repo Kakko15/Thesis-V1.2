@@ -9,13 +9,13 @@ import {
   AlertTriangle, BookMarked, History, X, Info, GraduationCap,
 } from 'lucide-react'
 import {
-  chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getPaperUrl
+  chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getPaperUrl, getDepartments
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/Button'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Modal, ConfirmDialog } from '../components/ui/Modal'
-import { Input } from '../components/ui/Input'
+import { Input, Select } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
 import { PageTransition } from '../components/ui/Motion'
@@ -287,6 +287,7 @@ export default function Chat() {
 
   const [messages, setMessages] = useState([]) // {kind:'user'|'ai', ...}
   const [input, setInput] = useState('')
+  const [filterDepartment, setFilterDepartment] = useState('all')
   const [sending, setSending] = useState(false)
   const [sessionId, setSessionId] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -301,6 +302,11 @@ export default function Chat() {
     queryKey: ['sessions'],
     queryFn: getSessions,
     enabled: !!user,
+  })
+
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments'],
+    queryFn: getDepartments
   })
 
   useEffect(() => {
@@ -342,7 +348,7 @@ export default function Chat() {
     setMessages((m) => [...m, { kind: 'user', text: question }])
     setSending(true)
     try {
-      const res = await chatQuery(question, sessionId)
+      const res = await chatQuery(question, sessionId, 5, filterDepartment !== 'all' ? filterDepartment : null)
       setMessages((m) => [...m, { kind: 'ai', ...res, isNew: true }])
       if (res.session_id && res.session_id !== sessionId) {
         setSessionId(res.session_id)
@@ -446,11 +452,21 @@ export default function Chat() {
             <div>
               <div className="font-display text-sm font-extrabold">Thesis AI Chat</div>
               <div className="text-[0.65rem] opacity-50">
-                Grounded in the CCSICT archive · citations included
+                Grounded in the {filterDepartment === 'all' ? 'university' : filterDepartment} archive · citations included
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Select
+              value={filterDepartment}
+              onChange={(e) => setFilterDepartment(e.target.value)}
+              className="h-9 w-full sm:w-auto"
+            >
+              <option value="all">All Departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.name}>{d.name}</option>
+              ))}
+            </Select>
             {user ? (
               <Button variant="ghost" size="icon-sm" className="xl:hidden" onClick={() => setSidebarOpen(true)} aria-label="Conversations">
                 <History size={16} />
@@ -478,7 +494,7 @@ export default function Chat() {
               <EmptyState
                 icon={Sparkles}
                 title="Ask the archive anything"
-                message="Semantic search across every indexed CCSICT thesis — methodologies, scopes, findings, and related literature."
+                message={`Semantic search across every indexed ${filterDepartment === 'all' ? 'university' : filterDepartment} thesis — methodologies, scopes, findings, and related literature.`}
               />
               <div className="grid w-full max-w-xl gap-2 sm:grid-cols-2">
                 {STARTERS.map((s, i) => (
@@ -516,7 +532,7 @@ export default function Chat() {
               ref={inputRef}
               rows={1}
               value={input}
-              placeholder="Ask about CCSICT thesis research…"
+              placeholder={`Ask about ${filterDepartment === 'all' ? 'university' : filterDepartment} thesis research…`}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
@@ -534,7 +550,7 @@ export default function Chat() {
             </Button>
           </form>
           <p className="mt-2 text-center text-[0.65rem] opacity-40">
-            Answers are synthesized exclusively from archived CCSICT theses. Topics ≥85% similar to existing work are flagged automatically.
+            Answers are synthesized exclusively from archived {filterDepartment === 'all' ? 'university' : filterDepartment} theses. Topics ≥85% similar to existing work are flagged automatically.
           </p>
         </div>
       </GlassCard>

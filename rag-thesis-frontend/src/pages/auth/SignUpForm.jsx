@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { ArrowRight, Check, Lock, Mail, User } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../supabaseClient'
+import { getDepartments } from '../../api'
 import { Button } from '../../components/ui/Button'
 import { Input, Field } from '../../components/ui/Input'
 import { cn } from '../../lib/utils'
@@ -18,12 +20,26 @@ import {
     confirmation is disabled on the project). */
 export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }) {
   const [fullName, setFullName] = useState('')
+  const [department, setDepartment] = useState('')
+  const [role, setRole] = useState('student')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [errors, setErrors] = useState({})
   const [errorNonce, setErrorNonce] = useState(0)
   const [loading, setLoading] = useState(false)
   const [exists, setExists] = useState(false)
+
+  const { data: departments = [], isLoading: loadingDepts } = useQuery({
+    queryKey: ['departments'],
+    queryFn: getDepartments
+  })
+
+  // Set default department when loaded
+  useEffect(() => {
+    if (departments.length > 0 && !department) {
+      setDepartment(departments[0].name)
+    }
+  }, [departments, department])
 
   const strength = useMemo(() => passwordStrength(password), [password])
 
@@ -51,7 +67,11 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
         email: email.trim(),
         password,
         options: {
-          data: { full_name: fullName.trim() },
+          data: { 
+            full_name: fullName.trim(),
+            department,
+            requested_role: role
+          },
           emailRedirectTo: `${window.location.origin}/login`,
         },
       })
@@ -119,6 +139,38 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
             <ValidTick show={isValidEmail(email) && !errors.email} />
           </div>
         </Field>
+      </Rise>
+
+      <Rise>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label="Department" required>
+            <select
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              className="glass h-10 w-full rounded-2xl px-3 text-sm outline-none dark:[&>option]:bg-canvas-900"
+              disabled={loadingDepts}
+            >
+              {loadingDepts ? (
+                <option value="">Loading...</option>
+              ) : (
+                departments.map(d => (
+                  <option key={d.id} value={d.name}>{d.name}</option>
+                ))
+              )}
+            </select>
+          </Field>
+          <Field label="Account Type" required>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="glass h-10 w-full rounded-2xl px-3 text-sm outline-none dark:[&>option]:bg-canvas-900"
+            >
+              <option value="student">Student</option>
+              <option value="faculty">Faculty (needs approval)</option>
+              <option value="admin">Admin (needs approval)</option>
+            </select>
+          </Field>
+        </div>
       </Rise>
 
       <Rise>

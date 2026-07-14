@@ -12,7 +12,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
 from config import settings
-from dependencies.auth import require_faculty_or_admin, sb
+from dependencies.auth import require_novelty_access, sb
 from services.activity import log_activity
 from services.chunker import split_text
 from services.document_processor import extract_text, filter_noise_chunks
@@ -48,7 +48,7 @@ def _coerce(result) -> str:
 
 
 @router.post('/scan')
-async def scan_duplication(file: UploadFile = File(...), user=Depends(require_faculty_or_admin)):
+async def scan_duplication(file: UploadFile = File(...), user=Depends(require_novelty_access)):
     file_bytes = await file.read()
     if len(file_bytes) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(413, f'File exceeds the {settings.max_upload_mb} MB limit')
@@ -192,7 +192,7 @@ Format your response using Markdown.
 
 
 @router.post('/chat')
-def duplication_chat(req: DuplicationChatReq, user=Depends(require_faculty_or_admin)):
+def duplication_chat(req: DuplicationChatReq, user=Depends(require_novelty_access)):
     scan_res = sb.table('scan_history').select('*').eq('id', req.scan_id).eq('user_id', user.id).execute()
     if not scan_res.data:
         raise HTTPException(404, 'Scan not found')
@@ -244,6 +244,6 @@ AI:
 
 
 @router.get('/history')
-def get_history(user=Depends(require_faculty_or_admin)):
+def get_history(user=Depends(require_novelty_access)):
     res = sb.table('scan_history').select('*').eq('user_id', user.id).order('created_at', desc=True).execute()
     return res.data or []

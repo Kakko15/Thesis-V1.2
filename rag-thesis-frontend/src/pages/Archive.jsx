@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Search, BookMarked, Trash2, Library, Lock, X, ShieldAlert } from 'lucide-react'
-import { listPapers, deletePaper, getTracks, apiErrorMessage } from '../api'
+import { listPapers, deletePaper, getTracks, getDepartments, apiErrorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Input, Select } from '../components/ui/Input'
@@ -67,6 +67,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-4">
           {paper.track && <Badge tone="forest">{paper.track}</Badge>}
           {paper.year && <Badge tone="neutral">{paper.year}</Badge>}
+          {paper.department && <Badge tone="neutral">{paper.department}</Badge>}
           {paper.duplication_scan?.flagged && (
             <Badge tone="flame">
               <ShieldAlert size={11} /> {paper.duplication_scan.duplication_percentage}% overlap
@@ -79,22 +80,31 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
 }
 
 export default function Archive() {
-  const { isAdmin } = useAuth()
+  const { isAdmin, isSuperadmin } = useAuth()
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const [track, setTrack] = useState('')
   const [year, setYear] = useState('')
+  const [department, setDepartment] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [detail, setDetail] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  const { data: papers, isLoading } = useQuery({ queryKey: ['papers'], queryFn: listPapers })
+  const { data: papers, isLoading } = useQuery({ queryKey: ['papers'], queryFn: () => listPapers(null) })
   const { data: tracks = [] } = useQuery({ queryKey: ['tracks'], queryFn: getTracks })
+  const { data: departments = [] } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
 
   const years = useMemo(() => {
     const ys = [...new Set((papers || []).map((p) => p.year).filter(Boolean))]
     return ys.sort((a, b) => b - a)
   }, [papers])
+
+  const { activeTracks, trackLabel } = useMemo(() => {
+    if (!department) return { activeTracks: tracks, trackLabel: 'track' }
+    const dept = departments.find(d => d.name === department)
+    if (dept) return { activeTracks: dept.tracks || [], trackLabel: dept.track_label?.toLowerCase() || 'track' }
+    return { activeTracks: tracks, trackLabel: 'track' }
+  }, [department, departments, tracks])
 
   const filtered = useMemo(() => {
     return (papers || []).filter((p) => {
@@ -105,9 +115,10 @@ export default function Archive() {
         p.abstract?.toLowerCase().includes(q)
       const matchTrack = !track || p.track === track
       const matchYear = !year || String(p.year) === year
-      return matchQ && matchTrack && matchYear
+      const matchDepartment = !department || p.department === department
+      return matchQ && matchTrack && matchYear && matchDepartment
     })
-  }, [papers, query, track, year])
+  }, [papers, query, track, year, department])
 
   const submitDelete = async () => {
     setBusy(true)
@@ -131,7 +142,7 @@ export default function Archive() {
             Thesis <span className="text-gradient-isu">Archive</span>
           </h1>
           <p className="mt-1 text-sm opacity-55">
-            Metadata catalog of every indexed CCSICT thesis.
+            Metadata catalog of every indexed thesis.
           </p>
         </div>
         <div className="glass flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium opacity-70">
@@ -151,10 +162,18 @@ export default function Archive() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <Select value={track} onChange={(e) => setTrack(e.target.value)} className="sm:w-52" aria-label="Filter by track">
-          <option value="">All tracks</option>
-          {tracks.map((t) => <option key={t} value={t}>{t}</option>)}
-        </Select>
+        {department && (
+          <Select value={track} onChange={(e) => setTrack(e.target.value)} className="sm:w-52" aria-label={`Filter by ${trackLabel}`}>
+            <option value="">All {trackLabel}s</option>
+            {activeTracks.map((t) => <option key={t} value={t}>{t}</option>)}
+          </Select>
+        )}
+        {isSuperadmin && (
+          <Select value={department} onChange={(e) => setDepartment(e.target.value)} className="sm:w-40" aria-label="Filter by department">
+            <option value="">All depts</option>
+            {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+          </Select>
+        )}
         <Select value={year} onChange={(e) => setYear(e.target.value)} className="sm:w-36" aria-label="Filter by year">
           <option value="">All years</option>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
@@ -178,7 +197,7 @@ export default function Archive() {
             }
             action={
               papers?.length ? (
-                <Button variant="secondary" size="sm" onClick={() => { setQuery(''); setTrack(''); setYear('') }}>
+                <Button variant="secondary" size="sm" onClick={() => { setQuery(''); setTrack(''); setYear(''); setDepartment('') }}>
                   <X size={14} /> Clear filters
                 </Button>
               ) : null
@@ -205,6 +224,7 @@ export default function Archive() {
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {detail?.track && <Badge tone="forest">{detail.track}</Badge>}
+            {detail?.department && <Badge tone="neutral">{detail.department}</Badge>}
             {detail?.year && <Badge tone="gold">{detail.year}</Badge>}
             <Badge tone="neutral">Indexed {formatDate(detail?.created_at)}</Badge>
           </div>

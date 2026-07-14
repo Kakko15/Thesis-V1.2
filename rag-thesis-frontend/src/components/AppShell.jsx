@@ -12,16 +12,17 @@ import { healthCheck } from '../api'
 import { BrandMark, Logo } from './ui/Logo'
 import { RoleBadge } from './ui/Badge'
 import { Button } from './ui/Button'
+import { ProfileSettingsModal } from './ProfileSettingsModal'
 import { cn } from '../lib/utils'
 
 function useNavItems() {
-  const { user, canScan, isAdmin } = useAuth()
+  const { user, canChat, canArchive, canScan, canUpload, isAdmin } = useAuth()
   return [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, show: !!user },
-    { to: '/chat', label: 'AI Chat', icon: MessageSquareText, show: true },
-    { to: '/archive', label: 'Archive', icon: Library, show: !!user },
-    { to: '/novelty', label: 'Novelty Check', icon: ShieldCheck, show: canScan },
-    { to: '/upload', label: 'Upload Thesis', icon: UploadCloud, show: isAdmin },
+    { to: '/chat', label: 'AI Chat', icon: MessageSquareText, show: canChat !== false },
+    { to: '/archive', label: 'Archive', icon: Library, show: !!user && canArchive !== false },
+    { to: '/novelty', label: 'Novelty Check', icon: ShieldCheck, show: !!user && canScan !== false },
+    { to: '/upload', label: 'Upload Thesis', icon: UploadCloud, show: !!user && canUpload !== false },
     { to: '/admin', label: 'Analytics', icon: BarChart3, show: isAdmin },
   ].filter((i) => i.show)
 }
@@ -80,8 +81,8 @@ function HealthDot() {
   )
 }
 
-function SidebarContent({ onNavigate }) {
-  const { user, role, displayName, signOut } = useAuth()
+function SidebarContent({ onNavigate, onOpenSettings }) {
+  const { user, role, displayName, avatarUrl, signOut } = useAuth()
   const { isDark, toggle } = useTheme()
   const navigate = useNavigate()
   const items = useNavItems()
@@ -107,13 +108,22 @@ function SidebarContent({ onNavigate }) {
       <div className="space-y-4 border-t border-forest-900/10 pt-5 dark:border-white/10">
         {user ? (
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-forest-600 to-forest-800 font-display text-sm font-bold text-white">
-              {displayName.slice(0, 1).toUpperCase()}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold">{displayName}</div>
-              <RoleBadge role={role} />
-            </div>
+            <button 
+              onClick={onOpenSettings}
+              className="flex items-center gap-3 min-w-0 flex-1 text-left group transition-opacity hover:opacity-80"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-forest-600 to-forest-800 font-display text-sm font-bold text-white overflow-hidden shadow-sm group-hover:shadow-md transition-all">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  displayName.slice(0, 1).toUpperCase()
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold">{displayName}</div>
+                <RoleBadge role={role} />
+              </div>
+            </button>
             <Button variant="ghost" size="icon-sm" onClick={handleLogout} aria-label="Log out">
               <LogOut size={16} />
             </Button>
@@ -137,12 +147,13 @@ function SidebarContent({ onNavigate }) {
 
 export function AppShell({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   return (
     <div className="relative flex min-h-screen">
       {/* Desktop sidebar */}
       <aside className="glass-strong fixed inset-y-3 left-3 z-40 hidden w-64 rounded-[1.75rem] lg:block">
-        <SidebarContent />
+        <SidebarContent onOpenSettings={() => setSettingsOpen(true)} />
       </aside>
 
       {/* Mobile top bar */}
@@ -185,7 +196,7 @@ export function AppShell({ children }) {
               >
                 <X size={18} />
               </button>
-              <SidebarContent onNavigate={() => setMobileOpen(false)} />
+              <SidebarContent onNavigate={() => setMobileOpen(false)} onOpenSettings={() => { setMobileOpen(false); setSettingsOpen(true) }} />
             </motion.aside>
           </>
         )}
@@ -195,6 +206,8 @@ export function AppShell({ children }) {
       <main className="flex-1 px-4 pb-8 pt-20 lg:ml-[17.5rem] lg:pt-6 lg:pr-6">
         {children}
       </main>
+
+      <ProfileSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }
