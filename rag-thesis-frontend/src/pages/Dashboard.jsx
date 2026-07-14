@@ -106,9 +106,9 @@ function SecurityCard() {
 }
 
 export default function Dashboard() {
-  const { displayName, role, canScan, isAdmin } = useAuth()
+  const { displayName, role, department, canScan, isAdmin } = useAuth()
   const navigate = useNavigate()
-  const { data: papers, isLoading } = useQuery({ queryKey: ['papers'], queryFn: listPapers })
+  const { data: papers, isLoading } = useQuery({ queryKey: ['papers'], queryFn: () => listPapers() })
 
   const stats = useMemo(() => {
     const list = papers || []
@@ -135,12 +135,15 @@ export default function Dashboard() {
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
             {displayName}
           </h1>
-          <p className="mt-1 text-sm opacity-55">
+          <p className="mt-1 text-sm font-semibold text-forest-600 dark:text-gold-400 capitalize">
+            {role === 'superadmin' ? 'Super Admin at System' : <>{role === 'admin' ? 'Administrator' : role} at {department || 'Unassigned'}</>}
+          </p>
+          <p className="mt-1.5 text-sm opacity-55">
             {role === 'admin'
               ? 'Manage the archive, monitor usage, and validate research novelty.'
               : role === 'faculty'
-                ? 'Validate topic novelty and explore accumulated CCSICT research.'
-                : 'Explore the CCSICT thesis archive with AI-powered semantic search.'}
+                ? 'Validate topic novelty and explore accumulated research.'
+                : 'Explore the thesis archive with AI-powered semantic search.'}
           </p>
         </div>
         <Button variant="gold" onClick={() => navigate('/chat')}>

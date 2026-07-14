@@ -15,6 +15,19 @@ api.interceptors.request.use(async (config) => {
   return config
 })
 
+// Automatically log out if the backend rejects the token (e.g., user deleted or token expired)
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      // Force clear local session and reload to trigger the login screen
+      await supabase.auth.signOut()
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
 // ---------- Health ----------
 export async function healthCheck() {
   const { data } = await api.get('/health')
@@ -22,8 +35,13 @@ export async function healthCheck() {
 }
 
 // ---------- Chat (RAG) ----------
-export async function chatQuery(question, sessionId = null) {
-  const { data } = await api.post('/chat', { question, session_id: sessionId })
+export const chatQuery = async (query, session_id = null, match_count = 5, department_filter = null) => {
+  const { data } = await api.post('/chat', { 
+    question: query, 
+    session_id, 
+    match_count,
+    department_filter
+  })
   return data
 }
 
@@ -50,10 +68,12 @@ export async function getSessionMessages(sessionId) {
 }
 
 // ---------- Papers (metadata only — indirect access model) ----------
-export async function listPapers() {
-  const { data } = await api.get('/papers')
+export const listPapers = async (department = null) => {
+  const url = department ? `/papers?department=${encodeURIComponent(department)}` : '/papers'
+  const { data } = await api.get(url)
   return data
 }
+
 export async function deletePaper(paperId) {
   const { data } = await api.delete(`/papers/${paperId}`)
   return data
@@ -68,7 +88,7 @@ export async function getTracks() {
 }
 
 // ---------- Upload (background ingestion) ----------
-export async function uploadPaper({ file, title, authors, year, abstract, track }) {
+export async function uploadPaper({ file, title, authors, year, abstract, track, department }) {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('title', title)
@@ -76,6 +96,7 @@ export async function uploadPaper({ file, title, authors, year, abstract, track 
   formData.append('year', year || '')
   formData.append('abstract', abstract || '')
   formData.append('track', track || '')
+  formData.append('department', department || 'CCSICT')
   const { data } = await api.post('/upload/paper', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
@@ -127,21 +148,69 @@ export async function getMyProfile() {
   const { data } = await api.get('/analytics/me')
   return data
 }
+export async function updateMyProfile(payload) {
+  const { data } = await api.put('/analytics/me', payload)
+  return data
+}
 
 // ---------- User management (admin) ----------
 export async function listUsers() {
   const { data } = await api.get('/analytics/users')
   return data
 }
-export async function updateUserRole(userId, role) {
-  const { data } = await api.put(`/analytics/users/${userId}/role`, { role })
+export async function updateUserRole(userId, payload) {
+  const body = typeof payload === 'string' ? { role: payload } : payload;
+  const { data } = await api.put(`/analytics/users/${userId}/role`, body)
+  return data
+}
+export async function deleteUser(userId) {
+  const { data } = await api.delete(`/analytics/users/${userId}`)
+  return data
+}
+export async function updateUserDetails(userId, payload) {
+  const { data } = await api.put(`/analytics/users/${userId}/details`, payload)
+  return data
+}
+export async function getSystemLogs(limit = 200) {
+  const { data } = await api.get('/analytics/logs/system', { params: { limit } })
+  return data
+}
+
+// Departments API
+export async function getDepartments() {
+  const { data } = await api.get('/departments/')
+  return data
+}
+export async function createDepartment(payload) {
+  const { data } = await api.post('/departments/', payload)
+  return data
+}
+export async function updateDepartment(departmentId, payload) {
+  const { data } = await api.put(`/departments/${departmentId}`, payload)
+  return data
+}
+export async function deleteDepartment(departmentId) {
+  const { data } = await api.delete(`/departments/${departmentId}`)
+  return data
+}
+
+// Settings API
+export async function getFeaturePermissions() {
+  const { data } = await api.get('/settings/features')
+  return data
+}
+export async function updateFeaturePermissions(payload) {
+  const { data } = await api.put('/settings/features', payload)
   return data
 }
 
 export function apiErrorMessage(error, fallback = 'Something went wrong. Please try again.') {
-  return (
-    error?.response?.data?.detail ||
-    error?.message ||
-    fallback
-  )
+  const detail = error?.response?.data?.detail;
+  if (Array.isArray(detail)) {
+    return detail.map(d => `${d.loc?.join('.') || 'Field'}: ${d.msg}`).join(', ');
+  }
+  const fallbackMsg = detail || error?.message || fallback;
+  return typeof error?.response?.data === 'object' && error.response.data !== null 
+    ? (error.response.data.message || JSON.stringify(error.response.data)) 
+    : (error?.response?.data || fallbackMsg);
 }

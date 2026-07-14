@@ -1,18 +1,30 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { KeyRound, Mail, MailCheck } from 'lucide-react'
+import { KeyRound, Mail, Lock, ShieldCheck } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
 import { Input, Field } from '../../components/ui/Input'
 import { StepHeader } from './StepHeader'
-import { EASE, FieldIcon, formStagger, Rise, Shine, UnderlineLink, ValidTick } from './AuthFx'
+import { EASE, FieldIcon, formStagger, Rise, Shine, UnderlineLink, ValidTick, ErrorAlert } from './AuthFx'
 import { friendlyAuthError, isValidEmail, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
+import { OtpInput } from '../../components/ui/OtpInput'
+import { toast } from 'sonner'
 
-/** Request a password-reset email. Copy avoids account enumeration. */
+/** Request a password-reset OTP and verify it, then set new password. */
 export function ForgotPasswordStep({ email, setEmail, onBack }) {
   const [sent, setSent] = useState(false)
+  const [verified, setVerified] = useState(false)
+  
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  
+  const [code, setCode] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [shakeNonce, setShakeNonce] = useState(0)
+  
+  const [newPassword, setNewPassword] = useState('')
+  const [updating, setUpdating] = useState(false)
+  
   const [cooldown, setCooldown] = useResendTimer(0)
 
   const send = async (e) => {
@@ -39,59 +51,160 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
     }
   }
 
+  const verifyOtp = async (token) => {
+    setVerifying(true)
+    setError('')
+    try {
+      const { error: err } = await supabase.auth.verifyOtp({ email: email.trim(), token, type: 'recovery' })
+      if (err) throw err
+      setVerified(true)
+      toast.success('Identity verified', { description: 'You can now set a new password.' })
+    } catch (err) {
+      setError(friendlyAuthError(err))
+      setShakeNonce(n => n + 1)
+      setCode('')
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const updatePassword = async (e) => {
+    e?.preventDefault?.()
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters')
+      return
+    }
+    setUpdating(true)
+    setError('')
+    try {
+      const { error: err } = await supabase.auth.updateUser({ password: newPassword })
+      if (err) throw err
+      toast.success('Password updated successfully')
+      // Successfully updated!
+      // They are logged in, so if we call onBack() to go to signin, it'll auto-redirect to dashboard.
+      onBack()
+    } catch (err) {
+      setError(friendlyAuthError(err))
+    } finally {
+      setUpdating(false)
+    }
+  }
+
   return (
     <div>
       <StepHeader
         icon={KeyRound}
         title="Reset your password"
-        subtitle="We'll email you a secure link to choose a new one."
+        subtitle={
+          verified
+            ? "Enter your new password below."
+            : sent 
+              ? `Enter the 6-digit code we sent to ${maskEmail(email)}` 
+              : "We'll email you a secure 6-digit code to verify your identity."
+        }
         onBack={onBack}
-        backLabel="Back to sign in"
+        backLabel={sent && !verified ? "Cancel" : "Back to sign in"}
       />
 
       <AnimatePresence mode="wait">
-        {sent ? (
-          <motion.div
-            key="sent"
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.4, ease: EASE }}
-            className="text-center"
+        {verified ? (
+          <motion.form
+            key="password_form"
+            onSubmit={updatePassword}
+            variants={formStagger}
+            initial="hidden"
+            animate="show"
+            exit={{ opacity: 0, y: -10, transition: { duration: 0.3, ease: EASE } }}
+            className="space-y-5 mt-4"
+            noValidate
           >
-            <motion.div
-              initial={{ scale: 0.6 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', stiffness: 320, damping: 20 }}
-              className="relative mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-forest-500/12"
-            >
-              <motion.span
-                aria-hidden="true"
-                initial={{ scale: 1, opacity: 0 }}
-                animate={{ scale: 1.6, opacity: [0, 0.6, 0] }}
-                transition={{ duration: 0.8, delay: 0.2, ease: 'easeOut' }}
-                className="absolute inset-0 rounded-full border-2 border-forest-500/50"
+            <Rise>
+              <Field label="New Password" error={error} required>
+                <div className="group relative">
+                  <FieldIcon icon={Lock} />
+                  <Input
+                    className="pl-11"
+                    type="password"
+                    name="password"
+                    placeholder="Min. 6 characters"
+                    value={newPassword}
+                    error={error}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+              </Field>
+            </Rise>
+            <Rise>
+              <Button
+                type="submit"
+                size="lg"
+                loading={updating}
+                disabled={newPassword.length < 6}
+                whileHover={{ scale: 1.015, y: -1 }}
+                className="group relative w-full overflow-hidden"
+              >
+                <Shine />
+                Update password
+              </Button>
+            </Rise>
+          </motion.form>
+        ) : sent ? (
+          <motion.div
+            key="otp_form"
+            variants={formStagger}
+            initial="hidden"
+            animate="show"
+            exit={{ opacity: 0, y: -10, transition: { duration: 0.3, ease: EASE } }}
+            className="space-y-5"
+          >
+            <Rise>
+              <OtpInput
+                value={code}
+                onChange={setCode}
+                onComplete={verifyOtp}
+                disabled={verifying}
+                error={!!error}
+                shakeNonce={shakeNonce}
+                ariaLabel="Password reset code"
               />
-              <MailCheck size={26} className="text-forest-600 dark:text-forest-300" />
-            </motion.div>
-            <h2 className="font-display text-lg font-bold">Check your inbox</h2>
-            <p className="mx-auto mt-2 max-w-xs text-sm leading-relaxed opacity-60">
-              If an account exists for <span className="font-semibold">{maskEmail(email)}</span>,
-              a reset link is on its way. It expires in about an hour.
-            </p>
-            <div className="mt-6 text-xs opacity-60">
+            </Rise>
+            {error && (
+              <ErrorAlert key={shakeNonce} className="mt-4 bg-transparent px-0 py-0 text-center">
+                {error}
+              </ErrorAlert>
+            )}
+            <Rise>
+              <Button
+                size="lg"
+                loading={verifying}
+                disabled={code.length !== 6}
+                onClick={() => verifyOtp(code)}
+                whileHover={{ scale: 1.015, y: -1 }}
+                className="group relative mt-6 w-full overflow-hidden"
+              >
+                <Shine />
+                Verify Code
+              </Button>
+            </Rise>
+            <Rise className="mt-5 text-center text-xs opacity-60">
+              Nothing arrived?{' '}
               {cooldown > 0 ? (
-                <span className="font-semibold tabular-nums">Resend available in {cooldown}s</span>
+                <span className="font-semibold tabular-nums">Resend in {cooldown}s</span>
               ) : (
-                <UnderlineLink onClick={send} className="text-forest-600 dark:text-gold-300">
-                  Send it again
+                <UnderlineLink
+                  onClick={send}
+                  disabled={loading}
+                  className="text-forest-600 disabled:opacity-50 dark:text-gold-300"
+                >
+                  {loading ? 'Sending…' : 'Resend code'}
                 </UnderlineLink>
               )}
-            </div>
+            </Rise>
           </motion.div>
         ) : (
           <motion.form
-            key="form"
+            key="email_form"
             onSubmit={send}
             variants={formStagger}
             initial="hidden"
@@ -128,7 +241,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
                 className="group relative w-full overflow-hidden"
               >
                 <Shine />
-                Email me a reset link
+                Send verification code
               </Button>
             </Rise>
           </motion.form>

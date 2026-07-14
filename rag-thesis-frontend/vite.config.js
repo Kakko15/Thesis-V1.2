@@ -17,6 +17,8 @@ export default defineConfig({
       '/sessions': BACKEND,
       '/duplication': BACKEND,
       '/analytics': BACKEND,
+      '/departments': BACKEND,
+      '/settings': BACKEND,
     },
   },
   build: {

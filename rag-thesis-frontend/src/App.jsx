@@ -23,8 +23,11 @@ function SuspenseFallback() {
   )
 }
 
+import { useAuth } from './context/AuthContext'
+
 function ShellRoutes() {
   const location = useLocation()
+  const { canChat, canArchive, canScan, canUpload } = useAuth()
   return (
     <AppShell>
       <Suspense fallback={<SuspenseFallback />}>
@@ -36,20 +39,20 @@ function ShellRoutes() {
             />
             <Route
               path="/archive"
-              element={<ProtectedRoute><Archive /></ProtectedRoute>}
+              element={<ProtectedRoute isAllowed={canArchive}><Archive /></ProtectedRoute>}
             />
-            <Route path="/chat" element={<Chat />} />
+            <Route path="/chat" element={<ProtectedRoute isAllowed={canChat}><Chat /></ProtectedRoute>} />
             <Route
               path="/novelty"
-              element={<ProtectedRoute roles={['faculty', 'admin']}><Novelty /></ProtectedRoute>}
+              element={<ProtectedRoute isAllowed={canScan}><Novelty /></ProtectedRoute>}
             />
             <Route
               path="/upload"
-              element={<ProtectedRoute roles={['admin']}><Upload /></ProtectedRoute>}
+              element={<ProtectedRoute isAllowed={canUpload}><Upload /></ProtectedRoute>}
             />
             <Route
               path="/admin"
-              element={<ProtectedRoute roles={['admin']}><Admin /></ProtectedRoute>}
+              element={<ProtectedRoute roles={['admin', 'superadmin']}><Admin /></ProtectedRoute>}
             />
             <Route path="*" element={<NotFound />} />
           </Routes>

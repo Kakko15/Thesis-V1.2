@@ -30,7 +30,8 @@ if settings.langchain_tracing_v2:
     os.environ.setdefault('LANGCHAIN_API_KEY', settings.langchain_api_key)
     os.environ.setdefault('LANGCHAIN_PROJECT', settings.langchain_project)
 
-from routers import analytics, chat, duplication, papers, sessions, upload  # noqa: E402
+from routers import analytics, chat, duplication, papers, sessions, upload, departments
+from routers import settings as settings_router
 
 
 def rate_limit_key(request: Request) -> str:
@@ -101,6 +102,8 @@ app.include_router(papers.router)
 app.include_router(sessions.router)
 app.include_router(duplication.router)
 app.include_router(analytics.router)
+app.include_router(departments.router)
+app.include_router(settings_router.router)
 
 
 @app.get('/health')

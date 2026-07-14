@@ -22,7 +22,7 @@ export function Badge({ children, tone = 'forest', className }) {
 }
 
 export function RoleBadge({ role }) {
-  const tone = role === 'admin' ? 'flame' : role === 'faculty' ? 'gold' : 'forest'
-  const label = role === 'admin' ? 'Administrator' : role === 'faculty' ? 'Faculty' : 'Student'
+  const tone = role === 'superadmin' ? 'flame' : role === 'admin' ? 'flame' : role === 'faculty' ? 'gold' : 'forest'
+  const label = role === 'superadmin' ? 'Superadmin' : role === 'admin' ? 'Administrator' : role === 'faculty' ? 'Faculty' : 'Student'
   return <Badge tone={tone}>{label}</Badge>
 }

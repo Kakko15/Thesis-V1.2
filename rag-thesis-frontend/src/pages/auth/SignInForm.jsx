@@ -187,7 +187,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
         >
           <Shine />
           <KeyRound size={16} className="transition-transform duration-300 group-hover:-rotate-12" />
-          Email me a one-time code
+          Email me a login link
         </Button>
       </Rise>
     </motion.form>

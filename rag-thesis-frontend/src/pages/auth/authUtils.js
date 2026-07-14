@@ -38,7 +38,12 @@ export const PASSWORD_RULES = [
 
 /** Map raw Supabase auth errors to human copy. Never leak internals. */
 export function friendlyAuthError(err) {
-  const raw = err?.message || ''
+  if (!err) return 'Something went wrong.'
+  let raw = err.message || err.error_description || err.msg || err
+  if (typeof raw !== 'string') {
+    try { raw = JSON.stringify(raw) } catch { raw = String(raw) }
+  }
+  if (raw === '{}') return 'Internal server error from Supabase (500). Please check your SMTP settings.'
   const msg = raw.toLowerCase()
   if (msg.includes('invalid login credentials'))
     return 'Incorrect email or password. Double-check and try again.'
@@ -52,9 +57,9 @@ export function friendlyAuthError(err) {
     return 'That code didn’t match. Codes rotate every 30 seconds — try the current one.'
   if (msg.includes('expired') || msg.includes('otp_expired'))
     return 'That code has expired. Request a fresh one and try again.'
-  if (msg.includes('rate limit') || msg.includes('you can only request this after')) {
+  if (msg.includes('rate limit') || msg.includes('you can only request this after') || msg.includes('too many requests')) {
     const secs = raw.match(/(\d+) seconds?/)?.[1]
-    return `Too many attempts — please wait ${secs ? `${secs}s` : 'a moment'} and try again.`
+    return `Supabase limits emails to 3 per hour for security. Please wait ${secs ? `${secs}s` : 'a moment'}, or disable "Enable Email Confirmations" in your Supabase Auth settings for testing.`
   }
   if (msg.includes('password should be')) return raw
   if (msg.includes('same password') || msg.includes('different from the old'))

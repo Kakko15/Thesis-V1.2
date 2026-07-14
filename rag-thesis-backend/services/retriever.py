@@ -51,7 +51,7 @@ def public_source(paper: dict, similarity: float | None = None) -> dict:
     return source
 
 
-def search_chunks(question: str, match_count: int | None = None, threshold: float | None = None):
+def search_chunks(question: str, match_count: int | None = None, threshold: float | None = None, department_filter: str | None = None):
     """Return (context, sources, top_similarity) for a natural-language query."""
     match_count = match_count or settings.retrieval_match_count
     threshold = threshold if threshold is not None else settings.retrieval_threshold
@@ -61,6 +61,7 @@ def search_chunks(question: str, match_count: int | None = None, threshold: floa
         'query_embedding': q_embedding,
         'match_count': match_count,
         'match_threshold': threshold,
+        'p_department': department_filter
     }).execute()
     chunks = result.data or []
     if not chunks:
