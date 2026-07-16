@@ -6,7 +6,7 @@ import { cn } from '../../lib/utils'
  */
 export function Aurora({ className, subtle = false }) {
   return (
-    <div aria-hidden className={cn('pointer-events-none absolute inset-0 overflow-hidden', className)}>
+    <div aria-hidden className={cn('effects-decorative pointer-events-none absolute inset-0 overflow-hidden', className)}>
       <div
         className={cn(
           'absolute -top-1/4 -left-1/4 h-[70vmax] w-[70vmax] rounded-full blur-[120px] animate-aurora will-change-transform',

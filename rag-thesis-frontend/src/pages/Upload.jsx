@@ -218,7 +218,7 @@ export default function Upload() {
       } else {
         toast.warning('Extraction incomplete', { description: 'Could not confidently identify thesis details.' })
       }
-    } catch (err) {
+    } catch {
       toast.error('Autofill failed', { description: 'Please enter the metadata manually.' })
     } finally {
       setParsing(false)
@@ -352,13 +352,13 @@ export default function Upload() {
                   required 
                   hint="Metadata tag attached to semantic chunk"
                 >
-                  <Select value={form.track} onChange={set('track')} error={errors.track} disabled={!form.department || currentTracks.length === 0}>
+                  <Select value={form.track} onChange={set('track')} error={errors.track} disabled={!form.department || currentTracks.length === 0} aria-label={`Select ${trackLabel}`}>
                     <option value="">Select {trackLabel}…</option>
                     {currentTracks.map((t) => <option key={t} value={t}>{t}</option>)}
                   </Select>
                 </Field>
                 <Field label="Department" error={errors.department} required hint="Department this thesis belongs to">
-                  <Select value={form.department} onChange={(e) => setForm(f => ({...f, department: e.target.value, track: ''}))} error={errors.department} disabled={loadingDepts}>
+                  <Select value={form.department} onChange={(e) => setForm(f => ({...f, department: e.target.value, track: ''}))} error={errors.department} disabled={loadingDepts} aria-label="Select thesis department">
                     <option value="">Select a Department…</option>
                     {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
                   </Select>

@@ -1,14 +1,27 @@
-import { createContext, useState, useEffect, useContext, useCallback } from 'react'
+import { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { getFeaturePermissions } from '../api'
 
 const AuthContext = createContext({})
+
+function canUseFeature(role, features, feature) {
+  if (role === 'admin' || role === 'superadmin') return true
+  return Boolean(features?.[role]?.[feature])
+}
+
+function getDisplayName(profile, user) {
+  return profile?.full_name
+    || user?.user_metadata?.full_name
+    || user?.email?.split('@')[0]
+    || 'Guest'
+}
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [features, setFeatures] = useState(null)
+  const broadcastChannelRef = useRef(null)
   // True when the account has a verified TOTP factor but this session is
   // still aal1 — i.e. the user must pass the 2FA challenge before the app.
   const [needsMfa, setNeedsMfa] = useState(false)
@@ -50,42 +63,45 @@ export const AuthProvider = ({ children }) => {
     }
   }, [])
 
-  const reloadSession = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession()
+  const syncSession = useCallback(async (session) => {
     const currentUser = session?.user ?? null
     await checkMfa(currentUser)
     setUser(currentUser)
     if (currentUser) {
       await fetchProfile(currentUser.id)
       getFeaturePermissions().then(setFeatures).catch(() => {})
+    } else {
+      setProfile(null)
+      setFeatures(null)
     }
-    else setProfile(null)
     setLoading(false)
   }, [checkMfa, fetchProfile])
 
-  useEffect(() => {
-    reloadSession()
+  const reloadSession = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    await syncSession(session)
+  }, [syncSession])
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const currentUser = session?.user ?? null
-      await checkMfa(currentUser)
-      setUser(currentUser)
-      if (currentUser) {
-        await fetchProfile(currentUser.id)
-        getFeaturePermissions().then(setFeatures).catch(() => {})
-      }
-      else setProfile(null)
-      setLoading(false)
+  useEffect(() => {
+    let active = true
+
+    supabase.auth.getSession()
+      .then(({ data }) => active && syncSession(data.session))
+      .catch(() => active && setLoading(false))
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) void syncSession(session)
     })
 
-    return () => subscription.unsubscribe()
-  }, [fetchProfile, checkMfa])
-
-  const [broadcastChannel, setBroadcastChannel] = useState(null)
+    return () => {
+      active = false
+      subscription.unsubscribe()
+    }
+  }, [syncSession])
 
   // Realtime subscription for feature permissions via pure Broadcast (bypasses RLS blocks)
   useEffect(() => {
-    if (!user) return
+    if (!user) return undefined
     const channel = supabase.channel('global_feature_updates')
       .on(
         'broadcast',
@@ -97,8 +113,9 @@ export const AuthProvider = ({ children }) => {
       )
       .subscribe()
       
-    setBroadcastChannel(channel)
+    broadcastChannelRef.current = channel
     return () => {
+      broadcastChannelRef.current = null
       supabase.removeChannel(channel)
     }
   }, [user])
@@ -125,19 +142,15 @@ export const AuthProvider = ({ children }) => {
     isFaculty: role === 'faculty',
     isStudent: role === 'student',
     features,
-    canChat: role === 'admin' || role === 'superadmin' || (features && features[role]?.chat),
-    canArchive: role === 'admin' || role === 'superadmin' || (features && features[role]?.archive),
-    canScan: role === 'admin' || role === 'superadmin' || (features && features[role]?.novelty),
-    canUpload: role === 'admin' || role === 'superadmin' || (features && features[role]?.upload),
-    displayName:
-      profile?.full_name ||
-      user?.user_metadata?.full_name ||
-      user?.email?.split('@')[0] ||
-      'Guest',
+    canChat: canUseFeature(role, features, 'chat'),
+    canArchive: canUseFeature(role, features, 'archive'),
+    canScan: canUseFeature(role, features, 'novelty'),
+    canUpload: canUseFeature(role, features, 'upload'),
+    displayName: getDisplayName(profile, user),
     avatarUrl: profile?.avatar_url || null,
     signOut: () => supabase.auth.signOut(),
     broadcastFeatureUpdate: () => {
-      broadcastChannel?.send({ type: 'broadcast', event: 'features_updated', payload: {} })
+      broadcastChannelRef.current?.send({ type: 'broadcast', event: 'features_updated', payload: {} })
     },
   }
 

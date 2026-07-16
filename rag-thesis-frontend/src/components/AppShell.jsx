@@ -1,146 +1,118 @@
-import { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useEffect, useState } from 'react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  LayoutDashboard, MessageSquareText, Library, UploadCloud,
-  ShieldCheck, BarChart3, LogOut, LogIn, Menu, X, Moon, Sun,
+  BarChart3, Command, LayoutDashboard, Library, LogIn, LogOut, Menu,
+  MessageSquareText, MoreHorizontal, Palette, Search, ShieldCheck, UploadCloud, X,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { useTheme } from '../hooks/useTheme'
 import { healthCheck } from '../api'
 import { BrandMark, Logo } from './ui/Logo'
 import { RoleBadge } from './ui/Badge'
 import { Button } from './ui/Button'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/Tooltip'
+import { Sheet } from './ui/Sheet'
 import { ProfileSettingsModal } from './ProfileSettingsModal'
+import { AppearanceDialog } from './AppearanceDialog'
+import { CommandPalette } from './CommandPalette'
 import { cn } from '../lib/utils'
 
 function useNavItems() {
   const { user, canChat, canArchive, canScan, canUpload, isAdmin } = useAuth()
   return [
-    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, show: !!user },
-    { to: '/chat', label: 'AI Chat', icon: MessageSquareText, show: canChat !== false },
-    { to: '/archive', label: 'Archive', icon: Library, show: !!user && canArchive !== false },
-    { to: '/novelty', label: 'Novelty Check', icon: ShieldCheck, show: !!user && canScan !== false },
-    { to: '/upload', label: 'Upload Thesis', icon: UploadCloud, show: !!user && canUpload !== false },
-    { to: '/admin', label: 'Analytics', icon: BarChart3, show: isAdmin },
-  ].filter((i) => i.show)
+    { to: '/dashboard', label: 'Dashboard', shortLabel: 'Home', icon: LayoutDashboard, show: !!user },
+    { to: '/chat', label: 'Ask IskAI', shortLabel: 'IskAI', icon: MessageSquareText, show: !user || canChat !== false },
+    { to: '/archive', label: 'Thesis library', shortLabel: 'Library', icon: Library, show: !!user && canArchive !== false },
+    { to: '/novelty', label: 'Novelty review', shortLabel: 'Novelty', icon: ShieldCheck, show: !!user && canScan !== false },
+    { to: '/upload', label: 'Ingest thesis', shortLabel: 'Upload', icon: UploadCloud, show: !!user && canUpload !== false },
+    { to: '/admin', label: 'Operations', shortLabel: 'Admin', icon: BarChart3, show: isAdmin },
+  ].filter((item) => item.show)
 }
 
-function NavItem({ to, label, icon: Icon, onNavigate }) {
-  return (
-    <NavLink to={to} onClick={onNavigate} className="relative block">
-      {({ isActive }) => (
-        <div
-          className={cn(
-            'state-layer relative flex items-center gap-3 rounded-2xl px-4 py-2.5 text-sm font-medium transition-colors duration-300',
-            isActive
-              ? 'text-white'
-              : 'opacity-70 hover:opacity-100',
-          )}
-        >
-          {isActive && (
-            <motion.div
-              layoutId="nav-pill"
-              transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-              className="absolute inset-0 rounded-2xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-lg shadow-forest-900/30"
-            />
-          )}
-          <Icon size={18} className="relative z-10" />
-          <span className="relative z-10">{label}</span>
-        </div>
-      )}
-    </NavLink>
-  )
-}
-
-function HealthDot() {
+function HealthStatus({ compact = false }) {
   const { data, isError } = useQuery({
     queryKey: ['health'],
     queryFn: healthCheck,
-    refetchInterval: 30000,
+    refetchInterval: 30_000,
     retry: false,
   })
-  const online = !isError && data?.status
+  const online = !isError && Boolean(data?.status)
   const healthy = online && data.status === 'ok'
+  const label = healthy ? 'Online' : online ? 'Degraded' : 'Offline'
   return (
-    <div className="flex items-center gap-2 text-xs opacity-60">
-      <span className="relative flex h-2 w-2">
-        {healthy && (
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-forest-400 opacity-60" />
-        )}
-        <span
-          className={cn(
-            'relative inline-flex h-2 w-2 rounded-full',
-            healthy ? 'bg-forest-500' : online ? 'bg-gold-400' : 'bg-flame-500',
-          )}
-        />
-      </span>
-      {healthy ? 'System online' : online ? 'Degraded' : 'Backend offline'}
+    <div className="flex items-center gap-2 text-xs opacity-65" aria-label={`System ${label.toLowerCase()}`}>
+      <span className={cn('h-2 w-2 rounded-full', healthy ? 'bg-emerald-500' : online ? 'bg-amber-400' : 'bg-red-500')} />
+      {!compact && <span>{label}</span>}
     </div>
   )
 }
 
-function SidebarContent({ onNavigate, onOpenSettings }) {
-  const { user, role, displayName, avatarUrl, signOut } = useAuth()
-  const { isDark, toggle } = useTheme()
-  const navigate = useNavigate()
-  const items = useNavItems()
+function NavIcon({ item, compact = false, onNavigate }) {
+  const Icon = item.icon
+  const link = (
+    <NavLink
+      to={item.to}
+      onClick={onNavigate}
+      aria-label={compact ? item.label : undefined}
+      className={({ isActive }) => cn(
+        'group relative flex items-center rounded-2xl font-medium transition-colors',
+        compact ? 'h-12 w-12 justify-center' : 'gap-3 px-4 py-3 text-sm',
+        isActive
+          ? 'bg-[var(--primary-container)] text-[var(--primary-container-foreground)]'
+          : 'text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)]',
+      )}
+    >
+      <Icon size={19} aria-hidden="true" />
+      {!compact && <span>{item.label}</span>}
+    </NavLink>
+  )
+  if (!compact) return link
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right">{item.label}</TooltipContent>
+    </Tooltip>
+  )
+}
 
-  const handleLogout = async () => {
-    await signOut()
-    onNavigate?.()
-    navigate('/')
+function AccountBlock({ compact, onOpenProfile, onLogout, user, displayName, avatarUrl, role }) {
+  if (!user) {
+    return compact ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon" onClick={() => onLogout('login')} aria-label="Sign in"><LogIn size={18} /></Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">Sign in</TooltipContent>
+      </Tooltip>
+    ) : (
+      <Button className="w-full" onClick={() => onLogout('login')}><LogIn size={16} /> Sign in</Button>
+    )
   }
 
-  return (
-    <div className="flex h-full flex-col p-5">
-      <button onClick={() => { onNavigate?.(); navigate('/') }} className="mb-8 text-left">
-        <BrandMark />
+  return compact ? (
+    <div className="flex flex-col items-center gap-2">
+      <button
+        type="button"
+        onClick={onOpenProfile}
+        className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-[var(--primary-container)] font-bold text-[var(--primary-container-foreground)]"
+        aria-label="Open profile and security settings"
+      >
+        {avatarUrl ? <img src={avatarUrl} alt="" className="h-full w-full object-cover" /> : displayName.slice(0, 1).toUpperCase()}
       </button>
-
-      <nav className="flex-1 space-y-1.5">
-        {items.map((item) => (
-          <NavItem key={item.to} {...item} onNavigate={onNavigate} />
-        ))}
-      </nav>
-
-      <div className="space-y-4 border-t border-forest-900/10 pt-5 dark:border-white/10">
-        {user ? (
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={onOpenSettings}
-              className="flex items-center gap-3 min-w-0 flex-1 text-left group transition-opacity hover:opacity-80"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-forest-600 to-forest-800 font-display text-sm font-bold text-white overflow-hidden shadow-sm group-hover:shadow-md transition-all">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  displayName.slice(0, 1).toUpperCase()
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold">{displayName}</div>
-                <RoleBadge role={role} />
-              </div>
-            </button>
-            <Button variant="ghost" size="icon-sm" onClick={handleLogout} aria-label="Log out">
-              <LogOut size={16} />
-            </Button>
-          </div>
-        ) : (
-          <Button className="w-full" onClick={() => { onNavigate?.(); navigate('/login') }}>
-            <LogIn size={16} /> Sign in
-          </Button>
-        )}
-
-        <div className="flex items-center justify-between">
-          <HealthDot />
-          <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label="Toggle theme">
-            {isDark ? <Sun size={16} /> : <Moon size={16} />}
-          </Button>
-        </div>
-      </div>
+      <Button variant="ghost" size="icon-sm" onClick={() => onLogout('logout')} aria-label="Log out"><LogOut size={15} /></Button>
+    </div>
+  ) : (
+    <div className="flex items-center gap-3">
+      <button type="button" onClick={onOpenProfile} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[var(--primary-container)] font-bold text-[var(--primary-container-foreground)]">
+          {avatarUrl ? <img src={avatarUrl} alt="" className="h-full w-full object-cover" /> : displayName.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold">{displayName}</span>
+          <RoleBadge role={role} />
+        </span>
+      </button>
+      <Button variant="ghost" size="icon-sm" onClick={() => onLogout('logout')} aria-label="Log out"><LogOut size={15} /></Button>
     </div>
   )
 }
@@ -148,65 +120,144 @@ function SidebarContent({ onNavigate, onOpenSettings }) {
 export function AppShell({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
+  const [commandOpen, setCommandOpen] = useState(false)
+  const { user, role, displayName, avatarUrl, signOut } = useAuth()
+  const items = useNavItems()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const activeItem = items.find((item) => location.pathname.startsWith(item.to))
+  const mobilePrimary = items.slice(0, 4)
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setCommandOpen((current) => !current)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  const handleAccountAction = async (action) => {
+    if (action === 'login') {
+      navigate('/login')
+      return
+    }
+    await signOut()
+    navigate('/')
+  }
+
+  const openAppearance = () => {
+    setCommandOpen(false)
+    setAppearanceOpen(true)
+  }
+  const openProfile = () => {
+    setCommandOpen(false)
+    setSettingsOpen(true)
+  }
 
   return (
-    <div className="relative flex min-h-screen">
-      {/* Desktop sidebar */}
-      <aside className="glass-strong fixed inset-y-3 left-3 z-40 hidden w-64 rounded-[1.75rem] lg:block">
-        <SidebarContent onOpenSettings={() => setSettingsOpen(true)} />
+    <div className="relative min-h-screen">
+      <a href="#main-content" className="skip-link">Skip to main content</a>
+
+      <aside className="surface-glass fixed inset-y-3 left-3 z-40 hidden w-72 flex-col rounded-[2rem] p-5 xl:flex">
+        <button type="button" onClick={() => navigate('/')} className="mb-7 text-left"><BrandMark /></button>
+        <nav className="flex-1 space-y-1.5" aria-label="Primary navigation">
+          {items.map((item) => <NavIcon key={item.to} item={item} />)}
+        </nav>
+        <button
+          type="button"
+          onClick={() => setCommandOpen(true)}
+          className="mb-4 flex items-center gap-3 rounded-2xl border border-[var(--border)] px-3 py-2.5 text-left text-xs opacity-70 transition-colors hover:bg-[var(--accent)] hover:opacity-100"
+        >
+          <Search size={15} /> Quick access <kbd className="ml-auto rounded-md bg-[var(--muted)] px-1.5 py-0.5">Ctrl K</kbd>
+        </button>
+        <div className="space-y-4 border-t border-[var(--border)] pt-4">
+          <AccountBlock user={user} role={role} displayName={displayName} avatarUrl={avatarUrl} onOpenProfile={openProfile} onLogout={handleAccountAction} />
+          <div className="flex items-center justify-between">
+            <HealthStatus />
+            <Button variant="ghost" size="icon-sm" onClick={() => setAppearanceOpen(true)} aria-label="Appearance and energy"><Palette size={16} /></Button>
+          </div>
+        </div>
       </aside>
 
-      {/* Mobile top bar */}
-      <header className="glass-strong fixed inset-x-3 top-3 z-40 flex h-14 items-center justify-between rounded-3xl px-4 lg:hidden">
-        <NavLink to="/" className="flex items-center gap-2">
+      <aside className="surface-glass fixed inset-y-3 left-3 z-40 hidden w-20 flex-col items-center rounded-[2rem] px-2 py-4 md:flex xl:hidden">
+        <button type="button" onClick={() => navigate('/')} aria-label="ISU Thesis Library home" className="mb-5"><Logo size={42} glow /></button>
+        <nav className="flex flex-1 flex-col items-center gap-1" aria-label="Primary navigation">
+          {items.map((item) => <NavIcon key={item.to} item={item} compact />)}
+        </nav>
+        <div className="flex flex-col items-center gap-3 border-t border-[var(--border)] pt-4">
+          <Tooltip>
+            <TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="Quick access"><Command size={18} /></Button></TooltipTrigger>
+            <TooltipContent side="right">Quick access (Ctrl K)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => setAppearanceOpen(true)} aria-label="Appearance and energy"><Palette size={18} /></Button></TooltipTrigger>
+            <TooltipContent side="right">Appearance and energy</TooltipContent>
+          </Tooltip>
+          <HealthStatus compact />
+          <AccountBlock compact user={user} role={role} displayName={displayName} avatarUrl={avatarUrl} onOpenProfile={openProfile} onLogout={handleAccountAction} />
+        </div>
+      </aside>
+
+      <header className="surface-glass fixed inset-x-3 top-3 z-40 flex h-14 items-center justify-between rounded-3xl px-3 md:hidden">
+        <button type="button" onClick={() => navigate('/')} className="flex min-w-0 items-center gap-2 text-left">
           <Logo size={30} />
-          <span className="font-display text-sm font-extrabold">ISU Thesis AI</span>
-        </NavLink>
-        <button
-          onClick={() => setMobileOpen(true)}
-          aria-label="Open navigation"
-          className="state-layer flex h-9 w-9 items-center justify-center rounded-xl"
-        >
-          <Menu size={20} />
+          <span className="min-w-0">
+            <span className="block truncate font-display text-sm font-extrabold">ISU Thesis Library</span>
+            <span className="block truncate text-[0.65rem] opacity-55">{activeItem?.label || 'Research discovery'}</span>
+          </span>
         </button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon-sm" onClick={() => setCommandOpen(true)} aria-label="Quick access"><Search size={18} /></Button>
+          <Button variant="ghost" size="icon-sm" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={19} /></Button>
+        </div>
       </header>
 
-      {/* Mobile drawer */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setMobileOpen(false)}
-              className="fixed inset-0 z-50 bg-canvas-950/60 backdrop-blur-sm lg:hidden"
-            />
-            <motion.aside
-              initial={{ x: '-100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '-100%' }}
-              transition={{ type: 'spring', stiffness: 340, damping: 34 }}
-              className="glass-strong fixed inset-y-3 left-3 z-50 w-72 rounded-[1.75rem] lg:hidden"
-            >
-              <button
-                onClick={() => setMobileOpen(false)}
-                aria-label="Close navigation"
-                className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-xl opacity-60 hover:opacity-100"
-              >
-                <X size={18} />
-              </button>
-              <SidebarContent onNavigate={() => setMobileOpen(false)} onOpenSettings={() => { setMobileOpen(false); setSettingsOpen(true) }} />
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
+      <nav
+        className="surface-glass safe-area-bottom fixed inset-x-3 bottom-3 z-40 grid gap-1 rounded-[1.75rem] p-1.5 md:hidden"
+        style={{ gridTemplateColumns: `repeat(${mobilePrimary.length + 1}, minmax(0, 1fr))` }}
+        aria-label="Mobile navigation"
+      >
+        {mobilePrimary.map((item) => {
+          const Icon = item.icon
+          return (
+            <NavLink key={item.to} to={item.to} className={({ isActive }) => cn(
+              'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-[0.64rem] font-semibold',
+              isActive ? 'bg-[var(--primary-container)] text-[var(--primary-container-foreground)]' : 'opacity-65',
+            )}>
+              <Icon size={18} aria-hidden="true" /><span className="truncate">{item.shortLabel}</span>
+            </NavLink>
+          )
+        })}
+        <button type="button" onClick={() => setMobileOpen(true)} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-[0.64rem] font-semibold opacity-65">
+          <MoreHorizontal size={18} aria-hidden="true" /><span>More</span>
+        </button>
+      </nav>
 
-      {/* Content */}
-      <main className="flex-1 px-4 pb-8 pt-20 lg:ml-[17.5rem] lg:pt-6 lg:pr-6">
+      <Sheet open={mobileOpen} onClose={() => setMobileOpen(false)} title="Navigation menu">
+              <div className="mb-5 flex items-center justify-between">
+                <BrandMark />
+                <Button variant="ghost" size="icon-sm" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={18} /></Button>
+              </div>
+              <nav className="space-y-1" aria-label="All navigation">
+                {items.map((item) => <NavIcon key={item.to} item={item} onNavigate={() => setMobileOpen(false)} />)}
+              </nav>
+              <div className="mt-5 space-y-3 border-t border-[var(--border)] pt-5">
+                <Button variant="secondary" className="w-full justify-start" onClick={() => { setMobileOpen(false); setCommandOpen(true) }}><Search size={16} /> Quick access</Button>
+                <Button variant="outline" className="w-full justify-start" onClick={() => { setMobileOpen(false); setAppearanceOpen(true) }}><Palette size={16} /> Appearance and energy</Button>
+                <AccountBlock user={user} role={role} displayName={displayName} avatarUrl={avatarUrl} onOpenProfile={() => { setMobileOpen(false); openProfile() }} onLogout={handleAccountAction} />
+              </div>
+      </Sheet>
+
+      <main id="main-content" className="px-4 pb-28 pt-20 md:ml-[6.5rem] md:px-6 md:pb-8 md:pt-6 xl:ml-[19rem] xl:pr-6">
         {children}
       </main>
 
+      <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} items={items} onOpenAppearance={openAppearance} onOpenProfile={user ? openProfile : null} />
+      <AppearanceDialog open={appearanceOpen} onClose={() => setAppearanceOpen(false)} />
       <ProfileSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )

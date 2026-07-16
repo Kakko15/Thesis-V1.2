@@ -10,7 +10,7 @@ export function EmptyState({ icon: Icon, title, message, action }) {
     >
       {Icon && (
         <div className="glass mb-5 flex h-16 w-16 items-center justify-center rounded-3xl">
-          <Icon size={28} className="text-forest-600 dark:text-gold-300" />
+          <Icon size={28} className="text-[var(--primary)]" />
         </div>
       )}
       <h3 className="font-display text-lg font-bold">{title}</h3>

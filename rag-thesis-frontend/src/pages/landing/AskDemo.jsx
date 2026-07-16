@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { motion, useInView, useReducedMotion } from 'framer-motion'
-import { RotateCcw, Sparkles, User } from 'lucide-react'
+import { motion, useInView } from 'framer-motion'
+import { RotateCcw, User } from 'lucide-react'
 import { GlassCard } from '../../components/ui/GlassCard'
 import { Button } from '../../components/ui/Button'
+import { Logo } from '../../components/ui/Logo'
 import { Reveal } from '../../components/ui/Motion'
 import { SectionHeading } from './SectionHeading'
 import { cn } from '../../lib/utils'
+import { usePreferences } from '../../context/PreferencesContext'
 
 /* Fully scripted product demo — no API calls. Phases:
    0 idle · 1 typing question · 2 thinking · 3 streaming answer · 4 sources */
@@ -44,7 +46,7 @@ function ThinkingDots() {
 }
 
 export function AskDemo() {
-  const reduced = useReducedMotion()
+  const { reducedMotion: reduced } = usePreferences()
   const ref = useRef(null)
   const inView = useInView(ref, { once: true, margin: '-120px' })
   const [runId, setRunId] = useState(0)
@@ -137,8 +139,8 @@ export function AskDemo() {
             {/* AI bubble */}
             {phase >= 2 && (
               <div className="flex items-start gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800">
-                  <Sparkles size={14} className="text-gold-300" />
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/95 shadow-lg shadow-forest-950/25 dark:bg-white/90">
+                  <Logo size={29} glow />
                 </span>
                 <div className="glass max-w-[85%] rounded-2xl rounded-tl-md px-4 py-3 text-sm leading-relaxed">
                   {phase === 2 ? (

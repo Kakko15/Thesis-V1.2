@@ -5,8 +5,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import { toast } from 'sonner'
 import {
-  Send, Plus, MessageSquareText, Trash2, PencilLine, Sparkles,
-  AlertTriangle, BookMarked, History, X, Info, GraduationCap,
+  Send, Plus, MessageSquareText, Trash2, PencilLine,
+  AlertTriangle, BookMarked, History, Info, GraduationCap,
 } from 'lucide-react'
 import {
   chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getPaperUrl, getDepartments
@@ -20,6 +20,8 @@ import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
 import { PageTransition } from '../components/ui/Motion'
 import { Logo } from '../components/ui/Logo'
+import { AnimatedLogo } from '../components/ui/AnimatedLogo'
+import { Sheet } from '../components/ui/Sheet'
 import { cn, timeAgo } from '../lib/utils'
 
 const STARTERS = [
@@ -49,14 +51,17 @@ function SourceCard({ source, index }) {
     }
   }
 
+  const Card = isAdmin ? motion.button : motion.div
+
   return (
-    <motion.div
+    <Card
+      type={isAdmin ? 'button' : undefined}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.15 + index * 0.08, duration: 0.4 }}
       onClick={handleClick}
       className={cn(
-        "glass flex items-start gap-3 rounded-2xl p-3.5 transition duration-200",
+        "glass flex w-full items-start gap-3 rounded-2xl p-3.5 text-left transition duration-200",
         isAdmin ? "cursor-pointer hover:bg-forest-900/5 dark:hover:bg-white/5 active:scale-[0.98]" : "",
         loading ? "opacity-60 pointer-events-none animate-pulse" : ""
       )}
@@ -78,7 +83,7 @@ function SourceCard({ source, index }) {
           )}
         </div>
       </div>
-    </motion.div>
+    </Card>
   )
 }
 
@@ -145,18 +150,27 @@ function UserBubble({ text }) {
   )
 }
 
+function AiAvatar() {
+  return (
+    <div
+      aria-hidden="true"
+      className="flex h-10 w-10 shrink-0 items-center justify-center"
+    >
+      <Logo size={40} />
+    </div>
+  )
+}
+
 function AiBubble({ message, animate }) {
   return (
-    <motion.div
-      initial={animate ? { opacity: 0, y: 14, filter: 'blur(4px)' } : false}
-      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      transition={{ duration: 0.5, ease: [0.2, 0, 0, 1] }}
-      className="flex gap-3"
-    >
-      <div className="mt-1 hidden h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-md sm:flex">
-        <Sparkles size={15} className="text-gold-300" />
-      </div>
-      <div className="min-w-0 max-w-full flex-1 sm:max-w-[85%]">
+    <div className="flex gap-3">
+      <AiAvatar />
+      <motion.div
+        initial={animate ? { opacity: 0, filter: 'blur(4px)' } : false}
+        animate={{ opacity: 1, filter: 'blur(0px)' }}
+        transition={{ duration: 0.4, ease: [0.2, 0, 0, 1] }}
+        className="min-w-0 max-w-full flex-1 sm:max-w-[85%]"
+      >
         <div className="glass rounded-3xl rounded-tl-lg px-5 py-4">
           <div className="prose-chat">
             <ReactMarkdown>{message.answer}</ReactMarkdown>
@@ -181,8 +195,8 @@ function AiBubble({ message, animate }) {
           </div>
         )}
         <DuplicationBanner alert={message.duplication_alert} />
-      </div>
-    </motion.div>
+      </motion.div>
+    </div>
   )
 }
 
@@ -192,22 +206,12 @@ function TypingIndicator() {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
-      className="flex gap-3"
+      className="flex h-10 w-10 items-center justify-center"
+      role="status"
+      aria-live="polite"
+      aria-label="IskAI is searching the thesis archive"
     >
-      <div className="mt-1 hidden h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-forest-600 to-forest-800 sm:flex">
-        <Sparkles size={15} className="animate-pulse text-gold-300" />
-      </div>
-      <div className="glass flex items-center gap-1.5 rounded-3xl rounded-tl-lg px-5 py-4">
-        {[0, 1, 2].map((i) => (
-          <motion.span
-            key={i}
-            animate={{ y: [0, -5, 0], opacity: [0.4, 1, 0.4] }}
-            transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.18 }}
-            className="h-2 w-2 rounded-full bg-forest-500 dark:bg-gold-300"
-          />
-        ))}
-        <span className="ml-2 text-xs opacity-50">Searching the archive…</span>
-      </div>
+      <AnimatedLogo size={40} />
     </motion.div>
   )
 }
@@ -236,29 +240,36 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew }
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -12 }}
               className={cn(
-                'group flex cursor-pointer items-center gap-2 rounded-2xl px-3 py-2.5 transition-colors duration-200',
+                'group flex items-center gap-1 rounded-2xl px-2 py-1.5 transition-colors duration-200',
                 activeId === s.id
                   ? 'bg-forest-600/12 dark:bg-forest-400/12'
                   : 'hover:bg-forest-900/6 dark:hover:bg-white/6',
               )}
-              onClick={() => onSelect(s)}
             >
-              <MessageSquareText size={14} className="shrink-0 opacity-50" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{s.title}</div>
-                <div className="text-[0.65rem] opacity-45">{timeAgo(s.created_at)}</div>
-              </div>
-              <div className="hidden shrink-0 gap-0.5 group-hover:flex">
+              <button
+                type="button"
+                onClick={() => onSelect(s)}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1 py-1 text-left"
+              >
+                <MessageSquareText size={14} className="shrink-0 opacity-50" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{s.title}</span>
+                  <span className="block text-[0.65rem] opacity-45">{timeAgo(s.created_at)}</span>
+                </span>
+              </button>
+              <div className="flex shrink-0 gap-0.5">
                 <button
-                  onClick={(e) => { e.stopPropagation(); onRename(s) }}
-                  aria-label="Rename"
+                  type="button"
+                  onClick={() => onRename(s)}
+                  aria-label={`Rename ${s.title}`}
                   className="rounded-lg p-1.5 opacity-50 hover:bg-forest-900/10 hover:opacity-100 dark:hover:bg-white/10"
                 >
                   <PencilLine size={13} />
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(s) }}
-                  aria-label="Delete"
+                  type="button"
+                  onClick={() => onDelete(s)}
+                  aria-label={`Delete ${s.title}`}
                   className="rounded-lg p-1.5 text-flame-500 opacity-50 hover:bg-flame-500/10 hover:opacity-100"
                 >
                   <Trash2 size={13} />
@@ -297,6 +308,7 @@ export default function Chat() {
   const [busy, setBusy] = useState(false)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
+  const isAwaitingAnswer = sending && messages[messages.length - 1]?.kind === 'user'
 
   const { data: sessions = [] } = useQuery({
     queryKey: ['sessions'],
@@ -355,7 +367,7 @@ export default function Chat() {
         queryClient.invalidateQueries({ queryKey: ['sessions'] })
       }
     } catch (err) {
-      toast.error('The archive could not answer', { description: apiErrorMessage(err) })
+      toast.error('IskAI could not answer', { description: apiErrorMessage(err) })
       setMessages((m) => m.slice(0, -1))
       setInput(question)
     } finally {
@@ -394,7 +406,7 @@ export default function Chat() {
   }
 
   return (
-    <PageTransition className="mx-auto flex h-[calc(100vh-6.5rem)] max-w-6xl gap-4 lg:h-[calc(100vh-3rem)]">
+    <PageTransition className="mx-auto flex h-[calc(100dvh-10.5rem)] max-w-6xl gap-4 md:h-[calc(100vh-3rem)]">
       {/* Session sidebar (desktop) */}
       {user && (
         <GlassCard className="hidden w-64 shrink-0 p-4 xl:block">
@@ -410,59 +422,44 @@ export default function Chat() {
       )}
 
       {/* Mobile session drawer */}
-      <AnimatePresence>
-        {user && sidebarOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setSidebarOpen(false)}
-              className="fixed inset-0 z-[60] bg-canvas-950/60 backdrop-blur-sm xl:hidden"
-            />
-            <motion.div
-              initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-              transition={{ type: 'spring', stiffness: 340, damping: 34 }}
-              className="glass-strong fixed inset-y-3 right-3 z-[60] w-72 rounded-[1.75rem] p-4 xl:hidden"
-            >
-              <button
-                onClick={() => setSidebarOpen(false)}
-                aria-label="Close"
-                className="absolute right-4 top-4 z-10 opacity-60 hover:opacity-100"
-              >
-                <X size={18} />
-              </button>
-              <SessionList
-                sessions={sessions}
-                activeId={sessionId}
-                onSelect={loadSession}
-                onRename={(s) => { setRenameTarget(s); setRenameValue(s.title) }}
-                onDelete={setDeleteTarget}
-                onNew={newConversation}
-              />
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+      <Sheet
+        open={Boolean(user && sidebarOpen)}
+        onClose={() => setSidebarOpen(false)}
+        title="Conversations"
+        className="w-72"
+        responsiveClass="xl:hidden"
+      >
+        <SessionList
+          sessions={sessions}
+          activeId={sessionId}
+          onSelect={loadSession}
+          onRename={(s) => { setRenameTarget(s); setRenameValue(s.title) }}
+          onDelete={setDeleteTarget}
+          onNew={newConversation}
+        />
+      </Sheet>
 
       {/* Chat column */}
       <GlassCard className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-forest-900/10 px-5 py-3.5 dark:border-white/10">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 border-b border-forest-900/10 px-4 py-3 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-3.5">
+          <div className="flex min-w-0 items-center gap-3">
             <Logo size={32} />
-            <div>
-              <div className="font-display text-sm font-extrabold">Thesis AI Chat</div>
-              <div className="text-[0.65rem] opacity-50">
+            <div className="min-w-0">
+              <div className="font-display text-sm font-extrabold">IskAI</div>
+              <div className="truncate text-[0.65rem] opacity-50">
                 Grounded in the {filterDepartment === 'all' ? 'university' : filterDepartment} archive · citations included
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <Select
               value={filterDepartment}
               onChange={(e) => setFilterDepartment(e.target.value)}
-              className="h-9 w-full sm:w-auto"
+              className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none"
+              aria-label="Filter research by department"
             >
-              <option value="all">All Departments</option>
+              <option value="all">All depts</option>
               {departments.map((d) => (
                 <option key={d.id} value={d.name}>{d.name}</option>
               ))}
@@ -472,7 +469,7 @@ export default function Chat() {
                 <History size={16} />
               </Button>
             ) : (
-              <Button variant="gold" size="sm" onClick={() => navigate('/login')}>
+              <Button variant="gold" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => navigate('/login')}>
                 <GraduationCap size={14} /> Sign in to save chats
               </Button>
             )}
@@ -492,8 +489,8 @@ export default function Chat() {
           {messages.length === 0 && !sending ? (
             <div className="flex h-full flex-col items-center justify-center">
               <EmptyState
-                icon={Sparkles}
-                title="Ask the archive anything"
+                icon={Logo}
+                title="Ask IskAI anything"
                 message={`Semantic search across every indexed ${filterDepartment === 'all' ? 'university' : filterDepartment} thesis — methodologies, scopes, findings, and related literature.`}
               />
               <div className="grid w-full max-w-xl gap-2 sm:grid-cols-2">
@@ -518,7 +515,7 @@ export default function Chat() {
                 : <AiBubble key={i} message={m} animate={m.isNew} />,
             )
           )}
-          <AnimatePresence>{sending && <TypingIndicator />}</AnimatePresence>
+          {isAwaitingAnswer && <TypingIndicator />}
           <div ref={bottomRef} />
         </div>
 
@@ -532,7 +529,7 @@ export default function Chat() {
               ref={inputRef}
               rows={1}
               value={input}
-              placeholder={`Ask about ${filterDepartment === 'all' ? 'university' : filterDepartment} thesis research…`}
+              placeholder={`Ask IskAI about ${filterDepartment === 'all' ? 'university' : filterDepartment} thesis research…`}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }

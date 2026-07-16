@@ -4,6 +4,19 @@ import tailwindcss from '@tailwindcss/vite'
 
 const BACKEND = 'http://localhost:8000'
 
+// `/chat` is both a React page and a backend POST endpoint. Browser navigation
+// requests HTML, so keep those inside Vite and let the SPA history fallback
+// serve index.html. API requests continue through the backend proxy.
+const chatProxy = {
+  target: BACKEND,
+  changeOrigin: true,
+  bypass(req) {
+    if (req.method === 'GET' && req.headers.accept?.includes('text/html')) {
+      return '/index.html'
+    }
+  },
+}
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   // R3F breaks silently if two copies of three end up in the module graph.
@@ -11,7 +24,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/upload': BACKEND,
-      '/chat': BACKEND,
+      '/chat': chatProxy,
       '/papers': BACKEND,
       '/health': BACKEND,
       '/sessions': BACKEND,

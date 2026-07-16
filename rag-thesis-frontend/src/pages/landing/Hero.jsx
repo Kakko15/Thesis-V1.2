@@ -1,12 +1,13 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
+import { motion, useScroll, useTransform } from 'framer-motion'
 import {
   ArrowRight, ChevronDown, Lock, MessageSquareText, Quote, ShieldCheck, Sparkles,
 } from 'lucide-react'
 import { Aurora } from '../../components/ui/Aurora'
 import { Button } from '../../components/ui/Button'
 import { Magnetic, TypewriterText } from '../../components/ui/Motion'
+import { usePreferences } from '../../context/PreferencesContext'
 
 const HeroScene = lazy(() => import('../../components/three/HeroScene'))
 
@@ -20,7 +21,7 @@ const ASK_PHRASES = [
 const TRUST_CHIPS = [
   { icon: Lock, label: 'Closed-domain' },
   { icon: Quote, label: 'Citation-backed' },
-  { icon: ShieldCheck, label: '85% originality guard' },
+  { icon: ShieldCheck, label: 'Human-reviewed novelty' },
 ]
 
 const enter = (delay) => ({
@@ -36,7 +37,7 @@ const enter = (delay) => ({
  * loop instead while the hero is far off-screen.
  */
 function useHeroScene(heroRef) {
-  const reduced = useReducedMotion()
+  const { reducedMotion, effects } = usePreferences()
   const [webgl] = useState(() => {
     try {
       const canvas = document.createElement('canvas')
@@ -46,6 +47,8 @@ function useHeroScene(heroRef) {
     }
   })
   const [near, setNear] = useState(true)
+  const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== 'hidden')
+  const [largeViewport, setLargeViewport] = useState(() => window.matchMedia('(min-width: 768px)').matches)
 
   useEffect(() => {
     const el = heroRef.current
@@ -57,7 +60,23 @@ function useHeroScene(heroRef) {
     return () => io.disconnect()
   }, [heroRef])
 
-  return { show: !reduced && webgl, active: near }
+  useEffect(() => {
+    const onVisibilityChange = () => setPageVisible(document.visibilityState !== 'hidden')
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 768px)')
+    const onChange = (event) => setLargeViewport(event.matches)
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+
+  return {
+    show: !reducedMotion && effects !== 'low' && webgl && (largeViewport || effects === 'full'),
+    active: near && pageVisible,
+  }
 }
 
 export function Hero() {
@@ -76,7 +95,7 @@ export function Hero() {
           pointer-events-none throughout: parallax reads the window pointer. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 z-0 opacity-60 lg:inset-y-0 lg:left-auto lg:right-[-10%] lg:w-[62%] lg:opacity-100"
+        className="effects-decorative pointer-events-none absolute inset-0 z-0 opacity-60 lg:inset-y-0 lg:left-auto lg:right-[-10%] lg:w-[62%] lg:opacity-100"
       >
         {show3D && (
           <Suspense fallback={null}>
@@ -117,7 +136,7 @@ export function Hero() {
             {...enter(0.2)}
             className="font-display mt-7 text-[2.6rem] font-extrabold leading-[1.05] tracking-tight sm:text-6xl xl:text-7xl"
           >
-            Every CCSICT thesis,
+            Every ISU thesis,
             <br />
             <em className="font-accent text-gradient-isu">one intelligent answer</em>
             <span className="text-gold-400">.</span>
@@ -127,9 +146,10 @@ export function Hero() {
             {...enter(0.32)}
             className="mx-auto mt-6 max-w-xl text-base leading-relaxed opacity-70 sm:text-lg lg:mx-0"
           >
-            The Centralized AI-Powered Thesis Library of Isabela State University, Echague.
+            Isabela State University’s centralized, AI-assisted research library.
             Ask in plain language — get AI-synthesized answers grounded exclusively in the
-            CCSICT archive, with traceable citations and automatic topic-duplication alerts.
+            approved campus collections, with traceable citations and decision-support for
+            related or potentially overlapping topics.
           </motion.p>
 
           {/* Typewriter "ask the archive" mock input → guest chat */}

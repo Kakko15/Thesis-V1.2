@@ -1,5 +1,6 @@
-import { motion, useInView, useReducedMotion, useSpring, useTransform } from 'framer-motion'
+import { motion, useInView, useSpring, useTransform } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
+import { usePreferences } from '../../context/PreferencesContext'
 import { cn } from '../../lib/utils'
 
 /** Route-level page transition wrapper. */
@@ -58,7 +59,7 @@ export function AnimatedCounter({ value, className, suffix = '' }) {
 
 /** Looping type/delete text cycler with a blinking caret. */
 export function TypewriterText({ phrases, typingSpeed = 45, deleteSpeed = 22, pause = 1800, className }) {
-  const reduced = useReducedMotion()
+  const { reducedMotion: reduced } = usePreferences()
   const [display, setDisplay] = useState('')
   const state = useRef({ phrase: 0, char: 0, deleting: false })
 
@@ -107,7 +108,7 @@ export function TypewriterText({ phrases, typingSpeed = 45, deleteSpeed = 22, pa
 
 /** Wrapper that magnetically pulls its child toward the cursor. */
 export function Magnetic({ children, strength = 0.3, className }) {
-  const reduced = useReducedMotion()
+  const { reducedMotion: reduced } = usePreferences()
   const ref = useRef(null)
   const x = useSpring(0, { stiffness: 180, damping: 14 })
   const y = useSpring(0, { stiffness: 180, damping: 14 })
@@ -139,7 +140,7 @@ export function Magnetic({ children, strength = 0.3, className }) {
 
 /** Pointer-tracked 3D tilt with an optional glare sheen. */
 export function TiltCard({ children, max = 9, glare = true, className }) {
-  const reduced = useReducedMotion()
+  const { reducedMotion: reduced } = usePreferences()
   const ref = useRef(null)
   const rx = useSpring(0, { stiffness: 220, damping: 18 })
   const ry = useSpring(0, { stiffness: 220, damping: 18 })

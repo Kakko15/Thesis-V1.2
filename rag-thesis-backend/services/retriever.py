@@ -51,12 +51,29 @@ def public_source(paper: dict, similarity: float | None = None) -> dict:
     return source
 
 
-def search_chunks(question: str, match_count: int | None = None, threshold: float | None = None, department_filter: str | None = None):
+def find_papers_by_author(name: str, department_filter: str | None = None) -> list[dict]:
+    """Exact metadata lookup for person/author questions; no LLM is involved."""
+    query = sb.table('papers') \
+        .select('id,title,authors,year,track,department') \
+        .ilike('authors', f'%{name}%')
+    if department_filter:
+        query = query.eq('department', department_filter)
+    result = query.limit(5).execute()
+    return [public_source(paper) for paper in (result.data or [])]
+
+
+def search_chunks(
+    question: str,
+    match_count: int | None = None,
+    threshold: float | None = None,
+    department_filter: str | None = None,
+    query_embedding: list[float] | None = None,
+):
     """Return (context, sources, top_similarity) for a natural-language query."""
     match_count = match_count or settings.retrieval_match_count
     threshold = threshold if threshold is not None else settings.retrieval_threshold
 
-    q_embedding = embed_text(question)
+    q_embedding = query_embedding if query_embedding is not None else embed_text(question)
     result = sb.rpc('match_chunks', {
         'query_embedding': q_embedding,
         'match_count': match_count,
@@ -120,7 +137,11 @@ def search_chunks(question: str, match_count: int | None = None, threshold: floa
     return context, sources, top_similarity
 
 
-def check_topic_duplication(question: str, threshold: float | None = None) -> dict | None:
+def check_topic_duplication(
+    question: str,
+    threshold: float | None = None,
+    query_embedding: list[float] | None = None,
+) -> dict | None:
     """Query-time 85% novelty guard (paper, Section 1.3 Duplication Parameter).
 
     Returns a duplication alert payload when the query's similarity to any
@@ -128,7 +149,7 @@ def check_topic_duplication(question: str, threshold: float | None = None) -> di
     """
     threshold = threshold if threshold is not None else settings.duplication_threshold
     try:
-        q_embedding = embed_text(question)
+        q_embedding = query_embedding if query_embedding is not None else embed_text(question)
         res = sb.rpc('check_topic_duplication', {
             'query_embedding': q_embedding,
             'dup_threshold': threshold,

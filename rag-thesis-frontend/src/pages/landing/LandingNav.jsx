@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowRight, Moon, Sun } from 'lucide-react'
+import { ArrowRight, Palette } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { useTheme } from '../../hooks/useTheme'
+import { AppearanceDialog } from '../../components/AppearanceDialog'
 import { Logo } from '../../components/ui/Logo'
 import { Button } from '../../components/ui/Button'
 import { Magnetic } from '../../components/ui/Motion'
@@ -19,8 +19,8 @@ const ANCHORS = [
 /** Fixed navbar that glassifies once the page scrolls. */
 export function LandingNav() {
   const [scrolled, setScrolled] = useState(false)
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const { user } = useAuth()
-  const { isDark, toggle } = useTheme()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -71,8 +71,13 @@ export function LandingNav() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label="Toggle theme">
-            {isDark ? <Sun size={16} /> : <Moon size={16} />}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setAppearanceOpen(true)}
+            aria-label="Appearance and energy settings"
+          >
+            <Palette size={16} />
           </Button>
           <Button
             variant="ghost"
@@ -95,6 +100,7 @@ export function LandingNav() {
           </Magnetic>
         </div>
       </div>
+      <AppearanceDialog open={appearanceOpen} onClose={() => setAppearanceOpen(false)} />
     </motion.header>
   )
 }

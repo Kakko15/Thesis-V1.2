@@ -147,7 +147,7 @@ export default function Dashboard() {
           </p>
         </div>
         <Button variant="gold" onClick={() => navigate('/chat')}>
-          <Sparkles size={16} /> Ask the archive
+          <Sparkles size={16} /> Ask IskAI
         </Button>
       </div>
 
