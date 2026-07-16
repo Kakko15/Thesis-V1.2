@@ -18,8 +18,8 @@ const HIGHLIGHTS = [
   },
   {
     icon: ShieldCheck,
-    title: '85% originality guard',
-    text: 'Proposals are screened against the whole archive before you ever face a title defense.',
+    title: '85% similarity alert',
+    text: 'Potentially overlapping topics are surfaced for review before a title defense.',
   },
 ]
 

@@ -11,7 +11,7 @@ import { cn } from '../lib/utils'
 import { OtpInput } from './ui/OtpInput'
 
 export function ProfileSettingsModal({ open, onClose }) {
-  const { user, profile, displayName, avatarUrl, refreshProfile } = useAuth()
+  const { user, profile, avatarUrl, refreshProfile } = useAuth()
   
   const [tab, setTab] = useState('profile') // 'profile' | 'security'
   

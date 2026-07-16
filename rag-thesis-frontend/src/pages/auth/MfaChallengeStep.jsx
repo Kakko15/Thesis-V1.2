@@ -94,7 +94,6 @@ export function MfaChallengeStep({ onUseAnotherAccount }) {
               loading={verifying}
               disabled={code.length !== 6}
               onClick={() => verify(code)}
-              whileHover={{ scale: 1.015, y: -1 }}
               className="group relative mt-6 w-full overflow-hidden"
             >
               <Shine />

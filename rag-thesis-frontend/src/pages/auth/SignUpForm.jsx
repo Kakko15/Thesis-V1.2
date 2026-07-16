@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../supabaseClient'
 import { getDepartments } from '../../api'
 import { Button } from '../../components/ui/Button'
-import { Input, Field } from '../../components/ui/Input'
+import { Input, Field, Select } from '../../components/ui/Input'
 import { cn } from '../../lib/utils'
 import {
   friendlyAuthError, isValidEmail, passwordStrength,
@@ -144,10 +144,11 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       <Rise>
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="Department" required>
-            <select
+            <Select
               value={department}
               onChange={(e) => setDepartment(e.target.value)}
-              className="glass h-10 w-full rounded-2xl px-3 text-sm outline-none dark:[&>option]:bg-canvas-900"
+              className="h-10"
+              aria-label="Department"
               disabled={loadingDepts}
             >
               {loadingDepts ? (
@@ -157,18 +158,19 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
                   <option key={d.id} value={d.name}>{d.name}</option>
                 ))
               )}
-            </select>
+            </Select>
           </Field>
           <Field label="Account Type" required>
-            <select
+            <Select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              className="glass h-10 w-full rounded-2xl px-3 text-sm outline-none dark:[&>option]:bg-canvas-900"
+              className="h-10"
+              aria-label="Account type"
             >
               <option value="student">Student</option>
               <option value="faculty">Faculty (needs approval)</option>
               <option value="admin">Admin (needs approval)</option>
-            </select>
+            </Select>
           </Field>
         </div>
       </Rise>
@@ -266,7 +268,6 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
           type="submit"
           size="lg"
           loading={loading}
-          whileHover={{ scale: 1.015, y: -1 }}
           className="group relative w-full overflow-hidden"
         >
           <Shine />

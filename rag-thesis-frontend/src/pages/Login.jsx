@@ -1,11 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  AnimatePresence, motion, useReducedMotion, useSpring, useTransform,
+  AnimatePresence, motion, useSpring, useTransform,
 } from 'framer-motion'
 import { ArrowLeft, LogIn, Sparkles, UserPlus } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { usePreferences } from '../context/PreferencesContext'
 import { Aurora } from '../components/ui/Aurora'
 import { Logo } from '../components/ui/Logo'
 import { cn } from '../lib/utils'
@@ -72,7 +73,7 @@ const cardItem = {
 /* Mount the 3D constellation only where it earns its keep: desktop viewports,
    WebGL available, reduced motion off. */
 function useAuthScene() {
-  const reduced = useReducedMotion()
+  const { reducedMotion, effects } = usePreferences()
   const [webgl] = useState(() => {
     try {
       const canvas = document.createElement('canvas')
@@ -88,7 +89,7 @@ function useAuthScene() {
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
   }, [])
-  return !reduced && webgl && desktop
+  return !reducedMotion && effects !== 'low' && webgl && desktop
 }
 
 export default function Login() {
@@ -220,7 +221,7 @@ export default function Login() {
       {/* Left showcase panel (desktop) */}
       <div className="relative hidden flex-1 items-center justify-center p-12 lg:flex">
         {show3D && (
-          <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+          <div aria-hidden="true" className="effects-decorative pointer-events-none absolute inset-0">
             <Suspense fallback={null}>
               <motion.div
                 initial={{ opacity: 0 }}
@@ -247,7 +248,7 @@ export default function Login() {
       {/* Auth panel */}
       <div className="relative flex flex-1 items-center justify-center px-5 py-10">
         {/* Soft glow orbs behind the card — pointer-parallax for depth */}
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div aria-hidden="true" className="effects-decorative pointer-events-none absolute inset-0 overflow-hidden">
           <motion.div
             style={{ x: orbAX, y: orbAY }}
             className="absolute right-[8%] top-[12%] h-56 w-56 rounded-full bg-forest-500/10 blur-3xl"

@@ -162,7 +162,6 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
           type="submit"
           size="lg"
           loading={loading}
-          whileHover={{ scale: 1.015, y: -1 }}
           className="group relative w-full overflow-hidden"
         >
           <Shine />
@@ -184,7 +183,6 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
           size="lg"
           loading={otpLoading}
           onClick={handleOtpRequest}
-          whileHover={{ scale: 1.01 }}
           className="group relative w-full overflow-hidden"
         >
           <Shine />

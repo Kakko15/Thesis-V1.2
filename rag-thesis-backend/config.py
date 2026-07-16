@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     gemini_verdict_model: str = 'gemini-2.5-flash'
     gemini_embed_model: str = 'models/gemini-embedding-2'
     embedding_dimensions: int = 768
+    gemini_timeout_seconds: float = 25.0
+    gemini_max_retries: int = 1
+    gemini_max_output_tokens: int = 700
+    gemini_thinking_budget: int = 0
+    gemini_capacity_cooldown_seconds: int = 60
 
     # --- RAG parameters (thesis paper, Section 3.2.3) ---
     # 800-token chunks with 100-token overlap (~4 chars per token calibration)

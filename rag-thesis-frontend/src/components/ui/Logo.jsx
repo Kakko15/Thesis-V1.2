@@ -3,13 +3,13 @@ import { cn } from '../../lib/utils'
 export function Logo({ size = 40, className, glow = false }) {
   return (
     <img
-      src="/isu-logo.jpg"
-      alt="Isabela State University seal"
+      src="/isu-thesis-ai-mark.svg"
+      alt="ISU Thesis AI Library mark"
       width={size}
       height={size}
       className={cn(
-        'rounded-full object-cover ring-2 ring-gold-400/40',
-        glow && 'shadow-[0_0_30px_rgba(242,169,0,0.35)]',
+        'object-contain',
+        glow && 'drop-shadow-[0_0_18px_rgba(242,169,0,0.35)]',
         className,
       )}
     />

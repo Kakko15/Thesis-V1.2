@@ -20,6 +20,7 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { Badge, RoleBadge } from '../components/ui/Badge'
 import { Select, Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
+import { ConfirmDialog } from '../components/ui/Modal'
 import { PageTransition, AnimatedCounter, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { timeAgo, cn, formatDate } from '../lib/utils'
 
@@ -328,6 +329,8 @@ function DepartmentsManagement() {
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState({ name: '', track_label: '', tracks: '' })
   const [page, setPage] = useState(1)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   const paginated = departments.slice((page - 1) * 5, page * 5)
 
@@ -366,18 +369,23 @@ function DepartmentsManagement() {
     }
   }
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this department?')) return
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
     try {
-      await deleteDepartment(id)
+      await deleteDepartment(deleteTarget.id)
       queryClient.invalidateQueries({ queryKey: ['departments'] })
       toast.success('Department deleted')
+      setDeleteTarget(null)
     } catch (err) {
       toast.error('Failed to delete department', { description: apiErrorMessage(err) })
+    } finally {
+      setDeleting(false)
     }
   }
 
   return (
+    <>
     <GlassCard className="overflow-hidden mb-6">
       <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex items-center justify-between">
         <div className="text-sm font-bold uppercase tracking-wider opacity-70">Departments & Tracks Configuration</div>
@@ -426,7 +434,7 @@ function DepartmentsManagement() {
                         ) : (
                           <>
                             <Button size="icon-sm" variant="ghost" onClick={() => startEdit(d)} aria-label="Edit"><Pencil size={14} /></Button>
-                            <Button size="icon-sm" variant="ghost" className="text-flame-500 hover:text-flame-600 hover:bg-flame-500/10" onClick={() => handleDelete(d.id)} aria-label="Delete"><Trash2 size={14} /></Button>
+                            <Button size="icon-sm" variant="ghost" className="text-flame-500 hover:text-flame-600 hover:bg-flame-500/10" onClick={() => setDeleteTarget(d)} aria-label={`Delete ${d.name}`}><Trash2 size={14} /></Button>
                           </>
                         )}
                       </div>
@@ -453,6 +461,17 @@ function DepartmentsManagement() {
       </div>
       <PaginationControls page={page} setPage={setPage} total={departments.length} limit={5} />
     </GlassCard>
+    <ConfirmDialog
+      open={Boolean(deleteTarget)}
+      onClose={() => !deleting && setDeleteTarget(null)}
+      onConfirm={handleDelete}
+      title="Delete department?"
+      message={`This will permanently delete ${deleteTarget?.name || 'this department'} and its track configuration.`}
+      confirmLabel="Delete department"
+      danger
+      loading={deleting}
+    />
+    </>
   )
 }
 
@@ -468,6 +487,8 @@ function SystemManagementTab() {
   const [paperSearchQuery, setPaperSearchQuery] = useState('')
   const [paperDeptFilter, setPaperDeptFilter] = useState(isSuperadmin ? 'all' : (myDept || 'all'))
   const [paperPage, setPaperPage] = useState(1)
+  const [confirmation, setConfirmation] = useState(null)
+  const [confirming, setConfirming] = useState(false)
   
   const { data: users = [], isLoading: loadingUsers } = useQuery({
     queryKey: ['users'],
@@ -516,14 +537,67 @@ function SystemManagementTab() {
     }
   }
 
-  const handleDelete = async (userId) => {
-    if (!window.confirm('Are you sure you want to permanently delete this user? This action cannot be undone.')) return
+  const deleteSelectedUser = async (userId) => {
     try {
       await deleteUser(userId)
       queryClient.invalidateQueries({ queryKey: ['users'] })
       toast.success('User deleted')
     } catch (err) {
       toast.error('Delete failed', { description: apiErrorMessage(err) })
+    }
+  }
+
+  const updateUserStatus = async (selectedUser, status) => {
+    try {
+      const fallbackName = selectedUser.full_name || selectedUser.email.split('@')[0] || 'Unknown'
+      if (myRole === 'superadmin') {
+        await updateUserDetails(selectedUser.id, {
+          full_name: fallbackName,
+          role: selectedUser.role,
+          department: selectedUser.department,
+          status,
+        })
+      } else {
+        await updateUserRole(selectedUser.id, { role: selectedUser.role, status })
+      }
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success(`User ${status}`)
+    } catch (err) {
+      toast.error(`Failed to ${status === 'approved' ? 'approve' : 'reject'} user`, {
+        description: apiErrorMessage(err),
+      })
+    }
+  }
+
+  const requestStatusChange = (selectedUser, status) => {
+    const action = status === 'approved' ? 'Approve' : 'Reject'
+    setConfirmation({
+      title: `${action} user?`,
+      message: `${action} ${selectedUser.full_name || selectedUser.email}? Their access will update immediately.`,
+      confirmLabel: action,
+      danger: status === 'rejected',
+      run: () => updateUserStatus(selectedUser, status),
+    })
+  }
+
+  const requestDeleteUser = (selectedUser) => {
+    setConfirmation({
+      title: 'Permanently delete user?',
+      message: `Delete ${selectedUser.full_name || selectedUser.email}? This action cannot be undone.`,
+      confirmLabel: 'Delete user',
+      danger: true,
+      run: () => deleteSelectedUser(selectedUser.id),
+    })
+  }
+
+  const confirmRequestedAction = async () => {
+    if (!confirmation) return
+    setConfirming(true)
+    try {
+      await confirmation.run()
+      setConfirmation(null)
+    } finally {
+      setConfirming(false)
     }
   }
 
@@ -543,20 +617,20 @@ function SystemManagementTab() {
               />
             </div>
             {isSuperadmin && (
-              <Select value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setUserPage(1); }} className="h-8 rounded-xl px-2.5 text-xs w-[110px]">
+              <Select value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setUserPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by department">
                 <option value="all">All Depts</option>
                 <option value="CCSICT">CCSICT</option>
                 <option value="CAS">CAS</option>
               </Select>
             )}
-            <Select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setUserPage(1); }} className="h-8 rounded-xl px-2.5 text-xs w-[110px]">
+            <Select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setUserPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by role">
               <option value="all">All Roles</option>
               <option value="student">Student</option>
               <option value="faculty">Faculty</option>
               <option value="admin">Admin</option>
               {isSuperadmin && <option value="superadmin">Superadmin</option>}
             </Select>
-            <Select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setUserPage(1); }} className="h-8 rounded-xl px-2.5 text-xs w-[110px]">
+            <Select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setUserPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by status">
               <option value="all">All Status</option>
               <option value="approved">Approved</option>
               <option value="pending">Pending</option>
@@ -616,6 +690,7 @@ function SystemManagementTab() {
                           value={editingUser.role}
                           onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
                           className="h-8 rounded-xl px-2.5 text-xs w-[120px]"
+                          aria-label={`Role for ${u.email}`}
                         >
                           <option value="student">Student</option>
                           <option value="faculty">Faculty</option>
@@ -632,6 +707,7 @@ function SystemManagementTab() {
                           value={editingUser.status || 'approved'}
                           onChange={(e) => setEditingUser({ ...editingUser, status: e.target.value })}
                           className="h-8 rounded-xl px-2.5 text-xs w-[100px]"
+                          aria-label={`Status for ${u.email}`}
                         >
                           <option value="approved">Approved</option>
                           <option value="pending">Pending</option>
@@ -649,6 +725,7 @@ function SystemManagementTab() {
                           value={editingUser.department || ''}
                           onChange={(e) => setEditingUser({ ...editingUser, department: e.target.value })}
                           className="h-8 rounded-xl px-2.5 text-xs w-[100px]"
+                          aria-label={`Department for ${u.email}`}
                         >
                           <option value="CCSICT">CCSICT</option>
                           <option value="CAS">CAS</option>
@@ -667,24 +744,7 @@ function SystemManagementTab() {
                                 size="sm" 
                                 variant="ghost" 
                                 className="h-8 py-0 px-3 text-xs text-flame-500 hover:text-flame-600 hover:bg-flame-500/10"
-                                onClick={() => {
-                                  if (!window.confirm('Are you sure you want to reject this user?')) return
-                                  if (myRole === 'superadmin') {
-                                    updateUserDetails(u.id, { full_name: u.full_name || u.email.split('@')[0] || 'Unknown', role: u.role, department: u.department, status: 'rejected' })
-                                      .then(() => {
-                                        queryClient.invalidateQueries({ queryKey: ['users'] })
-                                        toast.success('User rejected')
-                                      })
-                                      .catch(err => toast.error('Failed to reject', { description: apiErrorMessage(err) }))
-                                  } else {
-                                    updateUserRole(u.id, { role: u.role, status: 'rejected' })
-                                      .then(() => {
-                                        queryClient.invalidateQueries({ queryKey: ['users'] })
-                                        toast.success('User rejected')
-                                      })
-                                      .catch(err => toast.error('Failed to reject', { description: apiErrorMessage(err) }))
-                                  }
-                                }}
+                                onClick={() => requestStatusChange(u, 'rejected')}
                               >
                                 Reject
                               </Button>
@@ -692,24 +752,7 @@ function SystemManagementTab() {
                                 size="sm" 
                                 variant="primary" 
                                 className="h-8 py-0 px-3 text-xs"
-                                onClick={() => {
-                                  if (!window.confirm('Are you sure you want to approve this user?')) return
-                                  if (myRole === 'superadmin') {
-                                    updateUserDetails(u.id, { full_name: u.full_name || u.email.split('@')[0] || 'Unknown', role: u.role, department: u.department, status: 'approved' })
-                                      .then(() => {
-                                        queryClient.invalidateQueries({ queryKey: ['users'] })
-                                        toast.success('User approved')
-                                      })
-                                      .catch(err => toast.error('Failed to approve', { description: apiErrorMessage(err) }))
-                                  } else {
-                                    updateUserRole(u.id, { role: u.role, status: 'approved' })
-                                      .then(() => {
-                                        queryClient.invalidateQueries({ queryKey: ['users'] })
-                                        toast.success('User approved')
-                                      })
-                                      .catch(err => toast.error('Failed to approve', { description: apiErrorMessage(err) }))
-                                  }
-                                }}
+                                onClick={() => requestStatusChange(u, 'approved')}
                               >
                                 Approve
                               </Button>
@@ -723,7 +766,7 @@ function SystemManagementTab() {
                             )
                           )}
                           {(isSuperadmin || !['admin', 'superadmin'].includes(u.role)) && (
-                            <Button size="icon-sm" variant="ghost" className="text-flame-500 hover:text-flame-600 hover:bg-flame-500/10" onClick={() => handleDelete(u.id)} aria-label="Delete"><Trash2 size={14} /></Button>
+                            <Button size="icon-sm" variant="ghost" className="text-flame-500 hover:text-flame-600 hover:bg-flame-500/10" onClick={() => requestDeleteUser(u)} aria-label={`Delete ${u.full_name || u.email}`}><Trash2 size={14} /></Button>
                           )}
                         </div>
                       )}
@@ -776,7 +819,7 @@ function SystemManagementTab() {
               />
             </div>
             {isSuperadmin && (
-              <Select value={paperDeptFilter} onChange={e => { setPaperDeptFilter(e.target.value); setPaperPage(1); }} className="h-8 rounded-xl px-2.5 text-xs w-[110px]">
+              <Select value={paperDeptFilter} onChange={e => { setPaperDeptFilter(e.target.value); setPaperPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter papers by department">
                 <option value="all">All Depts</option>
                 <option value="CCSICT">CCSICT</option>
                 <option value="CAS">CAS</option>
@@ -835,6 +878,16 @@ function SystemManagementTab() {
         </div>
         <PaginationControls page={paperPage} setPage={setPaperPage} total={filteredPapers.length} limit={5} />
       </GlassCard>
+      <ConfirmDialog
+        open={Boolean(confirmation)}
+        onClose={() => !confirming && setConfirmation(null)}
+        onConfirm={confirmRequestedAction}
+        title={confirmation?.title}
+        message={confirmation?.message}
+        confirmLabel={confirmation?.confirmLabel}
+        danger={confirmation?.danger}
+        loading={confirming}
+      />
     </div>
   )
 }

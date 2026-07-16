@@ -18,7 +18,7 @@ export function BentoFeatures() {
       <Aurora subtle />
       <div className="relative mx-auto max-w-6xl">
         <SectionHeading eyebrow="Built for research integrity" className="mb-14">
-          Everything the paper <em className="font-accent text-gradient-isu">promised</em>
+          Built to be <em className="font-accent text-gradient-isu">auditable</em>
           <span className="text-gold-400">.</span>
         </SectionHeading>
 
@@ -63,11 +63,10 @@ export function BentoFeatures() {
             <TiltCard>
               <GlassCard hover className="relative h-full overflow-hidden p-8">
                 <ShieldCheck size={26} className="mb-4 text-flame-500" />
-                <h3 className="font-display text-xl font-extrabold">85% duplication guard</h3>
+                <h3 className="font-display text-xl font-extrabold">85% similarity alert</h3>
                 <p className="mt-2 text-sm leading-relaxed opacity-65">
-                  Topic redundancy is flagged the moment it appears — with the exact
-                  cosine-similarity percentage and a summary of the matched study for you and
-                  your adviser.
+                  Potentially overlapping topics are flagged with the measured similarity and a
+                  summary of matched work. The result supports adviser review; it does not replace it.
                 </p>
                 <div className="mt-5">
                   <ProgressRing value={85} size={104} strokeWidth={9} label="similarity" />
@@ -83,8 +82,8 @@ export function BentoFeatures() {
                 <Quote size={26} className="mb-4 text-gold-400" />
                 <h3 className="font-display text-xl font-extrabold">Traceable citations, always</h3>
                 <p className="mt-2 text-sm leading-relaxed opacity-65">
-                  Every claim links back to a real archived thesis — title, authors, track, and
-                  year. Zero fabricated references, by architecture.
+                  Responses include archived source metadata — title, authors, track, and year —
+                  so readers can inspect the evidence instead of trusting the model blindly.
                 </p>
                 {/* Chip fan spreads on hover */}
                 <div aria-hidden="true" className="relative mt-6 h-16">
@@ -143,9 +142,8 @@ export function BentoFeatures() {
                   <BrainCircuit size={26} className="mb-4 text-forest-500 dark:text-forest-300" />
                   <h3 className="font-display text-xl font-extrabold">Closed-domain honesty</h3>
                   <p className="mt-2 text-sm leading-relaxed opacity-65">
-                    The AI is architecturally barred from the open internet. It answers from the
-                    CCSICT archive or tells you nothing relevant exists — hallucination mitigated,
-                    not hidden.
+                    IskAI is constrained to retrieved archive context and instructed to
+                    decline unsupported questions. Citations and review make remaining errors visible.
                   </p>
                   {/* Internet toggle, permanently OFF */}
                   <div aria-hidden="true" className="mt-5 flex items-center gap-3">

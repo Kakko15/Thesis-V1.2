@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform,
+  motion, useMotionValueEvent, useScroll, useTransform,
 } from 'framer-motion'
 import { BrainCircuit, Database, ScanSearch, ShieldCheck } from 'lucide-react'
 import { GlassCard } from '../../components/ui/GlassCard'
@@ -8,6 +8,7 @@ import { Reveal } from '../../components/ui/Motion'
 import { ProgressRing } from '../../components/ui/ProgressRing'
 import { SectionHeading } from './SectionHeading'
 import { cn } from '../../lib/utils'
+import { usePreferences } from '../../context/PreferencesContext'
 
 /* ---- Per-step mini-visuals ---------------------------------------- */
 
@@ -95,9 +96,9 @@ const PIPELINE_STEPS = [
   },
   {
     icon: ShieldCheck,
-    title: 'Guard originality',
-    tag: '85% duplication threshold',
-    text: 'Every query is screened against the 85% cosine-similarity duplication threshold. Redundant topics are flagged instantly with the exact match percentage and study summary.',
+    title: 'Flag related topics',
+    tag: '85% similarity threshold',
+    text: 'Queries are compared at the configured cosine-similarity threshold. High-similarity results show the measured score and matched study for human review.',
     visual: GuardViz,
   },
 ]
@@ -264,7 +265,7 @@ function useMediaQuery(query) {
 }
 
 export function HowItWorks() {
-  const reduced = useReducedMotion()
+  const { reducedMotion: reduced } = usePreferences()
   const pinnable = useMediaQuery('(min-width: 1024px) and (min-height: 640px)')
 
   return (

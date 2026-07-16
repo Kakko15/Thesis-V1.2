@@ -141,7 +141,6 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
                 size="lg"
                 loading={updating}
                 disabled={newPassword.length < 6}
-                whileHover={{ scale: 1.015, y: -1 }}
                 className="group relative w-full overflow-hidden"
               >
                 <Shine />
@@ -180,7 +179,6 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
                 loading={verifying}
                 disabled={code.length !== 6}
                 onClick={() => verifyOtp(code)}
-                whileHover={{ scale: 1.015, y: -1 }}
                 className="group relative mt-6 w-full overflow-hidden"
               >
                 <Shine />
@@ -237,7 +235,6 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
                 type="submit"
                 size="lg"
                 loading={loading}
-                whileHover={{ scale: 1.015, y: -1 }}
                 className="group relative w-full overflow-hidden"
               >
                 <Shine />

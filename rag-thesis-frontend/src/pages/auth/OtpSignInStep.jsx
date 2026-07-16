@@ -60,7 +60,6 @@ export function OtpSignInStep({ email, onBack }) {
           <Button
             size="lg"
             onClick={() => window.open(getEmailLink(email), '_blank')}
-            whileHover={{ scale: 1.015, y: -1 }}
             className="group relative mt-6 w-full overflow-hidden"
           >
             <Shine />
