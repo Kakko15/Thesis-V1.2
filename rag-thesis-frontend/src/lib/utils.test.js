@@ -34,6 +34,19 @@ test('builds safe scan metrics from legacy and current records', () => {
   assert.equal(verdictLabel('high_overlap'), 'High overlap—faculty review required')
 })
 
+test('builds empty scan metrics for null and malformed legacy records', () => {
+  const expected = {
+    highest: 0,
+    coverage: 0,
+    matchedChunks: 0,
+    totalChunks: 0,
+    verdict: 'clear',
+  }
+  assert.deepEqual(scanMetrics(null), expected)
+  assert.deepEqual(scanMetrics('legacy-invalid-value'), expected)
+  assert.deepEqual(scanMetrics([]), expected)
+})
+
 test('date helpers fail closed for invalid values', () => {
   assert.equal(formatDate('not-a-date'), '')
   assert.equal(timeAgo('not-a-date'), '')

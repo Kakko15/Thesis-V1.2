@@ -33,6 +33,17 @@ class TestMigrationContract:
         assert 'matched_chunk_count integer' in sql
         assert 'alter table public.scan_history add column if not exists matched_chunks' not in sql
 
+    def test_legacy_department_track_arrays_are_normalized_safely(self):
+        for path in (MIGRATION, FULL_SCHEMA):
+            sql = path.read_text(encoding='utf-8').lower()
+            drop_default = 'alter column tracks drop default'
+            convert_array = 'alter column tracks type jsonb using to_jsonb(tracks)'
+            restore_default = "alter column tracks set default '[]'::jsonb"
+            assert drop_default in sql
+            assert convert_array in sql
+            assert restore_default in sql
+            assert sql.index(drop_default) < sql.index(convert_array) < sql.index(restore_default)
+
     def test_production_hardening_contracts_are_backend_owned(self):
         for path in (HARDENING_MIGRATION, FULL_SCHEMA):
             sql = path.read_text(encoding='utf-8').lower()

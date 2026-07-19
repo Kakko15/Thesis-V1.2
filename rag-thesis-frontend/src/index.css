@@ -377,6 +377,11 @@
      Instrument Serif ships weight 400 only — force it to avoid faux bold. */
   .font-accent {
     @apply font-serif italic tracking-tight;
+    /* Keep italic overhangs and deep descenders inside the gradient paint box.
+       Negative margins preserve the original headline spacing. */
+    display: inline-block;
+    padding: 0 0.06em 0.14em;
+    margin: 0 -0.06em -0.14em;
     font-size: 1.04em;
     font-weight: 400;
   }

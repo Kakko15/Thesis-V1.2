@@ -12,3 +12,6 @@ ISU_Logo.jpg
 
 # SonarQube scanner cache
 .scannerwork/
+
+# SQL files (database schema & migrations)
+*.sql
