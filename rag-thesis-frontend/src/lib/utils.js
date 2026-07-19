@@ -43,14 +43,15 @@ export function normalizePercent(value) {
 }
 
 export function scanMetrics(scan = {}) {
-  const matchedChunks = Math.max(0, Number(scan.matched_chunk_count ?? 0) || 0)
-  const totalChunks = Math.max(0, Number(scan.total_chunks ?? 0) || 0)
+  const record = scan && typeof scan === 'object' && !Array.isArray(scan) ? scan : {}
+  const matchedChunks = Math.max(0, Number(record.matched_chunk_count ?? 0) || 0)
+  const totalChunks = Math.max(0, Number(record.total_chunks ?? 0) || 0)
   return {
-    highest: normalizePercent(scan.highest_similarity),
-    coverage: normalizePercent(scan.matched_chunk_percentage ?? scan.duplication_percentage),
+    highest: normalizePercent(record.highest_similarity),
+    coverage: normalizePercent(record.matched_chunk_percentage ?? record.duplication_percentage),
     matchedChunks,
     totalChunks,
-    verdict: scan.verdict_level || (matchedChunks === 0 ? 'clear' : 'review_suggested'),
+    verdict: record.verdict_level || (matchedChunks === 0 ? 'clear' : 'review_suggested'),
   }
 }
 

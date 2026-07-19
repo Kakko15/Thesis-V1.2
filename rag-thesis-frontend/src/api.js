@@ -6,7 +6,11 @@ const api = axios.create({
   timeout: 180000, // embedding-heavy operations
 })
 
-const TRANSIENT_GATEWAY_STATUSES = new Set([502, 503, 504])
+// A 503 is an explicit backend readiness/configuration failure. Retrying it in
+// the Axios interceptor and then again in React Query multiplies one failure
+// into many identical browser-console errors without improving recovery.
+// Keep automatic GET retries only for genuinely transient gateway failures.
+const TRANSIENT_GATEWAY_STATUSES = new Set([502, 504])
 const MAX_TRANSIENT_GET_RETRIES = 2
 const DEV_BACKEND_READY_ATTEMPTS = 40
 const SHOULD_WAIT_FOR_DEV_BACKEND = import.meta.env.DEV && !import.meta.env.VITE_API_URL

@@ -14,7 +14,13 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      retry: 1,
+      retry: (failureCount, error) => {
+        const status = error?.response?.status
+        // Authentication, authorization, validation, and readiness failures
+        // require user/configuration action; repeating them only floods logs.
+        if (status && (status < 500 || status === 503)) return false
+        return failureCount < 1
+      },
       refetchOnWindowFocus: false,
     },
   },
