@@ -42,11 +42,14 @@ class TestCitationFiltering:
 class TestConversationFastPath:
     def test_greeting_and_identity_question_are_local(self):
         assert _is_simple_conversation('Hello!')
+        assert _is_simple_conversation('hello dear')
+        assert _is_simple_conversation('Hey, IskAI!')
         assert _is_simple_conversation('hello.. who are you?')
         assert _is_simple_conversation('What can you do?')
 
     def test_research_question_still_uses_rag(self):
         assert not _is_simple_conversation('Hello, what theses used machine learning?')
+        assert not _is_simple_conversation('Hello dear, what theses used machine learning?')
         assert not _is_simple_conversation('Who are the authors of the CNN study?')
 
     def test_fast_response_uses_chatbot_brand(self):

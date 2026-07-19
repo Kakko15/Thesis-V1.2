@@ -11,6 +11,8 @@ const FALLBACK_TRACKS = [
   'Information Management',
 ]
 
+const RETRY_UNAVAILABLE_TRACKS_MS = 5_000
+
 function TrackChip({ track, gold = false }) {
   return (
     <div className="glass flex items-center gap-2.5 rounded-full px-6 py-3 text-sm font-semibold">
@@ -22,7 +24,14 @@ function TrackChip({ track, gold = false }) {
 
 /** Dual counter-scrolling rows of live academic tracks. */
 export function TracksMarquee() {
-  const { data: tracks } = useQuery({ queryKey: ['tracks'], queryFn: getTracks, retry: false })
+  const { data: tracks } = useQuery({
+    queryKey: ['tracks'],
+    queryFn: getTracks,
+    retry: false,
+    refetchInterval: (query) => (
+      query.state.status === 'error' ? RETRY_UNAVAILABLE_TRACKS_MS : false
+    ),
+  })
   const items = tracks?.length ? tracks : FALLBACK_TRACKS
 
   return (
