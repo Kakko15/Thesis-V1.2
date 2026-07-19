@@ -9,7 +9,7 @@ import { cn } from '../../lib/utils'
 import { StepHeader } from './StepHeader'
 import { FieldIcon, formStagger, PasswordEye, Rise, Shine } from './AuthFx'
 import {
-  friendlyAuthError, passwordStrength,
+  friendlyAuthError, isStrongPassword, passwordStrength,
   PASSWORD_RULES, STRENGTH_COLORS, STRENGTH_LABELS,
 } from './authUtils'
 
@@ -24,8 +24,8 @@ export function ResetPasswordStep({ onDone }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters')
+    if (!isStrongPassword(password)) {
+      setError('Use 8+ characters with uppercase, number, and symbol')
       return
     }
     setLoading(true)

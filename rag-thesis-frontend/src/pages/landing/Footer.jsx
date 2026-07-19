@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { BrandMark } from '../../components/ui/Logo'
 
 const EXPLORE_LINKS = [
-  { label: 'Try as guest', to: '/chat' },
+  { label: 'Try as Guest Researcher', to: '/chat' },
   { label: 'Sign in', to: '/login' },
   { label: 'The pipeline', href: '#pipeline' },
   { label: 'Live demo', href: '#demo' },

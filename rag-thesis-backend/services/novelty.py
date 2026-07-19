@@ -21,13 +21,33 @@ logger = logging.getLogger(__name__)
 _TOP_MATCHED_PAPERS = 3
 
 
+def percent(value: float | int | None) -> float:
+    """Normalize a public percentage while accepting legacy 0-1 ratios."""
+    number = float(value or 0.0)
+    return round(number * 100 if 0 < number <= 1 else number, 2)
+
+
+def verdict_for_coverage(matched_chunk_percentage: float) -> str:
+    if matched_chunk_percentage <= 0:
+        return 'clear'
+    if matched_chunk_percentage < 50:
+        return 'review_suggested'
+    return 'high_overlap'
+
+
+def meets_duplication_threshold(similarity: float, threshold: float | None = None) -> bool:
+    """Canonical inclusive boundary used by tests and non-SQL callers."""
+    return similarity >= (settings.duplication_threshold if threshold is None else threshold)
+
+
 def aggregate_matches(matches: list[dict], total_chunks: int, threshold: float) -> dict:
     """Pure aggregation of per-chunk nearest-neighbor matches.
 
     `matches` holds one {'paper_id', 'similarity'} entry per new chunk whose
     best archive match met the duplication threshold.
     """
-    percentage = (len(matches) / total_chunks) * 100 if total_chunks else 0.0
+    coverage = (len(matches) / total_chunks) * 100 if total_chunks else 0.0
+    highest = max((float(m.get('similarity', 0.0)) for m in matches), default=0.0)
 
     per_paper: dict[str, dict] = {}
     for m in matches:
@@ -43,7 +63,13 @@ def aggregate_matches(matches: list[dict], total_chunks: int, threshold: float) 
 
     return {
         'flagged': bool(matches),
-        'duplication_percentage': round(percentage, 2),
+        'highest_similarity': percent(highest),
+        'matched_chunk_percentage': round(coverage, 2),
+        'matched_chunk_count': len(matches),
+        'total_chunks': total_chunks,
+        'verdict_level': verdict_for_coverage(coverage),
+        # One-release compatibility alias. New code uses matched_chunk_percentage.
+        'duplication_percentage': round(coverage, 2),
         'threshold': round(threshold * 100, 2),
         'matched_papers': [
             {
@@ -56,7 +82,7 @@ def aggregate_matches(matches: list[dict], total_chunks: int, threshold: float) 
     }
 
 
-def screen_new_submission(embeddings: list[list[float]]) -> dict:
+def screen_new_submission(embeddings: list[list[float]], department: str) -> dict:
     """Screen a new manuscript's chunk embeddings against the archive at the
     paper-mandated 85% cosine similarity duplication threshold."""
     threshold = settings.duplication_threshold
@@ -66,6 +92,7 @@ def screen_new_submission(embeddings: list[list[float]]) -> dict:
             'query_embedding': emb,
             'match_count': 1,
             'match_threshold': threshold,
+            'p_department': department,
         }).execute()
         if res.data:
             best = res.data[0]
@@ -76,7 +103,7 @@ def screen_new_submission(embeddings: list[list[float]]) -> dict:
     # Enrich the top matches with citation metadata for the admin UI
     pids = [p['id'] for p in scan['matched_papers']]
     if pids:
-        papers_res = sb.table('papers').select('id,title,authors,year,track').in_('id', pids).execute()
+        papers_res = sb.table('papers').select('id,title,authors,year,track,department').in_('id', pids).execute()
         lookup = {p['id']: p for p in (papers_res.data or [])}
         for entry in scan['matched_papers']:
             p = lookup.get(entry['id'])
@@ -86,5 +113,6 @@ def screen_new_submission(embeddings: list[list[float]]) -> dict:
                     'authors': p.get('authors', ''),
                     'year': p.get('year'),
                     'track': p.get('track', ''),
+                    'department': p.get('department', ''),
                 })
     return scan

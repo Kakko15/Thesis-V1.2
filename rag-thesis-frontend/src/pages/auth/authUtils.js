@@ -36,7 +36,13 @@ export const PASSWORD_RULES = [
   { key: 'symbol', label: 'Symbol', test: (pw) => /[^A-Za-z0-9]/.test(pw) },
 ]
 
+export function isStrongPassword(password) {
+  return PASSWORD_RULES.every((rule) => rule.test(password || ''))
+}
+
 /** Map raw Supabase auth errors to human copy. Never leak internals. */
+// Mapping intentionally stays explicit so each provider message has reviewed user-facing copy.
+// eslint-disable-next-line complexity
 export function friendlyAuthError(err) {
   if (!err) return 'Something went wrong.'
   let raw = err.message || err.error_description || err.msg || err
@@ -68,7 +74,7 @@ export function friendlyAuthError(err) {
     return 'This link has expired. Request a new password-reset email.'
   if (msg.includes('failed to fetch') || msg.includes('network'))
     return 'Network hiccup — check your connection and try again.'
-  return raw || 'Something went wrong. Please try again.'
+  return 'Authentication failed. Please try again.'
 }
 
 /** Parse "…after 42 seconds" out of a rate-limit error. */

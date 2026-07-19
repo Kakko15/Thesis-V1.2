@@ -4,10 +4,37 @@ import tailwindcss from '@tailwindcss/vite'
 
 const BACKEND = 'http://localhost:8000'
 
-// `/chat` is both a React page and a backend POST endpoint. Browser navigation
-// requests HTML, so keep those inside Vite and let the SPA history fallback
-// serve index.html. API requests continue through the backend proxy.
-const chatProxy = {
+// Keep initial page loads quiet while FastAPI is still starting/reloading.
+// This endpoint always answers from Vite, so readiness polling never creates
+// browser-console 502 errors. Real API requests begin only after /health is OK.
+function backendReadiness() {
+  return {
+    name: 'backend-readiness',
+    configureServer(server) {
+      server.middlewares.use('/__backend-ready', async (_req, res) => {
+        let ready = false
+        try {
+          const response = await fetch(`${BACKEND}/health`, {
+            signal: AbortSignal.timeout(1000),
+          })
+          ready = response.ok
+        } catch {
+          // The frontend polls this safe endpoint until FastAPI is ready.
+        }
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'application/json')
+        res.setHeader('Cache-Control', 'no-store')
+        res.end(JSON.stringify({ ready }))
+      })
+    },
+  }
+}
+
+// `/chat` and `/upload` are both React pages and backend API prefixes. Browser
+// navigation requests HTML, so keep those inside Vite and let the SPA history
+// fallback serve index.html. JSON and multipart API requests still proxy to
+// FastAPI.
+const spaAwareApiProxy = {
   target: BACKEND,
   changeOrigin: true,
   bypass(req) {
@@ -18,13 +45,13 @@ const chatProxy = {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [backendReadiness(), react(), tailwindcss()],
   // R3F breaks silently if two copies of three end up in the module graph.
   resolve: { dedupe: ['three'] },
   server: {
     proxy: {
-      '/upload': BACKEND,
-      '/chat': chatProxy,
+      '/upload': spaAwareApiProxy,
+      '/chat': spaAwareApiProxy,
       '/papers': BACKEND,
       '/health': BACKEND,
       '/sessions': BACKEND,
@@ -35,6 +62,9 @@ export default defineConfig({
     },
   },
   build: {
+    // The optional WebGL scene is lazy-loaded after capability/visibility
+    // checks; its Three.js dependency is never part of the initial app bundle.
+    chunkSizeWarningLimit: 900,
     rollupOptions: {
       output: {
         manualChunks(id) {

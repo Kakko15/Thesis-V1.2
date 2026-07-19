@@ -1,10 +1,14 @@
 """Functional Suitability tests — data digitization and cleaning pipeline."""
 
+import fitz
+
 from services.document_processor import (
     FIGURE_PLACEHOLDER,
     _clean_page,
     _detect_repeated_lines,
     _remove_excluded_sections,
+    extract_pdf_document,
+    extract_pdf_text,
     extract_text,
     filter_noise_chunks,
     is_noise_chunk,
@@ -82,3 +86,20 @@ class TestExtractText:
 
     def test_figure_placeholder_constant_matches_paper(self):
         assert FIGURE_PLACEHOLDER == 'FIGURE REDACTED FOR SEMANTIC INDEXING'
+
+    def test_pdf_extraction_retains_one_based_pages(self):
+        pdf = fitz.open()
+        for page_number in range(1, 3):
+            page = pdf.new_page()
+            page.insert_text(
+                (72, 72),
+                f'CHAPTER {page_number}\nThis page contains enough academic thesis content '
+                'to exercise page-aware extraction and cleaning.',
+            )
+        payload = pdf.tobytes()
+        pdf.close()
+
+        document = extract_pdf_document(payload)
+        assert [page.page_number for page in document.pages] == [1, 2]
+        assert 'academic thesis content' in document.text
+        assert extract_pdf_text(payload) == document.text

@@ -39,15 +39,15 @@ baseline_llm = ChatGoogleGenerativeAI(
 )
 
 BASELINE_PROMPT = (
-    'You are a research assistant for the CCSICT department of Isabela State University, '
-    'Echague. Answer the following question about CCSICT undergraduate thesis research '
+    'You are a research assistant for the {department} department of Isabela State University, '
+    'Echague. Answer the following question about {department} undergraduate thesis research '
     'using only your own knowledge. Cite specific theses if you can.\n\nQuestion: {question}'
 )
 
 RAG_PROMPT = (
-    'You are a research assistant for the CCSICT department of Isabela State University, '
+    'You are a research assistant for the {department} department of Isabela State University, '
     'Echague. Answer the question strictly and exclusively from the provided context of '
-    'archived CCSICT theses. If the context does not contain the answer, say so.\n\n'
+    'archived {department} theses. If the context does not contain the answer, say so.\n\n'
     'Context:\n{context}\n\nQuestion: {question}'
 )
 
@@ -68,14 +68,21 @@ def run_pathways(queries: list[dict]) -> list[dict]:
 
         # --- Control: baseline LLM, parametric memory only ---
         t0 = time.perf_counter()
-        baseline_answer = _coerce(baseline_llm.invoke(BASELINE_PROMPT.format(question=question)))
+        department = settings.thesis_evaluation_department
+        baseline_answer = _coerce(baseline_llm.invoke(BASELINE_PROMPT.format(
+            question=question, department=department,
+        )))
         baseline_latency = time.perf_counter() - t0
 
         # --- Experimental: RAG + LLM, closed-domain retrieval ---
         t0 = time.perf_counter()
-        context, sources, top_similarity = search_chunks(question)
+        context, sources, top_similarity = search_chunks(question, department)
         rag_answer = _coerce(baseline_llm.invoke(
-            RAG_PROMPT.format(context=context or 'No relevant thesis found.', question=question)
+            RAG_PROMPT.format(
+                context=context or 'No relevant thesis found.',
+                question=question,
+                department=department,
+            )
         ))
         rag_latency = time.perf_counter() - t0
 
@@ -168,6 +175,7 @@ def main():
 
     output: dict = {
         'generated_at': stamp,
+        'evaluation_department': settings.thesis_evaluation_department,
         'models': {'llm': settings.gemini_chat_model, 'embeddings': settings.gemini_embed_model},
         'rows': rows,
     }

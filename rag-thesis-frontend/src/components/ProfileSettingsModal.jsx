@@ -7,11 +7,12 @@ import { Button } from './ui/Button'
 import { Input } from './ui/Input'
 import { User, Camera, Shield, Lock, Mail, Save, X, ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
-import { cn } from '../lib/utils'
+import { cn, extractOwnedAvatarPath } from '../lib/utils'
 import { OtpInput } from './ui/OtpInput'
+import { isStrongPassword } from '../pages/auth/authUtils'
 
 export function ProfileSettingsModal({ open, onClose }) {
-  const { user, profile, avatarUrl, refreshProfile } = useAuth()
+  const { user, profile, avatarUrl, refreshProfile, reloadSession } = useAuth()
   
   const [tab, setTab] = useState('profile') // 'profile' | 'security'
   
@@ -94,6 +95,8 @@ export function ProfileSettingsModal({ open, onClose }) {
       toast.success('Email updated successfully')
       setVerifyingEmail(false)
       setEmailCode('')
+      await reloadSession()
+      await refreshProfile()
     } catch (err) {
       toast.error('Verification failed', { description: apiErrorMessage(err) })
       setShakeEmailNonce(n => n + 1)
@@ -104,7 +107,10 @@ export function ProfileSettingsModal({ open, onClose }) {
   }
 
   const handleRequestPasswordChange = async () => {
-    if (!password || password.length < 6) return
+    if (!isStrongPassword(password)) {
+      toast.error('Use 8+ characters with uppercase, number, and symbol')
+      return
+    }
     setLoading(true)
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
@@ -148,13 +154,30 @@ export function ProfileSettingsModal({ open, onClose }) {
   const handleAvatarUpload = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
+
+    const allowedTypes = new Map([
+      ['image/jpeg', 'jpg'],
+      ['image/png', 'png'],
+      ['image/webp', 'webp'],
+    ])
+    if (!allowedTypes.has(file.type)) {
+      toast.error('Unsupported avatar', { description: 'Use a JPG, PNG, or WebP image.' })
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Avatar too large', { description: 'Maximum avatar size is 2 MB.' })
+      return
+    }
     
     setUploadingAvatar(true)
+    let uploadedPath = null
+    let profileUpdated = false
     try {
       // 1. Upload to Storage
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${Date.now()}.${fileExt}`
+      const fileExt = allowedTypes.get(file.type)
+      const fileName = `avatar-${Date.now()}.${fileExt}`
       const filePath = `${user.id}/${fileName}`
+      uploadedPath = filePath
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')
@@ -162,19 +185,28 @@ export function ProfileSettingsModal({ open, onClose }) {
 
       if (uploadError) throw uploadError
 
-      // 2. Get Public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath)
+      // 2. Store only the owned bucket path, never a caller-controlled URL.
+      await updateMyProfile({ avatar_url: filePath })
+      profileUpdated = true
 
-      // 3. Update Database Profile
-      await updateMyProfile({ avatar_url: publicUrl })
+      const previousPath = extractOwnedAvatarPath(profile?.avatar_url, user.id)
+      if (previousPath && previousPath !== filePath) {
+        const { error: cleanupError } = await supabase.storage
+          .from('avatars')
+          .remove([previousPath])
+        if (cleanupError) {
+          toast.warning('Avatar updated; old image cleanup is pending')
+        }
+      }
       
-      // 4. Refresh UI
+      // 3. Refresh UI
       await refreshProfile()
       toast.success('Avatar updated successfully')
       
     } catch (err) {
+      if (uploadedPath && !profileUpdated) {
+        await supabase.storage.from('avatars').remove([uploadedPath]).catch(() => {})
+      }
       toast.error('Failed to upload avatar: ' + (err.message || apiErrorMessage(err)))
     } finally {
       setUploadingAvatar(false)
@@ -331,10 +363,10 @@ export function ProfileSettingsModal({ open, onClose }) {
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="New password (min. 6 chars)"
+                      placeholder="New password (min. 8 chars)"
                       className="flex-1"
                     />
-                    <Button variant="secondary" loading={loading} onClick={handleRequestPasswordChange} disabled={!password || password.length < 6}>
+                    <Button variant="secondary" loading={loading} onClick={handleRequestPasswordChange} disabled={!isStrongPassword(password)}>
                       Update
                     </Button>
                   </div>

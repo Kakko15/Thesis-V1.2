@@ -10,7 +10,7 @@ import { AlertTriangle, XCircle } from 'lucide-react'
  *   <ProtectedRoute roles={['faculty','admin']}>...         — faculty + admins
  */
 export function ProtectedRoute({ children, roles, isAllowed, allowGuest = false }) {
-  const { user, role, loading, needsMfa, isPending, isRejected, signOut } = useAuth()
+  const { user, role, loading, needsMfa, profileError, isPending, isRejected, signOut } = useAuth()
 
   if (loading) {
     return (
@@ -27,6 +27,24 @@ export function ProtectedRoute({ children, roles, isAllowed, allowGuest = false 
   // 2FA-enrolled accounts must complete the TOTP challenge (aal2) first —
   // /login detects needsMfa and presents the challenge step.
   if (needsMfa) return <Navigate to="/login" replace />
+
+  if (profileError) {
+    return (
+      <div className="flex h-[60vh] flex-col items-center justify-center p-6 text-center">
+        <div className="glass mb-4 flex h-16 w-16 items-center justify-center rounded-3xl">
+          <AlertTriangle size={28} className="text-gold-500" />
+        </div>
+        <h2 className="font-display text-2xl font-bold">Profile temporarily unavailable</h2>
+        <p className="mt-2 max-w-sm text-sm opacity-60">
+          Access is paused because your authoritative role and department could not be verified.
+          Please reload or try again shortly.
+        </p>
+        <button onClick={() => window.location.reload()} className="mt-6 text-sm font-semibold text-forest-600 hover:text-forest-500">
+          Reload
+        </button>
+      </div>
+    )
+  }
 
   if (isPending) {
     return (

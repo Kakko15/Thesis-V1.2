@@ -362,7 +362,7 @@ export default function Login() {
                 )}
               >
                 <Sparkles size={14} className="transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
-                Continue as guest — no account needed
+                Continue as Guest Researcher — no account needed
               </button>
             </motion.div>
           )}

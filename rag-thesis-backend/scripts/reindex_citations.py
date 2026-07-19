@@ -1,0 +1,220 @@
+"""Safely rebuild citation-aware chunk indexes.
+
+Dry-run is the default and performs no Supabase, storage, or Gemini calls.
+Use ``--fixture-dir`` to exercise extraction/chunk mapping locally. Live work
+requires the explicit ``--apply`` flag and a paper target.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import uuid
+from pathlib import Path
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from config import settings  # noqa: E402
+from services.chunker import build_chunk_metadata, split_document  # noqa: E402
+from services.document_processor import extract_document, is_noise_chunk  # noqa: E402
+
+STATE_FILE = BACKEND_ROOT / '.reindex_items_9_16_state.json'
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument('--paper-id', help='Re-index exactly one paper UUID.')
+    target.add_argument('--all', action='store_true', help='Re-index every paper with an original.')
+    parser.add_argument('--apply', action='store_true', help='Authorize live storage, Gemini, and database work.')
+    parser.add_argument('--resume', action='store_true', help='Skip paper IDs already recorded as successful.')
+    parser.add_argument('--prune-old', action='store_true', help='Prune eligible inactive versions after re-indexing.')
+    parser.add_argument('--older-than-days', type=int, default=7, help='Inactive-index retention window (default: 7).')
+    parser.add_argument('--fixture-dir', type=Path, help='Local PDF/TXT fixtures for a no-network dry-run.')
+    return parser
+
+
+def load_state(path: Path = STATE_FILE) -> dict:
+    if not path.exists():
+        return {'completed': [], 'failed': {}}
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return {'completed': [], 'failed': {}}
+
+
+def save_state(state: dict, path: Path = STATE_FILE) -> None:
+    path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding='utf-8')
+
+
+def build_records(file_bytes: bytes, filename: str) -> list[dict]:
+    document = extract_document(file_bytes, filename)
+    return [
+        record for record in split_document(document)
+        if not is_noise_chunk(record['content'])
+    ]
+
+
+def verify_records(records: list[dict], embeddings: list[list[float]] | None = None) -> None:
+    if not records:
+        raise ValueError('No clean, indexable chunks were produced')
+    positions = [record['chunk_index'] for record in records]
+    if len(positions) != len(set(positions)):
+        raise ValueError('Chunk positions are not unique')
+    for record in records:
+        if not record['content'].strip():
+            raise ValueError('An empty chunk was produced')
+        if record['page_start'] and record['page_end'] < record['page_start']:
+            raise ValueError('Invalid page range')
+    if embeddings is not None:
+        if len(embeddings) != len(records):
+            raise ValueError('Embedding count does not match chunk count')
+        if any(len(vector) != settings.embedding_dimensions for vector in embeddings):
+            raise ValueError(f'Every embedding must contain {settings.embedding_dimensions} values')
+
+
+def dry_run_fixtures(fixture_dir: Path) -> list[dict]:
+    reports = []
+    for path in sorted(fixture_dir.iterdir()):
+        if path.suffix.lower() not in {'.pdf', '.txt'}:
+            continue
+        records = build_records(path.read_bytes(), path.name)
+        verify_records(records)
+        reports.append({
+            'file': path.name,
+            'chunks': len(records),
+            'page_aware_chunks': sum(record['page_start'] is not None for record in records),
+            'sections': sorted({record['section'] for record in records if record['section']}),
+        })
+    return reports
+
+
+def fetch_papers(client, paper_id: str | None, all_papers: bool) -> list[dict]:
+    query = client.table('papers').select(
+        'id,title,authors,year,track,department,filename,storage_path,active_index_version'
+    )
+    if paper_id:
+        query = query.eq('id', paper_id)
+    elif not all_papers:
+        return []
+    return query.execute().data or []
+
+
+def apply_paper(client, paper: dict) -> dict:
+    storage_path = paper.get('storage_path')
+    if not storage_path:
+        raise ValueError('Original file is unavailable')
+    file_bytes = client.storage.from_('pdfs').download(storage_path)
+    records = build_records(file_bytes, paper.get('filename') or Path(storage_path).name)
+
+    # Import only inside the explicitly authorized apply path. Dry-run cannot
+    # initialize or call the Gemini embedding client.
+    from services.embedder import embed_texts
+
+    embeddings = embed_texts([record['content'] for record in records])
+    verify_records(records, embeddings)
+    staged_version = str(uuid.uuid4())
+    rows = []
+    for record, embedding in zip(records, embeddings):
+        rows.append({
+            'paper_id': paper['id'],
+            'chunk_index': record['chunk_index'],
+            'content': record['content'],
+            'page_start': record['page_start'],
+            'page_end': record['page_end'],
+            'section': record['section'],
+            'index_version': staged_version,
+            'metadata': build_chunk_metadata(
+                paper.get('title', ''), paper.get('authors', ''), paper.get('track', ''),
+                paper.get('year'), department=paper.get('department', ''),
+                page_start=record['page_start'], page_end=record['page_end'],
+                section=record['section'], chunk_index=record['chunk_index'],
+            ),
+            'embedding': embedding,
+        })
+
+    try:
+        for start in range(0, len(rows), 100):
+            client.table('chunks').insert(rows[start:start + 100]).execute()
+        staged = client.table('chunks').select('id,chunk_index,page_start,page_end,section') \
+            .eq('paper_id', paper['id']).eq('index_version', staged_version).execute().data or []
+        if len(staged) != len(rows) or len({row['chunk_index'] for row in staged}) != len(rows):
+            raise ValueError('Staged database verification failed')
+        client.rpc('activate_paper_index', {
+            'p_paper_id': paper['id'],
+            'p_index_version': staged_version,
+        }).execute()
+    except Exception:
+        # This can only remove the inactive staged version. The prior active
+        # index remains untouched because activation is the final operation.
+        active_rows = client.table('papers').select('active_index_version') \
+            .eq('id', paper['id']).limit(1).execute().data or []
+        active_version = active_rows[0].get('active_index_version') if active_rows else None
+        if active_version != staged_version:
+            client.table('chunks').delete().eq('paper_id', paper['id']) \
+                .eq('index_version', staged_version).execute()
+        raise
+
+    return {
+        'paper_id': paper['id'],
+        'previous_version': paper.get('active_index_version'),
+        'active_version': staged_version,
+        'chunks': len(rows),
+    }
+
+
+def run_apply(args, client, state_path: Path = STATE_FILE) -> dict:
+    if not (args.paper_id or args.all or args.prune_old):
+        raise ValueError('--apply requires --paper-id, --all, or --prune-old')
+    if args.older_than_days < 1:
+        raise ValueError('--older-than-days must be at least 1')
+
+    state = load_state(state_path) if args.resume else {'completed': [], 'failed': {}}
+    completed = set(state.get('completed', []))
+    reports = []
+    for paper in fetch_papers(client, args.paper_id, args.all):
+        if args.resume and paper['id'] in completed:
+            continue
+        try:
+            report = apply_paper(client, paper)
+            reports.append(report)
+            completed.add(paper['id'])
+            state.setdefault('failed', {}).pop(paper['id'], None)
+        except Exception as error:  # continue safely with the remaining papers
+            state.setdefault('failed', {})[paper['id']] = str(error)
+        state['completed'] = sorted(completed)
+        save_state(state, state_path)
+
+    pruned = None
+    if args.prune_old:
+        result = client.rpc('prune_inactive_indexes', {
+            'p_older_than_days': args.older_than_days,
+        }).execute()
+        pruned = result.data
+    return {'reindexed': reports, 'failed': state.get('failed', {}), 'pruned_chunks': pruned}
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if not args.apply:
+        report = {
+            'mode': 'dry-run',
+            'external_calls': 0,
+            'target': args.paper_id or ('all' if args.all else None),
+            'prune_requested': args.prune_old,
+            'fixtures': dry_run_fixtures(args.fixture_dir) if args.fixture_dir else [],
+        }
+        print(json.dumps(report, indent=2))
+        return 0
+
+    from services.retriever import sb
+
+    print(json.dumps(run_apply(args, sb), indent=2))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

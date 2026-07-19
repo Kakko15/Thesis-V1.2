@@ -191,7 +191,7 @@ export function Hero() {
             <Magnetic strength={0.2}>
               <Button size="xl" variant="secondary" onClick={() => navigate('/chat')}>
                 <MessageSquareText size={18} />
-                Explore as guest
+                Explore as Guest Researcher
               </Button>
             </Magnetic>
           </motion.div>

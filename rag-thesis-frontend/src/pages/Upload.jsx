@@ -15,7 +15,8 @@ import { Input, Textarea, Select, Field } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
 import { PageTransition } from '../components/ui/Motion'
 import { ConfirmDialog } from '../components/ui/Modal'
-import { cn } from '../lib/utils'
+import { useAuth } from '../context/AuthContext'
+import { cn, normalizePercent, scanMetrics, verdictLabel } from '../lib/utils'
 
 const STEPS = ['Manuscript', 'Metadata', 'Review']
 
@@ -27,6 +28,58 @@ const PIPELINE_STAGES = [
   { key: 'screen', label: 'Screen novelty (85%)', icon: ShieldAlert },
   { key: 'index', label: 'Index vectors', icon: Database },
 ]
+
+function DepartmentLoadError({ show, onRetry }) {
+  if (!show) return null
+  return (
+    <div role="alert" className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-flame-500/25 bg-flame-500/10 p-3 text-xs">
+      <span className="flex items-center gap-2"><AlertTriangle size={14} /> Department metadata is unavailable.</span>
+      <Button variant="ghost" size="sm" onClick={onRetry}>Retry</Button>
+    </div>
+  )
+}
+
+function uploadMetadataErrors(form) {
+  const errors = {}
+  if (form.title.trim().length < 5) errors.title = 'Enter the full thesis title'
+  if (!form.track) errors.track = 'Select the academic track'
+  if (!form.department) errors.department = 'Select the department'
+  const latestYear = new Date().getFullYear() + 1
+  if (form.year && (!/^\d{4}$/.test(form.year) || +form.year < 1978 || +form.year > latestYear)) {
+    errors.year = 'Enter a valid year'
+  }
+  return errors
+}
+
+function UploadScreening({ scan }) {
+  if (!scan?.flagged) return null
+  const metrics = scanMetrics(scan)
+  return (
+    <div className="mt-6 w-full max-w-md rounded-2xl border border-gold-400/40 bg-gold-400/10 p-4 text-left">
+      <div className="flex items-center gap-2 text-sm font-bold">
+        <ShieldAlert size={15} className="shrink-0 text-gold-500" />
+        {verdictLabel(metrics.verdict)}
+      </div>
+      <div className="mt-2 grid gap-1 text-xs opacity-75 sm:grid-cols-2">
+        <span>Highest passage similarity: {metrics.highest.toFixed(2)}%</span>
+        <span>Matched chunk coverage: {metrics.coverage.toFixed(2)}%</span>
+        <span>Matched chunks / total chunks: {metrics.matchedChunks} / {metrics.totalChunks}</span>
+        <span>Advisory verdict: {verdictLabel(metrics.verdict)}</span>
+      </div>
+      <ul className="mt-2 space-y-1 text-xs opacity-75">
+        {(scan.matched_papers || []).map((paper) => (
+          <li key={paper.id}>
+            &quot;{paper.title || 'Untitled thesis'}&quot;{paper.year ? ` (${paper.year})` : ''} — highest passage {normalizePercent(paper.similarity).toFixed(2)}%
+            {' · '}{paper.match_count} chunk{paper.match_count === 1 ? '' : 's'}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[0.7rem] opacity-55">
+        The manuscript was still indexed. This is advisory only; faculty makes the final decision.
+      </p>
+    </div>
+  )
+}
 
 function StepIndicator({ current }) {
   return (
@@ -69,8 +122,9 @@ function Dropzone({ file, onFile }) {
   const handleFiles = useCallback((files) => {
     const f = files?.[0]
     if (!f) return
-    if (!f.name.toLowerCase().endsWith('.pdf') && !f.name.toLowerCase().endsWith('.txt')) {
-      toast.error('Unsupported file', { description: 'Please upload a PDF or plain-text manuscript.' })
+    const validMime = !f.type || ['application/pdf', 'application/x-pdf'].includes(f.type)
+    if (!f.name.toLowerCase().endsWith('.pdf') || !validMime) {
+      toast.error('Unsupported file', { description: 'Please upload a valid PDF manuscript.' })
       return
     }
     if (f.size > 25 * 1024 * 1024) {
@@ -81,40 +135,34 @@ function Dropzone({ file, onFile }) {
   }, [onFile])
 
   return (
-    <div
+    <div className="relative">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="hidden"
+        onChange={(e) => handleFiles(e.target.files)}
+      />
+      <button
+      type="button"
       onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files) }}
       onClick={() => inputRef.current?.click()}
       className={cn(
-        'group flex cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed px-6 py-14 text-center transition-all duration-300',
+        'group flex w-full cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed px-6 py-14 text-center transition-all duration-300',
         dragging
           ? 'border-gold-400 bg-gold-400/10 scale-[1.01]'
           : 'border-forest-700/25 hover:border-forest-600/50 dark:border-white/15 dark:hover:border-gold-400/40',
       )}
     >
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".pdf,.txt"
-        className="hidden"
-        onChange={(e) => handleFiles(e.target.files)}
-      />
       {file ? (
-        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex flex-col items-center">
+        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex flex-col items-center pb-10">
           <div className="glass mb-4 flex h-16 w-16 items-center justify-center rounded-3xl">
             <FileText size={26} className="text-forest-600 dark:text-gold-300" />
           </div>
           <div className="max-w-xs truncate text-sm font-semibold">{file.name}</div>
           <div className="mt-1 text-xs opacity-50">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-3"
-            onClick={(e) => { e.stopPropagation(); onFile(null) }}
-          >
-            <X size={14} /> Remove
-          </Button>
         </motion.div>
       ) : (
         <>
@@ -128,9 +176,20 @@ function Dropzone({ file, onFile }) {
             Drop the manuscript here
           </div>
           <p className="mt-1 text-xs opacity-55">
-            or click to browse · PDF or TXT · up to 25 MB · scanned copies are OCR-processed
+            or click to browse · PDF only · up to 25 MB · scanned copies are OCR-processed
           </p>
         </>
+      )}
+      </button>
+      {file && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="absolute bottom-8 left-1/2 -translate-x-1/2"
+          onClick={() => onFile(null)}
+        >
+          <X size={14} /> Remove
+        </Button>
       )}
     </div>
   )
@@ -177,27 +236,45 @@ function PipelineProgress({ job }) {
   )
 }
 
+// The multi-step wizard intentionally keeps its declarative stage rendering in one component.
+// eslint-disable-next-line complexity
 export default function Upload() {
+  const { isSuperadmin, department: userDepartment } = useAuth()
+  const enforcedDepartment = userDepartment || 'CCSICT'
   const [step, setStep] = useState(0)
   const [file, setFile] = useState(null)
-  const [form, setForm] = useState({ title: '', authors: '', year: '', abstract: '', track: '', department: '' })
+  const [form, setForm] = useState({ title: '', authors: '', year: '', abstract: '', track: '', department: enforcedDepartment })
   const [errors, setErrors] = useState({})
   const [job, setJob] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [parsing, setParsing] = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
   const pollRef = useRef(null)
+  const pollFailuresRef = useRef(0)
+  const pollStartedRef = useRef(0)
+  const jobIdRef = useRef(null)
+  const [pollError, setPollError] = useState('')
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  const { data: departments = [], isLoading: loadingDepts } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
+  const {
+    data: departments = [],
+    isLoading: loadingDepts,
+    isError: departmentsError,
+    refetch: retryDepartments,
+  } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
   
   // Find the currently selected department object
   const currentDept = departments.find(d => d.name === form.department)
   const trackLabel = currentDept?.track_label || 'Track'
   const currentTracks = currentDept?.tracks || []
 
-  useEffect(() => () => clearInterval(pollRef.current), [])
+  useEffect(() => () => clearTimeout(pollRef.current), [])
+  useEffect(() => {
+    if (!isSuperadmin) {
+      setForm((current) => ({ ...current, department: enforcedDepartment }))
+    }
+  }, [enforcedDepartment, isSuperadmin])
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
@@ -211,7 +288,7 @@ export default function Upload() {
         title: metadata.title || prev.title,
         authors: metadata.authors || prev.authors,
         year: metadata.year || prev.year,
-        department: metadata.department || prev.department,
+        department: isSuperadmin ? metadata.department || prev.department : enforcedDepartment,
       }))
       if (metadata.title || metadata.authors || metadata.year || metadata.department) {
         toast.success('Metadata autofilled', { description: 'Extracted available information from the document.' })
@@ -228,48 +305,60 @@ export default function Upload() {
   const handleFileSelect = (f) => {
     if (!f) {
       setFile(null)
-      setForm({ title: '', authors: '', year: '', abstract: '', track: '', department: '' })
+      setForm({ title: '', authors: '', year: '', abstract: '', track: '', department: enforcedDepartment })
       return
     }
     setPendingFile(f)
   }
 
   const validateMetadata = () => {
-    const next = {}
-    if (form.title.trim().length < 5) next.title = 'Enter the full thesis title'
-    if (!form.track) next.track = 'Select the academic track'
-    if (!form.department) next.department = 'Select the department'
-    if (form.year && (!/^\d{4}$/.test(form.year) || +form.year < 1978 || +form.year > new Date().getFullYear() + 1)) {
-      next.year = 'Enter a valid year'
-    }
+    const next = uploadMetadataErrors(form)
     setErrors(next)
     return Object.keys(next).length === 0
   }
 
   const startPolling = (jobId) => {
-    pollRef.current = setInterval(async () => {
+    clearTimeout(pollRef.current)
+    jobIdRef.current = jobId
+    pollFailuresRef.current = 0
+    pollStartedRef.current = Date.now()
+    setPollError('')
+
+    const poll = async () => {
+      if (Date.now() - pollStartedRef.current > 30 * 60 * 1000) {
+        setPollError('Status checking paused after 30 minutes. You can resume it safely.')
+        return
+      }
       try {
         const status = await getUploadStatus(jobId)
+        pollFailuresRef.current = 0
         setJob(status)
         if (status.status === 'completed') {
-          clearInterval(pollRef.current)
           queryClient.invalidateQueries({ queryKey: ['papers'] })
           toast.success('Thesis indexed!', {
             description: `${status.chunks} semantic chunks embedded into the archive.`,
           })
           if (status.duplication?.flagged) {
+            const metrics = scanMetrics(status.duplication)
             toast.warning('Potential duplication detected', {
-              description: `${status.duplication.duplication_percentage}% of the manuscript matched the archive at the ${status.duplication.threshold}% similarity threshold.`,
+              description: `${metrics.highest.toFixed(2)}% highest passage similarity; ${metrics.coverage.toFixed(2)}% matched chunk coverage. ${verdictLabel(metrics.verdict)}.`,
             })
           }
         } else if (status.status === 'failed') {
-          clearInterval(pollRef.current)
           toast.error('Ingestion failed', { description: status.error })
+        } else {
+          pollRef.current = setTimeout(poll, 1500)
         }
       } catch {
-        // transient poll failure — keep trying
+        pollFailuresRef.current += 1
+        if (pollFailuresRef.current >= 5) {
+          setPollError('The server could not confirm the upload status. The job was not cancelled.')
+          return
+        }
+        pollRef.current = setTimeout(poll, 1500 * pollFailuresRef.current)
       }
-    }, 1500)
+    }
+    pollRef.current = setTimeout(poll, 500)
   }
 
   const submit = async () => {
@@ -287,12 +376,13 @@ export default function Upload() {
   }
 
   const reset = () => {
-    clearInterval(pollRef.current)
+    clearTimeout(pollRef.current)
     setStep(0)
     setFile(null)
-    setForm({ title: '', authors: '', year: '', abstract: '', track: '', department: '' })
+    setForm({ title: '', authors: '', year: '', abstract: '', track: '', department: enforcedDepartment })
     setJob(null)
     setErrors({})
+    setPollError('')
   }
 
   return (
@@ -302,11 +392,12 @@ export default function Upload() {
           Upload <span className="text-gradient-isu">Thesis</span>
         </h1>
         <p className="mt-1 text-sm opacity-55">
-          Digitize a CCSICT manuscript into the semantic vector archive.
+          Digitize a thesis manuscript into its department-scoped semantic archive.
         </p>
       </div>
 
       <GlassCard className="p-6 sm:p-10">
+        <DepartmentLoadError show={departmentsError} onRetry={() => retryDepartments()} />
         {step < 3 && <StepIndicator current={step} />}
 
         <AnimatePresence mode="wait">
@@ -358,10 +449,14 @@ export default function Upload() {
                   </Select>
                 </Field>
                 <Field label="Department" error={errors.department} required hint="Department this thesis belongs to">
-                  <Select value={form.department} onChange={(e) => setForm(f => ({...f, department: e.target.value, track: ''}))} error={errors.department} disabled={loadingDepts} aria-label="Select thesis department">
-                    <option value="">Select a Department…</option>
-                    {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
-                  </Select>
+                  {isSuperadmin ? (
+                    <Select value={form.department} onChange={(e) => setForm(f => ({...f, department: e.target.value, track: ''}))} error={errors.department} disabled={loadingDepts} aria-label="Select thesis department">
+                      <option value="">Select a Department…</option>
+                      {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+                    </Select>
+                  ) : (
+                    <div className="glass flex h-11 items-center rounded-xl px-3"><Badge tone="neutral">{enforcedDepartment}</Badge></div>
+                  )}
                 </Field>
               </div>
               <Field label="Abstract" hint="Optional but improves archive browsing">
@@ -455,27 +550,7 @@ export default function Upload() {
                   <p className="mt-2 max-w-sm text-sm opacity-60">
                     "{form.title}" is now part of the semantic archive with {job.chunks} embedded chunks.
                   </p>
-                  {job.duplication?.flagged && (
-                    <div className="mt-6 w-full max-w-md rounded-2xl border border-gold-400/40 bg-gold-400/10 p-4 text-left">
-                      <div className="flex items-center gap-2 text-sm font-bold">
-                        <ShieldAlert size={15} className="shrink-0 text-gold-500" />
-                        Potential duplication — {job.duplication.duplication_percentage}% of the manuscript
-                        matched the archive at the {job.duplication.threshold}% similarity threshold
-                      </div>
-                      <ul className="mt-2 space-y-1 text-xs opacity-75">
-                        {(job.duplication.matched_papers || []).map((p) => (
-                          <li key={p.id}>
-                            "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} — top match {p.similarity}%
-                            · {p.match_count} chunk{p.match_count === 1 ? '' : 's'}
-                          </li>
-                        ))}
-                      </ul>
-                      <p className="mt-2 text-[0.7rem] opacity-55">
-                        The manuscript was still indexed. Review it against the matched studies per the 85%
-                        duplication delimitation before accepting the topic.
-                      </p>
-                    </div>
-                  )}
+                  <UploadScreening scan={job.duplication} />
                   <div className="mt-7 flex gap-3">
                     <Button variant="secondary" onClick={reset}>Upload another</Button>
                     <Button onClick={() => navigate('/archive')}>View archive <ArrowRight size={15} /></Button>
@@ -491,7 +566,22 @@ export default function Upload() {
                   <Button variant="secondary" className="mt-7" onClick={reset}>Try again</Button>
                 </div>
               ) : (
-                <PipelineProgress job={job} />
+                <>
+                  <PipelineProgress job={job} />
+                  {pollError && (
+                    <div className="mt-5 rounded-2xl border border-gold-400/35 bg-gold-400/10 p-4 text-center">
+                      <p className="text-sm opacity-75">{pollError}</p>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => jobIdRef.current && startPolling(jobIdRef.current)}
+                      >
+                        Resume status check
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </motion.div>
           )}

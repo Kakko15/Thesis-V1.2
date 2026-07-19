@@ -32,14 +32,16 @@ Key paper parameters enforced in code:
 - **Data cleaning pipeline** — page numbers, headers/footers, TOC and bibliography stripped; chunks with >15% non-alphanumeric characters discarded; `FIGURE REDACTED FOR SEMANTIC INDEXING` placeholders injected.
 - **Indirect access model** — private storage bucket; API responses expose citation metadata only.
 - **Knowledge isolation** — the LLM answers exclusively from retrieved CCSICT context.
+- **Current stable model defaults** — `gemini-3.1-flash-lite` for generation and `gemini-embedding-2` for vectors; both remain environment-overridable for controlled migrations.
 
 ## Setup
 
 ### 1. Supabase
 
 1. Create a Supabase project.
-2. Open the SQL Editor and run `rag-thesis-backend/supabase_setup.sql` (idempotent, single run).
-3. After signing up your first user through the app, promote them:
+2. For a fresh project, run `rag-thesis-backend/supabase_setup.sql` in the SQL Editor.
+3. For an existing project, apply the numbered migrations in filename order. Validate `20260719_production_hardening.sql` in the disposable project before production.
+4. After signing up your first user through the app, promote them:
    ```sql
    update public.profiles set role = 'admin' where email = 'you@isu.edu.ph';
    ```
@@ -55,6 +57,7 @@ uvicorn main:app --reload --port 8000
 ```
 
 - `SUPABASE_KEY` must be the **service_role** key.
+- Never place the service-role key in the frontend or commit it. Rotate any key that is exposed outside the local test environment.
 - Optional: install the [Tesseract OCR binary](https://github.com/UB-Mannheim/tesseract/wiki) to digitize scanned manuscripts.
 - API docs: http://localhost:8000/docs
 
@@ -73,7 +76,7 @@ Open http://localhost:5173.
 
 | Role | Capabilities |
 |------|--------------|
-| Guest | Landing page, chat (no saved history) |
+| Guest Researcher | Landing page, CCSICT-only chat (no saved history or manuscript access) |
 | Student | Chat with sessions, dashboard, archive metadata browsing |
 | Faculty | Student capabilities + topic novelty scanning and scan history |
 | Admin | Everything + paper upload/deletion, analytics, user role management |
@@ -84,11 +87,11 @@ Open http://localhost:5173.
 cd rag-thesis-backend
 
 # Objective 4 — Functional Suitability (with coverage for SonarQube)
-pytest --cov=routers --cov=services --cov=dependencies --cov=main --cov=config --cov=models --cov-report=xml
+pytest --cov=routers --cov=services --cov=dependencies --cov=main --cov=config --cov=models --cov-report=xml --cov-fail-under=80
 
 # Objective 4 — Maintainability
 pylint --rcfile=.pylintrc routers services dependencies main.py config.py models.py
-cd ../rag-thesis-frontend && npm run lint
+cd ../rag-thesis-frontend && npm run lint && npm test && npm run build
 
 # Objective 2 — Baseline vs RAG (requires: pip install -r evaluation/requirements-eval.txt)
 cd ../rag-thesis-backend
@@ -110,10 +113,10 @@ sonar-scanner -Dsonar.host.url=http://localhost:9000 -Dsonar.token=<your-token>
 
 Alternatively, add a `SONAR_TOKEN` repository secret (SonarCloud, or set the `SONAR_HOST_URL` repository variable for a reachable server) and the GitHub Actions workflow `.github/workflows/quality.yml` runs PyTest + coverage, Pylint, ESLint, the production build, and the SonarQube scan on every push to `main`. Without the secret, the scan step skips gracefully and the rest of the quality gate still runs.
 
-LangSmith latency tracing activates automatically when `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY` are set in `.env`.
+LangSmith latency tracing activates with `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY`; the legacy `LANGCHAIN_*` names remain temporary fallbacks. Inputs and outputs remain hidden when the documented privacy settings are enabled.
 
 ## Production deployment
 
-- **Backend:** `docker build -t isu-thesis-api rag-thesis-backend && docker run -p 8000:8000 --env-file rag-thesis-backend/.env isu-thesis-api` (or deploy to Railway/Render/Fly.io). Set `CORS_ORIGINS` to your frontend URL.
+- **Backend:** `docker build -t isu-thesis-api rag-thesis-backend && docker run -p 8000:8000 --env-file rag-thesis-backend/.env isu-thesis-api` (or deploy to Railway/Render/Fly.io). Set `APP_ENVIRONMENT=production`, `REQUIRE_PRIVILEGED_MFA=true`, a shared Redis `RATE_LIMIT_STORAGE_URI`, `CORS_ORIGINS`, and `FORWARDED_ALLOW_IPS` restricted to the hosting platform's known proxy IP/CIDR. Use `/health` for liveness and `/ready` for readiness.
 - **Frontend:** `npm run build` then host `dist/` on any static host (Vercel/Netlify/Cloudflare Pages). Set `VITE_API_URL` to the deployed backend URL.
 - **Database:** Supabase handles PostgreSQL + pgvector + Auth + Storage.
