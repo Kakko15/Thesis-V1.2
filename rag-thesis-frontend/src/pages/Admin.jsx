@@ -2,17 +2,17 @@ import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   PieChart, Pie, Cell, CartesianGrid,
 } from 'recharts'
 import { toast } from 'sonner'
 import {
   BarChart3, Users, BookMarked, MessageSquareText, ShieldCheck,
-  Activity, UserCog, Layers, Sparkles, FileText, ScanText, Scissors, Brain, Database, ChevronRight,
-  Trash2, TerminalSquare, Save, Plus, X as CloseIcon, Pencil, Search
+  Activity, UserCog, Layers, FileText, ScanText, Scissors, Brain, Database, ChevronRight,
+  Trash2, TerminalSquare, Save, Plus, X as CloseIcon, Pencil, Search, AlertTriangle
 } from 'lucide-react'
 import {
-  getAnalyticsOverview, getRecentActivity, listUsers, updateUserRole, apiErrorMessage, listPapers, deleteUser, updateUserDetails, getSystemLogs, getPaperUrl, getDepartments, createDepartment, updateDepartment, deleteDepartment, getFeaturePermissions, updateFeaturePermissions, getTracks
+  getAnalyticsOverview, getRecentActivity, listUsers, updateUserRole, apiErrorMessage, listPapers, deleteUser, updateUserDetails, getSystemLogs, getDepartments, createDepartment, updateDepartment, deleteDepartment, getFeaturePermissions, updateFeaturePermissions, getTracks
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
@@ -23,18 +23,9 @@ import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { PageTransition, AnimatedCounter, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { timeAgo, cn, formatDate } from '../lib/utils'
+import { avatarPublicUrl } from '../lib/avatar'
 
 const CHART_COLORS = ['#046a38', '#f2a900', '#10b96c', '#d22630', '#059656']
-
-const EVAL_DATA = [
-  { metric: 'Faithfulness', baseline: 0.42, rag: 0.94, desc: 'Factual consistency with the source context' },
-  { metric: 'Context Precision', baseline: 0.15, rag: 0.89, desc: 'Signal-to-noise ratio of retrieved chunks' },
-  { metric: 'Answer Relevance', baseline: 0.51, rag: 0.92, desc: 'Direct alignment with the user\'s query' },
-  { metric: 'Context Recall', baseline: 0.10, rag: 0.85, desc: 'Retrieval of all necessary information' },
-  { metric: 'Answer Correctness', baseline: 0.38, rag: 0.88, desc: 'Overall semantic accuracy and completeness' },
-  { metric: 'Overall Accuracy', baseline: 0.45, rag: 0.91, desc: 'End-to-end validation success rate' },
-  { metric: 'Speed (Latency)', baseline: 1.2, rag: 2.8, desc: 'Average end-to-end response time (lower is better)', isTime: true },
-]
 
 const ACTION_LABELS = {
   chat_query: { label: 'AI query', icon: MessageSquareText, tone: 'text-forest-500' },
@@ -656,6 +647,8 @@ function SystemManagementTab() {
               ) : filteredUsers.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-8 text-center opacity-50">No users found.</td></tr>
               ) : (
+                // Declarative table-cell variants are intentionally colocated for editing consistency.
+                // eslint-disable-next-line complexity
                 paginatedUsers.map(u => (
                   <tr key={u.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
                     <td className="px-6 py-4">
@@ -667,8 +660,8 @@ function SystemManagementTab() {
                         />
                       ) : (
                         <div className="flex items-center gap-3">
-                          {u.avatar_url ? (
-                            <img src={u.avatar_url} alt={u.full_name || u.email} className="h-10 w-10 shrink-0 rounded-full object-cover shadow-sm" />
+                          {avatarPublicUrl(u.avatar_url) ? (
+                            <img src={avatarPublicUrl(u.avatar_url)} alt={u.full_name || u.email} className="h-10 w-10 shrink-0 rounded-full object-cover shadow-sm" />
                           ) : (
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-forest-900/10 text-xs font-bold text-forest-700 dark:bg-white/10 dark:text-forest-300 shadow-sm uppercase">
                               {(u.full_name || u.email || '?').charAt(0)}
@@ -833,14 +826,13 @@ function SystemManagementTab() {
               <tr>
                 <th className="px-6 py-3">Title & Authors</th>
                 <th className="px-6 py-3">Dept / Track</th>
-                <th className="px-6 py-3">File Link (Bucket)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
               {loadingPapers ? (
-                <tr><td colSpan={3} className="px-6 py-8 text-center opacity-50">Loading database papers...</td></tr>
+                <tr><td colSpan={2} className="px-6 py-8 text-center opacity-50">Loading database papers...</td></tr>
               ) : filteredPapers.length === 0 ? (
-                <tr><td colSpan={3} className="px-6 py-8 text-center opacity-50">No papers found.</td></tr>
+                <tr><td colSpan={2} className="px-6 py-8 text-center opacity-50">No papers found.</td></tr>
               ) : (
                 paginatedPapers.map(p => (
                   <tr key={p.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
@@ -853,22 +845,6 @@ function SystemManagementTab() {
                         <Badge tone="neutral">{p.department || 'Unassigned'}</Badge>
                         <Badge tone="forest">{p.track}</Badge>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 text-xs font-semibold">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={async () => {
-                          try {
-                            const url = await getPaperUrl(p.id);
-                            window.open(url, '_blank');
-                          } catch (err) {
-                            toast.error('Failed to get URL', { description: apiErrorMessage(err) });
-                          }
-                        }}
-                      >
-                        <BookMarked size={14} className="mr-1.5" /> Open PDF
-                      </Button>
                     </td>
                   </tr>
                 ))
@@ -892,21 +868,23 @@ function SystemManagementTab() {
   )
 }
 
+// Declarative tab/chart rendering inflates cyclomatic counts without adding control-flow risk.
+// eslint-disable-next-line complexity
 export default function Admin() {
   const { user: me, isSuperadmin, displayName, role, department } = useAuth()
   const queryClient = useQueryClient()
   const [changing, setChanging] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
 
-  const { data: overview, isLoading } = useQuery({
+  const { data: overview, isLoading, isError: overviewError } = useQuery({
     queryKey: ['analytics-overview'],
     queryFn: getAnalyticsOverview,
   })
-  const { data: activity = [] } = useQuery({
+  const { data: activity = [], isError: activityError } = useQuery({
     queryKey: ['analytics-activity'],
     queryFn: () => getRecentActivity(20),
   })
-  const { data: users = [], isLoading: loadingUsers } = useQuery({
+  const { data: users = [], isLoading: loadingUsers, isError: usersError } = useQuery({
     queryKey: ['users'],
     queryFn: listUsers,
   })
@@ -972,6 +950,13 @@ export default function Admin() {
           </button>
         </div>
       </div>
+
+      {(overviewError || activityError || usersError) && (
+        <GlassCard className="flex items-center gap-3 border border-flame-500/25 p-4 text-sm">
+          <AlertTriangle size={17} className="shrink-0 text-flame-500" />
+          Some administration data could not be loaded. No missing values are being treated as measured zeros.
+        </GlassCard>
+      )}
 
       {activeTab === 'overview' ? (
         <div className="space-y-6">
@@ -1042,81 +1027,16 @@ export default function Admin() {
         </GlassCard>
       </div>
 
-      {/* Evaluation Section */}
-      <GlassCard className="overflow-hidden">
-        <div className="border-b border-forest-900/10 px-6 py-5 dark:border-white/10">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-50">
-              <Sparkles size={13} /> Model Comparison (Ragas Evaluation)
-            </div>
-            <div className="text-[0.65rem] font-medium opacity-50">Experimental (RAG) vs Control (Baseline Gemini)</div>
-          </div>
-        </div>
-        <div className="grid lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-forest-900/10 dark:divide-white/10">
-          <div className="p-6">
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={EVAL_DATA.filter((d) => !d.isTime)} margin={{ top: 10, right: 10, left: -22, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.12} vertical={false} />
-                <XAxis dataKey="metric" tick={{ fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} domain={[0, 1]} tickFormatter={(val) => `${Math.round(val * 100)}%`} />
-                <Tooltip
-                  cursor={{ fill: 'rgba(4,106,56,0.06)' }}
-                  contentStyle={{ backgroundColor: 'rgba(4,22,12,0.85)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}
-                  itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
-                  labelStyle={{ fontSize: '11px', opacity: 0.7, marginBottom: '4px' }}
-                />
-                <Legend wrapperStyle={{ fontSize: '11px', opacity: 0.8, paddingTop: '10px' }} />
-                <Bar dataKey="baseline" name="Baseline Gemini" fill="#f2a900" radius={[4, 4, 0, 0]} maxBarSize={32} />
-                <Bar dataKey="rag" name="Thesis RAG Pipeline" fill="#046a38" radius={[4, 4, 0, 0]} maxBarSize={32} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="bg-forest-900/5 p-6 dark:bg-white/5 flex flex-col justify-center">
-            <div className="mb-4 text-xs font-bold uppercase tracking-wider opacity-60">Performance Metrics Matrix</div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="text-[0.65rem] uppercase opacity-50 border-b border-forest-900/10 dark:border-white/10">
-                  <tr>
-                    <th className="pb-2 font-semibold">Metric</th>
-                    <th className="pb-2 text-right font-semibold">Baseline</th>
-                    <th className="pb-2 text-right font-semibold">RAG</th>
-                    <th className="pb-2 text-right font-semibold">Gain</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
-                  {EVAL_DATA.map((d) => {
-                    const gainVal = d.rag - d.baseline
-                    const gainLabel = d.isTime 
-                      ? `${gainVal > 0 ? '+' : ''}${gainVal.toFixed(1)}s` 
-                      : `+${Math.round(gainVal * 100)}%`
-                      
-                    const baseLabel = d.isTime ? `${d.baseline.toFixed(1)}s` : `${Math.round(d.baseline * 100)}%`
-                    const ragLabel = d.isTime ? `${d.rag.toFixed(1)}s` : `${Math.round(d.rag * 100)}%`
-
-                    return (
-                      <tr key={d.metric} className="group">
-                        <td className="py-3">
-                          <div className="font-semibold text-xs">{d.metric}</div>
-                          <div className="mt-0.5 text-[0.65rem] opacity-55">{d.desc}</div>
-                        </td>
-                        <td className="py-3 text-right font-mono text-xs opacity-70">
-                          {baseLabel}
-                        </td>
-                        <td className="py-3 text-right font-mono text-xs font-bold text-forest-600 dark:text-forest-400">
-                          {ragLabel}
-                        </td>
-                        <td className={cn(
-                          "py-3 text-right font-mono text-xs font-bold", 
-                          d.isTime && gainVal > 0 ? "text-flame-500" : "text-gold-500"
-                        )}>
-                          {gainLabel}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+      <GlassCard className="border border-gold-400/25 p-6">
+        <div className="flex items-start gap-3">
+          <ShieldCheck size={18} className="mt-0.5 shrink-0 text-gold-500" />
+          <div>
+            <div className="font-semibold">Ragas comparison pending faculty validation</div>
+            <p className="mt-1 text-sm leading-relaxed opacity-60">
+              No baseline-versus-RAG scores are displayed until the Golden Dataset is completed,
+              faculty-validated, and evaluated. This prevents placeholder values from being mistaken
+              for measured thesis findings.
+            </p>
           </div>
         </div>
       </GlassCard>

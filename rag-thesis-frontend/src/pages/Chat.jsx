@@ -9,7 +9,7 @@ import {
   AlertTriangle, BookMarked, History, Info, GraduationCap,
 } from 'lucide-react'
 import {
-  chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getPaperUrl, getDepartments
+  chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getDepartments, getPublicSettings
 } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/Button'
@@ -21,8 +21,9 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { PageTransition } from '../components/ui/Motion'
 import { Logo } from '../components/ui/Logo'
 import { AnimatedLogo } from '../components/ui/AnimatedLogo'
+import { LogoActivityDots } from '../components/ui/LogoActivityDots'
 import { Sheet } from '../components/ui/Sheet'
-import { cn, timeAgo } from '../lib/utils'
+import { cn, normalizePercent, timeAgo } from '../lib/utils'
 
 const STARTERS = [
   'What machine learning techniques were used in past CCSICT theses?',
@@ -31,44 +32,59 @@ const STARTERS = [
   'Has anyone built a recommendation system in the Data Mining track?',
 ]
 
+function ConfigurationWarning({ show }) {
+  if (!show) return null
+  return (
+    <div role="alert" className="flex items-center gap-2 bg-flame-500/10 px-5 py-2 text-xs text-flame-500">
+      <AlertTriangle size={13} /> Some archive configuration is unavailable; enforced defaults are being used.
+    </div>
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /* Citation source card                                                */
 /* ------------------------------------------------------------------ */
-function SourceCard({ source, index }) {
-  const { isAdmin } = useAuth()
-  const [loading, setLoading] = useState(false)
+function pageLabelFor(source) {
+  if (!source.page_start) return null
+  return source.page_end && source.page_end !== source.page_start
+    ? `pp. ${source.page_start}–${source.page_end}`
+    : `p. ${source.page_start}`
+}
 
-  const handleClick = async () => {
-    if (!isAdmin) return
-    setLoading(true)
-    try {
-      const url = await getPaperUrl(source.id)
-      window.open(url, '_blank')
-    } catch (err) {
-      toast.error('Could not load PDF', { description: apiErrorMessage(err) })
-    } finally {
-      setLoading(false)
-    }
-  }
+function groupEvidenceSources(sources = []) {
+  const groups = new Map()
+  sources.forEach((source) => {
+    const key = source.id || `citation-${source.citation_id}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(source)
+  })
+  return [...groups.values()]
+}
 
-  const Card = isAdmin ? motion.button : motion.div
+function SourceCard({ sources, index }) {
+  const source = sources[0]
+  const citationIds = sources.map((item, itemIndex) => item.citation_id ?? itemIndex + 1)
+  const evidenceSources = sources.filter((item) => item.chunk_id != null)
+  const locationPending = evidenceSources.some(
+    (item) => !pageLabelFor(item) && !item.section,
+  )
 
   return (
-    <Card
-      type={isAdmin ? 'button' : undefined}
+    <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.15 + index * 0.08, duration: 0.4 }}
-      onClick={handleClick}
-      className={cn(
-        "glass flex w-full items-start gap-3 rounded-2xl p-3.5 text-left transition duration-200",
-        isAdmin ? "cursor-pointer hover:bg-forest-900/5 dark:hover:bg-white/5 active:scale-[0.98]" : "",
-        loading ? "opacity-60 pointer-events-none animate-pulse" : ""
-      )}
-      title={isAdmin ? "Click to view original PDF" : ""}
+      className="glass flex w-full items-start gap-3 rounded-2xl p-3.5 text-left"
     >
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gold-400/20 font-mono text-xs font-bold text-gold-600 dark:text-gold-300">
-        {index + 1}
+      <div className="flex max-w-16 shrink-0 flex-wrap gap-1">
+        {citationIds.map((citationId) => (
+          <div
+            key={citationId}
+            className="flex h-7 min-w-7 items-center justify-center rounded-lg bg-gold-400/20 px-1.5 font-mono text-xs font-bold text-gold-600 dark:text-gold-300"
+          >
+            {citationId}
+          </div>
+        ))}
       </div>
       <div className="min-w-0">
         <div className="text-sm font-semibold leading-snug">{source.title}</div>
@@ -77,13 +93,35 @@ function SourceCard({ source, index }) {
           {source.year && <span>· {source.year}</span>}
         </div>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {source.department && <Badge tone="neutral">{source.department}</Badge>}
           {source.track && <Badge tone="forest">{source.track}</Badge>}
-          {typeof source.similarity === 'number' && (
-            <Badge tone="neutral">{source.similarity}% match</Badge>
-          )}
         </div>
+        {evidenceSources.length > 0 && (
+          <div className="mt-3 space-y-1.5 border-t border-forest-900/10 pt-2.5 dark:border-white/10">
+            {evidenceSources.map((item, itemIndex) => {
+              const citationId = item.citation_id ?? itemIndex + 1
+              const pageLabel = pageLabelFor(item)
+              return (
+                <div key={`${item.chunk_id}-${citationId}`} className="flex flex-wrap items-center gap-1.5 text-[0.68rem]">
+                  <span className="font-mono font-bold text-gold-600 dark:text-gold-300">[{citationId}]</span>
+                  {Number.isInteger(item.chunk_index) && <span>Chunk {item.chunk_index + 1}</span>}
+                  {pageLabel && <Badge tone="neutral">{pageLabel}</Badge>}
+                  {item.section && <span className="opacity-60">{item.section}</span>}
+                  {typeof item.similarity === 'number' && (
+                    <span className="opacity-50">{normalizePercent(item.similarity).toFixed(2)}% match</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {locationPending && (
+          <div className="mt-1.5 text-[0.65rem] italic opacity-45">
+            Some evidence locations are pending citation backfill.
+          </div>
+        )}
       </div>
-    </Card>
+    </motion.div>
   )
 }
 
@@ -102,13 +140,13 @@ function DuplicationBanner({ alert }) {
       <div className="flex items-center gap-3 border-b border-flame-500/20 px-4 py-3">
         <AlertTriangle size={18} className="shrink-0 text-flame-500" />
         <div className="text-sm font-bold text-flame-600 dark:text-flame-400">
-          Potential topic duplication — {alert.similarity}% similarity
+          Potential topic duplication — {normalizePercent(alert.similarity).toFixed(2)}% similarity
         </div>
       </div>
       <div className="space-y-2.5 px-4 py-3.5 text-sm">
         <p className="opacity-80">
-          This topic meets the {alert.threshold}% cosine-similarity duplication threshold against an
-          archived CCSICT study:
+          This topic meets the {normalizePercent(alert.threshold).toFixed(2)}% cosine-similarity duplication threshold against an
+          archived {alert.matched_paper?.department || 'department'} study:
         </p>
         <div className="glass rounded-xl p-3">
           <div className="font-semibold">{alert.matched_paper?.title}</div>
@@ -162,6 +200,7 @@ function AiAvatar() {
 }
 
 function AiBubble({ message, animate }) {
+  const groupedSources = groupEvidenceSources(message.sources)
   return (
     <div className="flex gap-3">
       <AiAvatar />
@@ -178,18 +217,18 @@ function AiBubble({ message, animate }) {
           {message.no_relevant_thesis && (
             <div className="mt-3 flex items-center gap-2 rounded-xl bg-gold-400/10 px-3 py-2 text-xs font-medium text-gold-600 dark:text-gold-300">
               <Info size={13} className="shrink-0" />
-              No archived thesis passed the relevance threshold for this query.
+              Search completed · no qualifying archive evidence.
             </div>
           )}
         </div>
         {message.sources?.length > 0 && (
           <div className="mt-3 space-y-2">
             <div className="flex items-center gap-1.5 px-1 text-xs font-bold uppercase tracking-wider opacity-50">
-              <BookMarked size={12} /> Cited sources
+              <BookMarked size={12} /> Evidence sources
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              {message.sources.map((s, i) => (
-                <SourceCard key={`${s.id}-${i}`} source={s} index={i} />
+              {groupedSources.map((group, i) => (
+                <SourceCard key={group[0].id || i} sources={group} index={i} />
               ))}
             </div>
           </div>
@@ -206,12 +245,13 @@ function TypingIndicator() {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
-      className="flex h-10 w-10 items-center justify-center"
+      className="flex h-10 items-center gap-2"
       role="status"
       aria-live="polite"
       aria-label="IskAI is searching the thesis archive"
     >
       <AnimatedLogo size={40} />
+      <LogoActivityDots />
     </motion.div>
   )
 }
@@ -219,7 +259,7 @@ function TypingIndicator() {
 /* ------------------------------------------------------------------ */
 /* Session sidebar                                                     */
 /* ------------------------------------------------------------------ */
-function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew }) {
+function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, error, onRetry }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between px-1 pb-3">
@@ -254,7 +294,9 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew }
                 <MessageSquareText size={14} className="shrink-0 opacity-50" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{s.title}</span>
-                  <span className="block text-[0.65rem] opacity-45">{timeAgo(s.created_at)}</span>
+                  <span className="block text-[0.65rem] opacity-45">
+                    {s.department || 'CCSICT'} · {timeAgo(s.created_at)}
+                  </span>
                 </span>
               </button>
               <div className="flex shrink-0 gap-0.5">
@@ -278,7 +320,12 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew }
             </motion.div>
           ))}
         </AnimatePresence>
-        {sessions.length === 0 && (
+        {error ? (
+          <div role="alert" className="px-3 py-6 text-center text-xs">
+            <p className="text-flame-500">Conversations are unavailable.</p>
+            <Button variant="ghost" size="sm" className="mt-2" onClick={onRetry}>Retry</Button>
+          </div>
+        ) : sessions.length === 0 && (
           <p className="px-3 py-6 text-center text-xs opacity-45">
             No conversations yet. Ask your first question!
           </p>
@@ -292,13 +339,13 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew }
 /* Main chat page                                                      */
 /* ------------------------------------------------------------------ */
 export default function Chat() {
-  const { user } = useAuth()
+  const { user, isSuperadmin, department: userDepartment } = useAuth()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const [messages, setMessages] = useState([]) // {kind:'user'|'ai', ...}
   const [input, setInput] = useState('')
-  const [filterDepartment, setFilterDepartment] = useState('all')
+  const [filterDepartment, setFilterDepartment] = useState('')
   const [sending, setSending] = useState(false)
   const [sessionId, setSessionId] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -309,16 +356,30 @@ export default function Chat() {
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
   const isAwaitingAnswer = sending && messages[messages.length - 1]?.kind === 'user'
+  const { data: publicSettings, isError: settingsError } = useQuery({
+    queryKey: ['public-settings'],
+    queryFn: getPublicSettings,
+    staleTime: Infinity,
+  })
+  const evaluationDepartment = publicSettings?.evaluation_department || 'CCSICT'
+  const effectiveDepartment = isSuperadmin
+    ? (filterDepartment || userDepartment || evaluationDepartment)
+    : (user ? userDepartment : evaluationDepartment)
 
-  const { data: sessions = [] } = useQuery({
+  const {
+    data: sessions = [],
+    isError: sessionsError,
+    refetch: retrySessions,
+  } = useQuery({
     queryKey: ['sessions'],
     queryFn: getSessions,
     enabled: !!user,
   })
 
-  const { data: departments = [] } = useQuery({
+  const { data: departments = [], isError: departmentsError } = useQuery({
     queryKey: ['departments'],
-    queryFn: getDepartments
+    queryFn: getDepartments,
+    enabled: isSuperadmin,
   })
 
   useEffect(() => {
@@ -327,6 +388,7 @@ export default function Chat() {
 
   const loadSession = async (session) => {
     setSessionId(session.id)
+    if (isSuperadmin && session.department) setFilterDepartment(session.department)
     setSidebarOpen(false)
     try {
       const msgs = await getSessionMessages(session.id)
@@ -360,8 +422,34 @@ export default function Chat() {
     setMessages((m) => [...m, { kind: 'user', text: question }])
     setSending(true)
     try {
-      const res = await chatQuery(question, sessionId, 5, filterDepartment !== 'all' ? filterDepartment : null)
+      const guestHistory = user
+        ? []
+        : messages
+          .filter((message) => message.kind === 'user')
+          .slice(-5)
+          .map((message) => message.text)
+      const latestGuestSources = user
+        ? []
+        : [...messages]
+          .reverse()
+          .find((message) => message.kind === 'ai' && message.sources?.length)
+          ?.sources
+          .map((source) => source.id)
+          .filter((id, index, ids) => id && ids.indexOf(id) === index)
+          .slice(0, 5) || []
+      const res = await chatQuery(
+        question,
+        sessionId,
+        isSuperadmin ? filterDepartment || null : null,
+        guestHistory,
+        latestGuestSources,
+      )
       setMessages((m) => [...m, { kind: 'ai', ...res, isNew: true }])
+      if (user && res.history_saved === false) {
+        toast.warning('Answer received, but chat history was not saved', {
+          description: 'Copy anything important and try again after the archive connection recovers.',
+        })
+      }
       if (res.session_id && res.session_id !== sessionId) {
         setSessionId(res.session_id)
         queryClient.invalidateQueries({ queryKey: ['sessions'] })
@@ -417,6 +505,8 @@ export default function Chat() {
             onRename={(s) => { setRenameTarget(s); setRenameValue(s.title) }}
             onDelete={setDeleteTarget}
             onNew={newConversation}
+            error={sessionsError}
+            onRetry={retrySessions}
           />
         </GlassCard>
       )}
@@ -436,6 +526,8 @@ export default function Chat() {
           onRename={(s) => { setRenameTarget(s); setRenameValue(s.title) }}
           onDelete={setDeleteTarget}
           onNew={newConversation}
+          error={sessionsError}
+          onRetry={retrySessions}
         />
       </Sheet>
 
@@ -448,22 +540,29 @@ export default function Chat() {
             <div className="min-w-0">
               <div className="font-display text-sm font-extrabold">IskAI</div>
               <div className="truncate text-[0.65rem] opacity-50">
-                Grounded in the {filterDepartment === 'all' ? 'university' : filterDepartment} archive · citations included
+                Grounded in the {effectiveDepartment} archive · citations included
               </div>
             </div>
           </div>
           <div className="flex min-w-0 items-center gap-2">
-            <Select
-              value={filterDepartment}
-              onChange={(e) => setFilterDepartment(e.target.value)}
-              className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none"
-              aria-label="Filter research by department"
-            >
-              <option value="all">All depts</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.name}>{d.name}</option>
-              ))}
-            </Select>
+            {isSuperadmin ? (
+              <Select
+                value={filterDepartment}
+                onChange={(e) => {
+                  setFilterDepartment(e.target.value)
+                  newConversation()
+                }}
+                className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none"
+                aria-label="Filter research by department"
+              >
+                <option value="">Default ({userDepartment || evaluationDepartment})</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.name}>{d.name}</option>
+                ))}
+              </Select>
+            ) : (
+              <Badge tone="neutral">{effectiveDepartment}</Badge>
+            )}
             {user ? (
               <Button variant="ghost" size="icon-sm" className="xl:hidden" onClick={() => setSidebarOpen(true)} aria-label="Conversations">
                 <History size={16} />
@@ -480,9 +579,10 @@ export default function Chat() {
         {!user && (
           <div className="flex items-center gap-2 bg-gold-400/12 px-5 py-2 text-xs font-medium text-gold-700 dark:text-gold-300">
             <Info size={13} className="shrink-0" />
-            You're in guest mode — conversations are not saved.
+            You're in Guest Researcher mode — CCSICT only, and conversations are not saved.
           </div>
         )}
+        <ConfigurationWarning show={settingsError || (isSuperadmin && departmentsError)} />
 
         {/* Messages */}
         <div className="flex-1 space-y-6 overflow-y-auto px-4 py-6 sm:px-6">
@@ -491,7 +591,7 @@ export default function Chat() {
               <EmptyState
                 icon={Logo}
                 title="Ask IskAI anything"
-                message={`Semantic search across every indexed ${filterDepartment === 'all' ? 'university' : filterDepartment} thesis — methodologies, scopes, findings, and related literature.`}
+                message={`Semantic search across indexed ${effectiveDepartment} theses — methodologies, scopes, findings, and related literature.`}
               />
               <div className="grid w-full max-w-xl gap-2 sm:grid-cols-2">
                 {STARTERS.map((s, i) => (
@@ -529,7 +629,7 @@ export default function Chat() {
               ref={inputRef}
               rows={1}
               value={input}
-              placeholder={`Ask IskAI about ${filterDepartment === 'all' ? 'university' : filterDepartment} thesis research…`}
+              placeholder={`Ask IskAI about ${effectiveDepartment} thesis research…`}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
@@ -547,7 +647,7 @@ export default function Chat() {
             </Button>
           </form>
           <p className="mt-2 text-center text-[0.65rem] opacity-40">
-            Answers are synthesized exclusively from archived {filterDepartment === 'all' ? 'university' : filterDepartment} theses. Topics ≥85% similar to existing work are flagged automatically.
+            Answers are synthesized exclusively from archived {effectiveDepartment} theses. Topics ≥85% similar to existing work are flagged for faculty review.
           </p>
         </div>
       </GlassCard>

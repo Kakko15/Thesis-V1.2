@@ -1,15 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { ArrowRight, Check, Lock, Mail, User } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../supabaseClient'
-import { getDepartments } from '../../api'
 import { Button } from '../../components/ui/Button'
 import { Input, Field, Select } from '../../components/ui/Input'
 import { cn } from '../../lib/utils'
 import {
-  friendlyAuthError, isValidEmail, passwordStrength,
+  friendlyAuthError, isStrongPassword, isValidEmail, passwordStrength,
   PASSWORD_RULES, STRENGTH_COLORS, STRENGTH_LABELS,
 } from './authUtils'
 import {
@@ -20,7 +18,6 @@ import {
     confirmation is disabled on the project). */
 export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }) {
   const [fullName, setFullName] = useState('')
-  const [department, setDepartment] = useState('')
   const [role, setRole] = useState('student')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -28,18 +25,6 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
   const [errorNonce, setErrorNonce] = useState(0)
   const [loading, setLoading] = useState(false)
   const [exists, setExists] = useState(false)
-
-  const { data: departments = [], isLoading: loadingDepts } = useQuery({
-    queryKey: ['departments'],
-    queryFn: getDepartments
-  })
-
-  // Set default department when loaded
-  useEffect(() => {
-    if (departments.length > 0 && !department) {
-      setDepartment(departments[0].name)
-    }
-  }, [departments, department])
 
   const strength = useMemo(() => passwordStrength(password), [password])
 
@@ -52,7 +37,9 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
     const next = {}
     if (fullName.trim().length < 2) next.fullName = 'Please enter your full name'
     if (!isValidEmail(email)) next.email = 'Enter a valid email address'
-    if (password.length < 8) next.password = 'Password must be at least 8 characters'
+    if (!isStrongPassword(password)) {
+      next.password = 'Use 8+ characters with uppercase, number, and symbol'
+    }
     failWith(next)
     return Object.keys(next).length === 0
   }
@@ -69,7 +56,6 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
         options: {
           data: { 
             full_name: fullName.trim(),
-            department,
             requested_role: role
           },
           emailRedirectTo: `${window.location.origin}/login`,
@@ -144,21 +130,11 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       <Rise>
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="Department" required>
-            <Select
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              className="h-10"
-              aria-label="Department"
-              disabled={loadingDepts}
-            >
-              {loadingDepts ? (
-                <option value="">Loading...</option>
-              ) : (
-                departments.map(d => (
-                  <option key={d.id} value={d.name}>{d.name}</option>
-                ))
-              )}
-            </Select>
+            <div className="flex h-10 items-center gap-2 rounded-xl border border-forest-900/10 bg-forest-900/[0.035] px-3 text-sm font-semibold dark:border-white/10 dark:bg-white/[0.04]">
+              <Lock size={14} aria-hidden="true" />
+              CCSICT
+              <span className="ml-auto text-[0.62rem] font-medium uppercase tracking-wider opacity-45">Assigned</span>
+            </div>
           </Field>
           <Field label="Account Type" required>
             <Select
@@ -169,7 +145,6 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
             >
               <option value="student">Student</option>
               <option value="faculty">Faculty (needs approval)</option>
-              <option value="admin">Admin (needs approval)</option>
             </Select>
           </Field>
         </div>

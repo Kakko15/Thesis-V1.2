@@ -85,7 +85,7 @@ export function LandingNav() {
             className="hidden sm:inline-flex"
             onClick={() => navigate('/chat')}
           >
-            Try as guest
+            Try as Guest Researcher
           </Button>
           <Magnetic strength={0.25}>
             {user ? (

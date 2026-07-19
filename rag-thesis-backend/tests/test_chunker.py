@@ -1,7 +1,8 @@
 """Functional Suitability tests — semantic chunking (800 tokens / 100 overlap)."""
 
 from config import settings
-from services.chunker import build_chunk_metadata, split_text, splitter
+from services.chunker import build_chunk_metadata, split_document, split_text, splitter
+from services.document_processor import ExtractedDocument, ExtractedPage
 
 
 class TestChunkerConfiguration:
@@ -38,8 +39,37 @@ class TestMetadataTagging:
             'author': 'Barlis & Gallardo',
             'track': 'Data Mining',
             'year': 2026,
+            'department': '',
+            'page_start': None,
+            'page_end': None,
+            'section': None,
+            'chunk_index': None,
         }
 
     def test_missing_values_default_to_empty(self):
         meta = build_chunk_metadata(None, None, None, None)
-        assert meta == {'title': '', 'author': '', 'track': '', 'year': ''}
+        assert meta == {
+            'title': '', 'author': '', 'track': '', 'year': '', 'department': '',
+            'page_start': None, 'page_end': None, 'section': None, 'chunk_index': None,
+        }
+
+
+class TestLocationAwareChunking:
+    def test_cross_page_overlap_and_section_mapping(self):
+        page_one = 'CHAPTER 3\nMETHODOLOGY\n' + ('Method detail sentence. ' * 170)
+        page_two = 'Continuation from the prior page.\n' + ('More method evidence. ' * 170)
+        chunks = split_document(ExtractedDocument([
+            ExtractedPage(34, page_one),
+            ExtractedPage(35, page_two),
+        ]))
+        assert any(chunk['page_start'] == 34 and chunk['page_end'] == 35 for chunk in chunks)
+        assert any(chunk['section'] == 'METHODOLOGY' for chunk in chunks)
+        assert [chunk['chunk_index'] for chunk in chunks] == list(range(len(chunks)))
+
+    def test_txt_chunks_have_null_pages(self):
+        chunks = split_document(ExtractedDocument([
+            ExtractedPage(None, 'INTRODUCTION\n' + ('Archived evidence. ' * 250)),
+        ]))
+        assert chunks
+        assert all(chunk['page_start'] is None and chunk['page_end'] is None for chunk in chunks)
+        assert chunks[0]['section'] == 'INTRODUCTION'

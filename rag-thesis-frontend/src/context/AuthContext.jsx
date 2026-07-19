@@ -1,6 +1,7 @@
 import { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import { getFeaturePermissions } from '../api'
+import { avatarPublicUrl } from '../lib/avatar'
 
 const AuthContext = createContext({})
 
@@ -21,6 +22,7 @@ export const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [features, setFeatures] = useState(null)
+  const [profileError, setProfileError] = useState(false)
   const broadcastChannelRef = useRef(null)
   // True when the account has a verified TOTP factor but this session is
   // still aal1 — i.e. the user must pass the 2FA challenge before the app.
@@ -55,11 +57,14 @@ export const AuthProvider = ({ children }) => {
         .single()
       if (!error && data) {
         setProfile(data)
+        setProfileError(false)
       } else {
-        setProfile({ role: 'student', full_name: '', email: '', department: 'CCSICT', status: 'approved' })
+        setProfile(null)
+        setProfileError(true)
       }
     } catch {
-      setProfile({ role: 'student', full_name: '', email: '', department: 'CCSICT', status: 'approved' })
+      setProfile(null)
+      setProfileError(true)
     }
   }, [])
 
@@ -72,6 +77,7 @@ export const AuthProvider = ({ children }) => {
       getFeaturePermissions().then(setFeatures).catch(() => {})
     } else {
       setProfile(null)
+      setProfileError(false)
       setFeatures(null)
     }
     setLoading(false)
@@ -122,7 +128,7 @@ export const AuthProvider = ({ children }) => {
 
   const role = profile?.role ?? null
   const department = profile?.department ?? 'CCSICT'
-  const status = profile?.status ?? 'approved'
+  const status = profile?.status ?? (user ? 'unavailable' : 'approved')
 
   const value = {
     user,
@@ -132,6 +138,7 @@ export const AuthProvider = ({ children }) => {
     status,
     loading,
     needsMfa,
+    profileError,
     isPending: status === 'pending',
     isRejected: status === 'rejected',
     refreshMfa: () => checkMfa(user),
@@ -147,7 +154,7 @@ export const AuthProvider = ({ children }) => {
     canScan: canUseFeature(role, features, 'novelty'),
     canUpload: canUseFeature(role, features, 'upload'),
     displayName: getDisplayName(profile, user),
-    avatarUrl: profile?.avatar_url || null,
+    avatarUrl: avatarPublicUrl(profile?.avatar_url),
     signOut: () => supabase.auth.signOut(),
     broadcastFeatureUpdate: () => {
       broadcastChannelRef.current?.send({ type: 'broadcast', event: 'features_updated', payload: {} })

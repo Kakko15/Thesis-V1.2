@@ -53,7 +53,7 @@ export function FinalCTA() {
                   className="text-white hover:bg-white/10"
                   onClick={() => navigate('/chat')}
                 >
-                  Explore as guest
+                  Explore as Guest Researcher
                 </Button>
               </Magnetic>
             </div>

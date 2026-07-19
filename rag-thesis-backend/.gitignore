@@ -10,6 +10,7 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+.pylint-cache/
 
 # Coverage output (consumed by SonarQube)
 .coverage
@@ -18,3 +19,6 @@ coverage.xml
 
 # Evaluation outputs
 evaluation/results/
+
+# Local tool/runtime logs
+*.log

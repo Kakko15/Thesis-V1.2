@@ -6,11 +6,68 @@ const api = axios.create({
   timeout: 180000, // embedding-heavy operations
 })
 
+const TRANSIENT_GATEWAY_STATUSES = new Set([502, 503, 504])
+const MAX_TRANSIENT_GET_RETRIES = 2
+const DEV_BACKEND_READY_ATTEMPTS = 40
+const SHOULD_WAIT_FOR_DEV_BACKEND = import.meta.env.DEV && !import.meta.env.VITE_API_URL
+
+let backendReady = !SHOULD_WAIT_FOR_DEV_BACKEND
+let backendReadyPromise = null
+
+function guestRateId() {
+  const storageKey = 'iskai_guest_rate_id'
+  let value = window.sessionStorage.getItem(storageKey)
+  if (!value) {
+    if (typeof window.crypto?.randomUUID === 'function') {
+      value = window.crypto.randomUUID()
+    } else if (typeof window.crypto?.getRandomValues === 'function') {
+      const bytes = window.crypto.getRandomValues(new Uint8Array(16))
+      value = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+    } else {
+      throw new TypeError('Secure random generation is unavailable in this browser.')
+    }
+    window.sessionStorage.setItem(storageKey, value)
+  }
+  return value
+}
+
+function retryDelay(attempt) {
+  return new Promise((resolve) => window.setTimeout(resolve, attempt * 350))
+}
+
+async function waitForBackend() {
+  if (backendReady) return
+  if (!backendReadyPromise) {
+    backendReadyPromise = (async () => {
+      for (let attempt = 1; attempt <= DEV_BACKEND_READY_ATTEMPTS; attempt += 1) {
+        try {
+          const response = await fetch('/__backend-ready', { cache: 'no-store' })
+          const status = await response.json()
+          if (status.ready) {
+            backendReady = true
+            return
+          }
+        } catch {
+          // Vite may itself be finishing a config reload; retry quietly.
+        }
+        await retryDelay(1)
+      }
+      throw new Error('The backend did not become ready within 14 seconds.')
+    })().finally(() => {
+      backendReadyPromise = null
+    })
+  }
+  return backendReadyPromise
+}
+
 // Attach the Supabase JWT to every request
 api.interceptors.request.use(async (config) => {
+  if (SHOULD_WAIT_FOR_DEV_BACKEND) await waitForBackend()
   const { data: { session } } = await supabase.auth.getSession()
   if (session?.access_token) {
     config.headers.Authorization = `Bearer ${session.access_token}`
+  } else {
+    config.headers['X-Guest-ID'] = guestRateId()
   }
   return config
 })
@@ -19,6 +76,19 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    const config = error.config
+    const status = error.response?.status
+    const isRetryableGet = config?.method?.toLowerCase() === 'get'
+      && TRANSIENT_GATEWAY_STATUSES.has(status)
+      && (config.__transientGetRetries || 0) < MAX_TRANSIENT_GET_RETRIES
+
+    if (isRetryableGet) {
+      backendReady = false
+      config.__transientGetRetries = (config.__transientGetRetries || 0) + 1
+      await retryDelay(config.__transientGetRetries)
+      return api.request(config)
+    }
+
     if (error.response?.status === 401) {
       // Force clear local session and reload to trigger the login screen
       await supabase.auth.signOut()
@@ -35,12 +105,19 @@ export async function healthCheck() {
 }
 
 // ---------- Chat (RAG) ----------
-export const chatQuery = async (query, session_id = null, match_count = 5, department_filter = null) => {
+export const chatQuery = async (
+  query,
+  session_id = null,
+  department_filter = null,
+  guest_history = [],
+  guest_source_ids = [],
+) => {
   const { data } = await api.post('/chat', { 
     question: query, 
     session_id, 
-    match_count,
-    department_filter
+    department_filter,
+    guest_history,
+    guest_source_ids,
   })
   return data
 }
@@ -78,9 +155,9 @@ export async function deletePaper(paperId) {
   const { data } = await api.delete(`/papers/${paperId}`)
   return data
 }
-export async function getPaperUrl(paperId) {
-  const { data } = await api.get(`/papers/${paperId}/url`)
-  return data.url
+export async function getPublicSettings() {
+  const { data } = await api.get('/settings/public')
+  return data
 }
 export async function getTracks() {
   const { data } = await api.get('/upload/tracks')
@@ -116,9 +193,10 @@ export async function extractMetadata(file) {
 }
 
 // ---------- Topic novelty / duplication (faculty + admin) ----------
-export async function scanDuplication(file) {
+export async function scanDuplication(file, department = null) {
   const formData = new FormData()
   formData.append('file', file)
+  if (department) formData.append('department', department)
   const { data } = await api.post('/duplication/scan', formData)
   return data
 }
@@ -209,8 +287,11 @@ export function apiErrorMessage(error, fallback = 'Something went wrong. Please 
   if (Array.isArray(detail)) {
     return detail.map(d => `${d.loc?.join('.') || 'Field'}: ${d.msg}`).join(', ');
   }
-  const fallbackMsg = detail || error?.message || fallback;
-  return typeof error?.response?.data === 'object' && error.response.data !== null 
-    ? (error.response.data.message || JSON.stringify(error.response.data)) 
-    : (error?.response?.data || fallbackMsg);
+  if (typeof detail === 'string' && detail.trim()) return detail;
+  const message = error?.response?.data?.message
+  if (typeof message === 'string' && message.trim()) return message
+  if (!error?.response && typeof error?.message === 'string' && error.message.trim()) {
+    return error.message
+  }
+  return fallback
 }

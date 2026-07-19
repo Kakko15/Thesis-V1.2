@@ -12,6 +12,7 @@ import io
 import logging
 import re
 from collections import Counter
+from dataclasses import dataclass, field
 
 import fitz  # PyMuPDF
 
@@ -30,13 +31,35 @@ except ImportError:  # pragma: no cover
 
 FIGURE_PLACEHOLDER = 'FIGURE REDACTED FOR SEMANTIC INDEXING'
 
+
+@dataclass(frozen=True)
+class ExtractedPage:
+    """A cleaned source page retained for traceable citation mapping."""
+
+    page_number: int | None
+    text: str
+
+
+@dataclass(frozen=True)
+class ExtractedDocument:
+    """Clean text plus page boundaries used by semantic chunking."""
+
+    pages: list[ExtractedPage]
+    redaction_stats: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def text(self) -> str:
+        return '\n\n'.join(page.text for page in self.pages if page.text)
+
 # A page with fewer than this many extractable characters but containing
 # images is treated as a scanned page and routed to OCR.
 _MIN_TEXT_CHARS_PER_PAGE = 40
 
 # Sections excluded from semantic indexing per the paper's delimitations.
 _EXCLUDED_SECTION_HEADINGS = re.compile(
-    r'^\s*(table\s+of\s+contents|bibliography|references|list\s+of\s+(figures|tables|appendices))\s*$',
+    r'^\s*(table\s+of\s+contents|bibliography|references|acknowledg(?:e)?ments?|'
+    r'dedication|approval\s+sheet|curriculum\s+vitae|biographical\s+sketch|'
+    r'list\s+of\s+(figures|tables|appendices))\s*$',
     re.IGNORECASE,
 )
 _CHAPTER_HEADING = re.compile(r'^\s*(chapter\s+\d+|chapter\s+[ivxlc]+)\b', re.IGNORECASE)
@@ -47,6 +70,54 @@ _PAGE_NUMBER_LINE = re.compile(
 )
 # Dot-leader lines typical of a Table of Contents ("1.2 Objectives ....... 12")
 _TOC_LEADER_LINE = re.compile(r'\.{4,}\s*\d{1,4}\s*$')
+
+_PII_RULES = (
+    (
+        'email',
+        re.compile(r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b', re.IGNORECASE),
+        '[EMAIL REDACTED]',
+    ),
+    (
+        'phone',
+        re.compile(r'(?<!\d)(?:\+?63|0)\s*9\d{2}[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)'),
+        '[PHONE REDACTED]',
+    ),
+    ('student_number', re.compile(
+        r'\b(?:student\s*(?:no\.?|number|id)|id\s*(?:no\.?|number))\s*[:#-]?\s*[A-Z0-9-]{5,20}\b',
+        re.IGNORECASE,
+    ), '[STUDENT NUMBER REDACTED]'),
+    (
+        'address',
+        re.compile(
+            r'^\s*(?:home|residential|mailing)?\s*address\s*:\s*.+$',
+            re.IGNORECASE | re.MULTILINE,
+        ),
+        '[ADDRESS REDACTED]',
+    ),
+    ('participant_identifier', re.compile(
+        r'\b(?:participant|respondent|subject)\s*(?:id|code|no\.?|number)?\s*[:#-]?\s*[A-Z]*\d{1,5}\b',
+        re.IGNORECASE,
+    ), '[PARTICIPANT ID REDACTED]'),
+    (
+        'signature',
+        re.compile(
+            r'^\s*(?:signature|signed\s+by)\s*[:_].*$',
+            re.IGNORECASE | re.MULTILINE,
+        ),
+        '[SIGNATURE REDACTED]',
+    ),
+)
+
+
+def redact_pii(text: str) -> tuple[str, dict[str, int]]:
+    """Redact deterministic high-risk PII while preserving research prose."""
+    cleaned = text or ''
+    counts: dict[str, int] = {}
+    for category, pattern, replacement in _PII_RULES:
+        cleaned, count = pattern.subn(replacement, cleaned)
+        if count:
+            counts[category] = count
+    return cleaned, counts
 
 
 def is_noise_chunk(text: str, max_non_alnum_ratio: float = 0.15) -> bool:
@@ -72,7 +143,7 @@ def _ocr_page(page: 'fitz.Page') -> str:
         img = Image.open(io.BytesIO(pix.tobytes('png')))
         return pytesseract.image_to_string(img)
     except Exception as e:  # pragma: no cover - depends on system binary
-        logger.error('OCR failed on page %d: %s', page.number, e)
+        logger.error('OCR failed on page %d (%s)', page.number, type(e).__name__)
         return ''
 
 
@@ -136,8 +207,29 @@ def _remove_excluded_sections(full_text: str) -> str:
     return '\n'.join(output)
 
 
-def extract_pdf_text(file_bytes: bytes) -> str:
-    """Full digitization pipeline for a PDF file."""
+def _remove_excluded_sections_from_pages(pages: list[ExtractedPage]) -> list[ExtractedPage]:
+    """Remove excluded blocks without losing the surviving page numbers."""
+    output: list[ExtractedPage] = []
+    skipping = False
+    for page in pages:
+        kept = []
+        for line in page.text.splitlines():
+            stripped = line.strip()
+            if _EXCLUDED_SECTION_HEADINGS.match(stripped):
+                skipping = True
+                continue
+            if skipping and _CHAPTER_HEADING.match(stripped):
+                skipping = False
+            if not skipping:
+                kept.append(line)
+        text = re.sub(r'\n{3,}', '\n\n', '\n'.join(kept)).strip()
+        if text:
+            output.append(ExtractedPage(page.page_number, text))
+    return output
+
+
+def extract_pdf_document(file_bytes: bytes) -> ExtractedDocument:
+    """Full digitization pipeline retaining cleaned PDF page boundaries."""
     doc = fitz.open(stream=file_bytes, filetype='pdf')
     raw_pages: list[str] = []
     for page in doc:
@@ -156,18 +248,36 @@ def extract_pdf_text(file_bytes: bytes) -> str:
     doc.close()
 
     repeated = _detect_repeated_lines(raw_pages)
-    cleaned_pages = [_clean_page(p, repeated) for p in raw_pages]
-    full_text = '\n\n'.join(p for p in cleaned_pages if p)
-    full_text = _remove_excluded_sections(full_text)
-    return full_text.strip()
+    cleaned_pages = []
+    redaction_totals: Counter[str] = Counter()
+    for index, text in enumerate(raw_pages):
+        redacted, counts = redact_pii(_clean_page(text, repeated))
+        redaction_totals.update(counts)
+        cleaned_pages.append(ExtractedPage(index + 1, redacted))
+    return ExtractedDocument(
+        _remove_excluded_sections_from_pages(cleaned_pages),
+        dict(redaction_totals),
+    )
+
+
+def extract_pdf_text(file_bytes: bytes) -> str:
+    """Backward-compatible text-only PDF extraction."""
+    return extract_pdf_document(file_bytes).text
+
+
+def extract_document(file_bytes: bytes, filename: str) -> ExtractedDocument:
+    """Extract a structured PDF or a page-less plain-text document."""
+    if (filename or '').lower().endswith('.pdf'):
+        return extract_pdf_document(file_bytes)
+    text = file_bytes.decode('utf-8', errors='ignore')
+    cleaned = re.sub(r'\n{3,}', '\n\n', text).strip()
+    redacted, counts = redact_pii(cleaned)
+    return ExtractedDocument([ExtractedPage(None, redacted)] if redacted else [], counts)
 
 
 def extract_text(file_bytes: bytes, filename: str) -> str:
     """Extract clean text from an uploaded thesis file (PDF or plain text)."""
-    if (filename or '').lower().endswith('.pdf'):
-        return extract_pdf_text(file_bytes)
-    text = file_bytes.decode('utf-8', errors='ignore')
-    return re.sub(r'\n{3,}', '\n\n', text).strip()
+    return extract_document(file_bytes, filename).text
 
 
 def filter_noise_chunks(chunks: list[str]) -> list[str]:

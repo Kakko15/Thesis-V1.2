@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Search, BookMarked, Trash2, Library, Lock, X, ShieldAlert } from 'lucide-react'
+import { Search, BookMarked, Trash2, Library, Lock, X, ShieldAlert, AlertTriangle } from 'lucide-react'
 import { listPapers, deletePaper, getTracks, getDepartments, apiErrorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
@@ -13,10 +13,11 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { ConfirmDialog, Modal } from '../components/ui/Modal'
 import { PageTransition, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { Button } from '../components/ui/Button'
-import { formatDate } from '../lib/utils'
+import { formatDate, normalizePercent, scanMetrics, verdictLabel } from '../lib/utils'
 
 function ScreeningDetail({ scan }) {
   if (!scan?.flagged) return null
+  const metrics = scanMetrics(scan)
   return (
     <div>
       <div className="text-xs font-bold uppercase tracking-wider opacity-50">
@@ -25,13 +26,18 @@ function ScreeningDetail({ scan }) {
       <div className="mt-1.5 rounded-xl border border-flame-500/25 bg-flame-500/8 px-3.5 py-2.5 text-xs leading-relaxed">
         <div className="flex items-center gap-1.5 font-semibold">
           <ShieldAlert size={13} className="shrink-0 text-flame-500" />
-          {scan.duplication_percentage}% of this manuscript matched the archive
-          at the {scan.threshold}% similarity threshold
+          {verdictLabel(metrics.verdict)}
+        </div>
+        <div className="mt-2 grid gap-1 opacity-75 sm:grid-cols-2">
+          <span>Highest passage similarity: {metrics.highest.toFixed(2)}%</span>
+          <span>Matched chunk coverage: {metrics.coverage.toFixed(2)}%</span>
+          <span>Matched chunks / total chunks: {metrics.matchedChunks} / {metrics.totalChunks}</span>
+          <span>Threshold: {normalizePercent(scan.threshold).toFixed(2)}%</span>
         </div>
         <ul className="mt-1.5 space-y-0.5 opacity-75">
           {(scan.matched_papers || []).map((p) => (
             <li key={p.id}>
-              "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} — top match {p.similarity}%
+              "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} — highest passage {normalizePercent(p.similarity).toFixed(2)}%
             </li>
           ))}
         </ul>
@@ -41,6 +47,7 @@ function ScreeningDetail({ scan }) {
 }
 
 function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
+  const screening = scanMetrics(paper.duplication_scan)
   return (
     <motion.div variants={staggerItem} layout>
       <GlassCard hover className="group flex h-full cursor-pointer flex-col p-5" onClick={() => onOpen(paper)}>
@@ -70,7 +77,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           {paper.department && <Badge tone="neutral">{paper.department}</Badge>}
           {paper.duplication_scan?.flagged && (
             <Badge tone="flame">
-              <ShieldAlert size={11} /> {paper.duplication_scan.duplication_percentage}% overlap
+              <ShieldAlert size={11} /> {screening.coverage.toFixed(2)}% matched coverage
             </Badge>
           )}
         </div>
@@ -79,8 +86,65 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
   )
 }
 
+function ArchiveResults({
+  isLoading,
+  filtered,
+  papers,
+  isAdmin,
+  onDelete,
+  onOpen,
+  onClear,
+}) {
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[...Array(6)].map((_, index) => <Skeleton key={index} className="h-44" />)}
+      </div>
+    )
+  }
+  if (filtered.length === 0) {
+    const hasPapers = Boolean(papers?.length)
+    return (
+      <GlassCard>
+        <EmptyState
+          icon={Library}
+          title={hasPapers ? 'No matches found' : 'The archive is empty'}
+          message={hasPapers
+            ? 'Try different keywords or clear the filters.'
+            : 'Indexed theses will appear here once an administrator uploads them.'}
+          action={hasPapers ? (
+            <Button variant="secondary" size="sm" onClick={onClear}>
+              <X size={14} /> Clear filters
+            </Button>
+          ) : null}
+        />
+      </GlassCard>
+    )
+  }
+  return (
+    <motion.div
+      variants={staggerContainer}
+      initial="hidden"
+      animate="show"
+      className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+    >
+      <AnimatePresence>
+        {filtered.map((paper) => (
+          <PaperCard
+            key={paper.id}
+            paper={paper}
+            isAdmin={isAdmin}
+            onDelete={onDelete}
+            onOpen={onOpen}
+          />
+        ))}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+
 export default function Archive() {
-  const { isAdmin, isSuperadmin } = useAuth()
+  const { isAdmin, isSuperadmin, department: userDepartment } = useAuth()
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const [track, setTrack] = useState('')
@@ -90,7 +154,10 @@ export default function Archive() {
   const [detail, setDetail] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  const { data: papers, isLoading } = useQuery({ queryKey: ['papers'], queryFn: () => listPapers(null) })
+  const { data: papers, isLoading, isError: papersError } = useQuery({
+    queryKey: ['papers'],
+    queryFn: () => listPapers(null),
+  })
   const { data: tracks = [] } = useQuery({ queryKey: ['tracks'], queryFn: getTracks })
   const { data: departments = [] } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
 
@@ -100,11 +167,12 @@ export default function Archive() {
   }, [papers])
 
   const { activeTracks, trackLabel } = useMemo(() => {
-    if (!department) return { activeTracks: tracks, trackLabel: 'track' }
-    const dept = departments.find(d => d.name === department)
+    const selectedDepartment = isSuperadmin ? department : userDepartment
+    if (!selectedDepartment) return { activeTracks: tracks, trackLabel: 'track' }
+    const dept = departments.find(d => d.name === selectedDepartment)
     if (dept) return { activeTracks: dept.tracks || [], trackLabel: dept.track_label?.toLowerCase() || 'track' }
     return { activeTracks: tracks, trackLabel: 'track' }
-  }, [department, departments, tracks])
+  }, [department, departments, isSuperadmin, tracks, userDepartment])
 
   const filtered = useMemo(() => {
     return (papers || []).filter((p) => {
@@ -115,10 +183,10 @@ export default function Archive() {
         p.abstract?.toLowerCase().includes(q)
       const matchTrack = !track || p.track === track
       const matchYear = !year || String(p.year) === year
-      const matchDepartment = !department || p.department === department
+      const matchDepartment = !isSuperadmin || !department || p.department === department
       return matchQ && matchTrack && matchYear && matchDepartment
     })
-  }, [papers, query, track, year, department])
+  }, [papers, query, track, year, department, isSuperadmin])
 
   const submitDelete = async () => {
     setBusy(true)
@@ -151,6 +219,13 @@ export default function Archive() {
         </div>
       </div>
 
+      {papersError && (
+        <GlassCard className="flex items-center gap-3 border border-flame-500/25 p-4 text-sm">
+          <AlertTriangle size={17} className="shrink-0 text-flame-500" />
+          The archive could not be loaded. Please retry when the backend is available.
+        </GlassCard>
+      )}
+
       {/* Filters */}
       <GlassCard className="flex flex-col gap-3 p-4 sm:flex-row">
         <div className="relative flex-1">
@@ -162,7 +237,7 @@ export default function Archive() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        {department && (
+        {activeTracks.length > 0 && (
           <Select value={track} onChange={(e) => setTrack(e.target.value)} className="sm:w-52" aria-label={`Filter by ${trackLabel}`}>
             <option value="">All {trackLabel}s</option>
             {activeTracks.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -181,43 +256,15 @@ export default function Archive() {
       </GlassCard>
 
       {/* Grid */}
-      {isLoading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-44" />)}
-        </div>
-      ) : filtered.length === 0 ? (
-        <GlassCard>
-          <EmptyState
-            icon={Library}
-            title={papers?.length ? 'No matches found' : 'The archive is empty'}
-            message={
-              papers?.length
-                ? 'Try different keywords or clear the filters.'
-                : 'Indexed theses will appear here once an administrator uploads them.'
-            }
-            action={
-              papers?.length ? (
-                <Button variant="secondary" size="sm" onClick={() => { setQuery(''); setTrack(''); setYear(''); setDepartment('') }}>
-                  <X size={14} /> Clear filters
-                </Button>
-              ) : null
-            }
-          />
-        </GlassCard>
-      ) : (
-        <motion.div
-          variants={staggerContainer}
-          initial="hidden"
-          animate="show"
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-        >
-          <AnimatePresence>
-            {filtered.map((p) => (
-              <PaperCard key={p.id} paper={p} isAdmin={isAdmin} onDelete={setDeleteTarget} onOpen={setDetail} />
-            ))}
-          </AnimatePresence>
-        </motion.div>
-      )}
+      <ArchiveResults
+        isLoading={isLoading}
+        filtered={filtered}
+        papers={papers}
+        isAdmin={isAdmin}
+        onDelete={setDeleteTarget}
+        onOpen={setDetail}
+        onClear={() => { setQuery(''); setTrack(''); setYear(''); setDepartment('') }}
+      />
 
       {/* Detail modal — metadata only (indirect access model) */}
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.title} size="lg">

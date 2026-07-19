@@ -112,7 +112,7 @@ export function AskDemo() {
               <span className="h-2.5 w-2.5 rounded-full bg-forest-500/70" />
             </div>
             <span className="font-mono text-[0.65rem] uppercase tracking-wider opacity-50">
-              Guest session · CCSICT archive
+              Guest Researcher session · CCSICT archive
             </span>
             <Button variant="ghost" size="icon-sm" aria-label="Replay the demo" onClick={replay}>
               <RotateCcw size={14} />
