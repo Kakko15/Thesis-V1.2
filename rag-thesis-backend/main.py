@@ -90,18 +90,27 @@ app.include_router(settings_router.router)
 app.include_router(maintenance.router)
 
 
+def _verify_database_contract() -> None:
+    """Fail when the configured project is reachable but lacks required schema."""
+    from dependencies.auth import sb
+
+    sb.table('profiles').select('id,status,role,department').limit(1).execute()
+    sb.table('departments').select('id,name').limit(1).execute()
+    sb.table('papers').select(
+        'id,department,ingestion_status,active_index_version',
+    ).limit(1).execute()
+
+
 @app.get('/health')
 def health():
     """Return liveness and dependency status."""
     checks = {'api': 'ok'}
     try:
-        from dependencies.auth import sb
-
-        sb.table('papers').select('id').limit(1).execute()
+        _verify_database_contract()
         checks['database'] = 'ok'
     except Exception as error:
-        logger.warning('Health check: database unreachable (%s)', type(error).__name__)
-        checks['database'] = 'unreachable'
+        logger.warning('Health check: database unavailable or incompatible (%s)', type(error).__name__)
+        checks['database'] = 'unavailable_or_incompatible'
     status = 'ok' if all(value == 'ok' for value in checks.values()) else 'degraded'
     return {'status': status, 'checks': checks, 'version': app.version}
 
@@ -120,12 +129,11 @@ def readiness():
         ),
     }
     try:
-        from dependencies.auth import sb
-
-        sb.table('departments').select('id').limit(1).execute()
+        _verify_database_contract()
         checks['database'] = 'ok'
     except Exception as error:
-        logger.warning('Readiness check: database unreachable: %s', type(error).__name__)
+        logger.warning('Readiness check: database unavailable or incompatible: %s', type(error).__name__)
+        checks['database'] = 'unavailable_or_incompatible'
     ready = all(value == 'ok' for value in checks.values())
     payload = {
         'status': 'ready' if ready else 'not_ready',

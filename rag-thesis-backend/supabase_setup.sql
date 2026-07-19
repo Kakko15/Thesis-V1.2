@@ -71,6 +71,28 @@ create trigger on_auth_user_created
 
 revoke all on function public.handle_new_user() from public, anon, authenticated;
 
+-- Backfill accounts created before the profile trigger was installed. Public
+-- signup metadata may request faculty review, but can never grant a privileged
+-- role or select another department.
+insert into public.profiles (id, email, full_name, role, department, status)
+select
+  users.id,
+  users.email,
+  coalesce(
+    nullif(trim(users.raw_user_meta_data ->> 'full_name'), ''),
+    split_part(coalesce(users.email, ''), '@', 1),
+    'ISU User'
+  ),
+  case when users.raw_user_meta_data ->> 'requested_role' = 'faculty'
+    then 'faculty' else 'student' end,
+  'CCSICT',
+  case when users.raw_user_meta_data ->> 'requested_role' = 'faculty'
+    then 'pending' else 'approved' end
+from auth.users as users
+where not exists (
+  select 1 from public.profiles as profiles where profiles.id = users.id
+);
+
 create or replace function public.sync_profile_email()
 returns trigger
 language plpgsql
