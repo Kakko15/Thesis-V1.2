@@ -88,6 +88,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
 
 function ArchiveResults({
   isLoading,
+  isError,
   filtered,
   papers,
   isAdmin,
@@ -100,6 +101,17 @@ function ArchiveResults({
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[...Array(6)].map((_, index) => <Skeleton key={index} className="h-44" />)}
       </div>
+    )
+  }
+  if (isError) {
+    return (
+      <GlassCard>
+        <EmptyState
+          icon={AlertTriangle}
+          title="Archive unavailable"
+          message="The archive could not be loaded. Check the backend and database configuration, then try again."
+        />
+      </GlassCard>
     )
   }
   if (filtered.length === 0) {
@@ -219,13 +231,6 @@ export default function Archive() {
         </div>
       </div>
 
-      {papersError && (
-        <GlassCard className="flex items-center gap-3 border border-flame-500/25 p-4 text-sm">
-          <AlertTriangle size={17} className="shrink-0 text-flame-500" />
-          The archive could not be loaded. Please retry when the backend is available.
-        </GlassCard>
-      )}
-
       {/* Filters */}
       <GlassCard className="flex flex-col gap-3 p-4 sm:flex-row">
         <div className="relative flex-1">
@@ -258,6 +263,7 @@ export default function Archive() {
       {/* Grid */}
       <ArchiveResults
         isLoading={isLoading}
+        isError={papersError}
         filtered={filtered}
         papers={papers}
         isAdmin={isAdmin}

@@ -51,7 +51,7 @@ class TestHealth:
         monkeypatch.setattr('dependencies.auth.sb', Client())
         res = client.get('/ready')
         assert res.status_code == 503
-        assert res.json()['checks']['database'] == 'unreachable'
+        assert res.json()['checks']['database'] == 'unavailable_or_incompatible'
 
 
 class TestValidation:
