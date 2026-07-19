@@ -72,6 +72,10 @@ npm run dev
 
 Open http://localhost:5173.
 
+Keep `VITE_API_URL` empty for local development. Vite proxies API requests to
+`http://localhost:8000` and waits briefly for FastAPI during startup or reloads.
+Set `VITE_API_URL` only when the frontend must call a separately deployed backend.
+
 ## Roles
 
 | Role | Capabilities |

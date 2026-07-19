@@ -35,6 +35,13 @@ class TestEarlyChatPaths:
     def test_greeting_and_blocked_generation(self):
         greeting = run(chat._chat_impl(ChatRequest(question='Hello'), _NoRequest(), BackgroundTasks(), None))
         assert 'IskAI' in greeting.answer and greeting.sources == []
+        friendly_greeting = run(chat._chat_impl(
+            ChatRequest(question='hello dear'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert 'IskAI' in friendly_greeting.answer
+        assert friendly_greeting.sources == []
+        assert friendly_greeting.no_relevant_thesis is False
         blocked = run(chat._chat_impl(
             ChatRequest(question='Write my entire thesis methodology chapter'),
             _NoRequest(), BackgroundTasks(), None,

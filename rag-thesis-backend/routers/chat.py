@@ -70,6 +70,9 @@ _IDENTITY_QUESTIONS = {
     'who are you', 'what are you', 'who is iskai', 'what is iskai',
     'tell me about yourself', 'what can you do',
 }
+_GREETING_ADDRESSEES = {
+    'dear', 'friend', 'my friend', 'iskai', 'dear iskai',
+}
 _CAPACITY_STATE = {'limited_until': 0.0}
 
 
@@ -86,7 +89,8 @@ def _is_simple_conversation(question: str) -> bool:
         return True
     for greeting in _GREETINGS:
         if normalized.startswith(f'{greeting} '):
-            return normalized[len(greeting) + 1:] in _IDENTITY_QUESTIONS
+            remainder = normalized[len(greeting) + 1:]
+            return remainder in _IDENTITY_QUESTIONS or remainder in _GREETING_ADDRESSEES
     return False
 
 
