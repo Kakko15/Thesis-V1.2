@@ -10,6 +10,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Resolve and cache the fixed tokenizer vocabulary at build time so runtime
+# chunking never depends on a network request.
+ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache
+RUN mkdir -p "$TIKTOKEN_CACHE_DIR" \
+    && python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')" \
+    && chmod -R a+rX "$TIKTOKEN_CACHE_DIR"
+
 COPY main.py config.py models.py ./
 COPY routers/*.py ./routers/
 COPY services/*.py ./services/

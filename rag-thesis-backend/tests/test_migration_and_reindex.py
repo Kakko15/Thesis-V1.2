@@ -63,9 +63,15 @@ class TestReindexDryRun:
         fixture.write_text('METHODOLOGY\n' + ('Local fixture evidence. ' * 220), encoding='utf-8')
         exit_code = reindex_citations.main(['--all', '--fixture-dir', str(tmp_path)])
         output = capsys.readouterr().out
+        report = __import__('json').loads(output)
         assert exit_code == 0
-        assert '"external_calls": 0' in output
-        assert '"chunks":' in output
+        assert report['external_calls'] == 0
+        fixture_report = report['fixtures'][0]
+        assert fixture_report['chunks'] > 0
+        assert fixture_report['chunking_version'] == 'token-v1'
+        assert fixture_report['tokenizer'] == 'cl100k_base'
+        assert fixture_report['token_counts']['maximum'] <= 800
+        assert fixture_report['overlap_tokens']['maximum'] <= 100
 
     def test_failed_staging_cannot_activate_old_index(self):
         class FailingStorage:

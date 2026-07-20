@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 import sys
 import uuid
 from pathlib import Path
@@ -18,7 +19,14 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from config import settings  # noqa: E402
-from services.chunker import build_chunk_metadata, split_document  # noqa: E402
+from services.chunker import (  # noqa: E402
+    CHUNKING_VERSION,
+    TOKENIZER_ENCODING,
+    build_chunk_metadata,
+    split_document,
+    record_overlap_tokens,
+    validate_chunk_records,
+)
 from services.document_processor import extract_document, is_noise_chunk  # noqa: E402
 
 STATE_FILE = BACKEND_ROOT / '.reindex_items_9_16_state.json'
@@ -52,22 +60,29 @@ def save_state(state: dict, path: Path = STATE_FILE) -> None:
 
 def build_records(file_bytes: bytes, filename: str) -> list[dict]:
     document = extract_document(file_bytes, filename)
-    return [
+    return validate_chunk_records([
         record for record in split_document(document)
         if not is_noise_chunk(record['content'])
-    ]
+    ])
 
 
 def verify_records(records: list[dict], embeddings: list[list[float]] | None = None) -> None:
     if not records:
         raise ValueError('No clean, indexable chunks were produced')
     positions = [record['chunk_index'] for record in records]
-    if len(positions) != len(set(positions)):
-        raise ValueError('Chunk positions are not unique')
+    if positions != list(range(len(records))):
+        raise ValueError('Chunk positions are not sequential and unique')
     for record in records:
         if not record['content'].strip():
             raise ValueError('An empty chunk was produced')
-        if record['page_start'] and record['page_end'] < record['page_start']:
+        if record['token_count'] > settings.chunk_size_tokens:
+            raise ValueError('A chunk exceeds the configured token limit')
+        if record['tokenizer'] != TOKENIZER_ENCODING \
+                or record['chunking_version'] != CHUNKING_VERSION:
+            raise ValueError('Chunk tokenizer provenance is invalid')
+        if (record['page_start'] is None) != (record['page_end'] is None):
+            raise ValueError('Incomplete page range')
+        if record['page_start'] is not None and record['page_end'] < record['page_start']:
             raise ValueError('Invalid page range')
     if embeddings is not None:
         if len(embeddings) != len(records):
@@ -83,11 +98,28 @@ def dry_run_fixtures(fixture_dir: Path) -> list[dict]:
             continue
         records = build_records(path.read_bytes(), path.name)
         verify_records(records)
+        token_counts = [record['token_count'] for record in records]
+        overlaps = [
+            record_overlap_tokens(records[index], records[index + 1])
+            for index in range(len(records) - 1)
+        ]
         reports.append({
             'file': path.name,
             'chunks': len(records),
             'page_aware_chunks': sum(record['page_start'] is not None for record in records),
             'sections': sorted({record['section'] for record in records if record['section']}),
+            'chunking_version': CHUNKING_VERSION,
+            'tokenizer': TOKENIZER_ENCODING,
+            'token_counts': {
+                'maximum': max(token_counts),
+                'median': statistics.median(token_counts),
+            },
+            'overlap_tokens': {
+                'target': settings.chunk_overlap_tokens,
+                'minimum': min(overlaps) if overlaps else 0,
+                'median': statistics.median(overlaps) if overlaps else 0,
+                'maximum': max(overlaps) if overlaps else 0,
+            },
         })
     return reports
 
@@ -132,6 +164,7 @@ def apply_paper(client, paper: dict) -> dict:
                 paper.get('year'), department=paper.get('department', ''),
                 page_start=record['page_start'], page_end=record['page_end'],
                 section=record['section'], chunk_index=record['chunk_index'],
+                token_count=record['token_count'],
             ),
             'embedding': embedding,
         })
@@ -139,10 +172,19 @@ def apply_paper(client, paper: dict) -> dict:
     try:
         for start in range(0, len(rows), 100):
             client.table('chunks').insert(rows[start:start + 100]).execute()
-        staged = client.table('chunks').select('id,chunk_index,page_start,page_end,section') \
+        staged = client.table('chunks').select(
+            'id,chunk_index,page_start,page_end,section,metadata'
+        ) \
             .eq('paper_id', paper['id']).eq('index_version', staged_version).execute().data or []
         if len(staged) != len(rows) or len({row['chunk_index'] for row in staged}) != len(rows):
             raise ValueError('Staged database verification failed')
+        for row in staged:
+            metadata = row.get('metadata') or {}
+            if metadata.get('tokenizer') != TOKENIZER_ENCODING \
+                    or metadata.get('chunking_version') != CHUNKING_VERSION \
+                    or not isinstance(metadata.get('token_count'), int) \
+                    or metadata['token_count'] > settings.chunk_size_tokens:
+                raise ValueError('Staged tokenizer provenance verification failed')
         client.rpc('activate_paper_index', {
             'p_paper_id': paper['id'],
             'p_index_version': staged_version,
