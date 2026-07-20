@@ -8,6 +8,7 @@ import { Aurora } from '../../components/ui/Aurora'
 import { Button } from '../../components/ui/Button'
 import { Magnetic, TypewriterText } from '../../components/ui/Motion'
 import { usePreferences } from '../../context/PreferencesContext'
+import { useIdleReady } from '../../hooks/useIdleReady'
 
 const HeroScene = lazy(() => import('../../components/three/HeroScene'))
 
@@ -86,6 +87,7 @@ export function Hero() {
   const copyOpacity = useTransform(scrollYProgress, [0, 0.75], [1, 0.1])
   const copyY = useTransform(scrollYProgress, [0, 1], [0, 90])
   const { show: show3D, active: sceneActive } = useHeroScene(heroRef)
+  const sceneReady = useIdleReady(show3D && sceneActive)
 
   return (
     <section ref={heroRef} className="relative min-h-screen overflow-hidden">
@@ -97,7 +99,7 @@ export function Hero() {
         aria-hidden="true"
         className="effects-decorative pointer-events-none absolute inset-0 z-0 opacity-60 lg:inset-y-0 lg:left-auto lg:right-[-10%] lg:w-[62%] lg:opacity-100"
       >
-        {show3D && (
+        {show3D && sceneReady && (
           <Suspense fallback={null}>
             <motion.div
               initial={{ opacity: 0 }}

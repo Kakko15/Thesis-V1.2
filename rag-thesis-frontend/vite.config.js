@@ -44,8 +44,26 @@ const spaAwareApiProxy = {
   },
 }
 
-export default defineConfig({
-  plugins: [backendReadiness(), react(), tailwindcss()],
+function e2eApiGuard() {
+  return {
+    name: 'e2e-api-guard',
+    configureServer(server) {
+      server.middlewares.use('/__e2e_api', (_req, res) => {
+        res.statusCode = 501
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ detail: 'Unmocked E2E API request' }))
+      })
+    },
+  }
+}
+
+export default defineConfig(({ mode }) => ({
+  plugins: [backendReadiness(), ...(mode === 'e2e' ? [e2eApiGuard()] : []), react(), tailwindcss()],
+  define: mode === 'e2e' ? {
+    'import.meta.env.VITE_API_URL': JSON.stringify('/__e2e_api'),
+    'import.meta.env.VITE_SUPABASE_URL': JSON.stringify('http://127.0.0.1:4173/__e2e_supabase'),
+    'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify('deterministic-e2e-anon-key'),
+  } : undefined,
   // R3F breaks silently if two copies of three end up in the module graph.
   resolve: { dedupe: ['three'] },
   server: {
@@ -83,4 +101,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

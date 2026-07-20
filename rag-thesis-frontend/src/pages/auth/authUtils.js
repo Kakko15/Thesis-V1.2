@@ -40,9 +40,24 @@ export function isStrongPassword(password) {
   return PASSWORD_RULES.every((rule) => rule.test(password || ''))
 }
 
+const AUTH_ERROR_RULES = [
+  ['invalid login credentials', 'Incorrect email or password. Double-check and try again.'],
+  ['email not confirmed', 'This email isn’t verified yet — we can send you a fresh verification code.'],
+  ['user already registered', 'An account with this email already exists. Try signing in instead.'],
+  ['signups not allowed for otp', 'No account found with this email. Create one first, then sign in with a code.'],
+  [['invalid totp', 'invalid mfa', 'invalid code'], 'That code didn’t match. Codes rotate every 30 seconds — try the current one.'],
+  [['expired', 'otp_expired'], 'That code has expired. Request a fresh one and try again.'],
+  [['same password', 'different from the old'], 'Your new password must be different from the old one.'],
+  [['auth session missing', 'session_not_found'], 'This link has expired. Request a new password-reset email.'],
+  [['failed to fetch', 'network'], 'Network hiccup — check your connection and try again.'],
+]
+
+function matchesAuthRule(message, patterns) {
+  const candidates = Array.isArray(patterns) ? patterns : [patterns]
+  return candidates.some((pattern) => message.includes(pattern))
+}
+
 /** Map raw Supabase auth errors to human copy. Never leak internals. */
-// Mapping intentionally stays explicit so each provider message has reviewed user-facing copy.
-// eslint-disable-next-line complexity
 export function friendlyAuthError(err) {
   if (!err) return 'Something went wrong.'
   let raw = err.message || err.error_description || err.msg || err
@@ -50,31 +65,14 @@ export function friendlyAuthError(err) {
     try { raw = JSON.stringify(raw) } catch { raw = String(raw) }
   }
   if (raw === '{}') return 'Internal server error from Supabase (500). Please check your SMTP settings.'
-  const msg = raw.toLowerCase()
-  if (msg.includes('invalid login credentials'))
-    return 'Incorrect email or password. Double-check and try again.'
-  if (msg.includes('email not confirmed'))
-    return 'This email isn’t verified yet — we can send you a fresh verification code.'
-  if (msg.includes('user already registered'))
-    return 'An account with this email already exists. Try signing in instead.'
-  if (msg.includes('signups not allowed for otp'))
-    return 'No account found with this email. Create one first, then sign in with a code.'
-  if (msg.includes('invalid totp') || msg.includes('invalid mfa') || msg.includes('invalid code'))
-    return 'That code didn’t match. Codes rotate every 30 seconds — try the current one.'
-  if (msg.includes('expired') || msg.includes('otp_expired'))
-    return 'That code has expired. Request a fresh one and try again.'
-  if (msg.includes('rate limit') || msg.includes('you can only request this after') || msg.includes('too many requests')) {
-    const secs = raw.match(/(\d+) seconds?/)?.[1]
-    return `Supabase limits emails to 3 per hour for security. Please wait ${secs ? `${secs}s` : 'a moment'}, or disable "Enable Email Confirmations" in your Supabase Auth settings for testing.`
+  const message = raw.toLowerCase()
+  if (matchesAuthRule(message, ['rate limit', 'you can only request this after', 'too many requests'])) {
+    const seconds = raw.match(/(\d+) seconds?/)?.[1]
+    return `Supabase limits emails to 3 per hour for security. Please wait ${seconds ? `${seconds}s` : 'a moment'}, or disable "Enable Email Confirmations" in your Supabase Auth settings for testing.`
   }
-  if (msg.includes('password should be')) return raw
-  if (msg.includes('same password') || msg.includes('different from the old'))
-    return 'Your new password must be different from the old one.'
-  if (msg.includes('auth session missing') || msg.includes('session_not_found'))
-    return 'This link has expired. Request a new password-reset email.'
-  if (msg.includes('failed to fetch') || msg.includes('network'))
-    return 'Network hiccup — check your connection and try again.'
-  return 'Authentication failed. Please try again.'
+  if (message.includes('password should be')) return raw
+  const rule = AUTH_ERROR_RULES.find(([patterns]) => matchesAuthRule(message, patterns))
+  return rule?.[1] || 'Authentication failed. Please try again.'
 }
 
 /** Parse "…after 42 seconds" out of a rate-limit error. */

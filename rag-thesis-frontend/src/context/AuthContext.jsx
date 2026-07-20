@@ -2,6 +2,11 @@ import { createContext, useState, useEffect, useContext, useCallback, useRef } f
 import { supabase } from '../supabaseClient'
 import { getFeaturePermissions } from '../api'
 import { avatarPublicUrl } from '../lib/avatar'
+import {
+  clearE2EAuthFixture,
+  isE2ETestMode,
+  readE2EAuthFixture,
+} from '../testing/e2eSession'
 
 const AuthContext = createContext({})
 
@@ -18,15 +23,16 @@ function getDisplayName(profile, user) {
 }
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [features, setFeatures] = useState(null)
+  const initialE2EFixture = isE2ETestMode ? readE2EAuthFixture() : null
+  const [user, setUser] = useState(() => initialE2EFixture?.user ?? null)
+  const [profile, setProfile] = useState(() => initialE2EFixture?.profile ?? null)
+  const [loading, setLoading] = useState(() => !isE2ETestMode)
+  const [features, setFeatures] = useState(() => initialE2EFixture?.features ?? null)
   const [profileError, setProfileError] = useState(false)
   const broadcastChannelRef = useRef(null)
   // True when the account has a verified TOTP factor but this session is
   // still aal1 — i.e. the user must pass the 2FA challenge before the app.
-  const [needsMfa, setNeedsMfa] = useState(false)
+  const [needsMfa, setNeedsMfa] = useState(() => Boolean(initialE2EFixture?.needsMfa))
 
   const checkMfa = useCallback(async (currentUser) => {
     if (!currentUser) {
@@ -84,11 +90,23 @@ export const AuthProvider = ({ children }) => {
   }, [checkMfa, fetchProfile])
 
   const reloadSession = useCallback(async () => {
+    if (isE2ETestMode) {
+      const fixture = readE2EAuthFixture()
+      setUser(fixture?.user ?? null)
+      setProfile(fixture?.profile ?? null)
+      setFeatures(fixture?.features ?? null)
+      setNeedsMfa(Boolean(fixture?.needsMfa))
+      setProfileError(false)
+      setLoading(false)
+      return
+    }
     const { data: { session } } = await supabase.auth.getSession()
     await syncSession(session)
   }, [syncSession])
 
   useEffect(() => {
+    if (isE2ETestMode) return undefined
+
     let active = true
 
     supabase.auth.getSession()
@@ -107,7 +125,7 @@ export const AuthProvider = ({ children }) => {
 
   // Realtime subscription for feature permissions via pure Broadcast (bypasses RLS blocks)
   useEffect(() => {
-    if (!user) return undefined
+    if (!user || isE2ETestMode) return undefined
     const channel = supabase.channel('global_feature_updates')
       .on(
         'broadcast',
@@ -155,7 +173,16 @@ export const AuthProvider = ({ children }) => {
     canUpload: canUseFeature(role, features, 'upload'),
     displayName: getDisplayName(profile, user),
     avatarUrl: avatarPublicUrl(profile?.avatar_url),
-    signOut: () => supabase.auth.signOut(),
+    signOut: async () => {
+      if (isE2ETestMode) {
+        clearE2EAuthFixture()
+        setUser(null)
+        setProfile(null)
+        setFeatures(null)
+        return
+      }
+      await supabase.auth.signOut()
+    },
     broadcastFeatureUpdate: () => {
       broadcastChannelRef.current?.send({ type: 'broadcast', event: 'features_updated', payload: {} })
     },

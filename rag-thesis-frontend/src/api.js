@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { supabase } from './supabaseClient'
+import { isE2ETestMode, readE2EAuthFixture } from './testing/e2eSession'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '',
@@ -67,6 +68,15 @@ async function waitForBackend() {
 // Attach the Supabase JWT to every request
 api.interceptors.request.use(async (config) => {
   if (SHOULD_WAIT_FOR_DEV_BACKEND) await waitForBackend()
+  if (isE2ETestMode) {
+    const fixture = readE2EAuthFixture()
+    if (fixture?.user) {
+      config.headers.Authorization = 'Bearer deterministic-e2e-token'
+    } else {
+      config.headers['X-Guest-ID'] = guestRateId()
+    }
+    return config
+  }
   const { data: { session } } = await supabase.auth.getSession()
   if (session?.access_token) {
     config.headers.Authorization = `Bearer ${session.access_token}`
@@ -95,7 +105,7 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401) {
       // Force clear local session and reload to trigger the login screen
-      await supabase.auth.signOut()
+      if (!isE2ETestMode) await supabase.auth.signOut()
       window.location.href = '/login'
     }
     return Promise.reject(error)

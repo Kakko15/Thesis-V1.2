@@ -20,6 +20,7 @@ import { MfaChallengeStep } from './auth/MfaChallengeStep'
 import { ForgotPasswordStep } from './auth/ForgotPasswordStep'
 import { ResetPasswordStep } from './auth/ResetPasswordStep'
 import { SuccessStep } from './auth/SuccessStep'
+import { useIdleReady } from '../hooks/useIdleReady'
 
 const AuthScene = lazy(() => import('../components/three/AuthScene'))
 
@@ -83,13 +84,19 @@ function useAuthScene() {
     }
   })
   const [desktop, setDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
+  const [pageVisible, setPageVisible] = useState(() => document.visibilityState === 'visible')
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)')
     const onChange = (e) => setDesktop(e.matches)
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
   }, [])
-  return !reducedMotion && effects !== 'low' && webgl && desktop
+  useEffect(() => {
+    const onVisibilityChange = () => setPageVisible(document.visibilityState === 'visible')
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
+  return !reducedMotion && effects !== 'low' && webgl && desktop && pageVisible
 }
 
 export default function Login() {
@@ -98,6 +105,7 @@ export default function Login() {
   const { user, needsMfa, displayName } = useAuth()
   const navigate = useNavigate()
   const show3D = useAuthScene()
+  const sceneReady = useIdleReady(show3D)
   const cardRef = useRef(null)
 
   // Soft pointer parallax for the glow orbs behind the card.
@@ -220,7 +228,7 @@ export default function Login() {
 
       {/* Left showcase panel (desktop) */}
       <div className="relative hidden flex-1 items-center justify-center p-12 lg:flex">
-        {show3D && (
+        {show3D && sceneReady && (
           <div aria-hidden="true" className="effects-decorative pointer-events-none absolute inset-0">
             <Suspense fallback={null}>
               <motion.div

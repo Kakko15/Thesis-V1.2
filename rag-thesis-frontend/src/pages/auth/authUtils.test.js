@@ -23,6 +23,20 @@ test('requires all displayed production password rules', () => {
 })
 
 test('maps common auth failures and parses retry timing', () => {
-  assert.match(friendlyAuthError({ message: 'Invalid login credentials' }), /Incorrect email/)
+  const cases = [
+    ['Invalid login credentials', /Incorrect email/],
+    ['Email not confirmed', /verified/],
+    ['User already registered', /already exists/],
+    ['Signups not allowed for otp', /No account found/],
+    ['Invalid TOTP', /code didn’t match/],
+    ['OTP_expired', /expired/],
+    ['Too many requests; retry after 42 seconds', /wait 42s/],
+    ['New password should be at least 8 characters', /at least 8 characters/],
+    ['New password must be different from the old password', /different from the old/],
+    ['Auth session missing', /link has expired/],
+    ['Failed to fetch', /Network hiccup/],
+    ['Unknown provider failure', /Authentication failed/],
+  ]
+  for (const [message, expected] of cases) assert.match(friendlyAuthError({ message }), expected)
   assert.equal(retryAfterSeconds({ message: 'Try again after 42 seconds' }), 42)
 })
