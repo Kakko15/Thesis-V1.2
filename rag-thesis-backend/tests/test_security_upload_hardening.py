@@ -270,6 +270,16 @@ class TestUploadJobSecurityAndRollback:
         assert name == 'commit_paper_ingestion'
         assert payload['p_paper']['redaction_stats'] == {'email': 1}
         assert payload['p_paper']['department'] == 'CCSICT'
+        assert payload['p_paper']['index_provenance'] == {
+            'embedding_model': upload.settings.gemini_embed_model,
+            'embedding_dimensions': 768,
+            'preprocessing_version': 'document-v1',
+            'chunking_version': 'token-v1',
+            'tokenizer': 'cl100k_base',
+            'chunk_size_tokens': 800,
+            'chunk_overlap_tokens': 100,
+            'provenance_status': 'verified',
+        }
         assert len(payload['p_chunks']) == 1
         assert len(payload['p_chunks'][0]['embedding']) == 768
         assert bucket.removed == []

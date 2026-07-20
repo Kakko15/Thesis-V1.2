@@ -8,6 +8,7 @@ from scripts import reindex_citations
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = BACKEND_ROOT / 'migrations' / '20260717_rag_items_9_16.sql'
 HARDENING_MIGRATION = BACKEND_ROOT / 'migrations' / '20260719_production_hardening.sql'
+PROVENANCE_MIGRATION = BACKEND_ROOT / 'migrations' / '20260720_index_embedding_provenance.sql'
 FULL_SCHEMA = BACKEND_ROOT / 'supabase_setup.sql'
 
 
@@ -56,6 +57,30 @@ class TestMigrationContract:
             assert 'sync_profile_email' in sql
             assert 'on update cascade on delete restrict' in sql
 
+    def test_index_provenance_backfill_retrieval_and_activation_contracts(self):
+        for path in (PROVENANCE_MIGRATION, FULL_SCHEMA):
+            sql = path.read_text(encoding='utf-8').lower()
+            assert 'create table if not exists public.paper_index_versions' in sql
+            assert "'models/gemini-embedding-2'" in sql
+            assert "'legacy_assumed'" in sql
+            assert 'check (embedding_dimensions = 768)' in sql
+            assert 'verified_index_provenance_is_current' in sql
+            assert "piv.embedding_model = p_embedding_model" in sql
+            assert 'piv.embedding_dimensions = p_embedding_dimensions' in sql
+            assert 'cannot activate an index without compatible provenance' in sql
+            assert 'chunks_index_provenance_fkey' in sql
+            assert 'on delete restrict' in sql
+            assert 'revoke all on table public.paper_index_versions' in sql
+
+    def test_provenance_pruning_retains_active_and_newest_rollback(self):
+        sql = PROVENANCE_MIGRATION.read_text(encoding='utf-8').lower()
+        assert 'piv.index_version <> p.active_index_version' in sql
+        assert 'newer.index_version <> p.active_index_version' in sql
+        assert 'newer.created_at > piv.created_at' in sql
+        assert sql.index('delete from public.chunks') < sql.index(
+            'delete from public.paper_index_versions'
+        )
+
 
 class TestReindexDryRun:
     def test_dry_run_has_zero_external_calls(self, tmp_path, capsys):
@@ -66,6 +91,8 @@ class TestReindexDryRun:
         report = __import__('json').loads(output)
         assert exit_code == 0
         assert report['external_calls'] == 0
+        assert report['intended_index_fingerprint']['embedding_dimensions'] == 768
+        assert report['intended_index_fingerprint']['chunking_version'] == 'token-v1'
         fixture_report = report['fixtures'][0]
         assert fixture_report['chunks'] > 0
         assert fixture_report['chunking_version'] == 'token-v1'
@@ -97,3 +124,45 @@ class TestReindexDryRun:
         except FileNotFoundError:
             pass
         assert client.activated is False
+
+    def test_model_change_requires_explicit_apply_authorization(self):
+        class Query:
+            def select(self, *_args):
+                return self
+
+            def eq(self, *_args):
+                return self
+
+            def limit(self, *_args):
+                return self
+
+            def execute(self):
+                return type('Result', (), {'data': [{
+                    'embedding_model': 'old-model',
+                    'embedding_dimensions': 768,
+                    'provenance_status': 'verified',
+                }]})()
+
+        class Client:
+            storage_touched = False
+
+            def table(self, name):
+                assert name == 'paper_index_versions'
+                return Query()
+
+            @property
+            def storage(self):
+                self.storage_touched = True
+                raise AssertionError('storage must not be touched before compatibility validation')
+
+        client = Client()
+        with __import__('pytest').raises(ValueError, match='--allow-model-change'):
+            reindex_citations.apply_paper(client, {
+                'id': 'paper-1', 'active_index_version': 'v1',
+                'storage_path': 'paper.pdf', 'filename': 'paper.pdf',
+            })
+        assert client.storage_touched is False
+
+    def test_model_change_flag_is_rejected_without_apply(self):
+        with __import__('pytest').raises(ValueError, match='valid only with --apply'):
+            reindex_citations.main(['--allow-model-change'])

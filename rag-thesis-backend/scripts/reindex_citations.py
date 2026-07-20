@@ -28,6 +28,10 @@ from services.chunker import (  # noqa: E402
     validate_chunk_records,
 )
 from services.document_processor import extract_document, is_noise_chunk  # noqa: E402
+from services.index_provenance import (  # noqa: E402
+    current_index_fingerprint,
+    is_embedding_compatible,
+)
 
 STATE_FILE = BACKEND_ROOT / '.reindex_items_9_16_state.json'
 
@@ -38,6 +42,10 @@ def build_parser() -> argparse.ArgumentParser:
     target.add_argument('--paper-id', help='Re-index exactly one paper UUID.')
     target.add_argument('--all', action='store_true', help='Re-index every paper with an original.')
     parser.add_argument('--apply', action='store_true', help='Authorize live storage, Gemini, and database work.')
+    parser.add_argument(
+        '--allow-model-change', action='store_true',
+        help='Authorize replacing an active index built with another embedding model.',
+    )
     parser.add_argument('--resume', action='store_true', help='Skip paper IDs already recorded as successful.')
     parser.add_argument('--prune-old', action='store_true', help='Prune eligible inactive versions after re-indexing.')
     parser.add_argument('--older-than-days', type=int, default=7, help='Inactive-index retention window (default: 7).')
@@ -135,7 +143,27 @@ def fetch_papers(client, paper_id: str | None, all_papers: bool) -> list[dict]:
     return query.execute().data or []
 
 
-def apply_paper(client, paper: dict) -> dict:
+def fetch_active_provenance(client, paper: dict) -> dict | None:
+    """Load the active index fingerprint before any provider or storage work."""
+    active_version = paper.get('active_index_version')
+    if not active_version:
+        return None
+    rows = client.table('paper_index_versions').select(
+        'paper_id,index_version,embedding_model,embedding_dimensions,'
+        'preprocessing_version,chunking_version,tokenizer,chunk_size_tokens,'
+        'chunk_overlap_tokens,provenance_status'
+    ).eq('paper_id', paper['id']).eq('index_version', active_version).limit(1).execute().data or []
+    return rows[0] if rows else None
+
+
+def apply_paper(client, paper: dict, *, allow_model_change: bool = False) -> dict:
+    active_provenance = fetch_active_provenance(client, paper)
+    if paper.get('active_index_version') and active_provenance is None:
+        raise ValueError('Active index provenance is missing; apply the Item 34 migration first')
+    if active_provenance and not is_embedding_compatible(active_provenance) \
+            and not allow_model_change:
+        raise ValueError('Embedding model change requires --allow-model-change')
+
     storage_path = paper.get('storage_path')
     if not storage_path:
         raise ValueError('Original file is unavailable')
@@ -149,6 +177,12 @@ def apply_paper(client, paper: dict) -> dict:
     embeddings = embed_texts([record['content'] for record in records])
     verify_records(records, embeddings)
     staged_version = str(uuid.uuid4())
+    staged_fingerprint = current_index_fingerprint()
+    staged_index = {
+        'paper_id': paper['id'],
+        'index_version': staged_version,
+        **staged_fingerprint,
+    }
     rows = []
     for record, embedding in zip(records, embeddings):
         rows.append({
@@ -170,6 +204,7 @@ def apply_paper(client, paper: dict) -> dict:
         })
 
     try:
+        client.table('paper_index_versions').insert(staged_index).execute()
         for start in range(0, len(rows), 100):
             client.table('chunks').insert(rows[start:start + 100]).execute()
         staged = client.table('chunks').select(
@@ -185,6 +220,13 @@ def apply_paper(client, paper: dict) -> dict:
                     or not isinstance(metadata.get('token_count'), int) \
                     or metadata['token_count'] > settings.chunk_size_tokens:
                 raise ValueError('Staged tokenizer provenance verification failed')
+        staged_provenance = client.table('paper_index_versions').select(
+            'embedding_model,embedding_dimensions,preprocessing_version,'
+            'chunking_version,tokenizer,chunk_size_tokens,chunk_overlap_tokens,'
+            'provenance_status'
+        ).eq('paper_id', paper['id']).eq('index_version', staged_version).single().execute().data
+        if staged_provenance != staged_fingerprint:
+            raise ValueError('Staged index fingerprint verification failed')
         client.rpc('activate_paper_index', {
             'p_paper_id': paper['id'],
             'p_index_version': staged_version,
@@ -198,13 +240,16 @@ def apply_paper(client, paper: dict) -> dict:
         if active_version != staged_version:
             client.table('chunks').delete().eq('paper_id', paper['id']) \
                 .eq('index_version', staged_version).execute()
-        raise
+            client.table('paper_index_versions').delete().eq('paper_id', paper['id']) \
+                .eq('index_version', staged_version).execute()
+            raise
 
     return {
         'paper_id': paper['id'],
         'previous_version': paper.get('active_index_version'),
         'active_version': staged_version,
         'chunks': len(rows),
+        'index_fingerprint': staged_fingerprint,
     }
 
 
@@ -221,7 +266,9 @@ def run_apply(args, client, state_path: Path = STATE_FILE) -> dict:
         if args.resume and paper['id'] in completed:
             continue
         try:
-            report = apply_paper(client, paper)
+            report = apply_paper(
+                client, paper, allow_model_change=args.allow_model_change,
+            )
             reports.append(report)
             completed.add(paper['id'])
             state.setdefault('failed', {}).pop(paper['id'], None)
@@ -241,12 +288,15 @@ def run_apply(args, client, state_path: Path = STATE_FILE) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.allow_model_change and not args.apply:
+        raise ValueError('--allow-model-change is valid only with --apply')
     if not args.apply:
         report = {
             'mode': 'dry-run',
             'external_calls': 0,
             'target': args.paper_id or ('all' if args.all else None),
             'prune_requested': args.prune_old,
+            'intended_index_fingerprint': current_index_fingerprint(),
             'fixtures': dry_run_fixtures(args.fixture_dir) if args.fixture_dir else [],
         }
         print(json.dumps(report, indent=2))

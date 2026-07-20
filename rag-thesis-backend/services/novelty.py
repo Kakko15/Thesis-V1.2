@@ -15,6 +15,7 @@ import logging
 
 from config import settings
 from services.retriever import sb
+from services.index_provenance import retrieval_provenance_params
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,7 @@ def screen_new_submission(embeddings: list[list[float]], department: str) -> dic
             'match_count': 1,
             'match_threshold': threshold,
             'p_department': department,
+            **retrieval_provenance_params(),
         }).execute()
         if res.data:
             best = res.data[0]

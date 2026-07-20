@@ -29,6 +29,7 @@ from dependencies.auth import require_upload_access, resolve_effective_departmen
 from models import CCSICT_TRACKS, UploadAccepted, UploadJobStatus
 from services.activity import log_activity
 from services.chunker import build_chunk_metadata, split_document, validate_chunk_records
+from services.index_provenance import current_index_fingerprint
 from services.cleanup import record_storage_cleanup
 from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
@@ -238,6 +239,7 @@ def _ingest(job_id: str, file_bytes: bytes, filename: str,
             'department': department,
             'redaction_stats': document.redaction_stats,
             'duplication_scan': duplication_scan,
+            'index_provenance': current_index_fingerprint(),
         }
         _set_job(job_id, stage='index', progress=85,
                  message='Atomically committing metadata and verified vectors...')

@@ -99,6 +99,10 @@ def _verify_database_contract() -> None:
     sb.table('papers').select(
         'id,department,ingestion_status,active_index_version',
     ).limit(1).execute()
+    sb.table('paper_index_versions').select(
+        'paper_id,index_version,embedding_model,embedding_dimensions,'
+        'preprocessing_version,chunking_version,provenance_status',
+    ).limit(1).execute()
 
 
 @app.get('/health')
