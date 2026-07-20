@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { PerformanceMonitor } from '@react-three/drei'
 import { useIsDark } from '../../hooks/useIsDark'
 import { ConstellationOrb } from './ConstellationOrb'
 import { ParticleField } from './ParticleField'
-import { ThesisCards } from './ThesisCards'
+import { useSceneRuntime } from './useSceneRuntime'
+
+const ThesisCards = lazy(() => import('./ThesisCards').then((module) => ({ default: module.ThesisCards })))
 
 /**
  * Lazy entry point for the hero 3D scene (the only file the landing page
@@ -17,10 +19,7 @@ import { ThesisCards } from './ThesisCards'
  */
 export default function HeroScene({ scrollProgress, active = true }) {
   const isDark = useIsDark()
-  const pointerRef = useRef({ x: 0, y: 0 })
-  const [degraded, setDegraded] = useState(false)
-  const [lost, setLost] = useState(false)
-  const retriedRef = useRef(false)
+  const { degraded, lost, onCreated, pointerRef, setDegraded } = useSceneRuntime()
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 1023px)').matches)
 
   useEffect(() => {
@@ -28,15 +27,6 @@ export default function HeroScene({ scrollProgress, active = true }) {
     const onChange = (e) => setIsMobile(e.matches)
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
-  }, [])
-
-  useEffect(() => {
-    const onMove = (e) => {
-      pointerRef.current.x = (e.clientX / window.innerWidth) * 2 - 1
-      pointerRef.current.y = (e.clientY / window.innerHeight) * 2 - 1
-    }
-    window.addEventListener('pointermove', onMove, { passive: true })
-    return () => window.removeEventListener('pointermove', onMove)
   }, [])
 
   // Context lost (GPU reset, tab eviction): fall back to the Aurora backdrop.
@@ -53,22 +43,7 @@ export default function HeroScene({ scrollProgress, active = true }) {
       resize={{ scroll: false }}
       gl={{ alpha: true, antialias: !simple, powerPreference: 'high-performance' }}
       style={{ pointerEvents: 'none', background: 'transparent' }}
-      onCreated={({ gl }) => {
-        gl.domElement.addEventListener(
-          'webglcontextlost',
-          (e) => {
-            e.preventDefault()
-            setLost(true)
-            // One automatic remount (fresh context) for transient GPU resets;
-            // a second loss falls back to the Aurora backdrop for good.
-            if (!retriedRef.current) {
-              retriedRef.current = true
-              setTimeout(() => setLost(false), 1500)
-            }
-          },
-          { once: true },
-        )
-      }}
+      onCreated={onCreated}
     >
       <PerformanceMonitor onDecline={() => setDegraded(true)}>
         <ConstellationOrb
@@ -78,7 +53,7 @@ export default function HeroScene({ scrollProgress, active = true }) {
           degraded={simple}
         />
         <ParticleField isDark={isDark} count={simple ? 260 : 600} />
-        {!simple && <ThesisCards />}
+        {!simple && <Suspense fallback={null}><ThesisCards /></Suspense>}
       </PerformanceMonitor>
     </Canvas>
   )

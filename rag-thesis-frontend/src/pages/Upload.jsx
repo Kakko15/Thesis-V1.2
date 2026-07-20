@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -17,6 +17,7 @@ import { PageTransition } from '../components/ui/Motion'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { useAuth } from '../context/AuthContext'
 import { cn, normalizePercent, scanMetrics, verdictLabel } from '../lib/utils'
+import { createUploadState, emptyUploadForm, isCurrentPoll, uploadReducer } from './upload/uploadState'
 
 const STEPS = ['Manuscript', 'Metadata', 'Review']
 
@@ -241,19 +242,23 @@ function PipelineProgress({ job }) {
 export default function Upload() {
   const { isSuperadmin, department: userDepartment } = useAuth()
   const enforcedDepartment = userDepartment || 'CCSICT'
-  const [step, setStep] = useState(0)
-  const [file, setFile] = useState(null)
-  const [form, setForm] = useState({ title: '', authors: '', year: '', abstract: '', track: '', department: enforcedDepartment })
-  const [errors, setErrors] = useState({})
-  const [job, setJob] = useState(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [parsing, setParsing] = useState(false)
-  const [pendingFile, setPendingFile] = useState(null)
+  const [state, dispatch] = useReducer(uploadReducer, enforcedDepartment, createUploadState)
+  const { step, file, form, errors, job, submitting, parsing, pendingFile, pollError } = state
+  const setStep = (value) => dispatch({ type: 'set-step', step: value })
+  const setFile = (value) => dispatch({ type: 'set-file', file: value })
+  const setForm = (value) => dispatch({ type: 'set-form', value })
+  const setErrors = (value) => dispatch({ type: 'set-errors', errors: value })
+  const setJob = (value) => dispatch({ type: 'set-job', job: value })
+  const setSubmitting = (value) => dispatch({ type: 'set-submitting', value })
+  const setParsing = (value) => dispatch({ type: 'set-parsing', value })
+  const setPendingFile = (value) => dispatch({ type: 'set-pending-file', file: value })
+  const setPollError = (value) => dispatch({ type: 'set-poll-error', value })
   const pollRef = useRef(null)
   const pollFailuresRef = useRef(0)
   const pollStartedRef = useRef(0)
   const jobIdRef = useRef(null)
-  const [pollError, setPollError] = useState('')
+  const pollGenerationRef = useRef(0)
+  const mountedRef = useRef(true)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
@@ -269,14 +274,26 @@ export default function Upload() {
   const trackLabel = currentDept?.track_label || 'Track'
   const currentTracks = currentDept?.tracks || []
 
-  useEffect(() => () => clearTimeout(pollRef.current), [])
+  const stopPolling = useCallback(() => {
+    pollGenerationRef.current += 1
+    clearTimeout(pollRef.current)
+    pollRef.current = null
+  }, [])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      stopPolling()
+    }
+  }, [stopPolling])
   useEffect(() => {
     if (!isSuperadmin) {
       setForm((current) => ({ ...current, department: enforcedDepartment }))
     }
   }, [enforcedDepartment, isSuperadmin])
 
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+  const set = (key) => (e) => dispatch({ type: 'set-field', key, value: e.target.value })
 
   const runAutofill = async (f) => {
     setParsing(true)
@@ -305,7 +322,7 @@ export default function Upload() {
   const handleFileSelect = (f) => {
     if (!f) {
       setFile(null)
-      setForm({ title: '', authors: '', year: '', abstract: '', track: '', department: enforcedDepartment })
+      setForm(emptyUploadForm(enforcedDepartment))
       return
     }
     setPendingFile(f)
@@ -318,19 +335,29 @@ export default function Upload() {
   }
 
   const startPolling = (jobId) => {
-    clearTimeout(pollRef.current)
+    stopPolling()
+    const generation = pollGenerationRef.current
     jobIdRef.current = jobId
     pollFailuresRef.current = 0
     pollStartedRef.current = Date.now()
     setPollError('')
 
     const poll = async () => {
+      const current = () => isCurrentPoll({
+        mounted: mountedRef.current,
+        generation,
+        currentGeneration: pollGenerationRef.current,
+        jobId,
+        currentJobId: jobIdRef.current,
+      })
+      if (!current()) return
       if (Date.now() - pollStartedRef.current > 30 * 60 * 1000) {
         setPollError('Status checking paused after 30 minutes. You can resume it safely.')
         return
       }
       try {
         const status = await getUploadStatus(jobId)
+        if (!current()) return
         pollFailuresRef.current = 0
         setJob(status)
         if (status.status === 'completed') {
@@ -350,6 +377,7 @@ export default function Upload() {
           pollRef.current = setTimeout(poll, 1500)
         }
       } catch {
+        if (!current()) return
         pollFailuresRef.current += 1
         if (pollFailuresRef.current >= 5) {
           setPollError('The server could not confirm the upload status. The job was not cancelled.')
@@ -376,13 +404,9 @@ export default function Upload() {
   }
 
   const reset = () => {
-    clearTimeout(pollRef.current)
-    setStep(0)
-    setFile(null)
-    setForm({ title: '', authors: '', year: '', abstract: '', track: '', department: enforcedDepartment })
-    setJob(null)
-    setErrors({})
-    setPollError('')
+    stopPolling()
+    jobIdRef.current = null
+    dispatch({ type: 'reset', department: enforcedDepartment })
   }
 
   return (

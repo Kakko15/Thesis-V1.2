@@ -1,9 +1,5 @@
-import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
 import { Search, BookMarked, Trash2, Library, Lock, X, ShieldAlert, AlertTriangle } from 'lucide-react'
-import { listPapers, deletePaper, getTracks, getDepartments, apiErrorMessage } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Input, Select } from '../components/ui/Input'
@@ -14,6 +10,7 @@ import { ConfirmDialog, Modal } from '../components/ui/Modal'
 import { PageTransition, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { Button } from '../components/ui/Button'
 import { formatDate, normalizePercent, scanMetrics, verdictLabel } from '../lib/utils'
+import { useArchiveCatalog } from './archive/useArchiveCatalog'
 
 function ScreeningDetail({ scan }) {
   if (!scan?.flagged) return null
@@ -157,62 +154,12 @@ function ArchiveResults({
 
 export default function Archive() {
   const { isAdmin, isSuperadmin, department: userDepartment } = useAuth()
-  const queryClient = useQueryClient()
-  const [query, setQuery] = useState('')
-  const [track, setTrack] = useState('')
-  const [year, setYear] = useState('')
-  const [department, setDepartment] = useState('')
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const [detail, setDetail] = useState(null)
-  const [busy, setBusy] = useState(false)
-
-  const { data: papers, isLoading, isError: papersError } = useQuery({
-    queryKey: ['papers'],
-    queryFn: () => listPapers(null),
-  })
-  const { data: tracks = [] } = useQuery({ queryKey: ['tracks'], queryFn: getTracks })
-  const { data: departments = [] } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
-
-  const years = useMemo(() => {
-    const ys = [...new Set((papers || []).map((p) => p.year).filter(Boolean))]
-    return ys.sort((a, b) => b - a)
-  }, [papers])
-
-  const { activeTracks, trackLabel } = useMemo(() => {
-    const selectedDepartment = isSuperadmin ? department : userDepartment
-    if (!selectedDepartment) return { activeTracks: tracks, trackLabel: 'track' }
-    const dept = departments.find(d => d.name === selectedDepartment)
-    if (dept) return { activeTracks: dept.tracks || [], trackLabel: dept.track_label?.toLowerCase() || 'track' }
-    return { activeTracks: tracks, trackLabel: 'track' }
-  }, [department, departments, isSuperadmin, tracks, userDepartment])
-
-  const filtered = useMemo(() => {
-    return (papers || []).filter((p) => {
-      const q = query.trim().toLowerCase()
-      const matchQ = !q ||
-        p.title?.toLowerCase().includes(q) ||
-        p.authors?.toLowerCase().includes(q) ||
-        p.abstract?.toLowerCase().includes(q)
-      const matchTrack = !track || p.track === track
-      const matchYear = !year || String(p.year) === year
-      const matchDepartment = !isSuperadmin || !department || p.department === department
-      return matchQ && matchTrack && matchYear && matchDepartment
-    })
-  }, [papers, query, track, year, department, isSuperadmin])
-
-  const submitDelete = async () => {
-    setBusy(true)
-    try {
-      await deletePaper(deleteTarget.id)
-      queryClient.invalidateQueries({ queryKey: ['papers'] })
-      toast.success('Thesis removed from the archive')
-      setDeleteTarget(null)
-    } catch (err) {
-      toast.error('Delete failed', { description: apiErrorMessage(err) })
-    } finally {
-      setBusy(false)
-    }
-  }
+  const archive = useArchiveCatalog({ isSuperadmin, userDepartment })
+  const {
+    papers, isLoading, isError: papersError, departments, years, filtered,
+    filters, setFilter, clearFilters, activeTracks, trackLabel,
+    deleteTarget, setDeleteTarget, detail, setDetail, busy, submitDelete,
+  } = archive
 
   return (
     <PageTransition className="mx-auto max-w-6xl space-y-6">
@@ -238,23 +185,23 @@ export default function Archive() {
           <Input
             className="pl-11"
             placeholder="Search titles, authors, abstracts…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={filters.query}
+            onChange={(e) => setFilter('query', e.target.value)}
           />
         </div>
         {activeTracks.length > 0 && (
-          <Select value={track} onChange={(e) => setTrack(e.target.value)} className="sm:w-52" aria-label={`Filter by ${trackLabel}`}>
+          <Select value={filters.track} onChange={(e) => setFilter('track', e.target.value)} className="sm:w-52" aria-label={`Filter by ${trackLabel}`}>
             <option value="">All {trackLabel}s</option>
             {activeTracks.map((t) => <option key={t} value={t}>{t}</option>)}
           </Select>
         )}
         {isSuperadmin && (
-          <Select value={department} onChange={(e) => setDepartment(e.target.value)} className="sm:w-40" aria-label="Filter by department">
+          <Select value={filters.department} onChange={(e) => setFilter('department', e.target.value)} className="sm:w-40" aria-label="Filter by department">
             <option value="">All depts</option>
             {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
           </Select>
         )}
-        <Select value={year} onChange={(e) => setYear(e.target.value)} className="sm:w-36" aria-label="Filter by year">
+        <Select value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="sm:w-36" aria-label="Filter by year">
           <option value="">All years</option>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
         </Select>
@@ -269,7 +216,7 @@ export default function Archive() {
         isAdmin={isAdmin}
         onDelete={setDeleteTarget}
         onOpen={setDetail}
-        onClear={() => { setQuery(''); setTrack(''); setYear(''); setDepartment('') }}
+        onClear={clearFilters}
       />
 
       {/* Detail modal — metadata only (indirect access model) */}
