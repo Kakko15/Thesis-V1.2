@@ -125,6 +125,8 @@ class TestChunkRetrieval:
         assert client.rpc_args['match_count'] == retriever.settings.retrieval_match_count
         assert client.rpc_args['match_threshold'] == retriever.settings.retrieval_threshold
         assert client.rpc_args['p_department'] == 'CCSICT'
+        assert client.rpc_args['p_embedding_model'] == retriever.settings.gemini_embed_model
+        assert client.rpc_args['p_embedding_dimensions'] == 768
         assert top == 0.95
         assert [source['chunk_id'] for source in sources] == [11, 12]
         assert [source['citation_id'] for source in sources] == [1, 2]
@@ -239,6 +241,8 @@ class TestQueryDuplication:
         alert = retriever.check_topic_duplication('topic', None, [0.1] * 768, 'CCSICT')
         assert client.args['dup_threshold'] == 0.85
         assert client.args['p_department'] == 'CCSICT'
+        assert client.args['p_embedding_model'] == retriever.settings.gemini_embed_model
+        assert client.args['p_embedding_dimensions'] == 768
         assert alert['similarity'] == 85.0
         assert alert['matched_location']['page_end'] == 11
 

@@ -16,6 +16,7 @@ from config import settings
 from dependencies.auth import require_novelty_access, resolve_effective_department, sb
 from services.activity import log_activity
 from services.chunker import split_document, validate_chunk_records
+from services.index_provenance import retrieval_provenance_params
 from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
 from services.guards import REFUSAL_MESSAGE, prohibited_reason
@@ -121,6 +122,7 @@ async def scan_duplication(
             'match_count': 1,
             'match_threshold': settings.duplication_threshold,
             'p_department': effective_department,
+            **retrieval_provenance_params(),
         }).execute()
         if res.data:
             best_match = res.data[0]

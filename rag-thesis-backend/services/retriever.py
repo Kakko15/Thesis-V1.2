@@ -17,6 +17,7 @@ from supabase import create_client
 
 from config import settings
 from services.embedder import embed_text
+from services.index_provenance import retrieval_provenance_params
 from services.network_retry import retry_transient
 
 logger = logging.getLogger(__name__)
@@ -352,6 +353,7 @@ def search_chunks(
             'match_count': settings.retrieval_match_count,
             'match_threshold': settings.retrieval_threshold,
             'p_department': department_filter,
+            **retrieval_provenance_params(),
         }).execute(),
         label='Supabase chunk retrieval',
         logger=logger,
@@ -454,6 +456,7 @@ def check_topic_duplication(
                 'query_embedding': q_embedding,
                 'dup_threshold': threshold,
                 'p_department': department_filter,
+                **retrieval_provenance_params(),
             }).execute(),
             label='Supabase duplication check',
             logger=logger,
