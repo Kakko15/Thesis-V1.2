@@ -1,26 +1,76 @@
-"""Semantic Indexing (thesis paper, Section 3.2.3 — Phase 2).
+"""Token-aware semantic indexing (thesis paper, Section 3.2.3, Phase 2).
 
-RecursiveCharacterTextSplitter configured to the paper's empirically
-optimized 800-token chunk size with 100-token overlap. Token counts are
-calibrated at ~4 characters per token, the standard heuristic for
-English academic prose, so no external tokenizer download is required.
+Chunk sizes are measured with a fixed local tokenizer proxy. They are exact
+for that proxy, but are not claimed to reproduce Gemini's private tokenizer.
 """
 
 import bisect
 import re
+from functools import lru_cache
 
+import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from config import settings
 from services.document_processor import ExtractedDocument
 
-_CHARS_PER_TOKEN = 4
+TOKENIZER_ENCODING = 'cl100k_base'
+CHUNKING_VERSION = 'token-v1'
 
-splitter = RecursiveCharacterTextSplitter(
-    chunk_size=settings.chunk_size_tokens * _CHARS_PER_TOKEN,       # 800 tokens ~= 3200 chars
-    chunk_overlap=settings.chunk_overlap_tokens * _CHARS_PER_TOKEN, # 100 tokens ~= 400 chars
-    separators=['\n\n', '\n', '. ', ' ', ''],  # paragraph-aware boundaries
-    add_start_index=True,
+_TOKEN_SEPARATORS = [
+    '\n\n', '\n', '. ', '? ', '! ',
+    '\u3002', '\uff0e', ', ', '\uff0c', '\u3001', '\u200b', ' ', '',
+]
+
+
+@lru_cache(maxsize=1)
+def _get_encoder():
+    """Load the fixed proxy tokenizer once and fail closed if unavailable."""
+    try:
+        return tiktoken.get_encoding(TOKENIZER_ENCODING)
+    except Exception as error:
+        raise RuntimeError(
+            f'Unable to initialize required tokenizer {TOKENIZER_ENCODING}'
+        ) from error
+
+
+def count_tokens(text: str) -> int:
+    """Return exact token count for arbitrary text under the fixed proxy."""
+    return len(_get_encoder().encode(text or '', allowed_special=set(), disallowed_special=()))
+
+
+def record_overlap_tokens(left: dict, right: dict) -> int:
+    """Measure actual source overlap using stable character offsets.
+
+    Text matching alone over-counts overlap when a document contains repeated
+    prose. Source offsets identify only the duplicated source range.
+    """
+    left_end = left.get('end_index')
+    right_start = right.get('start_index')
+    if not isinstance(left_end, int) or not isinstance(right_start, int):
+        return 0
+    overlap_characters = max(0, left_end - right_start)
+    if overlap_characters == 0:
+        return 0
+    left_text = left.get('content', '')
+    right_text = right.get('content', '')
+    if overlap_characters > min(len(left_text), len(right_text)):
+        raise ValueError('Chunk source offsets describe an impossible overlap')
+    left_overlap = left_text[-overlap_characters:]
+    right_overlap = right_text[:overlap_characters]
+    if left_overlap != right_overlap:
+        raise ValueError('Chunk source offsets do not match overlapping content')
+    return count_tokens(right_overlap)
+
+
+splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+    encoding_name=TOKENIZER_ENCODING,
+    chunk_size=settings.chunk_size_tokens,
+    chunk_overlap=settings.chunk_overlap_tokens,
+    separators=_TOKEN_SEPARATORS,
+    add_start_index=False,
+    allowed_special=set(),
+    disallowed_special=(),
 )
 
 _SECTION_HEADING = re.compile(
@@ -48,6 +98,73 @@ def _is_section_heading(text: str) -> bool:
 
 def split_text(text: str) -> list[str]:
     return splitter.split_text(text)
+
+
+def validate_chunk_records(records: list[dict]) -> list[dict]:
+    """Validate and enrich final indexable chunks after noise filtering."""
+    prepared: list[dict] = []
+    for index, source in enumerate(records):
+        record = dict(source)
+        content = record.get('content', '')
+        if not content.strip():
+            raise ValueError('An empty chunk was produced')
+        token_count = count_tokens(content)
+        if token_count > settings.chunk_size_tokens:
+            raise ValueError(
+                f'Chunk {index} exceeds the {settings.chunk_size_tokens}-token limit'
+            )
+        page_start = record.get('page_start')
+        page_end = record.get('page_end')
+        if (page_start is None) != (page_end is None):
+            raise ValueError('Incomplete page range')
+        if page_start is not None and page_end < page_start:
+            raise ValueError('Invalid page range')
+        record.update({
+            'chunk_index': index,
+            'token_count': token_count,
+            'tokenizer': TOKENIZER_ENCODING,
+            'chunk_size_tokens': settings.chunk_size_tokens,
+            'chunk_overlap_tokens': settings.chunk_overlap_tokens,
+            'chunking_version': CHUNKING_VERSION,
+        })
+        prepared.append(record)
+    return prepared
+
+
+def _shared_overlap_characters(left: str, right: str) -> int:
+    """Find the largest real suffix/prefix overlap within the token target."""
+    limit = min(len(left), len(right))
+    sentinel = object()
+    sequence = [*right[:limit], sentinel, *left[-limit:]]
+    prefix_lengths = [0] * len(sequence)
+    for index in range(1, len(sequence)):
+        candidate = prefix_lengths[index - 1]
+        while candidate and sequence[index] != sequence[candidate]:
+            candidate = prefix_lengths[candidate - 1]
+        if sequence[index] == sequence[candidate]:
+            candidate += 1
+        prefix_lengths[index] = candidate
+    size = prefix_lengths[-1] if prefix_lengths else 0
+    while size:
+        if count_tokens(right[:size]) <= settings.chunk_overlap_tokens:
+            return size
+        size = prefix_lengths[size - 1]
+    return 0
+
+
+def _locate_chunk(source: str, content: str, previous: dict | None) -> int:
+    """Locate splitter output in source without mixing token and char units."""
+    if previous is None:
+        start = source.find(content)
+    else:
+        overlap = _shared_overlap_characters(previous['content'], content)
+        expected = previous['end_index'] - overlap
+        if source.startswith(content, expected):
+            return expected
+        start = source.find(content, max(previous['start_index'] + 1, expected))
+    if start < 0:
+        raise ValueError('Unable to map token chunk back to its source document')
+    return start
 
 
 def split_document(document: ExtractedDocument) -> list[dict]:
@@ -84,9 +201,8 @@ def split_document(document: ExtractedDocument) -> list[dict]:
         return []
 
     chunks: list[dict] = []
-    for index, doc in enumerate(splitter.create_documents([combined])):
-        content = doc.page_content
-        start = int(doc.metadata.get('start_index', combined.find(content)))
+    for index, content in enumerate(splitter.split_text(combined)):
+        start = _locate_chunk(combined, content, chunks[-1] if chunks else None)
         end = start + len(content)
         overlapping = [
             page_number for span_start, span_end, page_number in page_spans
@@ -97,16 +213,19 @@ def split_document(document: ExtractedDocument) -> list[dict]:
         chunks.append({
             'content': content,
             'chunk_index': index,
+            'start_index': start,
+            'end_index': end,
             'page_start': min(overlapping) if overlapping else None,
             'page_end': max(overlapping) if overlapping else None,
             'section': section,
         })
-    return chunks
+    return validate_chunk_records(chunks)
 
 
 def build_chunk_metadata(title: str, authors: str, track: str, year,
                          department: str = '', page_start=None, page_end=None,
-                         section: str | None = None, chunk_index: int | None = None) -> dict:
+                         section: str | None = None, chunk_index: int | None = None,
+                         token_count: int | None = None) -> dict:
     """Metadata Tagging (paper, Phase 2): every chunk carries a JSON object
     with its source document's Title, Author, Track, and Year so the
     generative model can produce traceable in-line citations."""
@@ -120,4 +239,9 @@ def build_chunk_metadata(title: str, authors: str, track: str, year,
         'page_end': page_end,
         'section': section,
         'chunk_index': chunk_index,
+        'token_count': token_count,
+        'tokenizer': TOKENIZER_ENCODING,
+        'chunk_size_tokens': settings.chunk_size_tokens,
+        'chunk_overlap_tokens': settings.chunk_overlap_tokens,
+        'chunking_version': CHUNKING_VERSION,
     }

@@ -24,9 +24,9 @@ class Settings(BaseSettings):
     gemini_capacity_cooldown_seconds: int = 60
 
     # --- RAG parameters (thesis paper, Section 3.2.3) ---
-    # 800-token chunks with 100-token overlap (~4 chars per token calibration)
-    chunk_size_tokens: int = 800
-    chunk_overlap_tokens: int = 100
+    # Fixed thesis contract; measured by the documented local tokenizer proxy.
+    chunk_size_tokens: Literal[800] = 800
+    chunk_overlap_tokens: Literal[100] = 100
     retrieval_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
     retrieval_match_count: int = Field(default=5, ge=1, le=20)
     duplication_threshold: float = Field(default=0.85, ge=0.0, le=1.0)

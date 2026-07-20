@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from config import settings
 from dependencies.auth import require_novelty_access, resolve_effective_department, sb
 from services.activity import log_activity
-from services.chunker import split_document
+from services.chunker import split_document, validate_chunk_records
 from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
 from services.guards import REFUSAL_MESSAGE, prohibited_reason
@@ -98,10 +98,10 @@ async def scan_duplication(
         raise HTTPException(400, 'Could not extract text from file')
 
     # Chunk with the same pipeline used for ingestion, then embed
-    chunk_records = [
+    chunk_records = validate_chunk_records([
         record for record in split_document(document)
         if not is_noise_chunk(record['content'])
-    ]
+    ])
     chunks = [record['content'] for record in chunk_records]
     if not chunk_records:
         raise HTTPException(400, 'The document contained no clean, indexable text')

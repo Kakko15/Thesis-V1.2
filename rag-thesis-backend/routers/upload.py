@@ -28,7 +28,7 @@ from config import settings
 from dependencies.auth import require_upload_access, resolve_effective_department, sb
 from models import CCSICT_TRACKS, UploadAccepted, UploadJobStatus
 from services.activity import log_activity
-from services.chunker import build_chunk_metadata, split_document
+from services.chunker import build_chunk_metadata, split_document, validate_chunk_records
 from services.cleanup import record_storage_cleanup
 from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
@@ -196,10 +196,10 @@ def _ingest(job_id: str, file_bytes: bytes, filename: str,
         # Stage 3: Chunking (800-token / 100-token overlap) + noise filter
         _set_job(job_id, stage='chunk', progress=40,
                  message='Chunking manuscript (800-token windows, 100-token overlap)...')
-        chunk_records = [
+        chunk_records = validate_chunk_records([
             record for record in split_document(document)
             if not is_noise_chunk(record['content'])
-        ]
+        ])
         chunks = [record['content'] for record in chunk_records]
         if not chunk_records:
             raise ValueError('The document contained no clean, indexable text after filtering')
@@ -255,6 +255,7 @@ def _ingest(job_id: str, file_bytes: bytes, filename: str,
                     page_end=record['page_end'],
                     section=record['section'],
                     chunk_index=record['chunk_index'],
+                    token_count=record['token_count'],
                 ),
                 'embedding': emb,
             }
