@@ -2,6 +2,10 @@
 
 Chunk sizes are measured with a fixed local tokenizer proxy. They are exact
 for that proxy, but are not claimed to reproduce Gemini's private tokenizer.
+
+The tokenizer vocabulary is initialized lazily. Loading it while FastAPI is
+importing routes can otherwise hold up every development-server start (and may
+attempt a one-time download when the local tiktoken cache is empty).
 """
 
 import bisect
@@ -63,15 +67,37 @@ def record_overlap_tokens(left: dict, right: dict) -> int:
     return count_tokens(right_overlap)
 
 
-splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-    encoding_name=TOKENIZER_ENCODING,
-    chunk_size=settings.chunk_size_tokens,
-    chunk_overlap=settings.chunk_overlap_tokens,
-    separators=_TOKEN_SEPARATORS,
-    add_start_index=False,
-    allowed_special=set(),
-    disallowed_special=(),
-)
+class _LazyTokenSplitter:
+    """Create the LangChain splitter only when document work first needs it."""
+
+    # Keep these public attributes for diagnostics and the configuration tests
+    # without forcing the tokenizer vocabulary to load during application import.
+    _chunk_size = settings.chunk_size_tokens
+    _chunk_overlap = settings.chunk_overlap_tokens
+
+    def __init__(self):
+        self._delegate: RecursiveCharacterTextSplitter | None = None
+
+    def _get_delegate(self) -> RecursiveCharacterTextSplitter:
+        if self._delegate is None:
+            self._delegate = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+                encoding_name=TOKENIZER_ENCODING,
+                chunk_size=self._chunk_size,
+                chunk_overlap=self._chunk_overlap,
+                separators=_TOKEN_SEPARATORS,
+                add_start_index=False,
+                allowed_special=set(),
+                disallowed_special=(),
+            )
+        return self._delegate
+
+    def split_text(self, text: str) -> list[str]:
+        if not text or not text.strip():
+            return []
+        return self._get_delegate().split_text(text)
+
+
+splitter = _LazyTokenSplitter()
 
 _SECTION_HEADING = re.compile(
     r'^\s*(?:chapter\s+(?:\d+|[ivxlc]+)\b.*|\d{1,2}(?:\.\d+){1,3}\s+.+|'
