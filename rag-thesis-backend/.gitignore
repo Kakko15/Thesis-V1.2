@@ -5,6 +5,7 @@
 # Ignore virtual environment folder
 venv/
 .venv/
+.venv312/
 
 # Python artifacts
 __pycache__/

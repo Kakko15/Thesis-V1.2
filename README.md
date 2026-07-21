@@ -48,13 +48,20 @@ Key paper parameters enforced in code:
 
 ### 2. Backend
 
+Use Python 3.12 or 3.13. Python 3.14 is not currently supported by the
+LangChain Pydantic-v1 compatibility layer used by the backend.
+
 ```bash
 cd rag-thesis-backend
-python -m venv venv && venv\Scripts\activate   # Windows
+py -3.12 -m venv .venv
+.venv\Scripts\activate                         # Windows
 pip install -r requirements.txt
 copy .env.example .env                          # then fill in the values
-uvicorn main:app --reload --port 8000
+python -m uvicorn main:app --reload --port 8000
 ```
+
+If `.venv` was created with Python 3.14, delete and recreate that environment
+with Python 3.12/3.13 before installing the requirements.
 
 - `SUPABASE_KEY` must be the **service_role** key.
 - Never place the service-role key in the frontend or commit it. Rotate any key that is exposed outside the local test environment.
