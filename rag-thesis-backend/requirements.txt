@@ -9,7 +9,7 @@ pydantic-settings==2.14.2
 python-dotenv==1.2.2
 
 # RAG orchestration (LangChain + Gemini + Supabase pgvector)
-langchain==1.3.11
+langchain==1.3.14
 langchain-core==1.4.8
 langchain-text-splitters==1.1.2
 tiktoken==0.13.0
