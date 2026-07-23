@@ -9,7 +9,9 @@ import { User, Camera, Shield, Lock, Mail, Save, X, ArrowLeft } from 'lucide-rea
 import { toast } from 'sonner'
 import { cn, extractOwnedAvatarPath } from '../lib/utils'
 import { OtpInput } from './ui/OtpInput'
-import { isStrongPassword } from '../pages/auth/authUtils'
+import { authOptions, friendlyAuthError, isStrongPassword } from '../pages/auth/authUtils'
+import { TurnstileWidget } from './security/TurnstileWidget'
+import { turnstileEnabled } from './security/turnstileConfig'
 
 export function ProfileSettingsModal({ open, onClose }) {
   const { user, profile, avatarUrl, refreshProfile, reloadSession } = useAuth()
@@ -31,6 +33,8 @@ export function ProfileSettingsModal({ open, onClose }) {
   const [verifyingPassword, setVerifyingPassword] = useState(false)
   const [passwordCode, setPasswordCode] = useState('')
   const [shakePasswordNonce, setShakePasswordNonce] = useState(0)
+  const [captchaToken, setCaptchaToken] = useState(null)
+  const [captchaReset, setCaptchaReset] = useState(0)
 
   const fileInputRef = useRef(null)
   const wasOpen = useRef(false)
@@ -113,16 +117,18 @@ export function ProfileSettingsModal({ open, onClose }) {
     }
     setLoading(true)
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, authOptions({
         redirectTo: window.location.origin,
-      })
+      }, captchaToken))
       if (error) throw error
       setVerifyingPassword(true)
       toast.success('6-digit code sent to your email.')
     } catch (err) {
-      toast.error('Failed to request password change: ' + err.message)
+      toast.error('Password change request failed', { description: friendlyAuthError(err) })
     } finally {
       setLoading(false)
+      setCaptchaToken(null)
+      setCaptchaReset((value) => value + 1)
     }
   }
 
@@ -358,17 +364,20 @@ export function ProfileSettingsModal({ open, onClose }) {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex gap-2">
-                    <Input 
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="New password (min. 8 chars)"
-                      className="flex-1"
-                    />
-                    <Button variant="secondary" loading={loading} onClick={handleRequestPasswordChange} disabled={!isStrongPassword(password)}>
-                      Update
-                    </Button>
+                  <div className="space-y-3">
+                    <TurnstileWidget action="password_reset" onToken={setCaptchaToken} resetKey={captchaReset} />
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="New password (min. 8 chars)"
+                        className="flex-1"
+                      />
+                      <Button variant="secondary" loading={loading} onClick={handleRequestPasswordChange} disabled={!isStrongPassword(password) || (turnstileEnabled && !captchaToken)}>
+                        Update
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>

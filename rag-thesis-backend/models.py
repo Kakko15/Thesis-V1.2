@@ -100,6 +100,23 @@ class UploadJobStatus(BaseModel):
     attempt_count: int = 0
     max_attempts: int = 3
     next_retry_at: Optional[str] = None
+    cancel_requested: bool = False
+    cancelled_at: Optional[str] = None
+    can_cancel: bool = False
+    last_event_at: Optional[str] = None
+
+
+class UploadCancelRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=200)
+
+
+class UploadCancelResponse(BaseModel):
+    job_id: str
+    outcome: str
+    status: str
+    message: str
+    cancel_requested: bool = False
+    cancelled_at: Optional[str] = None
 
 
 class ScanHistoryOut(BaseModel):

@@ -244,6 +244,7 @@ class TestServerConfiguration:
             app_environment='production',
             rate_limit_storage_uri='redis://127.0.0.1:6379/0',
             require_privileged_mfa=True,
+            malware_scan_mode='clamav',
         )
         assert configured.rate_limit_storage_uri.startswith('redis://')
 

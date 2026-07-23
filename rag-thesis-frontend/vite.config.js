@@ -1,8 +1,11 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { fileURLToPath } from 'node:url'
 
 const BACKEND = 'http://localhost:8000'
+const FRONTEND_DIR = fileURLToPath(new URL('.', import.meta.url))
+const ROOT_DIR = fileURLToPath(new URL('..', import.meta.url))
 
 // Keep initial page loads quiet while FastAPI is still starting/reloading.
 // This endpoint always answers from Vite, so readiness polling never creates
@@ -57,13 +60,26 @@ function e2eApiGuard() {
   }
 }
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  // Local development normally starts Vite from this frontend directory,
+  // while Docker and the operational setup keep shared public settings in
+  // the repository-root .env. Read the Turnstile site key from either place
+  // so CAPTCHA cannot be enabled in Supabase while the widget silently stays
+  // absent from the sign-in page. A frontend-local value still takes priority.
+  const frontendEnv = loadEnv(mode, FRONTEND_DIR, '')
+  const rootEnv = loadEnv(mode, ROOT_DIR, '')
+  const turnstileSiteKey = frontendEnv.VITE_TURNSTILE_SITE_KEY || rootEnv.VITE_TURNSTILE_SITE_KEY || ''
+
+  return {
   plugins: [backendReadiness(), ...(mode === 'e2e' ? [e2eApiGuard()] : []), react(), tailwindcss()],
-  define: mode === 'e2e' ? {
-    'import.meta.env.VITE_API_URL': JSON.stringify('/__e2e_api'),
-    'import.meta.env.VITE_SUPABASE_URL': JSON.stringify('http://127.0.0.1:4173/__e2e_supabase'),
-    'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify('deterministic-e2e-anon-key'),
-  } : undefined,
+  define: {
+    'import.meta.env.VITE_TURNSTILE_SITE_KEY': JSON.stringify(turnstileSiteKey),
+    ...(mode === 'e2e' ? {
+      'import.meta.env.VITE_API_URL': JSON.stringify('/__e2e_api'),
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify('http://127.0.0.1:4173/__e2e_supabase'),
+      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify('deterministic-e2e-anon-key'),
+    } : {}),
+  },
   // R3F breaks silently if two copies of three end up in the module graph.
   resolve: { dedupe: ['three'] },
   server: {
@@ -75,6 +91,7 @@ export default defineConfig(({ mode }) => ({
       '/sessions': BACKEND,
       '/duplication': BACKEND,
       '/analytics': BACKEND,
+      '/maintenance': BACKEND,
       '/departments': BACKEND,
       '/settings': BACKEND,
     },
@@ -101,4 +118,5 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-}))
+  }
+})

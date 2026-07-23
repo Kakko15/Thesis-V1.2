@@ -270,7 +270,10 @@ class TestRetryPolicy:
         assert failed_payload['p_failure_category'] == 'RuntimeError'
 
     def test_heartbeat_marks_lease_invalid_after_authoritative_rejection(self, monkeypatch):
-        monkeypatch.setattr(ingestion_worker, 'heartbeat_job', lambda *_args, **_kwargs: False)
+        monkeypatch.setattr(
+            ingestion_worker, 'heartbeat_job_control',
+            lambda *_args, **_kwargs: {'lease_valid': False, 'cancel_requested': False},
+        )
         heartbeat = ingestion_worker.LeaseHeartbeat(object(), JOB_ID, 'worker-1')
         assert heartbeat.update(stage='extract') is False
         assert heartbeat.valid is False

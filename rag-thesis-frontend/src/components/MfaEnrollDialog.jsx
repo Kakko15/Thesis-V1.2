@@ -39,10 +39,19 @@ function MfaBody({ onClose, onChanged }) {
 
   useEffect(() => {
     let active = true
-    supabase.auth.mfa.listFactors().then(({ data }) => {
+    supabase.auth.mfa.listFactors().then(({ data, error: loadError }) => {
       if (!active) return
+      if (loadError) {
+        setError(friendlyAuthError(loadError))
+        setView('error')
+        return
+      }
       setFactor(data?.totp?.find((f) => f.status === 'verified') ?? null)
       setView('status')
+    }).catch((loadError) => {
+      if (!active) return
+      setError(friendlyAuthError(loadError))
+      setView('error')
     })
     return () => {
       active = false
@@ -54,9 +63,13 @@ function MfaBody({ onClose, onChanged }) {
     setError('')
     try {
       // Clear dangling unverified factors first — Supabase caps enrollments.
-      const { data } = await supabase.auth.mfa.listFactors()
+      const { data, error: listError } = await supabase.auth.mfa.listFactors()
+      if (listError) throw listError
       const stale = (data?.totp ?? []).filter((f) => f.status !== 'verified')
-      for (const f of stale) await supabase.auth.mfa.unenroll({ factorId: f.id })
+      for (const f of stale) {
+        const { error: removeError } = await supabase.auth.mfa.unenroll({ factorId: f.id })
+        if (removeError) throw removeError
+      }
 
       const { data: enrolled, error: err } = await supabase.auth.mfa.enroll({
         factorType: 'totp',
@@ -123,6 +136,17 @@ function MfaBody({ onClose, onChanged }) {
     return (
       <div className="flex justify-center py-10">
         <Spinner size={28} />
+      </div>
+    )
+  }
+
+  if (view === 'error') {
+    return (
+      <div className="py-5 text-center">
+        <ShieldOff className="mx-auto text-flame-500" size={28} />
+        <p role="alert" className="mt-3 text-sm font-medium">Two-factor status could not be loaded.</p>
+        <p className="mt-1 text-xs opacity-60">{error}</p>
+        <Button className="mt-5" variant="secondary" onClick={onClose}>Close</Button>
       </div>
     )
   }

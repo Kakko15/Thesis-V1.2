@@ -43,8 +43,8 @@ export function isStrongPassword(password) {
 const AUTH_ERROR_RULES = [
   ['invalid login credentials', 'Incorrect email or password. Double-check and try again.'],
   ['email not confirmed', 'This email isn’t verified yet — we can send you a fresh verification code.'],
-  ['user already registered', 'An account with this email already exists. Try signing in instead.'],
-  ['signups not allowed for otp', 'No account found with this email. Create one first, then sign in with a code.'],
+  ['user already registered', 'Account creation could not be completed. Try signing in or recovering access.'],
+  ['signups not allowed for otp', 'The sign-in link could not be sent. Check the details and try again.'],
   [['invalid totp', 'invalid mfa', 'invalid code'], 'That code didn’t match. Codes rotate every 30 seconds — try the current one.'],
   [['expired', 'otp_expired'], 'That code has expired. Request a fresh one and try again.'],
   [['same password', 'different from the old'], 'Your new password must be different from the old one.'],
@@ -66,13 +66,19 @@ export function friendlyAuthError(err) {
   }
   if (raw === '{}') return 'Internal server error from Supabase (500). Please check your SMTP settings.'
   const message = raw.toLowerCase()
+  if (matchesAuthRule(message, ['captcha', 'turnstile', 'challenge'])) {
+    return 'The security check expired or failed. Complete it again and retry.'
+  }
   if (matchesAuthRule(message, ['rate limit', 'you can only request this after', 'too many requests'])) {
-    const seconds = raw.match(/(\d+) seconds?/)?.[1]
-    return `Supabase limits emails to 3 per hour for security. Please wait ${seconds ? `${seconds}s` : 'a moment'}, or disable "Enable Email Confirmations" in your Supabase Auth settings for testing.`
+    return 'Too many authentication attempts. Please wait and try again.'
   }
   if (message.includes('password should be')) return raw
   const rule = AUTH_ERROR_RULES.find(([patterns]) => matchesAuthRule(message, patterns))
   return rule?.[1] || 'Authentication failed. Please try again.'
+}
+
+export function authOptions(options = {}, captchaToken = null) {
+  return captchaToken ? { ...options, captchaToken } : options
 }
 
 /** Parse "…after 42 seconds" out of a rate-limit error. */

@@ -20,6 +20,11 @@ const adminFixture = {
   features: {},
 }
 
+const superadminFixture = {
+  ...adminFixture,
+  profile: { ...adminFixture.profile, role: 'superadmin' },
+}
+
 async function useAuthenticatedSession(page, fixture = adminFixture) {
   await page.addInitScript(({ key, value }) => {
     window.localStorage.setItem(key, JSON.stringify(value))
@@ -240,6 +245,7 @@ test('administrator upload journey resumes a retrying durable job after refresh'
           status: 'retry_wait', stage: 'embed', progress: 58,
           message: 'A temporary service problem occurred. The job will retry automatically.',
           attempt_count: 1, max_attempts: 3,
+          can_cancel: true, cancel_requested: false,
           next_retry_at: '2026-07-23T12:00:00Z',
         }
       }
@@ -273,10 +279,52 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   await page.getByRole('button', { name: /Ingest into archive/ }).click()
 
   await expect(page.getByText(/Temporary service interruption/)).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByRole('button', { name: 'Cancel upload' })).toBeVisible()
   expect(acceptedKey).toMatch(/^[0-9a-f-]{36}$/)
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Thesis indexed!' })).toBeVisible({ timeout: 5_000 })
   await expect(page.getByText(/22 embedded chunks/)).toBeVisible()
   expect(statusChecks).toBeGreaterThanOrEqual(2)
+  expect(unexpected).toEqual([])
+})
+
+test('superadmin operations view shows workers, alerts, jobs, and retention dry run', async ({ page }) => {
+  await useAuthenticatedSession(page, superadminFixture)
+  const unexpected = await mockApi(page, {
+    'GET /analytics/overview': {},
+    'GET /analytics/activity': [],
+    'GET /analytics/users': [],
+    'GET /maintenance/operations/summary': {
+      status: 'healthy', healthy_workers: 1, queued_jobs: 2,
+      pending_cleanups: 0, failed_jobs: 0,
+    },
+    'GET /maintenance/workers': { workers: [{
+      worker_id: 'a1b2c3d4e5f6', state: 'idle', scanner_status: 'healthy',
+      last_seen_at: '2026-07-24T00:00:00Z',
+    }] },
+    'GET /maintenance/upload-jobs': { jobs: [{
+      id: '11111111-1111-4111-8111-111111111111', department: 'CCSICT',
+      status: 'queued', attempt_count: 1, max_attempts: 3,
+      updated_at: '2026-07-24T00:00:00Z',
+    }] },
+    'GET /maintenance/alerts': { alerts: [{
+      id: 'alert-1', alert_type: 'queue_age', severity: 'warning', status: 'open',
+      last_seen_at: '2026-07-24T00:00:00Z', occurrence_count: 1,
+    }] },
+    'GET /maintenance/retention/report': {
+      applied: false, upload_job_events: 4, resolved_operational_alerts: 1,
+      security_audit_events: 2,
+    },
+    'POST /maintenance/alerts/alert-1/acknowledge': { id: 'alert-1', status: 'acknowledged' },
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('tab', { name: 'Operations' }).click()
+  await expect(page.getByRole('heading', { name: 'Ingestion operations' })).toBeVisible()
+  await expect(page.getByText('a1b2c3d4e5f6')).toBeVisible()
+  await expect(page.getByText('queue age')).toBeVisible()
+  await expect(page.getByText('Retention dry run')).toBeVisible()
+  await page.getByRole('button', { name: 'Acknowledge' }).click()
+  await expect(page.getByText('Operational alert acknowledged')).toBeVisible()
   expect(unexpected).toEqual([])
 })

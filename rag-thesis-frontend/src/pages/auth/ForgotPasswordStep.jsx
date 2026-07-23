@@ -6,9 +6,11 @@ import { Button } from '../../components/ui/Button'
 import { Input, Field } from '../../components/ui/Input'
 import { StepHeader } from './StepHeader'
 import { EASE, FieldIcon, formStagger, Rise, Shine, UnderlineLink, ValidTick, ErrorAlert } from './AuthFx'
-import { friendlyAuthError, isValidEmail, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
+import { authOptions, friendlyAuthError, isValidEmail, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
 import { OtpInput } from '../../components/ui/OtpInput'
 import { toast } from 'sonner'
+import { TurnstileWidget } from '../../components/security/TurnstileWidget'
+import { turnstileEnabled } from '../../components/security/turnstileConfig'
 
 /** Request a password-reset OTP and verify it, then set new password. */
 export function ForgotPasswordStep({ email, setEmail, onBack }) {
@@ -26,6 +28,8 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
   const [updating, setUpdating] = useState(false)
   
   const [cooldown, setCooldown] = useResendTimer(0)
+  const [captchaToken, setCaptchaToken] = useState(null)
+  const [captchaReset, setCaptchaReset] = useState(0)
 
   const send = async (e) => {
     e?.preventDefault?.()
@@ -36,9 +40,9 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
     setLoading(true)
     setError('')
     try {
-      const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), authOptions({
         redirectTo: `${window.location.origin}/login`,
-      })
+      }, captchaToken))
       if (err) throw err
       setSent(true)
       setCooldown(60)
@@ -48,6 +52,8 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
       if (wait) setCooldown(wait)
     } finally {
       setLoading(false)
+      setCaptchaToken(null)
+      setCaptchaReset((value) => value + 1)
     }
   }
 
@@ -136,6 +142,9 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
               </Field>
             </Rise>
             <Rise>
+              <TurnstileWidget action="password_reset" onToken={setCaptchaToken} resetKey={captchaReset} />
+            </Rise>
+            <Rise>
               <Button
                 type="submit"
                 size="lg"
@@ -185,6 +194,9 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
                 Verify Code
               </Button>
             </Rise>
+            <Rise>
+              <TurnstileWidget action="password_reset_resend" onToken={setCaptchaToken} resetKey={captchaReset} />
+            </Rise>
             <Rise className="mt-5 text-center text-xs opacity-60">
               Nothing arrived?{' '}
               {cooldown > 0 ? (
@@ -192,7 +204,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
               ) : (
                 <UnderlineLink
                   onClick={send}
-                  disabled={loading}
+                  disabled={loading || (turnstileEnabled && !captchaToken)}
                   className="text-forest-600 disabled:opacity-50 dark:text-gold-300"
                 >
                   {loading ? 'Sending…' : 'Resend code'}
@@ -235,6 +247,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
                 type="submit"
                 size="lg"
                 loading={loading}
+                disabled={turnstileEnabled && !captchaToken}
                 className="group relative w-full overflow-hidden"
               >
                 <Shine />

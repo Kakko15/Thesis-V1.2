@@ -43,6 +43,43 @@ def heartbeat_job(client, job_id: str, worker_id: str, lease_seconds: int,
     })
 
 
+def heartbeat_job_control(client, job_id: str, worker_id: str, lease_seconds: int,
+                          *, stage: str | None = None, progress: int | None = None,
+                          message: str | None = None) -> dict:
+    payload = {
+        'p_job_id': job_id,
+        'p_worker_id': worker_id,
+        'p_lease_seconds': lease_seconds,
+        'p_stage': stage,
+        'p_progress': progress,
+        'p_message': message,
+    }
+    try:
+        data = client.rpc('heartbeat_upload_job_control', payload).execute().data
+        if isinstance(data, list):
+            data = data[0] if data else {}
+        return data or {'lease_valid': False, 'cancel_requested': False}
+    except Exception as error:
+        text = str(error).lower()
+        missing = 'pgrst202' in text or '42883' in text or 'could not find the function' in text
+        if not missing:
+            raise
+        return {
+            'lease_valid': heartbeat_job(
+                client, job_id, worker_id, lease_seconds,
+                stage=stage, progress=progress, message=message,
+            ),
+            'cancel_requested': False,
+        }
+
+
+def finalize_cancellation(client, job_id: str, worker_id: str) -> bool:
+    return _rpc_bool(client, 'finalize_upload_cancellation', {
+        'p_job_id': job_id,
+        'p_worker_id': worker_id,
+    })
+
+
 def is_retryable_ingestion_error(error: BaseException) -> bool:
     if isinstance(error, (PermanentIngestionError, LeaseLostError)):
         return False

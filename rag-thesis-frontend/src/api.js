@@ -200,6 +200,10 @@ export async function getUploadStatus(jobId) {
   const { data } = await api.get(`/upload/status/${jobId}`)
   return data
 }
+export async function cancelUploadJob(jobId, reason = '') {
+  const { data } = await api.post(`/upload/jobs/${jobId}/cancel`, { reason: reason || null })
+  return data
+}
 export async function extractMetadata(file) {
   const formData = new FormData()
   formData.append('file', file)
@@ -268,6 +272,42 @@ export async function updateUserDetails(userId, payload) {
 }
 export async function getSystemLogs(limit = 200) {
   const { data } = await api.get('/analytics/logs/system', { params: { limit } })
+  return data
+}
+
+// ---------- Operations (superadmin only) ----------
+function requireOperationsObject(data, field = null) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new TypeError('Invalid operations response from the backend.')
+  }
+  if (field && !Array.isArray(data[field])) {
+    throw new TypeError(`Invalid operations ${field} response from the backend.`)
+  }
+  return field ? data[field] : data
+}
+
+export async function getOperationsSummary() {
+  const { data } = await api.get('/maintenance/operations/summary')
+  return requireOperationsObject(data)
+}
+export async function getIngestionWorkers() {
+  const { data } = await api.get('/maintenance/workers')
+  return requireOperationsObject(data, 'workers')
+}
+export async function getOperationalJobs(limit = 100) {
+  const { data } = await api.get('/maintenance/upload-jobs', { params: { limit } })
+  return requireOperationsObject(data, 'jobs')
+}
+export async function getOperationalAlerts(limit = 100) {
+  const { data } = await api.get('/maintenance/alerts', { params: { limit } })
+  return requireOperationsObject(data, 'alerts')
+}
+export async function acknowledgeOperationalAlert(alertId) {
+  const { data } = await api.post(`/maintenance/alerts/${alertId}/acknowledge`)
+  return data
+}
+export async function getRetentionReport() {
+  const { data } = await api.get('/maintenance/retention/report')
   return data
 }
 

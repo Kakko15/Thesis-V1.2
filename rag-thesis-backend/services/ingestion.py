@@ -13,6 +13,7 @@ from services.chunker import build_chunk_metadata, split_document, validate_chun
 from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
 from services.index_provenance import current_index_fingerprint
+from services.malware import MalwareDetected, scan_pdf
 from services.novelty import screen_new_submission
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,10 @@ class LeaseLostError(RuntimeError):
 
 class PermanentIngestionError(RuntimeError):
     """Raised for deterministic manuscript failures that retries cannot repair."""
+
+
+class MalwareDetectedIngestionError(PermanentIngestionError):
+    """Raised when a private staged manuscript fails malware scanning."""
 
 
 def _staged_pdf_bytes(client, source_path: str) -> bytes:
@@ -78,6 +83,16 @@ def process_ingestion_job(client, job: dict, worker_id: str,
     )
     file_bytes = _staged_pdf_bytes(client, source_path)
     _validate_staged_pdf(file_bytes, expected_hash)
+
+    _require_lease(
+        heartbeat,
+        stage='malware_scan', progress=16,
+        message='Scanning the private manuscript for malware...',
+    )
+    try:
+        scan_pdf(file_bytes)
+    except MalwareDetected as error:
+        raise MalwareDetectedIngestionError('The staged manuscript failed malware scanning') from error
 
     _require_lease(
         heartbeat,

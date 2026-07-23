@@ -24,9 +24,16 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from config import settings
 from dependencies.auth import require_upload_access, resolve_effective_department, sb
-from models import CCSICT_TRACKS, UploadAccepted, UploadJobStatus
+from models import (
+    CCSICT_TRACKS,
+    UploadAccepted,
+    UploadCancelRequest,
+    UploadCancelResponse,
+    UploadJobStatus,
+)
 from services.cleanup import record_storage_cleanup
 from services.rate_limiting import limiter
+from services.operations import record_security_event
 
 logger = logging.getLogger(__name__)
 
@@ -323,27 +330,51 @@ async def upload_paper(
 
 @router.get('/status/{job_id}', response_model=UploadJobStatus)
 def upload_status(job_id: str, user=Depends(require_upload_access)):
+    extended_fields = (
+        'id,owner_id,department,status,stage,progress,message,paper_id,'
+        'chunks,duplication,error,attempt_count,max_attempts,next_retry_at,'
+        'cancel_requested_at,cancelled_at,created_at,updated_at'
+    )
+    legacy_fields = (
+        'id,owner_id,department,status,stage,progress,message,paper_id,'
+        'chunks,duplication,error,attempt_count,max_attempts,next_retry_at,'
+        'created_at,updated_at'
+    )
     try:
-        result = (
-            sb.table('upload_jobs')
-            .select(
-                'id,owner_id,department,status,stage,progress,message,paper_id,'
-                'chunks,duplication,error,attempt_count,max_attempts,next_retry_at,'
-                'created_at,updated_at'
-            )
+        query = (
+            sb.table('upload_jobs').select(extended_fields)
             .eq('id', job_id)
             .eq('owner_id', user.id)
             .limit(1)
-            .execute()
         )
+        try:
+            result = query.execute()
+        except Exception as schema_error:
+            if 'cancel_requested_at' not in str(schema_error) and 'cancelled_at' not in str(schema_error):
+                raise
+            result = (
+                sb.table('upload_jobs').select(legacy_fields)
+                .eq('id', job_id).eq('owner_id', user.id).limit(1).execute()
+            )
         job = result.data[0] if result.data else None
     except Exception as error:
         raise HTTPException(503, 'Upload status is temporarily unavailable') from error
     if not job:
         raise HTTPException(404, 'Upload job not found (it may have expired)')
+    last_event_at = None
+    try:
+        event = (
+            sb.table('upload_job_events').select('created_at')
+            .eq('job_id', job_id).order('created_at', desc=True).limit(1).execute().data or []
+        )
+        last_event_at = event[0].get('created_at') if event else None
+    except Exception:
+        pass
+    cancel_requested = bool(job.get('cancel_requested_at'))
+    status = job.get('status', 'queued')
     return UploadJobStatus(
         job_id=job_id,
-        status=job.get('status', 'queued'),
+        status=status,
         stage=job.get('stage', ''),
         progress=job.get('progress', 0),
         message=job.get('message', ''),
@@ -354,6 +385,69 @@ def upload_status(job_id: str, user=Depends(require_upload_access)):
         attempt_count=job.get('attempt_count', 0),
         max_attempts=job.get('max_attempts', settings.ingestion_max_attempts),
         next_retry_at=job.get('next_retry_at'),
+        cancel_requested=cancel_requested,
+        cancelled_at=job.get('cancelled_at'),
+        can_cancel=status in {'staging', 'queued', 'retry_wait'} or (
+            status == 'processing' and not cancel_requested
+        ),
+        last_event_at=last_event_at,
+    )
+
+
+@router.post('/jobs/{job_id}/cancel', response_model=UploadCancelResponse)
+@limiter.limit(settings.rate_limit_upload)
+def cancel_upload_job(
+    request: Request,
+    job_id: str,
+    payload: UploadCancelRequest,
+    user=Depends(require_upload_access),
+):
+    try:
+        profile_rows = (
+            sb.table('profiles').select('role,department')
+            .eq('id', user.id).limit(1).execute().data or []
+        )
+        profile = profile_rows[0] if profile_rows else {}
+        is_superadmin = profile.get('role') == 'superadmin'
+        data = sb.rpc('request_upload_cancellation', {
+            'p_job_id': job_id,
+            'p_requester_id': user.id,
+            'p_is_superadmin': is_superadmin,
+            'p_reason': payload.reason,
+        }).execute().data
+        if isinstance(data, list):
+            data = data[0] if data else {}
+    except Exception as error:
+        text = str(error).lower()
+        if 'pgrst202' in text or 'could not find the function' in text:
+            raise HTTPException(503, 'Upload cancellation requires the operations migration') from error
+        raise HTTPException(503, 'Upload cancellation is temporarily unavailable') from error
+    outcome = str((data or {}).get('outcome') or 'not_found')
+    status = str((data or {}).get('status') or 'unknown')
+    if outcome == 'not_found':
+        raise HTTPException(404, 'Upload job not found')
+    if outcome == 'forbidden':
+        raise HTTPException(403, 'You cannot cancel this upload job')
+    messages = {
+        'cancelled': 'Upload cancelled and private-source cleanup queued.',
+        'cancellation_requested': 'Cancellation requested. Processing will stop at the next safe checkpoint.',
+        'already_terminal': f'Upload is already {status}.',
+    }
+    try:
+        record_security_event(
+            sb, 'upload_cancellation', actor_id=user.id,
+            department=profile.get('department'),
+            details={'job_id': job_id, 'outcome': outcome},
+        )
+    except Exception:
+        logger.warning('Cancellation security event could not be recorded')
+    return UploadCancelResponse(
+        job_id=job_id,
+        outcome=outcome,
+        status=status,
+        message=messages.get(outcome, 'Cancellation request completed.'),
+        cancel_requested=outcome in {'cancelled', 'cancellation_requested'},
+        cancelled_at=(data or {}).get('cancelled_at'),
     )
 
 

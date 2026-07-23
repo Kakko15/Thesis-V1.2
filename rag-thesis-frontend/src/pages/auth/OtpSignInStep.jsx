@@ -6,7 +6,9 @@ import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
 import { StepHeader } from './StepHeader'
 import { formStagger, Rise, Shine, UnderlineLink } from './AuthFx'
-import { friendlyAuthError, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
+import { authOptions, friendlyAuthError, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
+import { TurnstileWidget } from '../../components/security/TurnstileWidget'
+import { turnstileEnabled } from '../../components/security/turnstileConfig'
 
 const getEmailLink = (email) => {
   const e = email.toLowerCase()
@@ -20,13 +22,15 @@ const getEmailLink = (email) => {
 export function OtpSignInStep({ email, onBack }) {
   const [resending, setResending] = useState(false)
   const [cooldown, setCooldown] = useResendTimer(60)
+  const [captchaToken, setCaptchaToken] = useState(null)
+  const [captchaReset, setCaptchaReset] = useState(0)
 
   const resend = async () => {
     setResending(true)
     try {
       const { error: err } = await supabase.auth.signInWithOtp({
         email,
-        options: { shouldCreateUser: false },
+        options: authOptions({ shouldCreateUser: false }, captchaToken),
       })
       if (err) throw err
       toast.success('New link sent', { description: `Check ${maskEmail(email)}` })
@@ -37,6 +41,8 @@ export function OtpSignInStep({ email, onBack }) {
       if (wait) setCooldown(wait)
     } finally {
       setResending(false)
+      setCaptchaToken(null)
+      setCaptchaReset((value) => value + 1)
     }
   }
 
@@ -69,13 +75,15 @@ export function OtpSignInStep({ email, onBack }) {
         </Rise>
 
         <Rise className="mt-5 text-center text-xs opacity-60">
+          <TurnstileWidget action="otp_resend" onToken={setCaptchaToken} resetKey={captchaReset} />
           Didn't get it?{' '}
           {cooldown > 0 ? (
             <span className="font-semibold tabular-nums">Resend in {cooldown}s</span>
           ) : (
             <UnderlineLink
               onClick={resend}
-              disabled={resending}
+              disabled={resending || (turnstileEnabled && !captchaToken)}
+              aria-disabled={turnstileEnabled && !captchaToken}
               className="text-forest-600 disabled:opacity-50 dark:text-gold-300"
             >
               {resending ? 'Sending…' : 'Resend link'}

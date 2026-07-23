@@ -55,11 +55,16 @@ function QuickAction({ icon: Icon, title, text, onClick, tone = 'forest' }) {
 
 function SecurityCard() {
   const [open, setOpen] = useState(false)
+  const { refreshMfa } = useAuth()
   const { data, refetch } = useQuery({
     queryKey: ['mfa-factors'],
     queryFn: async () => (await supabase.auth.mfa.listFactors()).data,
   })
   const enabled = !!data?.totp?.some((f) => f.status === 'verified')
+  const handleMfaChanged = async () => {
+    await refetch()
+    await refreshMfa()
+  }
 
   return (
     <>
@@ -100,7 +105,11 @@ function SecurityCard() {
           {enabled ? 'Manage 2FA' : 'Enable 2FA'}
         </Button>
       </GlassCard>
-      <MfaEnrollDialog open={open} onClose={() => setOpen(false)} onChanged={refetch} />
+      <MfaEnrollDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        onChanged={handleMfaChanged}
+      />
     </>
   )
 }
