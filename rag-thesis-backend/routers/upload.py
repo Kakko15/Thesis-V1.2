@@ -6,46 +6,31 @@ mitigation) -> chunk (800-token / 100-token overlap) -> embed (Gemini,
 paper Section 3.2.3 Phase 3) -> index (Supabase pgvector + metadata
 tagging).
 
-Runs as a background job with a polleable status endpoint so the admin UI
-can display live pipeline progress. Original PDFs are stored in the
-PRIVATE `pdfs` bucket — never publicly reachable (indirect access model).
+The API validates and privately stages each PDF, then a separate leased worker
+executes the durable job while the admin UI polls authoritative database state.
+Original PDFs are never publicly reachable (indirect access model).
 """
 
-import logging
-import mimetypes
-import re
-import threading
-import time
-import uuid
+import hashlib
 import json
-from datetime import datetime, timezone
+import logging
+import re
+import uuid
+from datetime import datetime, timedelta, timezone
 
 import fitz
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from config import settings
 from dependencies.auth import require_upload_access, resolve_effective_department, sb
 from models import CCSICT_TRACKS, UploadAccepted, UploadJobStatus
-from services.activity import log_activity
-from services.chunker import build_chunk_metadata, split_document, validate_chunk_records
-from services.index_provenance import current_index_fingerprint
 from services.cleanup import record_storage_cleanup
-from services.document_processor import extract_document, is_noise_chunk
-from services.embedder import embed_texts
-from services.novelty import screen_new_submission
 from services.rate_limiting import limiter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/upload', tags=['upload'])
-
-# Non-authoritative mirror used only for unit tests and local diagnostics.
-# The durable source of truth is public.upload_jobs.
-_JOBS: dict[str, dict] = {}
-_JOBS_LOCK = threading.Lock()
-_JOB_TTL_SECONDS = 3600
-
 
 def _extract_title_page_metadata(text: str, departments: list[str]) -> dict[str, str]:
     """Extract conservative title-page fields without requiring an AI call."""
@@ -148,181 +133,62 @@ def _validate_metadata(title: str, authors: str, year: str, abstract: str) -> No
         raise HTTPException(422, 'Year must be a valid four-digit completion year')
 
 
-def _set_job(job_id: str, **updates):
-    updates['updated_at'] = datetime.now(timezone.utc).isoformat()
+def _reserved_job(data) -> dict:
+    if isinstance(data, list):
+        return data[0] if data else {}
+    return data or {}
+
+
+def _rpc_boolean(data) -> bool:
+    if isinstance(data, list):
+        return bool(data and data[0])
+    return bool(data)
+
+
+def _fail_staging_job(job_id: str, category: str, *, cleanup_pending: bool) -> None:
+    sb.table('upload_jobs').update({
+        'status': 'failed',
+        'stage': 'error',
+        'progress': 100,
+        'message': 'Private source staging failed.',
+        'error': 'The upload could not be queued safely. Please try again.',
+        'failure_category': category,
+        'cleanup_status': 'pending' if cleanup_pending else 'not_required',
+        'source_stored': cleanup_pending,
+        'completed_at': datetime.now(timezone.utc).isoformat(),
+        'expires_at': (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+    }).eq('id', job_id).eq('status', 'staging').execute()
+
+
+def _remove_staged_source(source_path: str, job_id: str) -> bool:
     try:
-        sb.table('upload_jobs').update(updates).eq('id', job_id).execute()
-    except Exception:
-        if settings.app_environment != 'test':
-            raise
-    with _JOBS_LOCK:
-        job = _JOBS.setdefault(job_id, {'job_id': job_id, 'created_at': time.monotonic()})
-        job.update(updates)
+        sb.storage.from_('pdfs').remove([source_path])
+        return True
+    except Exception as cleanup_error:
+        logger.error('Staged upload cleanup failed for %s (%s)', job_id, type(cleanup_error).__name__)
+        record_storage_cleanup(
+            sb,
+            operation='rollback_upload',
+            resource_path=source_path,
+            job_id=job_id,
+            error=cleanup_error,
+        )
+        return False
 
 
-def _prune_jobs():
-    now = time.monotonic()
-    with _JOBS_LOCK:
-        stale = [jid for jid, j in _JOBS.items() if now - j.get('created_at', now) > _JOB_TTL_SECONDS]
-        for jid in stale:
-            _JOBS.pop(jid, None)
-
-
-def _ingest(job_id: str, file_bytes: bytes, filename: str,
-            title: str, authors: str, year: str, abstract: str, track: str,
-            department: str, uploader_id: str):
-    """Full ingestion pipeline executed in the background."""
-    paper_id = None
-    storage_path = None
-    try:
-        # Stage 1: Data digitization (extract + clean)
-        _set_job(job_id, status='processing', stage='extract', progress=10,
-                 message='Extracting and cleaning text (PyMuPDF + OCR fallback)...')
-        document = extract_document(file_bytes, filename)
-        content = document.text
-        if not content.strip():
-            raise ValueError('Could not extract any text from the file')
-
-        # Stage 2: Private storage of the original PDF
-        _set_job(job_id, stage='store', progress=25, message='Archiving original file in private storage...')
-        unique_filename = f'{uuid.uuid4()}_{filename}'
-        content_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
-        try:
-            sb.storage.from_('pdfs').upload(unique_filename, file_bytes,
-                                            file_options={'content-type': content_type})
-            storage_path = unique_filename
-        except Exception as e:
-            raise RuntimeError('Required private storage upload failed') from e
-
-        # Stage 3: Chunking (800-token / 100-token overlap) + noise filter
-        _set_job(job_id, stage='chunk', progress=40,
-                 message='Chunking manuscript (800-token windows, 100-token overlap)...')
-        chunk_records = validate_chunk_records([
-            record for record in split_document(document)
-            if not is_noise_chunk(record['content'])
-        ])
-        chunks = [record['content'] for record in chunk_records]
-        if not chunk_records:
-            raise ValueError('The document contained no clean, indexable text after filtering')
-
-        # Stage 4: Generate and verify every embedding before any searchable
-        # paper row is created.
-        _set_job(job_id, stage='embed', progress=60,
-                 message=f'Generating {len(chunks)} vector embeddings (Gemini, 768d)...')
-        embeddings = embed_texts(chunks)
-        if len(embeddings) != len(chunks):
-            raise ValueError('Embedding count did not match chunk count')
-        if any(len(vector) != settings.embedding_dimensions for vector in embeddings):
-            raise ValueError('Embedding dimensions did not match server configuration')
-
-        # Stage 5: Automatic duplication screening (paper, Section 3.2.3
-        # Phase 3) — the new submission is compared against the archive at
-        # the 85% threshold BEFORE its own chunks are indexed, so the
-        # manuscript never matches itself. Flags, never blocks.
-        _set_job(job_id, stage='screen', progress=72,
-                 message='Screening submission against the archive (85% duplication threshold)...')
-        duplication_scan = screen_new_submission(embeddings, department)
-
-        # Stage 6: Send one verified payload to a service-role-only PostgreSQL
-        # RPC. Paper + chunks commit together, or PostgreSQL rolls back both.
-        year_int = int(year) if str(year).isdigit() else None
-        try:
-            staged_paper_id = str(uuid.UUID(job_id))
-        except ValueError:
-            staged_paper_id = str(uuid.uuid4())
-        paper_data = {
-            'id': staged_paper_id,
-            'title': title, 'authors': authors, 'year': year_int,
-            'abstract': abstract, 'track': track,
-            'filename': filename, 'storage_path': storage_path,
-            'chunk_count': len(chunks), 'uploaded_by': uploader_id,
-            'department': department,
-            'redaction_stats': document.redaction_stats,
-            'duplication_scan': duplication_scan,
-            'index_provenance': current_index_fingerprint(),
-        }
-        _set_job(job_id, stage='index', progress=85,
-                 message='Atomically committing metadata and verified vectors...')
-        chunk_rows = [
-            {
-                'chunk_index': record['chunk_index'],
-                'content': record['content'],
-                'page_start': record['page_start'],
-                'page_end': record['page_end'],
-                'section': record['section'],
-                'metadata': build_chunk_metadata(
-                    title, authors, track, year_int,
-                    department=department,
-                    page_start=record['page_start'],
-                    page_end=record['page_end'],
-                    section=record['section'],
-                    chunk_index=record['chunk_index'],
-                    token_count=record['token_count'],
-                ),
-                'embedding': emb,
-            }
-            for record, emb in zip(chunk_records, embeddings)
-        ]
-        try:
-            sb.rpc('commit_paper_ingestion', {
-                'p_paper': paper_data,
-                'p_chunks': chunk_rows,
-            }).execute()
-        except Exception as commit_error:
-            # A timeout may happen after PostgreSQL committed. Verify the
-            # deterministic ID before compensating the separately stored PDF.
-            try:
-                committed = (
-                    sb.table('papers').select('id,ingestion_status,chunk_count')
-                    .eq('id', staged_paper_id).single().execute().data
-                )
-            except Exception:
-                committed = None
-            if not committed or committed.get('ingestion_status') != 'ready' \
-                    or committed.get('chunk_count') != len(chunk_rows):
-                raise commit_error
-            logger.warning('Recovered a successful ingestion after an ambiguous RPC response')
-        paper_id = staged_paper_id
-
-        _set_job(job_id, status='completed', stage='done', progress=100,
-                 message='Thesis indexed successfully.', paper_id=paper_id, chunks=len(chunks),
-                 duplication=duplication_scan)
-        log_activity(uploader_id, 'paper_upload', {
-            'paper_id': paper_id, 'title': title, 'track': track, 'chunks': len(chunks),
-            'duplication_flagged': bool(duplication_scan and duplication_scan.get('flagged')),
-            'matched_chunk_percentage': (duplication_scan or {}).get('matched_chunk_percentage', 0.0),
-            'highest_similarity': (duplication_scan or {}).get('highest_similarity', 0.0),
-        })
-    except Exception as e:
-        logger.error('Ingestion job %s failed (%s)', job_id, type(e).__name__)
-        # The database RPC is atomic, so only the separately stored original
-        # may need compensating cleanup after a failed commit.
-        if storage_path:
-            try:
-                sb.storage.from_('pdfs').remove([storage_path])
-            except Exception as cleanup_error:
-                logger.error(
-                    'Failed to roll back stored file for job %s (%s)',
-                    job_id,
-                    type(cleanup_error).__name__,
-                )
-                record_storage_cleanup(
-                    sb,
-                    operation='rollback_upload',
-                    resource_path=storage_path,
-                    paper_id=paper_id,
-                    job_id=job_id,
-                    error=cleanup_error,
-                )
-        _set_job(job_id, status='failed', stage='error', progress=100,
-                 message='Ingestion failed.', error='The thesis could not be safely indexed.')
+def _durable_job_status(job_id: str, owner_id: str) -> str | None:
+    """Read authoritative queue state after an ambiguous RPC response."""
+    current = (
+        sb.table('upload_jobs').select('status')
+        .eq('id', job_id).eq('owner_id', owner_id).limit(1).execute().data
+    )
+    return str(current[0]['status']) if current else None
 
 
 @router.post('/paper', response_model=UploadAccepted, status_code=202)
 @limiter.limit(settings.rate_limit_upload)
 async def upload_paper(
     request: Request,
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: str = Form(...),
     authors: str = Form(''),
@@ -330,6 +196,7 @@ async def upload_paper(
     abstract: str = Form(''),
     track: str = Form(''),
     department: str | None = Form(None),
+    idempotency_key: str | None = Header(None, alias='Idempotency-Key'),
     user=Depends(require_upload_access),
 ):
     department = resolve_effective_department(user, department)
@@ -348,26 +215,110 @@ async def upload_paper(
 
     file_bytes = await _read_limited_upload(file)
     safe_filename = _validate_pdf_upload(file_bytes, file.filename, file.content_type)
+    try:
+        effective_key = str(uuid.UUID(idempotency_key)) if idempotency_key else str(uuid.uuid4())
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, 'Idempotency-Key must be a valid UUID') from error
 
-    _prune_jobs()
     job_id = str(uuid.uuid4())
-    job_row = {
-        'id': job_id,
-        'owner_id': user.id,
+    source_path = f'uploads/{user.id}/{job_id}/{safe_filename}'
+    content_sha256 = hashlib.sha256(file_bytes).hexdigest()
+    request_payload = {
+        'title': title.strip(),
+        'authors': authors.strip(),
+        'year': year,
+        'abstract': abstract,
+        'track': track,
         'department': department,
-        'status': 'queued',
-        'stage': 'extract',
-        'progress': 0,
-        'message': 'Queued for processing...',
+        'uploader_id': user.id,
     }
-    sb.table('upload_jobs').insert(job_row).execute()
-    with _JOBS_LOCK:
-        _JOBS[job_id] = {'job_id': job_id, 'created_at': time.monotonic(), **job_row}
-    background_tasks.add_task(_ingest, job_id, file_bytes, safe_filename,
-                              title, authors, year, abstract, track, department, user.id)
+    try:
+        reserved = _reserved_job(sb.rpc('reserve_upload_job', {
+            'p_job_id': job_id,
+            'p_owner_id': user.id,
+            'p_department': department,
+            'p_idempotency_key': effective_key,
+            'p_source_path': source_path,
+            'p_original_filename': safe_filename,
+            'p_content_sha256': content_sha256,
+            'p_request_payload': request_payload,
+            'p_max_attempts': settings.ingestion_max_attempts,
+        }).execute().data)
+    except Exception as error:
+        if 'different content' in str(error).lower():
+            raise HTTPException(409, 'Idempotency-Key was already used for another file') from error
+        raise HTTPException(503, 'The durable upload queue is temporarily unavailable') from error
+    if not reserved:
+        raise HTTPException(503, 'The durable upload queue did not reserve the submission')
 
-    return UploadAccepted(job_id=job_id, status='queued',
-                          message='Upload accepted. Poll /upload/status/{job_id} for progress.')
+    job_id = str(reserved['job_id'])
+    source_path = str(reserved['stored_source_path'])
+    status = str(reserved['job_status'])
+    if not reserved.get('created') and status != 'staging':
+        return UploadAccepted(
+            job_id=job_id,
+            idempotency_key=effective_key,
+            status=status,
+            message='This submission is already tracked. Poll its existing job for progress.',
+        )
+
+    try:
+        sb.storage.from_('pdfs').upload(
+            source_path,
+            file_bytes,
+            file_options={'content-type': 'application/pdf', 'upsert': 'true'},
+        )
+    except Exception as error:
+        removed = _remove_staged_source(source_path, job_id)
+        try:
+            _fail_staging_job(
+                job_id,
+                type(error).__name__,
+                cleanup_pending=not removed,
+            )
+        except Exception as status_error:
+            logger.error('Could not record staging failure for %s (%s)', job_id, type(status_error).__name__)
+        raise HTTPException(503, 'The private manuscript could not be staged safely') from error
+
+    try:
+        queued = _rpc_boolean(sb.rpc('queue_upload_job', {
+            'p_job_id': job_id,
+            'p_owner_id': user.id,
+        }).execute().data)
+        if not queued and _durable_job_status(job_id, user.id) not in {
+            'queued', 'processing', 'retry_wait', 'completed',
+        }:
+            raise RuntimeError('Durable queue transition was not confirmed')
+    except Exception as error:
+        # The response may be lost after PostgreSQL commits. Never compensate
+        # an already-queued job by deleting the source underneath its worker.
+        try:
+            advanced = _durable_job_status(job_id, user.id) in {
+                'queued', 'processing', 'retry_wait', 'completed',
+            }
+        except Exception:
+            advanced = False
+        if not advanced:
+            removed = _remove_staged_source(source_path, job_id)
+            try:
+                _fail_staging_job(
+                    job_id,
+                    type(error).__name__,
+                    cleanup_pending=not removed,
+                )
+            except Exception as status_error:
+                logger.error(
+                    'Could not record queue-transition failure for %s (%s)',
+                    job_id, type(status_error).__name__,
+                )
+            raise HTTPException(503, 'The private manuscript could not be queued safely') from error
+
+    return UploadAccepted(
+        job_id=job_id,
+        idempotency_key=effective_key,
+        status='queued',
+        message='Upload accepted by the durable worker queue.',
+    )
 
 
 @router.get('/status/{job_id}', response_model=UploadJobStatus)
@@ -377,7 +328,8 @@ def upload_status(job_id: str, user=Depends(require_upload_access)):
             sb.table('upload_jobs')
             .select(
                 'id,owner_id,department,status,stage,progress,message,paper_id,'
-                'chunks,duplication,error,created_at,updated_at'
+                'chunks,duplication,error,attempt_count,max_attempts,next_retry_at,'
+                'created_at,updated_at'
             )
             .eq('id', job_id)
             .eq('owner_id', user.id)
@@ -386,40 +338,9 @@ def upload_status(job_id: str, user=Depends(require_upload_access)):
         )
         job = result.data[0] if result.data else None
     except Exception as error:
-        if settings.app_environment != 'test':
-            raise HTTPException(
-                503,
-                'Upload status is temporarily unavailable',
-            ) from error
-        job = None
-    if not job and settings.app_environment == 'test':
-        with _JOBS_LOCK:
-            candidate = _JOBS.get(job_id)
-            job = candidate if candidate and candidate.get('owner_id') == user.id else None
+        raise HTTPException(503, 'Upload status is temporarily unavailable') from error
     if not job:
         raise HTTPException(404, 'Upload job not found (it may have expired)')
-
-    updated_at = job.get('updated_at')
-    if job.get('status') in {'queued', 'processing'} and updated_at:
-        try:
-            age = datetime.now(timezone.utc) - datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
-            if age.total_seconds() > 20 * 60:
-                _set_job(
-                    job_id,
-                    status='failed',
-                    stage='error',
-                    progress=100,
-                    message='Ingestion stopped before completion.',
-                    error='The worker stopped. Please submit the manuscript again.',
-                )
-                job.update({
-                    'status': 'failed',
-                    'stage': 'error',
-                    'progress': 100,
-                    'error': 'The worker stopped. Please submit the manuscript again.',
-                })
-        except (TypeError, ValueError):
-            logger.warning('Upload job %s has an invalid updated_at value', job_id)
     return UploadJobStatus(
         job_id=job_id,
         status=job.get('status', 'queued'),
@@ -430,6 +351,9 @@ def upload_status(job_id: str, user=Depends(require_upload_access)):
         chunks=job.get('chunks'),
         duplication=job.get('duplication'),
         error=job.get('error'),
+        attempt_count=job.get('attempt_count', 0),
+        max_attempts=job.get('max_attempts', settings.ingestion_max_attempts),
+        next_retry_at=job.get('next_retry_at'),
     )
 
 

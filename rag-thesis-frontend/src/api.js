@@ -179,7 +179,7 @@ export async function getTracks() {
 }
 
 // ---------- Upload (background ingestion) ----------
-export async function uploadPaper({ file, title, authors, year, abstract, track, department }) {
+export async function uploadPaper({ file, title, authors, year, abstract, track, department, idempotencyKey }) {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('title', title)
@@ -189,9 +189,12 @@ export async function uploadPaper({ file, title, authors, year, abstract, track,
   formData.append('track', track || '')
   formData.append('department', department || 'CCSICT')
   const { data } = await api.post('/upload/paper', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    headers: {
+      'Content-Type': 'multipart/form-data',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+    },
   })
-  return data // { job_id, status, message }
+  return data // { job_id, idempotency_key, status, message }
 }
 export async function getUploadStatus(jobId) {
   const { data } = await api.get(`/upload/status/${jobId}`)

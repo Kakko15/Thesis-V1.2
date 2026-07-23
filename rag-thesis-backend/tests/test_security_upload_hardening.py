@@ -196,147 +196,41 @@ def _prepared_document():
 
 
 class TestUploadJobSecurityAndRollback:
-    def setup_method(self):
-        upload._JOBS.clear()
-
-    def test_job_status_is_owner_only(self):
-        upload._set_job('job-1', owner_id='owner', status='queued')
-        result = upload.upload_status('job-1', user=SimpleNamespace(id='owner'))
-        assert result.status == 'queued'
-        with pytest.raises(HTTPException) as caught:
-            upload.upload_status('job-1', user=SimpleNamespace(id='attacker'))
-        assert caught.value.status_code == 404
-
-    def test_job_status_uses_durable_database_record(self, monkeypatch):
-        captured = []
+    def test_job_status_is_owner_only_and_read_only(self, monkeypatch):
+        updates = []
 
         class Query:
             def select(self, *_args): return self
             def eq(self, *_args): return self
             def limit(self, *_args): return self
             def update(self, payload):
-                captured.append(payload)
+                updates.append(payload)
                 return self
             def execute(self):
                 return SimpleNamespace(data=[{
                     'id': 'job-db', 'owner_id': 'owner', 'department': 'CCSICT',
-                    'status': 'processing', 'stage': 'embed', 'progress': 60,
-                    'message': 'Embedding', 'updated_at': None,
+                    'status': 'retry_wait', 'stage': 'embed', 'progress': 58,
+                    'message': 'Retry scheduled', 'attempt_count': 1, 'max_attempts': 3,
+                    'next_retry_at': '2026-07-23T12:00:00+00:00',
                 }])
 
         monkeypatch.setattr(upload, 'sb', SimpleNamespace(table=lambda _name: Query()))
-        upload._set_job('job-db', status='processing', stage='embed', progress=60)
-        assert captured[0]['status'] == 'processing'
         result = upload.upload_status('job-db', user=SimpleNamespace(id='owner'))
-        assert result.stage == 'embed' and result.progress == 60
+        assert result.status == 'retry_wait'
+        assert result.attempt_count == 1 and result.max_attempts == 3
+        assert updates == []
 
-    def test_storage_failure_is_fatal(self, monkeypatch):
-        bucket = _StorageBucket(fail_upload=True)
-        monkeypatch.setattr(upload, 'sb', _IngestClient(bucket))
-        monkeypatch.setattr(upload, 'extract_document', lambda *_: _prepared_document())
-        upload._ingest('job', _pdf_bytes(), 'paper.pdf', 'Title', 'Author', '2026', '', '', 'CCSICT', 'u1')
-        assert upload._JOBS['job']['status'] == 'failed'
+    def test_missing_owned_job_returns_404(self, monkeypatch):
+        class Query:
+            def select(self, *_args): return self
+            def eq(self, *_args): return self
+            def limit(self, *_args): return self
+            def execute(self): return SimpleNamespace(data=[])
 
-    def test_embedding_failure_removes_stored_original(self, monkeypatch):
-        bucket = _StorageBucket()
-        monkeypatch.setattr(upload, 'sb', _IngestClient(bucket))
-        monkeypatch.setattr(upload, 'extract_document', lambda *_: _prepared_document())
-        monkeypatch.setattr(upload, 'split_document', lambda *_: [{
-            'content': 'Clean research content', 'chunk_index': 0,
-            'page_start': 1, 'page_end': 1, 'section': 'Methodology',
-        }])
-        monkeypatch.setattr(upload, 'is_noise_chunk', lambda *_: False)
-        monkeypatch.setattr(upload, 'embed_texts', lambda *_: (_ for _ in ()).throw(RuntimeError('provider error')))
-        upload._ingest('job', _pdf_bytes(), 'paper.pdf', 'Title', 'Author', '2026', '', '', 'CCSICT', 'u1')
-        assert upload._JOBS['job']['status'] == 'failed'
-        assert len(bucket.removed) == 1
-
-    def test_successful_ingestion_activates_only_verified_complete_index(self, monkeypatch):
-        bucket = _StorageBucket()
-        client = _SuccessClient(bucket)
-        monkeypatch.setattr(upload, 'sb', client)
-        monkeypatch.setattr(upload, 'extract_document', lambda *_: _prepared_document())
-        monkeypatch.setattr(upload, 'split_document', lambda *_: [{
-            'content': 'Clean research content', 'chunk_index': 0,
-            'page_start': 1, 'page_end': 1, 'section': 'Methodology',
-        }])
-        monkeypatch.setattr(upload, 'is_noise_chunk', lambda *_: False)
-        monkeypatch.setattr(upload, 'embed_texts', lambda *_: [[0.1] * 768])
-        monkeypatch.setattr(upload, 'screen_new_submission', lambda *_: {'flagged': False})
-        monkeypatch.setattr(upload, 'log_activity', lambda *_args, **_kwargs: None)
-        upload._ingest('job', _pdf_bytes(), 'paper.pdf', 'Title', 'Author', '2026', '', 'Data Mining', 'CCSICT', 'u1')
-        assert upload._JOBS['job']['status'] == 'completed'
-        name, payload = client.rpc_calls[0]
-        assert name == 'commit_paper_ingestion'
-        assert payload['p_paper']['redaction_stats'] == {'email': 1}
-        assert payload['p_paper']['department'] == 'CCSICT'
-        assert payload['p_paper']['index_provenance'] == {
-            'embedding_model': upload.settings.gemini_embed_model,
-            'embedding_dimensions': 768,
-            'preprocessing_version': 'document-v1',
-            'chunking_version': 'token-v1',
-            'tokenizer': 'cl100k_base',
-            'chunk_size_tokens': 800,
-            'chunk_overlap_tokens': 100,
-            'provenance_status': 'verified',
-        }
-        assert len(payload['p_chunks']) == 1
-        assert len(payload['p_chunks'][0]['embedding']) == 768
-        assert bucket.removed == []
-
-    def test_embedding_dimension_mismatch_rolls_back_storage(self, monkeypatch):
-        bucket = _StorageBucket()
-        monkeypatch.setattr(upload, 'sb', _IngestClient(bucket))
-        monkeypatch.setattr(upload, 'extract_document', lambda *_: _prepared_document())
-        monkeypatch.setattr(upload, 'split_document', lambda *_: [{
-            'content': 'Clean research content', 'chunk_index': 0,
-            'page_start': 1, 'page_end': 1, 'section': None,
-        }])
-        monkeypatch.setattr(upload, 'is_noise_chunk', lambda *_: False)
-        monkeypatch.setattr(upload, 'embed_texts', lambda *_: [[0.1] * 2])
-        upload._ingest('job', _pdf_bytes(), 'paper.pdf', 'Title', 'Author', '2026', '', '', 'CCSICT', 'u1')
-        assert upload._JOBS['job']['status'] == 'failed'
-        assert len(bucket.removed) == 1
-
-    def test_ambiguous_rpc_response_recovers_confirmed_commit(self, monkeypatch):
-        bucket = _StorageBucket()
-        client = _AmbiguousCommitClient(bucket)
-        monkeypatch.setattr(upload, 'sb', client)
-        monkeypatch.setattr(upload, 'extract_document', lambda *_: _prepared_document())
-        monkeypatch.setattr(upload, 'split_document', lambda *_: [{
-            'content': 'Clean research content', 'chunk_index': 0,
-            'page_start': 1, 'page_end': 1, 'section': None,
-        }])
-        monkeypatch.setattr(upload, 'is_noise_chunk', lambda *_: False)
-        monkeypatch.setattr(upload, 'embed_texts', lambda *_: [[0.1] * 768])
-        monkeypatch.setattr(upload, 'screen_new_submission', lambda *_: {'flagged': False})
-        monkeypatch.setattr(upload, 'log_activity', lambda *_args, **_kwargs: None)
-        upload._ingest(
-            '11111111-1111-4111-8111-111111111111', _pdf_bytes(), 'paper.pdf',
-            'Title', 'Author', '2026', '', '', 'CCSICT', 'u1',
-        )
-        assert upload._JOBS['11111111-1111-4111-8111-111111111111']['status'] == 'completed'
-        assert bucket.removed == []
-
-    def test_failed_storage_compensation_is_persisted(self, monkeypatch):
-        bucket = _StorageBucket(fail_remove=True)
-        client = _RollbackQueueClient(bucket)
-        monkeypatch.setattr(upload, 'sb', client)
-        monkeypatch.setattr(upload, 'extract_document', lambda *_: _prepared_document())
-        monkeypatch.setattr(upload, 'split_document', lambda *_: [{
-            'content': 'Clean research content', 'chunk_index': 0,
-            'page_start': 1, 'page_end': 1, 'section': None,
-        }])
-        monkeypatch.setattr(upload, 'is_noise_chunk', lambda *_: False)
-        monkeypatch.setattr(upload, 'embed_texts', lambda *_: [[0.1] * 768])
-        monkeypatch.setattr(upload, 'screen_new_submission', lambda *_: {'flagged': False})
-        upload._ingest(
-            '22222222-2222-4222-8222-222222222222', _pdf_bytes(), 'paper.pdf',
-            'Title', 'Author', '2026', '', '', 'CCSICT', 'u1',
-        )
-        assert upload._JOBS['22222222-2222-4222-8222-222222222222']['status'] == 'failed'
-        assert client.cleanup_rows[0]['operation'] == 'rollback_upload'
-        assert client.cleanup_rows[0]['paper_id'] is None
+        monkeypatch.setattr(upload, 'sb', SimpleNamespace(table=lambda _name: Query()))
+        with pytest.raises(HTTPException) as caught:
+            upload.upload_status('missing', user=SimpleNamespace(id='attacker'))
+        assert caught.value.status_code == 404
 
 
 class TestSqlSecurityContracts:

@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     require_privileged_mfa: bool = False
     max_upload_mb: int = 25
     max_pdf_pages: int = Field(default=500, ge=1, le=2000)
+    ingestion_poll_seconds: float = Field(default=2.0, ge=0.2, le=60.0)
+    ingestion_lease_seconds: int = Field(default=120, ge=30, le=900)
+    ingestion_heartbeat_seconds: int = Field(default=30, ge=5, le=300)
+    ingestion_max_attempts: int = Field(default=3, ge=1, le=10)
+    ingestion_maintenance_seconds: int = Field(default=300, ge=30, le=3600)
     # Optional: Supabase legacy JWT secret (Project Settings -> API). When set,
     # rate limiting keys on the HS256-VERIFIED user id instead of the client
     # IP, so users behind one campus NAT get individual quotas. Signature
@@ -87,6 +92,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode='after')
     def validate_production_services(self):
+        if self.ingestion_heartbeat_seconds * 2 >= self.ingestion_lease_seconds:
+            raise ValueError('Ingestion heartbeat must be less than half the worker lease')
         if self.app_environment == 'production' and self.rate_limit_storage_uri.startswith('memory://'):
             raise ValueError('Production requires a shared Redis rate-limit storage URI')
         if self.app_environment == 'production' and not self.require_privileged_mfa:

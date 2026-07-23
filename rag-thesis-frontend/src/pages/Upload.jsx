@@ -22,8 +22,8 @@ import { createUploadState, emptyUploadForm, isCurrentPoll, uploadReducer } from
 const STEPS = ['Manuscript', 'Metadata', 'Review']
 
 const PIPELINE_STAGES = [
+  { key: 'download', label: 'Secure source', icon: Archive },
   { key: 'extract', label: 'Extract & clean', icon: ScanText },
-  { key: 'store', label: 'Archive original', icon: Archive },
   { key: 'chunk', label: 'Chunk (800 tokens)', icon: Scissors },
   { key: 'embed', label: 'Embed (768d)', icon: BrainCircuit },
   { key: 'screen', label: 'Screen novelty (85%)', icon: ShieldAlert },
@@ -207,10 +207,10 @@ function PipelineProgress({ job }) {
           transition={{ duration: 0.6, ease: [0.2, 0, 0, 1] }}
         />
       </div>
-      <div className="grid grid-cols-6 gap-2">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-7">
         {PIPELINE_STAGES.map((stage, i) => {
           const done = job?.status === 'completed' || i < currentIdx
-          const active = i === currentIdx && job?.status === 'processing'
+          const active = i === currentIdx && ['processing', 'retry_wait'].includes(job?.status)
           return (
             <div key={stage.key} className="flex flex-col items-center gap-1.5 text-center">
               <div
@@ -233,6 +233,12 @@ function PipelineProgress({ job }) {
         })}
       </div>
       <p className="text-center text-sm opacity-65">{job?.message}</p>
+      {job?.status === 'retry_wait' && (
+        <div className="rounded-xl border border-gold-400/35 bg-gold-400/10 px-4 py-3 text-center text-xs">
+          Temporary service interruption. Automatic retry {job.attempt_count}/{job.max_attempts}
+          {job.next_retry_at ? ` is scheduled for ${new Date(job.next_retry_at).toLocaleTimeString()}.` : ' is scheduled.'}
+        </div>
+      )}
     </div>
   )
 }
@@ -259,6 +265,7 @@ export default function Upload() {
   const jobIdRef = useRef(null)
   const pollGenerationRef = useRef(0)
   const mountedRef = useRef(true)
+  const idempotencyKeyRef = useRef(crypto.randomUUID())
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
@@ -323,8 +330,10 @@ export default function Upload() {
     if (!f) {
       setFile(null)
       setForm(emptyUploadForm(enforcedDepartment))
+      idempotencyKeyRef.current = crypto.randomUUID()
       return
     }
+    idempotencyKeyRef.current = crypto.randomUUID()
     setPendingFile(f)
   }
 
@@ -361,6 +370,7 @@ export default function Upload() {
         pollFailuresRef.current = 0
         setJob(status)
         if (status.status === 'completed') {
+          sessionStorage.removeItem('activeUploadJob')
           queryClient.invalidateQueries({ queryKey: ['papers'] })
           toast.success('Thesis indexed!', {
             description: `${status.chunks} semantic chunks embedded into the archive.`,
@@ -372,12 +382,18 @@ export default function Upload() {
             })
           }
         } else if (status.status === 'failed') {
+          sessionStorage.removeItem('activeUploadJob')
           toast.error('Ingestion failed', { description: status.error })
         } else {
           pollRef.current = setTimeout(poll, 1500)
         }
-      } catch {
+      } catch (error) {
         if (!current()) return
+        if (error?.response?.status === 404) {
+          sessionStorage.removeItem('activeUploadJob')
+          setPollError('This upload job has expired or is no longer available.')
+          return
+        }
         pollFailuresRef.current += 1
         if (pollFailuresRef.current >= 5) {
           setPollError('The server could not confirm the upload status. The job was not cancelled.')
@@ -389,11 +405,33 @@ export default function Upload() {
     pollRef.current = setTimeout(poll, 500)
   }
 
+  useEffect(() => {
+    const saved = sessionStorage.getItem('activeUploadJob')
+    if (!saved) return
+    try {
+      const active = JSON.parse(saved)
+      if (active.jobId) {
+        idempotencyKeyRef.current = active.idempotencyKey || crypto.randomUUID()
+        setJob({ status: 'queued', stage: 'download', progress: 8, message: 'Restoring durable upload status…' })
+        setStep(3)
+        startPolling(active.jobId)
+      }
+    } catch {
+      sessionStorage.removeItem('activeUploadJob')
+    }
+    // Restoring is intentionally a one-time mount action; polling owns later updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const submit = async () => {
     setSubmitting(true)
     try {
-      const res = await uploadPaper({ file, ...form })
-      setJob({ status: 'queued', stage: 'extract', progress: 0, message: 'Queued for processing…' })
+      const res = await uploadPaper({ file, ...form, idempotencyKey: idempotencyKeyRef.current })
+      sessionStorage.setItem('activeUploadJob', JSON.stringify({
+        jobId: res.job_id,
+        idempotencyKey: res.idempotency_key || idempotencyKeyRef.current,
+      }))
+      setJob({ status: res.status, stage: 'download', progress: 8, message: res.message })
       setStep(3)
       startPolling(res.job_id)
     } catch (err) {
@@ -406,6 +444,8 @@ export default function Upload() {
   const reset = () => {
     stopPolling()
     jobIdRef.current = null
+    sessionStorage.removeItem('activeUploadJob')
+    idempotencyKeyRef.current = crypto.randomUUID()
     dispatch({ type: 'reset', department: enforcedDepartment })
   }
 

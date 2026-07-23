@@ -215,8 +215,10 @@ test('faculty novelty scan renders deterministic advisory metrics', async ({ pag
   expect(unexpected).toEqual([])
 })
 
-test('administrator upload journey reaches completed indexed state', async ({ page }) => {
+test('administrator upload journey resumes a retrying durable job after refresh', async ({ page }) => {
   await useAuthenticatedSession(page)
+  let acceptedKey
+  let statusChecks = 0
   const unexpected = await mockApi(page, {
     'GET /departments/': [{
       id: 'dept-1', name: 'CCSICT', track_label: 'Academic track', tracks: ['Data Mining'],
@@ -224,17 +226,35 @@ test('administrator upload journey reaches completed indexed state', async ({ pa
     'POST /upload/extract-metadata': {
       title: 'Deterministic E2E Thesis', authors: 'A. Researcher, C. Researcher', year: 2026,
     },
-    'POST /upload/paper': { job_id: 'job-1', status: 'queued', message: 'Queued' },
-    'GET /upload/status/job-1': {
-      status: 'completed', stage: 'complete', progress: 100, message: 'Indexed', chunks: 22,
-      duplication: {
-        flagged: false,
-        highest_similarity: 0,
-        matched_chunk_percentage: 0,
-        matched_chunk_count: 0,
-        total_chunks: 22,
-        verdict_level: 'clear',
-      },
+    'POST /upload/paper': (request) => {
+      acceptedKey = request.headers()['idempotency-key']
+      return {
+        job_id: 'job-1', idempotency_key: acceptedKey,
+        status: 'queued', message: 'Queued',
+      }
+    },
+    'GET /upload/status/job-1': () => {
+      statusChecks += 1
+      if (statusChecks === 1) {
+        return {
+          status: 'retry_wait', stage: 'embed', progress: 58,
+          message: 'A temporary service problem occurred. The job will retry automatically.',
+          attempt_count: 1, max_attempts: 3,
+          next_retry_at: '2026-07-23T12:00:00Z',
+        }
+      }
+      return {
+        status: 'completed', stage: 'done', progress: 100, message: 'Indexed', chunks: 22,
+        attempt_count: 2, max_attempts: 3,
+        duplication: {
+          flagged: false,
+          highest_similarity: 0,
+          matched_chunk_percentage: 0,
+          matched_chunk_count: 0,
+          total_chunks: 22,
+          verdict_level: 'clear',
+        },
+      }
     },
   })
 
@@ -252,7 +272,11 @@ test('administrator upload journey reaches completed indexed state', async ({ pa
   await expect(page.getByText('Deterministic E2E Thesis')).toBeVisible()
   await page.getByRole('button', { name: /Ingest into archive/ }).click()
 
+  await expect(page.getByText(/Temporary service interruption/)).toBeVisible({ timeout: 5_000 })
+  expect(acceptedKey).toMatch(/^[0-9a-f-]{36}$/)
+  await page.reload()
   await expect(page.getByRole('heading', { name: 'Thesis indexed!' })).toBeVisible({ timeout: 5_000 })
   await expect(page.getByText(/22 embedded chunks/)).toBeVisible()
+  expect(statusChecks).toBeGreaterThanOrEqual(2)
   expect(unexpected).toEqual([])
 })

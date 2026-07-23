@@ -40,8 +40,9 @@ Key paper parameters enforced in code:
 
 1. Create a Supabase project.
 2. For a fresh project, run `rag-thesis-backend/supabase_setup.sql` in the SQL Editor.
-3. For an existing project, apply the numbered migrations in filename order. Validate `20260719_production_hardening.sql` in the disposable project before production.
-4. After signing up your first user through the app, promote them:
+3. For an existing project, apply the numbered migrations in filename order. Validate `20260719_production_hardening.sql` and `20260723_durable_ingestion_jobs.sql` in a disposable project before production.
+4. Deploy the API and ingestion worker before accepting uploads; applying the durable-queue migration without the worker leaves accepted jobs safely queued.
+5. After signing up your first user through the app, promote them:
    ```sql
    update public.profiles set role = 'admin' where email = 'you@isu.edu.ph';
    ```
@@ -58,6 +59,15 @@ py -3.12 -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env                          # then fill in the values
 python -m uvicorn main:app --reload --port 8000
+```
+
+In a second terminal, start the durable ingestion worker. Uploads remain queued
+until this process is running, and API restarts do not lose accepted jobs.
+
+```bash
+cd rag-thesis-backend
+.venv\Scripts\activate                         # Windows
+python -m workers.ingestion_worker
 ```
 
 If `.venv` was created with Python 3.14, delete and recreate that environment
@@ -128,6 +138,8 @@ LangSmith latency tracing activates with `LANGSMITH_TRACING=true` and `LANGSMITH
 
 ## Production deployment
 
-- **Backend:** `docker build -t isu-thesis-api rag-thesis-backend && docker run -p 8000:8000 --env-file rag-thesis-backend/.env isu-thesis-api` (or deploy to Railway/Render/Fly.io). Set `APP_ENVIRONMENT=production`, `REQUIRE_PRIVILEGED_MFA=true`, a shared Redis `RATE_LIMIT_STORAGE_URI`, `CORS_ORIGINS`, and `FORWARDED_ALLOW_IPS` restricted to the hosting platform's known proxy IP/CIDR. Use `/health` for liveness and `/ready` for readiness.
+- **Backend API:** `docker build -t isu-thesis-api rag-thesis-backend && docker run -p 8000:8000 --env-file rag-thesis-backend/.env isu-thesis-api` (or deploy to Railway/Render/Fly.io).
+- **Ingestion worker:** deploy the same image as a separate process with command `python -m workers.ingestion_worker`. Never run production uploads with only the API process.
+- Set `APP_ENVIRONMENT=production`, `REQUIRE_PRIVILEGED_MFA=true`, a shared Redis `RATE_LIMIT_STORAGE_URI`, `CORS_ORIGINS`, and `FORWARDED_ALLOW_IPS` restricted to the hosting platform's known proxy IP/CIDR. Use `/health` for API liveness and `/ready` for API readiness; worker health is represented by upload-job heartbeats and reclaimable leases.
 - **Frontend:** `npm run build` then host `dist/` on any static host (Vercel/Netlify/Cloudflare Pages). Set `VITE_API_URL` to the deployed backend URL.
 - **Database:** Supabase handles PostgreSQL + pgvector + Auth + Storage.
