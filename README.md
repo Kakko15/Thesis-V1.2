@@ -1,5 +1,7 @@
 # ISU Centralized AI-Powered Thesis Library
 
+Operational deployment, cancellation, malware scanning, retention, encrypted backup, and disposable restore procedures are in [the operations runbook](docs/OPERATIONS_SECURITY_RUNBOOK.md). Secret rotation is covered by [the secret-rotation runbook](docs/SECRET_ROTATION.md).
+
 A production web application implementing the thesis *"A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"* (Barlis & Gallardo, BSCS Data Mining Track) for the College of Computing Studies, Information and Communication Technology (CCSICT), Isabela State University, Echague.
 
 The system is an **indirect** thesis library: users never view or download full manuscripts. Instead, a closed-domain RAG pipeline retrieves semantically relevant chunks from the CCSICT vector archive and synthesizes citation-backed answers with Gemini.
@@ -140,6 +142,6 @@ LangSmith latency tracing activates with `LANGSMITH_TRACING=true` and `LANGSMITH
 
 - **Backend API:** `docker build -t isu-thesis-api rag-thesis-backend && docker run -p 8000:8000 --env-file rag-thesis-backend/.env isu-thesis-api` (or deploy to Railway/Render/Fly.io).
 - **Ingestion worker:** deploy the same image as a separate process with command `python -m workers.ingestion_worker`. Never run production uploads with only the API process.
-- Set `APP_ENVIRONMENT=production`, `REQUIRE_PRIVILEGED_MFA=true`, a shared Redis `RATE_LIMIT_STORAGE_URI`, `CORS_ORIGINS`, and `FORWARDED_ALLOW_IPS` restricted to the hosting platform's known proxy IP/CIDR. Use `/health` for API liveness and `/ready` for API readiness; worker health is represented by upload-job heartbeats and reclaimable leases.
+- Set `APP_ENVIRONMENT=production`, `REQUIRE_PRIVILEGED_MFA=true`, a shared Redis `RATE_LIMIT_STORAGE_URI`, `CORS_ORIGINS`, and `FORWARDED_ALLOW_IPS` restricted to the hosting platform's known proxy IP/CIDR. Use `/health` for API liveness, `/ready` for API readiness, and `/health/worker` for a non-sensitive worker-health signal; worker correctness remains protected by expiring job leases.
 - **Frontend:** `npm run build` then host `dist/` on any static host (Vercel/Netlify/Cloudflare Pages). Set `VITE_API_URL` to the deployed backend URL.
 - **Database:** Supabase handles PostgreSQL + pgvector + Auth + Storage.

@@ -36,7 +36,10 @@ class Client:
 
 
 @pytest.fixture(autouse=True)
-def clear_caches():
+def clear_caches(monkeypatch):
+    # Guard unit tests invoke dependencies directly, outside FastAPI's
+    # credential injection. Individual MFA tests opt back in explicitly.
+    monkeypatch.setattr(auth.settings, 'require_privileged_mfa', False)
     auth.invalidate_role_cache()
     auth.invalidate_features_cache()
     yield
@@ -120,6 +123,22 @@ class TestTokenAndRoleGuards:
         monkeypatch.setattr(auth.settings, 'supabase_jwt_secret', '')
         assert auth._token_aal(credentials) == 'aal1'
 
+        validated = auth.jwt.encode(
+            {'sub': 'u1', 'aud': 'authenticated', 'aal': 'aal2'},
+            'asymmetric-provider-placeholder-key-32-bytes',
+            algorithm='HS256',
+        )
+        credentials = HTTPAuthorizationCredentials(scheme='Bearer', credentials=validated)
+        assert auth._token_aal(credentials, 'u1') == 'aal2'
+        assert auth._token_aal(credentials, 'different-user') == 'aal1'
+        assert auth._token_aal(object(), 'u1') == 'aal1'
+
+        # A remotely validated token from a project using asymmetric signing
+        # must not be forced through the optional legacy HS256 secret.
+        monkeypatch.setattr(auth.settings, 'supabase_jwt_secret', secret)
+        monkeypatch.setattr(auth.jwt, 'get_unverified_header', lambda _token: {'alg': 'ES256'})
+        assert auth._token_aal(credentials, 'u1') == 'aal2'
+
     def test_optional_and_required_token_paths(self, monkeypatch):
         assert auth.get_optional_user(None) is None
         user = SimpleNamespace(id='u1')
@@ -151,11 +170,11 @@ class TestTokenAndRoleGuards:
 
         monkeypatch.setattr(auth.settings, 'require_privileged_mfa', True)
         monkeypatch.setattr(auth, 'get_user_role', lambda _uid: 'admin')
-        monkeypatch.setattr(auth, '_token_aal', lambda _credentials: 'aal1')
+        monkeypatch.setattr(auth, '_token_aal', lambda _credentials, _user_id: 'aal1')
         with pytest.raises(HTTPException) as mfa_required:
             auth.require_admin(user, credentials)
         assert mfa_required.value.status_code == 403
-        monkeypatch.setattr(auth, '_token_aal', lambda _credentials: 'aal2')
+        monkeypatch.setattr(auth, '_token_aal', lambda _credentials, _user_id: 'aal2')
         assert auth.require_admin(user, credentials) is user
 
     @pytest.mark.parametrize('guard,allowed,denied', [

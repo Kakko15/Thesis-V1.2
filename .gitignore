@@ -1,5 +1,11 @@
 .claude/
 
+# Local environment files (including the repository-root Docker/Vite file).
+# Examples stay tracked; real keys and deployment origins never do.
+.env
+.env.*
+!.env.example
+
 # Working notes / extracted proposal text (not source)
 thesis_extract.txt
 Final Thesis Proposal Paper_Update Carlo.pdf
@@ -24,6 +30,7 @@ ISU_Logo.jpg
 coverage.json
 tmp-pylint-cache/
 tmp-pytest-*/
+tmp-review-*/
 
 # Supabase local backup
 supabase/

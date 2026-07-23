@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  authOptions,
   friendlyAuthError,
   isStrongPassword,
   isValidEmail,
@@ -26,11 +27,12 @@ test('maps common auth failures and parses retry timing', () => {
   const cases = [
     ['Invalid login credentials', /Incorrect email/],
     ['Email not confirmed', /verified/],
-    ['User already registered', /already exists/],
-    ['Signups not allowed for otp', /No account found/],
+    ['User already registered', /could not be completed/],
+    ['Signups not allowed for otp', /could not be sent/],
     ['Invalid TOTP', /code didn’t match/],
     ['OTP_expired', /expired/],
-    ['Too many requests; retry after 42 seconds', /wait 42s/],
+    ['Too many requests; retry after 42 seconds', /Too many authentication attempts/],
+    ['Captcha verification failed', /security check expired or failed/i],
     ['New password should be at least 8 characters', /at least 8 characters/],
     ['New password must be different from the old password', /different from the old/],
     ['Auth session missing', /link has expired/],
@@ -39,4 +41,12 @@ test('maps common auth failures and parses retry timing', () => {
   ]
   for (const [message, expected] of cases) assert.match(friendlyAuthError({ message }), expected)
   assert.equal(retryAfterSeconds({ message: 'Try again after 42 seconds' }), 42)
+})
+
+test('passes CAPTCHA tokens only when a challenge supplied one', () => {
+  assert.deepEqual(authOptions({ shouldCreateUser: false }, 'token-123'), {
+    shouldCreateUser: false,
+    captchaToken: 'token-123',
+  })
+  assert.deepEqual(authOptions({ shouldCreateUser: false }), { shouldCreateUser: false })
 })

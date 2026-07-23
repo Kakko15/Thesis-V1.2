@@ -27,7 +27,7 @@ export function MfaChallengeStep({ onUseAnotherAccount }) {
     let cancelled = false
     supabase.auth.mfa.listFactors().then(({ data, error: err }) => {
       if (cancelled) return
-      const totp = data?.totp?.find((f) => f.status === 'verified') ?? data?.totp?.[0]
+      const totp = data?.totp?.find((f) => f.status === 'verified')
       if (err || !totp) setFactorError('No authenticator found on this account. Sign in again or contact an admin.')
       else setFactorId(totp.id)
     })

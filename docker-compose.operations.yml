@@ -1,0 +1,68 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    volumes: ["redis-data:/data"]
+
+  clamav:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 1 >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    volumes: ["clamav-db:/var/lib/clamav"]
+
+  api:
+    build: ./rag-thesis-backend
+    env_file: ./rag-thesis-backend/.env
+    environment:
+      APP_ENVIRONMENT: production
+      RATE_LIMIT_STORAGE_URI: redis://redis:6379/0
+      MALWARE_SCAN_MODE: clamav
+      CLAMAV_HOST: clamav
+      OPERATIONS_MONITOR_ENABLED: "true"
+    ports: ["8000:8000"]
+    depends_on:
+      redis: { condition: service_started }
+      clamav: { condition: service_healthy }
+    restart: unless-stopped
+
+  worker:
+    build: ./rag-thesis-backend
+    command: ["python", "-m", "workers.ingestion_worker"]
+    env_file: ./rag-thesis-backend/.env
+    environment:
+      APP_ENVIRONMENT: production
+      RATE_LIMIT_STORAGE_URI: redis://redis:6379/0
+      MALWARE_SCAN_MODE: clamav
+      CLAMAV_HOST: clamav
+      OPERATIONS_MONITOR_ENABLED: "true"
+    depends_on:
+      redis: { condition: service_started }
+      clamav: { condition: service_healthy }
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./rag-thesis-frontend
+      args:
+        VITE_API_URL: ${PUBLIC_API_ORIGIN}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
+    environment:
+      API_ORIGIN: ${PUBLIC_API_ORIGIN}
+      SUPABASE_ORIGIN: ${VITE_SUPABASE_URL}
+      SUPABASE_WS_ORIGIN: ${SUPABASE_WS_ORIGIN}
+      DOLLAR: $$
+    ports: ["8080:8080"]
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  clamav-db:

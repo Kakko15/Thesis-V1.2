@@ -123,25 +123,58 @@ def _ensure_approved_account(user_id: str) -> None:
         )
 
 
-def _token_aal(credentials: HTTPAuthorizationCredentials) -> str:
-    """Read AAL from a locally signature-verified Supabase access token."""
-    if not settings.supabase_jwt_secret:
-        logger.warning('MFA assurance cannot be verified because SUPABASE_JWT_SECRET is missing')
+def _token_aal(
+    credentials: HTTPAuthorizationCredentials,
+    expected_user_id: str | None = None,
+) -> str:
+    """Read AAL after Supabase has validated this exact access token.
+
+    A configured legacy HS256 secret still enables local signature checking.
+    Without it, privileged guards may decode only after ``get_current_user``
+    has successfully validated the same token with Supabase, and the token
+    subject must match that validated user. This supports Supabase projects
+    using newer asymmetric signing keys without weakening authentication.
+    """
+    token = getattr(credentials, 'credentials', None)
+    if not isinstance(token, str) or not token:
         return 'aal1'
     try:
-        claims = jwt.decode(
-            credentials.credentials,
-            settings.supabase_jwt_secret,
-            algorithms=['HS256'],
-            audience='authenticated',
-        )
+        header = jwt.get_unverified_header(token)
+        algorithm = str(header.get('alg') or '')
+        if settings.supabase_jwt_secret and algorithm == 'HS256':
+            claims = jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=['HS256'],
+                audience='authenticated',
+            )
+        elif expected_user_id:
+            # ``get_current_user`` has already sent this exact token to
+            # Supabase and returned ``expected_user_id``.  Reading its claims
+            # here supports projects that use asymmetric signing keys without
+            # adding a second network request.  The subject match below binds
+            # the claim to the remotely validated identity.
+            claims = jwt.decode(
+                token,
+                options={'verify_signature': False, 'verify_aud': False},
+            )
+        else:
+            return 'aal1'
+        if expected_user_id and str(claims.get('sub') or '') != expected_user_id:
+            return 'aal1'
         return str(claims.get('aal') or 'aal1')
-    except jwt.InvalidTokenError:
+    except (jwt.InvalidTokenError, jwt.DecodeError):
         return 'aal1'
 
 
-def _require_privileged_mfa(credentials: HTTPAuthorizationCredentials) -> None:
-    if settings.require_privileged_mfa and _token_aal(credentials) != 'aal2':
+def _require_privileged_mfa(
+    credentials: HTTPAuthorizationCredentials,
+    expected_user_id: str,
+) -> None:
+    if (
+        settings.require_privileged_mfa
+        and _token_aal(credentials, expected_user_id) != 'aal2'
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail='Multi-factor authentication is required for privileged access.',
@@ -197,7 +230,7 @@ def require_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail='Administrator privileges are required for this action.',
         )
-    _require_privileged_mfa(credentials)
+    _require_privileged_mfa(credentials, user.id)
     return user
 
 
@@ -212,7 +245,7 @@ def require_faculty_or_admin(
             detail='Faculty or administrator privileges are required for this action.',
         )
     if get_user_role(user.id) in (ROLE_ADMIN, ROLE_SUPERADMIN):
-        _require_privileged_mfa(credentials)
+        _require_privileged_mfa(credentials, user.id)
     return user
 
 
@@ -226,7 +259,7 @@ def require_superadmin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail='Superadmin privileges are required for this action.',
         )
-    _require_privileged_mfa(credentials)
+    _require_privileged_mfa(credentials, user.id)
     return user
 
 _FEATURES_CACHE: dict[str, object] = {
@@ -262,7 +295,7 @@ def require_novelty_access(
     """Allows access if user is admin/superadmin or if their role has the novelty feature enabled."""
     role = get_user_role(user.id)
     if role in (ROLE_ADMIN, ROLE_SUPERADMIN):
-        _require_privileged_mfa(credentials)
+        _require_privileged_mfa(credentials, user.id)
         return user
     features = get_role_features()
     if role in features and features[role].get('novelty') is True:
@@ -279,7 +312,7 @@ def require_upload_access(
     """Allows access if user is admin/superadmin or if their role has the upload feature enabled."""
     role = get_user_role(user.id)
     if role in (ROLE_ADMIN, ROLE_SUPERADMIN):
-        _require_privileged_mfa(credentials)
+        _require_privileged_mfa(credentials, user.id)
         return user
     features = get_role_features()
     if role in features and features[role].get('upload') is True:

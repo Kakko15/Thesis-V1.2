@@ -51,6 +51,20 @@ class Settings(BaseSettings):
     ingestion_heartbeat_seconds: int = Field(default=30, ge=5, le=300)
     ingestion_max_attempts: int = Field(default=3, ge=1, le=10)
     ingestion_maintenance_seconds: int = Field(default=300, ge=30, le=3600)
+    operations_monitor_enabled: bool = False
+    operations_monitor_seconds: int = Field(default=60, ge=15, le=3600)
+    operations_worker_stale_seconds: int = Field(default=90, ge=30, le=900)
+    operations_queue_age_seconds: int = Field(default=300, ge=60, le=86400)
+    operations_queue_depth_threshold: int = Field(default=10, ge=1, le=10000)
+    operations_cleanup_age_seconds: int = Field(default=600, ge=60, le=86400)
+    operations_alert_webhook_url: str = ''
+    operations_alert_webhook_secret: str = ''
+    operations_alert_timeout_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
+    retention_enforcement_enabled: bool = False
+    malware_scan_mode: Literal['disabled', 'clamav'] = 'disabled'
+    clamav_host: str = '127.0.0.1'
+    clamav_port: int = Field(default=3310, ge=1, le=65535)
+    clamav_timeout_seconds: float = Field(default=20.0, ge=1.0, le=120.0)
     # Optional: Supabase legacy JWT secret (Project Settings -> API). When set,
     # rate limiting keys on the HS256-VERIFIED user id instead of the client
     # IP, so users behind one campus NAT get individual quotas. Signature
@@ -98,6 +112,17 @@ class Settings(BaseSettings):
             raise ValueError('Production requires a shared Redis rate-limit storage URI')
         if self.app_environment == 'production' and not self.require_privileged_mfa:
             raise ValueError('Production requires MFA for privileged accounts')
+        if self.app_environment == 'production' and self.malware_scan_mode != 'clamav':
+            raise ValueError('Production requires ClamAV malware scanning')
+        webhook_values = bool(self.operations_alert_webhook_url), bool(
+            self.operations_alert_webhook_secret
+        )
+        if webhook_values[0] != webhook_values[1]:
+            raise ValueError('Operations webhook URL and signing secret must be configured together')
+        if self.operations_alert_webhook_url and not self.operations_alert_webhook_url.startswith('https://'):
+            raise ValueError('Operations alert webhook must use HTTPS')
+        if self.operations_alert_webhook_secret and len(self.operations_alert_webhook_secret) < 32:
+            raise ValueError('Operations webhook signing secret must be at least 32 characters')
         return self
 
 

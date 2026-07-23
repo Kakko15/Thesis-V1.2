@@ -1,0 +1,30 @@
+server {
+  listen 8080;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ${SUPABASE_ORIGIN}; font-src 'self' data:; connect-src 'self' ${API_ORIGIN} ${SUPABASE_ORIGIN} ${SUPABASE_WS_ORIGIN} https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; upgrade-insecure-requests" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+  location = /healthz {
+    access_log off;
+    default_type text/plain;
+    return 200 "healthy\n";
+  }
+
+  location / {
+    try_files ${DOLLAR}uri ${DOLLAR}uri/ /index.html;
+  }
+
+  location ~* \.(?:js|css|png|jpg|jpeg|gif|svg|ico|woff2?)$ {
+    expires 7d;
+    # Do not add a location-level header here. In Nginx, doing so suppresses
+    # inheritance of every security header declared at server scope.
+    try_files ${DOLLAR}uri =404;
+  }
+}

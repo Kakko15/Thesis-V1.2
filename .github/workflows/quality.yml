@@ -37,14 +37,19 @@ jobs:
       - name: Verify Python dependency consistency
         run: pip check
 
+      - name: Audit Python dependencies
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt
+
       - name: PyTest with coverage (Functional Suitability)
         run: >
-          pytest --cov=routers --cov=services --cov=dependencies
+          pytest --cov=routers --cov=services --cov=dependencies --cov=workers
           --cov=main --cov=config --cov=models
-          --cov-report=xml --cov-report=term --cov-fail-under=80
+          --cov-report=xml --cov-report=term --cov-fail-under=83.18
 
       - name: Pylint (Maintainability)
-        run: pylint --rcfile=.pylintrc routers services dependencies main.py config.py models.py
+        run: pylint --rcfile=.pylintrc routers services dependencies workers main.py config.py models.py
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
@@ -83,6 +88,45 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright critical flows
+        run: npm run test:e2e
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+
+  containers:
+    name: Container vulnerability scan
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: backend
+            context: rag-thesis-backend
+          - name: frontend
+            context: rag-thesis-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.name }} image
+        run: docker build -t isu-thesis-${{ matrix.name }}:ci ${{ matrix.context }}
+      - name: Scan ${{ matrix.name }} image
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: isu-thesis-${{ matrix.name }}:ci
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
 
   sonarqube:
     name: SonarQube (Reliability)

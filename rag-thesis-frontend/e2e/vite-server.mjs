@@ -18,3 +18,8 @@ const close = async () => {
 process.once('SIGINT', close)
 process.once('SIGTERM', close)
 process.once('SIGHUP', close)
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (value) => {
+  if (value.trim() === 'close') close()
+})
+process.stdin.once('end', close)

@@ -8,9 +8,10 @@
     "build": "vite build",
     "lint": "eslint .",
     "test": "node --test",
-    "test:e2e": "playwright test",
+    "test:e2e": "node e2e/run-playwright.mjs",
     "test:e2e:install": "playwright install chromium",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "security:headers": "node scripts/validate-security-headers.mjs"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.19",

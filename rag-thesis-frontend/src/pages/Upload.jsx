@@ -6,9 +6,12 @@ import { toast } from 'sonner'
 import {
   UploadCloud, FileText, X, ArrowRight, ArrowLeft, CheckCircle2,
   ScanText, Archive, Scissors, BrainCircuit, Database, PartyPopper, AlertTriangle,
-  ShieldAlert,
+  ShieldAlert, ShieldCheck, Ban,
 } from 'lucide-react'
-import { uploadPaper, getUploadStatus, getDepartments, apiErrorMessage, extractMetadata } from '../api'
+import {
+  uploadPaper, getUploadStatus, getDepartments, apiErrorMessage, extractMetadata,
+  cancelUploadJob,
+} from '../api'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Button } from '../components/ui/Button'
 import { Input, Textarea, Select, Field } from '../components/ui/Input'
@@ -23,6 +26,7 @@ const STEPS = ['Manuscript', 'Metadata', 'Review']
 
 const PIPELINE_STAGES = [
   { key: 'download', label: 'Secure source', icon: Archive },
+  { key: 'malware_scan', label: 'Malware scan', icon: ShieldCheck },
   { key: 'extract', label: 'Extract & clean', icon: ScanText },
   { key: 'chunk', label: 'Chunk (800 tokens)', icon: Scissors },
   { key: 'embed', label: 'Embed (768d)', icon: BrainCircuit },
@@ -249,6 +253,8 @@ export default function Upload() {
   const { isSuperadmin, department: userDepartment } = useAuth()
   const enforcedDepartment = userDepartment || 'CCSICT'
   const [state, dispatch] = useReducer(uploadReducer, enforcedDepartment, createUploadState)
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const { step, file, form, errors, job, submitting, parsing, pendingFile, pollError } = state
   const setStep = (value) => dispatch({ type: 'set-step', step: value })
   const setFile = (value) => dispatch({ type: 'set-file', file: value })
@@ -384,6 +390,9 @@ export default function Upload() {
         } else if (status.status === 'failed') {
           sessionStorage.removeItem('activeUploadJob')
           toast.error('Ingestion failed', { description: status.error })
+        } else if (status.status === 'cancelled') {
+          sessionStorage.removeItem('activeUploadJob')
+          toast.info('Upload cancelled', { description: 'The staged manuscript is being removed safely.' })
         } else {
           pollRef.current = setTimeout(poll, 1500)
         }
@@ -447,6 +456,30 @@ export default function Upload() {
     sessionStorage.removeItem('activeUploadJob')
     idempotencyKeyRef.current = crypto.randomUUID()
     dispatch({ type: 'reset', department: enforcedDepartment })
+  }
+
+  const confirmCancellation = async () => {
+    if (!jobIdRef.current) return
+    setCancelling(true)
+    try {
+      const result = await cancelUploadJob(jobIdRef.current, 'Cancelled by uploader')
+      setJob({
+        ...job,
+        status: result.status,
+        cancel_requested: result.cancel_requested,
+        cancelled_at: result.cancelled_at,
+        can_cancel: false,
+        message: result.status === 'cancelled'
+          ? 'Upload cancelled. Secure cleanup is pending.'
+          : 'Cancellation requested. The worker will stop at the next safe checkpoint.',
+      })
+      toast.success(result.status === 'cancelled' ? 'Upload cancelled' : 'Cancellation requested')
+    } catch (error) {
+      toast.error('Could not cancel upload', { description: apiErrorMessage(error) })
+    } finally {
+      setCancelling(false)
+      setCancelOpen(false)
+    }
   }
 
   return (
@@ -629,9 +662,32 @@ export default function Upload() {
                   <p className="mt-2 max-w-sm text-sm opacity-60">{job.error}</p>
                   <Button variant="secondary" className="mt-7" onClick={reset}>Try again</Button>
                 </div>
+              ) : job?.status === 'cancelled' ? (
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-gold-400/15">
+                    <Ban size={32} className="text-gold-500" />
+                  </div>
+                  <h2 className="font-display text-2xl font-extrabold">Upload cancelled</h2>
+                  <p className="mt-2 max-w-sm text-sm opacity-60">
+                    The manuscript was not indexed. Its staged private copy is being removed safely.
+                  </p>
+                  <Button variant="secondary" className="mt-7" onClick={reset}>Start a new upload</Button>
+                </div>
               ) : (
                 <>
                   <PipelineProgress job={job} />
+                  {job?.cancel_requested && (
+                    <div className="rounded-2xl border border-gold-400/35 bg-gold-400/10 p-4 text-center text-sm">
+                      Cancellation requested. Processing will stop at the next safe checkpoint.
+                    </div>
+                  )}
+                  {job?.can_cancel && !job?.cancel_requested && (
+                    <div className="flex justify-center">
+                      <Button variant="ghost" onClick={() => setCancelOpen(true)}>
+                        <Ban size={15} /> Cancel upload
+                      </Button>
+                    </div>
+                  )}
                   {pollError && (
                     <div className="mt-5 rounded-2xl border border-gold-400/35 bg-gold-400/10 p-4 text-center">
                       <p className="text-sm opacity-75">{pollError}</p>
@@ -667,6 +723,16 @@ export default function Upload() {
         title="Autofilling the field"
         message="Confirm the file and move on the next step"
         confirmLabel="Confirm"
+      />
+      <ConfirmDialog
+        open={cancelOpen}
+        onClose={() => setCancelOpen(false)}
+        onConfirm={confirmCancellation}
+        title="Cancel this upload?"
+        message="The worker will stop safely, the manuscript will not be indexed, and its staged private copy will be cleaned up. To submit it again, start a new upload."
+        confirmLabel="Cancel upload"
+        danger
+        loading={cancelling}
       />
     </PageTransition>
   )
