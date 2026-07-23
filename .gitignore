@@ -13,8 +13,17 @@ ISU_Logo.jpg
 # SonarQube scanner cache
 .scannerwork/
 
-# SQL files (database schema & migrations)
+# Local SQL dump files should not be committed. Database schema and numbered
+# migrations are source code and must remain available to deployments.
 *.sql
+!rag-thesis-backend/supabase_setup.sql
+!rag-thesis-backend/migrations/
+!rag-thesis-backend/migrations/*.sql
+
+# Local test and analysis artifacts
+coverage.json
+tmp-pylint-cache/
+tmp-pytest-*/
 
 # Supabase local backup
 supabase/

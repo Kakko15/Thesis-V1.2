@@ -18,7 +18,7 @@ export default defineConfig({
   webServer: {
     command: 'node e2e/vite-server.mjs',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: false,
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === '1',
     timeout: 120_000,
   },
   projects: [

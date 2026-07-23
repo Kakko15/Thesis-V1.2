@@ -28,7 +28,7 @@ def list_pending_storage_cleanup(user=Depends(require_superadmin)):
 def retry_storage_cleanup(task_id: int, user=Depends(require_superadmin)):
     result = (
         sb.table('storage_cleanup_queue')
-        .select('id,operation,resource_path,paper_id,attempts,status')
+        .select('id,operation,resource_path,paper_id,job_id,attempts,status')
         .eq('id', task_id)
         .single()
         .execute()
@@ -49,6 +49,11 @@ def retry_storage_cleanup(task_id: int, user=Depends(require_superadmin)):
             'attempts': attempts,
             'error_category': '',
         }).eq('id', task_id).execute()
+        if task.get('job_id'):
+            sb.table('upload_jobs').update({
+                'cleanup_status': 'completed',
+                'source_stored': False,
+            }).eq('id', task['job_id']).execute()
     except Exception as exc:
         logger.error('Cleanup retry %s failed (%s)', task_id, type(exc).__name__)
         sb.table('storage_cleanup_queue').update({

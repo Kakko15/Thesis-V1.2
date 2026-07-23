@@ -21,6 +21,7 @@ COPY main.py config.py models.py ./
 COPY routers/*.py ./routers/
 COPY services/*.py ./services/
 COPY dependencies/*.py ./dependencies/
+COPY workers/*.py ./workers/
 
 # Run as an unprivileged user (never root in production)
 RUN useradd --create-home appuser && chown -R appuser:appuser /app

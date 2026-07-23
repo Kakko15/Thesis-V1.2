@@ -82,20 +82,24 @@ class PaperOut(BaseModel):
 
 class UploadAccepted(BaseModel):
     job_id: str
+    idempotency_key: str
     status: str
     message: str
 
 
 class UploadJobStatus(BaseModel):
     job_id: str
-    status: str            # queued | processing | completed | failed
-    stage: str             # extract | store | chunk | embed | screen | index | done
+    status: str            # staging | queued | processing | retry_wait | completed | failed
+    stage: str             # store | download | extract | chunk | embed | screen | index | done
     progress: int          # 0-100
     message: str = ''
     paper_id: Optional[str] = None
     chunks: Optional[int] = None
     duplication: Optional[dict] = None  # automatic 85% screening result (paper, Section 3.2.3 Phase 3)
     error: Optional[str] = None
+    attempt_count: int = 0
+    max_attempts: int = 3
+    next_retry_at: Optional[str] = None
 
 
 class ScanHistoryOut(BaseModel):

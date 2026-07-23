@@ -73,6 +73,7 @@ Run `npm.cmd run build` and deploy the generated `dist` directory. Configure the
 ## Troubleshooting
 
 - Backend unavailable or repeated connection errors: start FastAPI on port 8000 and confirm `/health` returns 200.
+- Upload remains queued: start the separate backend worker with `python -m workers.ingestion_worker`. Refreshing the upload page safely restores polling for the active durable job.
 - A hard refresh returns JSON/404: enable the SPA history fallback in the web host; Vite already handles this locally.
 - Login returns to the sign-in page: verify the Supabase URL/anon key, profile status, department, and role.
 - Archive is empty: confirm the backend points to the intended Supabase project and the paper has a ready active index.
