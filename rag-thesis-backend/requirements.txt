@@ -24,7 +24,7 @@ Pillow==12.3.0
 
 # Production hardening
 slowapi==0.1.10
-redis==5.2.1
+redis==8.0.1
 cryptography==49.0.0
 
 # Testing (ISO/IEC 25010 — Functional Suitability / Maintainability)
