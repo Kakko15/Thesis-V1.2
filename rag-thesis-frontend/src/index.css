@@ -66,6 +66,10 @@
   /* Motion */
   --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-duration-instant: 100ms;
+  --motion-duration-short: 200ms;
+  --motion-duration-medium: 400ms;
+  --motion-duration-long: 700ms;
 
   --animate-aurora: aurora 24s ease-in-out infinite alternate;
   --animate-float: float 7s ease-in-out infinite;
@@ -119,6 +123,15 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
   }
+}
+
+html[data-contrast="high"] {
+  --glass-opacity: 0.96;
+}
+
+html[data-contrast="high"] :where(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 3px;
 }
 
 /* ============================================================

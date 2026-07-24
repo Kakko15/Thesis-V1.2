@@ -1,0 +1,320 @@
+[
+    {
+        "component":  "api",
+        "image":  "thesis-v1-api:latest",
+        "inspect":  {
+                        "value":  [
+                                      {
+                                          "Id":  "sha256:cf4d98bed8a0eb0dba1aedde0412d009faff3275eb75ca3491f3e7209e42946b",
+                                          "RepoTags":  [
+                                                           "thesis-v1-api:latest"
+                                                       ],
+                                          "RepoDigests":  [
+                                                              "thesis-v1-api@sha256:cf4d98bed8a0eb0dba1aedde0412d009faff3275eb75ca3491f3e7209e42946b"
+                                                          ],
+                                          "Comment":  "buildkit.dockerfile.v0",
+                                          "Created":  "2026-07-24T20:41:11.563407773Z",
+                                          "Author":  "github.com/chainguard-dev/apko",
+                                          "Config":  {
+                                                         "User":  "65532:65532",
+                                                         "ExposedPorts":  {
+                                                                              "8000/tcp":  {
+
+                                                                                           }
+                                                                          },
+                                                         "Env":  [
+                                                                     "PATH=/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/bin",
+                                                                     "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+                                                                     "TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache"
+                                                                 ],
+                                                         "Cmd":  [
+                                                                     "uvicorn",
+                                                                     "main:app",
+                                                                     "--host",
+                                                                     "0.0.0.0",
+                                                                     "--port",
+                                                                     "8000",
+                                                                     "--proxy-headers"
+                                                                 ],
+                                                         "WorkingDir":  "/app",
+                                                         "Labels":  {
+                                                                        "com.docker.compose.project":  "thesis-v1",
+                                                                        "com.docker.compose.service":  "api",
+                                                                        "com.docker.compose.version":  "5.3.1",
+                                                                        "dev.chainguard.image.title":  "python",
+                                                                        "dev.chainguard.package.main":  "",
+                                                                        "org.opencontainers.image.authors":  "Chainguard Team https://www.chainguard.dev/",
+                                                                        "org.opencontainers.image.created":  "2026-07-19T05:07:03Z",
+                                                                        "org.opencontainers.image.source":  "https://github.com/chainguard-images/images/tree/main/images/python",
+                                                                        "org.opencontainers.image.title":  "python",
+                                                                        "org.opencontainers.image.url":  "https://images.chainguard.dev/directory/image/python/overview",
+                                                                        "org.opencontainers.image.vendor":  "Chainguard"
+                                                                    },
+                                                         "ArgsEscaped":  true,
+                                                         "Healthcheck":  {
+                                                                             "Test":  [
+                                                                                          "CMD",
+                                                                                          "python",
+                                                                                          "-c",
+                                                                                          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\u0027http://localhost:8000/health\u0027, timeout=4).status == 200 else 1)"
+                                                                                      ],
+                                                                             "Interval":  30000000000,
+                                                                             "Timeout":  5000000000,
+                                                                             "StartPeriod":  15000000000,
+                                                                             "Retries":  3
+                                                                         }
+                                                     },
+                                          "Architecture":  "amd64",
+                                          "Os":  "linux",
+                                          "Size":  134883792,
+                                          "RootFS":  {
+                                                         "Type":  "layers",
+                                                         "Layers":  [
+                                                                        "sha256:d140b0fc019d4398e57768961ffe7972957c843179d31677ef02631aaf43fdca",
+                                                                        "sha256:018d3987342beb49eeb6d78bbbce6a566905b259f716afb9f88e4e945631282d",
+                                                                        "sha256:d3be468ef8e1ce59a0fce597227969690524ac84c87b8cc6c689b4a1b53c80cb",
+                                                                        "sha256:a7613bad6cfd5f641d591e4dde7e145962bcba6b37a924d859fe0c4b2203bcd9",
+                                                                        "sha256:80e1072767c4417c1f1e6db2c3d113327dd5577ada05c34eb4eeddbcdcd331cb",
+                                                                        "sha256:8718c6dc60f1a76cb3ee25b05f8baf388da1694c06c1fe23131821e0235f6174",
+                                                                        "sha256:e8b7fdc6698294429cf6faa24bdbe8a3235e8ed6b25937cd7eac21a804d505bf",
+                                                                        "sha256:b77c6cfa1c88b6d3398b32f0b2bc205e20e0621c6abf314bab222d405b92381f",
+                                                                        "sha256:fe2d79f38224db6597d1fb82f5753c2a42c091ed4920aa55f600419498c997bb",
+                                                                        "sha256:fc415c08693416dd95167c5aed4d3d1387ab14017bfd586fd3b408686d374e30",
+                                                                        "sha256:a19fb35a683093bd050ffd30032557b12bf9d6f9e69d7b3beaccce8f6ee8005d",
+                                                                        "sha256:4b1e394f0f65e1b391f2449bc8924ad2550b89e7258bf5ba84cbdb486601262b",
+                                                                        "sha256:125ec1c684110f391bc9464e138ad672a61bfe8b5cdd579c8b433bf5ff935ba8",
+                                                                        "sha256:8cae15c1d2f1876a52c7c87f59461af19f315f2805d93c20e39f915c42f34fcc",
+                                                                        "sha256:1aea176a9b83013ab930627a34064ddabd9268fd128298af249298308bb704a9"
+                                                                    ]
+                                                     },
+                                          "Metadata":  {
+                                                           "LastTagTime":  "2026-07-24T20:41:18.991670148Z"
+                                                       },
+                                          "Descriptor":  {
+                                                             "mediaType":  "application/vnd.oci.image.index.v1+json",
+                                                             "digest":  "sha256:cf4d98bed8a0eb0dba1aedde0412d009faff3275eb75ca3491f3e7209e42946b",
+                                                             "size":  856
+                                                         },
+                                          "Identity":  {
+                                                           "Build":  [
+                                                                         {
+                                                                             "Ref":  "g7hjg4r5mr9ep1nysiasbs6xw",
+                                                                             "CreatedAt":  "2026-07-24T20:41:20.623155992Z"
+                                                                         }
+                                                                     ]
+                                                       }
+                                      }
+                                  ],
+                        "Count":  1
+                    }
+    },
+    {
+        "component":  "worker",
+        "image":  "thesis-v1-worker:latest",
+        "inspect":  {
+                        "value":  [
+                                      {
+                                          "Id":  "sha256:9306fbcce1ea01e8e400a67cca781e360ad8d6f730421a5470f3d0dc942f0fe9",
+                                          "RepoTags":  [
+                                                           "thesis-v1-worker:latest"
+                                                       ],
+                                          "RepoDigests":  [
+                                                              "thesis-v1-worker@sha256:9306fbcce1ea01e8e400a67cca781e360ad8d6f730421a5470f3d0dc942f0fe9"
+                                                          ],
+                                          "Comment":  "buildkit.dockerfile.v0",
+                                          "Created":  "2026-07-24T20:41:11.563407773Z",
+                                          "Author":  "github.com/chainguard-dev/apko",
+                                          "Config":  {
+                                                         "User":  "65532:65532",
+                                                         "ExposedPorts":  {
+                                                                              "8000/tcp":  {
+
+                                                                                           }
+                                                                          },
+                                                         "Env":  [
+                                                                     "PATH=/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/bin",
+                                                                     "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+                                                                     "TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache"
+                                                                 ],
+                                                         "Cmd":  [
+                                                                     "uvicorn",
+                                                                     "main:app",
+                                                                     "--host",
+                                                                     "0.0.0.0",
+                                                                     "--port",
+                                                                     "8000",
+                                                                     "--proxy-headers"
+                                                                 ],
+                                                         "WorkingDir":  "/app",
+                                                         "Labels":  {
+                                                                        "com.docker.compose.project":  "thesis-v1",
+                                                                        "com.docker.compose.service":  "worker",
+                                                                        "com.docker.compose.version":  "5.3.1",
+                                                                        "dev.chainguard.image.title":  "python",
+                                                                        "dev.chainguard.package.main":  "",
+                                                                        "org.opencontainers.image.authors":  "Chainguard Team https://www.chainguard.dev/",
+                                                                        "org.opencontainers.image.created":  "2026-07-19T05:07:03Z",
+                                                                        "org.opencontainers.image.source":  "https://github.com/chainguard-images/images/tree/main/images/python",
+                                                                        "org.opencontainers.image.title":  "python",
+                                                                        "org.opencontainers.image.url":  "https://images.chainguard.dev/directory/image/python/overview",
+                                                                        "org.opencontainers.image.vendor":  "Chainguard"
+                                                                    },
+                                                         "ArgsEscaped":  true,
+                                                         "Healthcheck":  {
+                                                                             "Test":  [
+                                                                                          "CMD",
+                                                                                          "python",
+                                                                                          "-c",
+                                                                                          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\u0027http://localhost:8000/health\u0027, timeout=4).status == 200 else 1)"
+                                                                                      ],
+                                                                             "Interval":  30000000000,
+                                                                             "Timeout":  5000000000,
+                                                                             "StartPeriod":  15000000000,
+                                                                             "Retries":  3
+                                                                         }
+                                                     },
+                                          "Architecture":  "amd64",
+                                          "Os":  "linux",
+                                          "Size":  134883795,
+                                          "RootFS":  {
+                                                         "Type":  "layers",
+                                                         "Layers":  [
+                                                                        "sha256:d140b0fc019d4398e57768961ffe7972957c843179d31677ef02631aaf43fdca",
+                                                                        "sha256:018d3987342beb49eeb6d78bbbce6a566905b259f716afb9f88e4e945631282d",
+                                                                        "sha256:d3be468ef8e1ce59a0fce597227969690524ac84c87b8cc6c689b4a1b53c80cb",
+                                                                        "sha256:a7613bad6cfd5f641d591e4dde7e145962bcba6b37a924d859fe0c4b2203bcd9",
+                                                                        "sha256:80e1072767c4417c1f1e6db2c3d113327dd5577ada05c34eb4eeddbcdcd331cb",
+                                                                        "sha256:8718c6dc60f1a76cb3ee25b05f8baf388da1694c06c1fe23131821e0235f6174",
+                                                                        "sha256:e8b7fdc6698294429cf6faa24bdbe8a3235e8ed6b25937cd7eac21a804d505bf",
+                                                                        "sha256:b77c6cfa1c88b6d3398b32f0b2bc205e20e0621c6abf314bab222d405b92381f",
+                                                                        "sha256:fe2d79f38224db6597d1fb82f5753c2a42c091ed4920aa55f600419498c997bb",
+                                                                        "sha256:fc415c08693416dd95167c5aed4d3d1387ab14017bfd586fd3b408686d374e30",
+                                                                        "sha256:a19fb35a683093bd050ffd30032557b12bf9d6f9e69d7b3beaccce8f6ee8005d",
+                                                                        "sha256:4b1e394f0f65e1b391f2449bc8924ad2550b89e7258bf5ba84cbdb486601262b",
+                                                                        "sha256:125ec1c684110f391bc9464e138ad672a61bfe8b5cdd579c8b433bf5ff935ba8",
+                                                                        "sha256:8cae15c1d2f1876a52c7c87f59461af19f315f2805d93c20e39f915c42f34fcc",
+                                                                        "sha256:1aea176a9b83013ab930627a34064ddabd9268fd128298af249298308bb704a9"
+                                                                    ]
+                                                     },
+                                          "Metadata":  {
+                                                           "LastTagTime":  "2026-07-24T20:41:18.98724561Z"
+                                                       },
+                                          "Descriptor":  {
+                                                             "mediaType":  "application/vnd.oci.image.index.v1+json",
+                                                             "digest":  "sha256:9306fbcce1ea01e8e400a67cca781e360ad8d6f730421a5470f3d0dc942f0fe9",
+                                                             "size":  856
+                                                         },
+                                          "Identity":  {
+                                                           "Build":  [
+                                                                         {
+                                                                             "Ref":  "qw9db6wr2s7ylfcmhzsg7l0xd",
+                                                                             "CreatedAt":  "2026-07-24T20:41:20.609822055Z"
+                                                                         }
+                                                                     ]
+                                                       }
+                                      }
+                                  ],
+                        "Count":  1
+                    }
+    },
+    {
+        "component":  "frontend",
+        "image":  "thesis-v1-frontend:latest",
+        "inspect":  {
+                        "value":  [
+                                      {
+                                          "Id":  "sha256:952f1ba39d69179e908e1b3985f3ee0dd7ce7fe05daa6797a23c2e9b0455f8e9",
+                                          "RepoTags":  [
+                                                           "thesis-v1-frontend:latest"
+                                                       ],
+                                          "RepoDigests":  [
+                                                              "thesis-v1-frontend@sha256:952f1ba39d69179e908e1b3985f3ee0dd7ce7fe05daa6797a23c2e9b0455f8e9"
+                                                          ],
+                                          "Comment":  "buildkit.dockerfile.v0",
+                                          "Created":  "2026-07-24T20:31:31.698704597Z",
+                                          "Config":  {
+                                                         "ExposedPorts":  {
+                                                                              "80/tcp":  {
+
+                                                                                         },
+                                                                              "8080/tcp":  {
+
+                                                                                           }
+                                                                          },
+                                                         "Env":  [
+                                                                     "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                                                                     "NGINX_VERSION=1.31.3",
+                                                                     "PKG_RELEASE=1",
+                                                                     "DYNPKG_RELEASE=1",
+                                                                     "NJS_VERSION=1.0.0",
+                                                                     "NJS_RELEASE=1",
+                                                                     "ACME_VERSION=0.4.1"
+                                                                 ],
+                                                         "Entrypoint":  [
+                                                                            "/docker-entrypoint.sh"
+                                                                        ],
+                                                         "Cmd":  [
+                                                                     "nginx",
+                                                                     "-g",
+                                                                     "daemon off;"
+                                                                 ],
+                                                         "WorkingDir":  "/",
+                                                         "Labels":  {
+                                                                        "com.docker.compose.project":  "thesis-v1",
+                                                                        "com.docker.compose.service":  "frontend",
+                                                                        "com.docker.compose.version":  "5.3.1",
+                                                                        "maintainer":  "NGINX Docker Maintainers \u003cdocker-maint@nginx.com\u003e"
+                                                                    },
+                                                         "StopSignal":  "SIGQUIT",
+                                                         "Healthcheck":  {
+                                                                             "Test":  [
+                                                                                          "CMD-SHELL",
+                                                                                          "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"
+                                                                                      ],
+                                                                             "Interval":  30000000000,
+                                                                             "Timeout":  5000000000,
+                                                                             "StartPeriod":  10000000000,
+                                                                             "Retries":  3
+                                                                         }
+                                                     },
+                                          "Architecture":  "amd64",
+                                          "Os":  "linux",
+                                          "Size":  27865769,
+                                          "RootFS":  {
+                                                         "Type":  "layers",
+                                                         "Layers":  [
+                                                                        "sha256:34884abbe92863fce933ed7c39c0e045631af0ed86d5cc0dfbdf9fdca426ce3c",
+                                                                        "sha256:548098c6fe2fca0719cdfb84f13de923748e311ec743235b44f4b4d5fb1bf7b4",
+                                                                        "sha256:b08673863e998a5b51fb20f896308adeb46667666ebb9ebb8fcf4094f363b667",
+                                                                        "sha256:80b3a9bcaabdfe84da35652e3a9d2b6f41cb940a69b44e78eb3c73853b757d50",
+                                                                        "sha256:f0cb70a55fc9da1ab4685457b07861b6f8a3e9da40e6f007412d38e45686a31c",
+                                                                        "sha256:ba418be4ca73f2e644b01101aaf3647140cfd1407d4d01f762a78896c2f1bdff",
+                                                                        "sha256:d53e22d501e6f52a15053d3ba14e286af2271838c34bf9754a777381e77a7bfd",
+                                                                        "sha256:fbd591214bfc6863ddb2bada420ddcfa29b96a7593286fefb75b3ed2e2c78216",
+                                                                        "sha256:6ab975edb707834c431b290192affdc891563cd756bf2ad898c954dac883a3ef",
+                                                                        "sha256:a017d56eb898f43ec9a6c1815aeb40e33e365615318fbfdb1afc8d977f41ab68",
+                                                                        "sha256:2c5f3f27db3893118eff2386f7f36cf4bfd1f206fa8d3546e855180f8999d19c"
+                                                                    ]
+                                                     },
+                                          "Metadata":  {
+                                                           "LastTagTime":  "2026-07-24T20:31:32.425979082Z"
+                                                       },
+                                          "Descriptor":  {
+                                                             "mediaType":  "application/vnd.oci.image.index.v1+json",
+                                                             "digest":  "sha256:952f1ba39d69179e908e1b3985f3ee0dd7ce7fe05daa6797a23c2e9b0455f8e9",
+                                                             "size":  856
+                                                         },
+                                          "Identity":  {
+                                                           "Build":  [
+                                                                         {
+                                                                             "Ref":  "t9yr0qz4ddo8cdbughdub0q7j",
+                                                                             "CreatedAt":  "2026-07-24T20:31:32.508984699Z"
+                                                                         }
+                                                                     ]
+                                                       }
+                                      }
+                                  ],
+                        "Count":  1
+                    }
+    }
+]

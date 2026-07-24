@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { archiveYears, filterArchivePapers, resolveArchiveTracks } from './archiveFilters.js'
+import {
+  archiveYears, filterArchivePapers, resolveArchivePrograms, resolveArchiveTracks,
+} from './archiveFilters.js'
 
 const papers = [
   null,
@@ -14,6 +16,17 @@ test('archive filtering is legacy-safe and supports combined filters', () => {
   assert.deepEqual(filterArchivePapers(papers, { superadmin: true, department: 'OTHER' }), [])
 })
 
+test('archive filtering supports normalized program and specialization IDs', () => {
+  const papers = [
+    { id: 'one', department: 'CCSICT', program_id: 'bscs', specialization_id: 'dm' },
+    { id: 'two', department: 'CCSICT', program_id: 'bsit', specialization_id: 'wmad' },
+  ]
+  assert.deepEqual(
+    filterArchivePapers(papers, { program_id: 'bscs', specialization_id: 'dm' }).map((paper) => paper.id),
+    ['one'],
+  )
+})
+
 test('archive years and department-specific tracks are deterministic', () => {
   assert.deepEqual(archiveYears(papers), [2026, 2024])
   assert.deepEqual(resolveArchiveTracks({
@@ -21,4 +34,20 @@ test('archive years and department-specific tracks are deterministic', () => {
     departments: [{ name: 'CCSICT', tracks: ['Data Mining'], track_label: 'Academic Track' }],
     selectedDepartment: 'CCSICT',
   }), { activeTracks: ['Data Mining'], trackLabel: 'academic track' })
+})
+
+test('normalized catalog options remain department-owned', () => {
+  const departments = [{
+    name: 'CCSICT',
+    programs: [{
+      id: 'bsit', code: 'BSIT',
+      specializations: [{ id: 'wmad', code: 'WMAD' }],
+    }],
+  }]
+  const options = resolveArchivePrograms({ departments, selectedDepartment: 'CCSICT', programId: 'bsit' })
+  assert.deepEqual(options.programs.map((program) => program.code), ['BSIT'])
+  assert.deepEqual(options.specializations.map((specialization) => specialization.code), ['WMAD'])
+  assert.deepEqual(resolveArchivePrograms({ departments, selectedDepartment: 'Unknown' }), {
+    programs: [], specializations: [],
+  })
 })

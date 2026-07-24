@@ -19,7 +19,7 @@ const ThesisCards = lazy(() => import('./ThesisCards').then((module) => ({ defau
  */
 export default function HeroScene({ scrollProgress, active = true }) {
   const isDark = useIsDark()
-  const { degraded, lost, onCreated, pointerRef, setDegraded } = useSceneRuntime()
+  const { degraded, lost, paused, onCreated, pointerRef, setDegraded } = useSceneRuntime()
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 1023px)').matches)
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export default function HeroScene({ scrollProgress, active = true }) {
   return (
     <Canvas
       aria-hidden="true"
-      frameloop={active ? 'always' : 'never'}
+      frameloop={active && !paused ? 'always' : 'never'}
       dpr={simple ? [1, 1.25] : [1, 2]}
       camera={{ position: [0, 0, 7.2], fov: 42 }}
       resize={{ scroll: false }}

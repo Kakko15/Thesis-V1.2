@@ -18,14 +18,16 @@ import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
-# OCR is optional at runtime: the system degrades gracefully when the
-# Tesseract binary or pytesseract/Pillow are not installed.
+# OCR is optional at runtime: the system degrades gracefully when the bundled
+# Tesseract binding, English model, or Pillow is unavailable.
 try:
-    import pytesseract
+    import tessdata
+    import tesserocr
     from PIL import Image
     _OCR_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    pytesseract = None
+    tessdata = None
+    tesserocr = None
     Image = None
     _OCR_AVAILABLE = False
 
@@ -141,8 +143,10 @@ def _ocr_page(page: 'fitz.Page') -> str:
     try:
         pix = page.get_pixmap(dpi=200)
         img = Image.open(io.BytesIO(pix.tobytes('png')))
-        return pytesseract.image_to_string(img)
-    except Exception as e:  # pragma: no cover - depends on system binary
+        with tesserocr.PyTessBaseAPI(path=tessdata.data_path(), lang='eng') as api:
+            api.SetImage(img)
+            return api.GetUTF8Text()
+    except Exception as e:  # pragma: no cover - depends on native OCR runtime
         logger.error('OCR failed on page %d (%s)', page.number, type(e).__name__)
         return ''
 

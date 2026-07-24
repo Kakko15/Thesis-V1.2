@@ -1,6 +1,6 @@
 # ISU Centralized AI-Powered Thesis Library
 
-Operational deployment, cancellation, malware scanning, retention, encrypted backup, and disposable restore procedures are in [the operations runbook](docs/OPERATIONS_SECURITY_RUNBOOK.md). Secret rotation is covered by [the secret-rotation runbook](docs/SECRET_ROTATION.md).
+Operational deployment, cancellation, malware scanning, retention, encrypted backup, and disposable restore procedures are in [the operations runbook](docs/OPERATIONS_SECURITY_RUNBOOK.md). Secret rotation is covered by [the secret-rotation runbook](docs/SECRET_ROTATION.md). Institutional approvals, privacy review, and the immutable 50-thesis defense corpus are controlled by [the PI-08 governance protocol](docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md).
 
 A production web application implementing the thesis *"A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"* (Barlis & Gallardo, BSCS Data Mining Track) for the College of Computing Studies, Information and Communication Technology (CCSICT), Isabela State University, Echague.
 
@@ -34,15 +34,15 @@ Key paper parameters enforced in code:
 - **Data cleaning pipeline** — page numbers, headers/footers, TOC and bibliography stripped; chunks with >15% non-alphanumeric characters discarded; `FIGURE REDACTED FOR SEMANTIC INDEXING` placeholders injected.
 - **Indirect access model** — private storage bucket; API responses expose citation metadata only.
 - **Knowledge isolation** — the LLM answers exclusively from retrieved CCSICT context.
-- **Current stable model defaults** — `gemini-3.1-flash-lite` for generation and `gemini-embedding-2` for vectors; both remain environment-overridable for controlled migrations.
+- **Current stable model defaults** — `gemini-3.6-flash` for grounded chat, `gemini-3.5-flash-lite` for bounded verdict/extraction work, and `gemini-embedding-2` at 768 dimensions. Deployment overrides must be captured in the release fingerprint.
 
 ## Setup
 
 ### 1. Supabase
 
 1. Create a Supabase project.
-2. For a fresh project, run `rag-thesis-backend/supabase_setup.sql` in the SQL Editor.
-3. For an existing project, apply the numbered migrations in filename order. Validate `20260719_production_hardening.sql` and `20260723_durable_ingestion_jobs.sql` in a disposable project before production.
+2. For a fresh project, run `rag-thesis-backend/supabase_setup.sql`, then apply `20260725_normalized_academic_catalog.sql`.
+3. For an existing project, apply the numbered migrations in filename order. Validate the durable-ingestion and normalized-catalog migrations in a disposable project before production; retain the catalog rollback only until UUID classifications become authoritative.
 4. Deploy the API and ingestion worker before accepting uploads; applying the durable-queue migration without the worker leaves accepted jobs safely queued.
 5. After signing up your first user through the app, promote them:
    ```sql
@@ -51,12 +51,11 @@ Key paper parameters enforced in code:
 
 ### 2. Backend
 
-Use Python 3.12 or 3.13. Python 3.14 is not currently supported by the
-LangChain Pydantic-v1 compatibility layer used by the backend.
+Use Python 3.14.6, matching CI and the production container. Dependencies are exact-pinned and validated with `pip check`, `pip-audit`, PyTest, and Pylint.
 
 ```bash
 cd rag-thesis-backend
-py -3.12 -m venv .venv
+py -3.14 -m venv .venv
 .venv\Scripts\activate                         # Windows
 pip install -r requirements.txt
 copy .env.example .env                          # then fill in the values
@@ -72,9 +71,6 @@ cd rag-thesis-backend
 python -m workers.ingestion_worker
 ```
 
-If `.venv` was created with Python 3.14, delete and recreate that environment
-with Python 3.12/3.13 before installing the requirements.
-
 - `SUPABASE_KEY` must be the **service_role** key.
 - Never place the service-role key in the frontend or commit it. Rotate any key that is exposed outside the local test environment.
 - Optional: install the [Tesseract OCR binary](https://github.com/UB-Mannheim/tesseract/wiki) to digitize scanned manuscripts.
@@ -84,7 +80,7 @@ with Python 3.12/3.13 before installing the requirements.
 
 ```bash
 cd rag-thesis-frontend
-npm install
+npm ci
 copy .env.example .env    # VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
 npm run dev
 ```

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import { toast } from 'sonner'
 import {
   Send, Plus, MessageSquareText, Trash2, PencilLine,
-  AlertTriangle, BookMarked, History, Info, GraduationCap,
+  AlertTriangle, BookMarked, History, Info, GraduationCap, Square, X,
 } from 'lucide-react'
 import {
   chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getDepartments, getPublicSettings
@@ -31,6 +31,32 @@ const STARTERS = [
   'Summarize local research on network security for campus networks.',
   'Has anyone built a recommendation system in the Data Mining track?',
 ]
+
+function isCancelledRequest(error) {
+  return error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError'
+}
+
+function ComposerAction({ sending, hasInput, onStop }) {
+  if (sending) {
+    return (
+      <Button
+        type="button"
+        variant="danger"
+        size="icon"
+        aria-label="Stop waiting for response"
+        className="shrink-0"
+        onClick={onStop}
+      >
+        <Square size={15} fill="currentColor" />
+      </Button>
+    )
+  }
+  return (
+    <Button type="submit" size="icon" disabled={!hasInput} aria-label="Send" className="shrink-0">
+      <Send size={17} />
+    </Button>
+  )
+}
 
 function ConfigurationWarning({ show }) {
   if (!show) return null
@@ -347,6 +373,7 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [filterDepartment, setFilterDepartment] = useState('')
   const [sending, setSending] = useState(false)
+  const [chatError, setChatError] = useState(null)
   const [sessionId, setSessionId] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState(null)
@@ -355,6 +382,8 @@ export default function Chat() {
   const [busy, setBusy] = useState(false)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
+  const requestControllerRef = useRef(null)
+  const pendingQuestionRef = useRef('')
   const isAwaitingAnswer = sending && messages[messages.length - 1]?.kind === 'user'
   const { data: publicSettings, isError: settingsError } = useQuery({
     queryKey: ['public-settings'],
@@ -386,6 +415,8 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, sending])
 
+  useEffect(() => () => requestControllerRef.current?.abort('unmount'), [])
+
   const loadSession = async (session) => {
     setSessionId(session.id)
     if (isSuperadmin && session.department) setFilterDepartment(session.department)
@@ -409,18 +440,27 @@ export default function Chat() {
   }
 
   const newConversation = () => {
+    requestControllerRef.current?.abort('conversation-reset')
+    requestControllerRef.current = null
+    pendingQuestionRef.current = ''
+    setSending(false)
     setSessionId(null)
     setMessages([])
+    setChatError(null)
     setSidebarOpen(false)
     inputRef.current?.focus()
   }
 
   const send = async (text) => {
     const question = (text ?? input).trim()
-    if (!question || sending) return
+    if (!question || requestControllerRef.current) return
     setInput('')
+    setChatError(null)
     setMessages((m) => [...m, { kind: 'user', text: question }])
     setSending(true)
+    const controller = new AbortController()
+    requestControllerRef.current = controller
+    pendingQuestionRef.current = question
     try {
       const guestHistory = user
         ? []
@@ -443,7 +483,9 @@ export default function Chat() {
         isSuperadmin ? filterDepartment || null : null,
         guestHistory,
         latestGuestSources,
+        controller.signal,
       )
+      if (controller.signal.aborted) return
       setMessages((m) => [...m, { kind: 'ai', ...res, isNew: true }])
       if (user && res.history_saved === false) {
         toast.warning('Answer received, but chat history was not saved', {
@@ -455,12 +497,39 @@ export default function Chat() {
         queryClient.invalidateQueries({ queryKey: ['sessions'] })
       }
     } catch (err) {
-      toast.error('IskAI could not answer', { description: apiErrorMessage(err) })
+      const cancelled = isCancelledRequest(err)
+      if (cancelled) return
       setMessages((m) => m.slice(0, -1))
       setInput(question)
+      const message = apiErrorMessage(err)
+      setChatError({ title: 'IskAI could not answer', message, question })
+      toast.error('IskAI could not answer', { description: message })
     } finally {
-      setSending(false)
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null
+        pendingQuestionRef.current = ''
+        setSending(false)
+      }
     }
+  }
+
+  const stopWaiting = () => {
+    const controller = requestControllerRef.current
+    const question = pendingQuestionRef.current
+    if (!controller || !question) return
+    controller.abort('user-stop')
+    requestControllerRef.current = null
+    pendingQuestionRef.current = ''
+    setMessages((current) => (
+      current[current.length - 1]?.kind === 'user' ? current.slice(0, -1) : current
+    ))
+    setChatError({
+      title: 'Response stopped',
+      message: 'The question is preserved here. The browser stopped waiting, while any secure server cleanup may continue.',
+      question,
+    })
+    setSending(false)
+    toast.info('Response stopped')
   }
 
   const submitRename = async () => {
@@ -538,7 +607,7 @@ export default function Chat() {
           <div className="flex min-w-0 items-center gap-3">
             <Logo size={32} />
             <div className="min-w-0">
-              <div className="font-display text-sm font-extrabold">IskAI</div>
+              <h1 className="font-display text-sm font-extrabold">IskAI</h1>
               <div className="truncate text-[0.65rem] opacity-50">
                 Grounded in the {effectiveDepartment} archive · citations included
               </div>
@@ -583,6 +652,31 @@ export default function Chat() {
           </div>
         )}
         <ConfigurationWarning show={settingsError || (isSuperadmin && departmentsError)} />
+        {chatError && (
+          <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-flame-500/20 bg-flame-500/8 px-5 py-3 text-xs">
+            <AlertTriangle size={15} className="shrink-0 text-flame-500" />
+            <div className="min-w-0 flex-1">
+              <div className="font-bold">{chatError.title}</div>
+              <div className="mt-0.5 opacity-65">{chatError.message}</div>
+              <div className="mt-1 truncate font-medium">“{chatError.question}”</div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setInput(chatError.question)
+                setChatError(null)
+                inputRef.current?.focus()
+              }}
+            >
+              Edit
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => send(chatError.question)}>Retry</Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => setChatError(null)} aria-label="Dismiss chat error">
+              <X size={14} />
+            </Button>
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 space-y-6 overflow-y-auto px-4 py-6 sm:px-6">
@@ -636,15 +730,7 @@ export default function Chat() {
               }}
               className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:opacity-45"
             />
-            <Button
-              type="submit"
-              size="icon"
-              disabled={!input.trim() || sending}
-              aria-label="Send"
-              className="shrink-0"
-            >
-              <Send size={17} />
-            </Button>
+            <ComposerAction sending={sending} hasInput={Boolean(input.trim())} onStop={stopWaiting} />
           </form>
           <p className="mt-2 text-center text-[0.65rem] opacity-40">
             Answers are synthesized exclusively from archived {effectiveDepartment} theses. Topics ≥85% similar to existing work are flagged for faculty review.

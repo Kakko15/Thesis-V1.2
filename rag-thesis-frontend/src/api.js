@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { supabase } from './supabaseClient'
+import { normalizeDepartments } from './lib/catalog'
 import { isE2ETestMode, readE2EAuthFixture } from './testing/e2eSession'
 
 const api = axios.create({
@@ -125,6 +126,7 @@ export const chatQuery = async (
   department_filter = null,
   guest_history = [],
   guest_source_ids = [],
+  signal = undefined,
 ) => {
   const { data } = await api.post('/chat', { 
     question: query, 
@@ -132,7 +134,7 @@ export const chatQuery = async (
     department_filter,
     guest_history,
     guest_source_ids,
-  })
+  }, { signal })
   return data
 }
 
@@ -179,7 +181,10 @@ export async function getTracks() {
 }
 
 // ---------- Upload (background ingestion) ----------
-export async function uploadPaper({ file, title, authors, year, abstract, track, department, idempotencyKey }) {
+export async function uploadPaper({
+  file, title, authors, year, abstract, track, department,
+  program_id, specialization_id, idempotencyKey,
+}) {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('title', title)
@@ -188,6 +193,8 @@ export async function uploadPaper({ file, title, authors, year, abstract, track,
   formData.append('abstract', abstract || '')
   formData.append('track', track || '')
   formData.append('department', department || 'CCSICT')
+  if (program_id) formData.append('program_id', program_id)
+  if (specialization_id) formData.append('specialization_id', specialization_id)
   const { data } = await api.post('/upload/paper', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
@@ -313,8 +320,8 @@ export async function getRetentionReport() {
 
 // Departments API
 export async function getDepartments() {
-  const { data } = await api.get('/departments/')
-  return data
+  const { data } = await api.get('/catalog/departments/legacy')
+  return normalizeDepartments(data)
 }
 export async function createDepartment(payload) {
   const { data } = await api.post('/departments/', payload)

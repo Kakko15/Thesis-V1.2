@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-24T21:16:49.640488+00:00",
+  "profile": "pi-04-disposable-supabase-live-api",
+  "privacy": {
+    "credentials_preserved": false,
+    "database_rows_preserved": false
+  },
+  "observed": {
+    "department_code": "CCSICT",
+    "program_codes": [
+      "BLIS",
+      "BSCS",
+      "BSDSA",
+      "BSIS",
+      "BSIT"
+    ],
+    "specialization_codes": [
+      "DM",
+      "NETSEC",
+      "WMAD"
+    ]
+  },
+  "checks": {
+    "http_status_200": true,
+    "contract_version": true,
+    "ccsict_present": true,
+    "programs_exact": true,
+    "specializations_exact": true
+  },
+  "result": "PASS"
+}

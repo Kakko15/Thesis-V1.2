@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Reque
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from config import settings
-from dependencies.auth import require_upload_access, resolve_effective_department, sb
+from dependencies.auth import get_user_scope, require_upload_access, resolve_effective_department, sb
 from models import (
     CCSICT_TRACKS,
     UploadAccepted,
@@ -32,6 +32,7 @@ from models import (
     UploadJobStatus,
 )
 from services.cleanup import record_storage_cleanup
+from services.catalog import resolve_academic_selection
 from services.rate_limiting import limiter
 from services.operations import record_security_event
 
@@ -203,22 +204,22 @@ async def upload_paper(
     abstract: str = Form(''),
     track: str = Form(''),
     department: str | None = Form(None),
+    program_id: str | None = Form(None),
+    specialization_id: str | None = Form(None),
     idempotency_key: str | None = Header(None, alias='Idempotency-Key'),
     user=Depends(require_upload_access),
 ):
     department = resolve_effective_department(user, department)
     _validate_metadata(title, authors, year, abstract)
-    if track:
-        # Dynamically fetch valid tracks for the given department
-        dept_res = sb.table('departments').select('tracks').eq('name', department).execute()
-        valid_tracks = dept_res.data[0]['tracks'] if dept_res.data else CCSICT_TRACKS
-
-        if track not in valid_tracks:
-            valid_track_names = ', '.join(valid_tracks)
-            raise HTTPException(
-                422,
-                f'Unknown track for department {department}. Valid tracks: {valid_track_names}',
-            )
+    scope = get_user_scope(user.id)
+    classification = resolve_academic_selection(
+        sb,
+        department_name=department,
+        program_id=program_id,
+        specialization_id=specialization_id,
+        legacy_track=track,
+        require_program=scope['role'] == 'student',
+    )
 
     file_bytes = await _read_limited_upload(file)
     safe_filename = _validate_pdf_upload(file_bytes, file.filename, file.content_type)
@@ -235,7 +236,7 @@ async def upload_paper(
         'authors': authors.strip(),
         'year': year,
         'abstract': abstract,
-        'track': track,
+        **classification.as_payload(),
         'department': department,
         'uploader_id': user.id,
     }
@@ -494,7 +495,6 @@ async def extract_metadata(
         llm = ChatGoogleGenerativeAI(
             model=settings.gemini_chat_model,
             google_api_key=settings.gemini_api_key,
-            temperature=0.1,
         )
 
         prompt = f"""Extract the Title, Authors, Year completed, and Department of the thesis from the text below.

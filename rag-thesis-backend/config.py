@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     supabase_key: str  # SERVICE_ROLE key (backend bypasses RLS)
 
     # --- Model configuration (current Gemini models; paper architecture unchanged) ---
-    gemini_chat_model: str = 'gemini-3.1-flash-lite'
-    gemini_verdict_model: str = 'gemini-3.1-flash-lite'
+    gemini_chat_model: str = 'gemini-3.6-flash'
+    gemini_verdict_model: str = 'gemini-3.5-flash-lite'
     gemini_embed_model: str = 'models/gemini-embedding-2'
     # The current pgvector schema is vector(768). A dimension change requires
     # an explicit database migration rather than an environment-only switch.
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     gemini_timeout_seconds: float = 25.0
     gemini_max_retries: int = 1
     gemini_max_output_tokens: int = 700
-    gemini_thinking_budget: int = 0
+    gemini_thinking_level: Literal['minimal', 'low', 'medium', 'high'] = 'low'
     gemini_capacity_cooldown_seconds: int = 60
 
     # --- RAG parameters (thesis paper, Section 3.2.3) ---

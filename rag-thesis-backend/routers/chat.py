@@ -55,11 +55,10 @@ router = APIRouter(prefix='/chat', tags=['chat'])
 llm = ChatGoogleGenerativeAI(
     model=settings.gemini_chat_model,
     google_api_key=settings.gemini_api_key,
-    temperature=0.1,
     timeout=settings.gemini_timeout_seconds,
     max_retries=settings.gemini_max_retries,
     max_output_tokens=settings.gemini_max_output_tokens,
-    thinking_budget=settings.gemini_thinking_budget,
+    thinking_level=settings.gemini_thinking_level,
 )
 
 _GREETINGS = {

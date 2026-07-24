@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { BrandMark } from '../../components/ui/Logo'
 
 const EXPLORE_LINKS = [

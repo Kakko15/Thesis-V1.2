@@ -2,11 +2,15 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiErrorMessage, deletePaper, getDepartments, getTracks, listPapers } from '../../api'
-import { archiveYears, filterArchivePapers, resolveArchiveTracks } from './archiveFilters'
+import {
+  archiveYears, filterArchivePapers, resolveArchivePrograms, resolveArchiveTracks,
+} from './archiveFilters'
 
 export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
   const queryClient = useQueryClient()
-  const [filters, setFilters] = useState({ query: '', track: '', year: '', department: '' })
+  const [filters, setFilters] = useState({
+    query: '', track: '', program_id: '', specialization_id: '', year: '', department: '',
+  })
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [detail, setDetail] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -20,14 +24,33 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
     () => resolveArchiveTracks({ tracks, departments, selectedDepartment }),
     [departments, selectedDepartment, tracks],
   )
+  const programOptions = useMemo(
+    () => resolveArchivePrograms({
+      departments,
+      selectedDepartment,
+      programId: filters.program_id,
+    }),
+    [departments, filters.program_id, selectedDepartment],
+  )
   const years = useMemo(() => archiveYears(papers), [papers])
   const filtered = useMemo(
     () => filterArchivePapers(papers, { ...filters, superadmin: isSuperadmin }),
     [filters, isSuperadmin, papers],
   )
 
-  const setFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }))
-  const clearFilters = () => setFilters({ query: '', track: '', year: '', department: '' })
+  const setFilter = (key, value) => setFilters((current) => {
+    const next = { ...current, [key]: value }
+    if (key === 'department') {
+      next.track = ''
+      next.program_id = ''
+      next.specialization_id = ''
+    }
+    if (key === 'program_id') next.specialization_id = ''
+    return next
+  })
+  const clearFilters = () => setFilters({
+    query: '', track: '', program_id: '', specialization_id: '', year: '', department: '',
+  })
   const submitDelete = async () => {
     if (!deleteTarget?.id) return
     setBusy(true)
@@ -59,5 +82,6 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
     busy,
     submitDelete,
     ...trackOptions,
+    ...programOptions,
   }
 }

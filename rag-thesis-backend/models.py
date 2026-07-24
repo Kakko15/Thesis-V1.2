@@ -78,6 +78,10 @@ class PaperOut(BaseModel):
     created_at: str
     uploader_name: Optional[str] = None
     department: Optional[str] = None
+    program_id: Optional[str] = None
+    specialization_id: Optional[str] = None
+    legacy_track: Optional[str] = None
+    classification_status: str = 'classified'
 
 
 class UploadAccepted(BaseModel):
@@ -141,6 +145,19 @@ class RoleUpdate(BaseModel):
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = Field(None, max_length=120)
     avatar_url: Optional[str] = Field(None, max_length=512)
+    program_id: Optional[str] = None
+    specialization_id: Optional[str] = None
+
+
+class CatalogEntityCreate(BaseModel):
+    parent_id: str = Field(..., min_length=36, max_length=36)
+    code: str = Field(..., min_length=2, max_length=24, pattern=r'^[A-Z0-9-]+$')
+    name: str = Field(..., min_length=2, max_length=120)
+
+
+class CatalogEntityUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=2, max_length=120)
+    active: Optional[bool] = None
 
 
 

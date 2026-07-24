@@ -91,6 +91,7 @@ export default defineConfig(({ mode }) => {
       '/sessions': BACKEND,
       '/duplication': BACKEND,
       '/analytics': BACKEND,
+      '/catalog': BACKEND,
       '/maintenance': BACKEND,
       '/departments': BACKEND,
       '/settings': BACKEND,

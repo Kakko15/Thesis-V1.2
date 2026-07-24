@@ -9,9 +9,13 @@ export function filterArchivePapers(papers = [], filters = {}) {
     const matchesQuery = !query || [paper.title, paper.authors, paper.abstract]
       .some((value) => String(value || '').toLowerCase().includes(query))
     const matchesTrack = !filters.track || paper.track === filters.track
+    const matchesProgram = !filters.program_id || paper.program_id === filters.program_id
+    const matchesSpecialization = !filters.specialization_id
+      || paper.specialization_id === filters.specialization_id
     const matchesYear = !filters.year || String(paper.year) === String(filters.year)
     const matchesDepartment = !filters.superadmin || !filters.department || paper.department === filters.department
-    return matchesQuery && matchesTrack && matchesYear && matchesDepartment
+    return matchesQuery && matchesTrack && matchesProgram
+      && matchesSpecialization && matchesYear && matchesDepartment
   })
 }
 
@@ -22,5 +26,15 @@ export function resolveArchiveTracks({ tracks = [], departments = [], selectedDe
   return {
     activeTracks: Array.isArray(department.tracks) ? department.tracks : [],
     trackLabel: department.track_label?.toLowerCase() || 'track',
+  }
+}
+
+export function resolveArchivePrograms({ departments = [], selectedDepartment, programId = '' }) {
+  const department = departments.find((item) => item?.name === selectedDepartment)
+  const programs = Array.isArray(department?.programs) ? department.programs : []
+  const program = programs.find((item) => item?.id === programId)
+  return {
+    programs,
+    specializations: Array.isArray(program?.specializations) ? program.specializations : [],
   }
 }

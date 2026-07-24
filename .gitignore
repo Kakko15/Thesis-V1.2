@@ -12,6 +12,7 @@ Final Thesis Proposal Paper_Update Carlo.pdf
 THESIS_PAPER_REVISIONS_17_19.md
 RAG_ITEMS_9_16_OLD_VS_NEW.md
 THESIS_SYSTEM_CHANGE_PLAN.md
+ISU_ECHAGUE_PRODUCTION_ROADMAP.md
 
 # Duplicate local source asset; the application uses the optimized public copy.
 ISU_Logo.jpg
@@ -28,9 +29,21 @@ ISU_Logo.jpg
 
 # Local test and analysis artifacts
 coverage.json
+tmp/
+*-trivy.txt
+.pnpm-store/
 tmp-pylint-cache/
 tmp-pytest-*/
 tmp-review-*/
+rag-thesis-backend/.venv*/
+rag-thesis-backend/.pylint-cache-*/
+rag-thesis-backend/.pytest-*/
 
 # Supabase local backup
 supabase/
+
+# PI-08 controlled records. Never commit signatures, approval scans, or the
+# identifiable working corpus register. Commit only templates and redacted
+# hash receipts intended for the release evidence bundle.
+docs/governance/private/
+rag-thesis-backend/evaluation/corpus/private/

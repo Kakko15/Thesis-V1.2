@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { MotionConfig } from 'framer-motion'
+import { applyMaterialTheme } from '../design/materialTheme'
 
 const STORAGE_KEY = 'isu-thesis-preferences-v2'
 
@@ -8,6 +9,7 @@ const DEFAULTS = {
   palette: 'isu',
   motion: 'system',
   effects: 'balanced',
+  contrast: 'standard',
 }
 
 const PreferencesContext = createContext(null)
@@ -60,7 +62,13 @@ export function PreferencesProvider({ children }) {
     root.dataset.palette = preferences.palette
     root.dataset.motion = reducedMotion ? 'reduced' : 'full'
     root.dataset.effects = preferences.effects
+    root.dataset.contrast = preferences.contrast
     root.style.colorScheme = resolvedTheme
+    applyMaterialTheme(root, {
+      palette: preferences.palette,
+      dark: resolvedTheme === 'dark',
+      highContrast: preferences.contrast === 'high',
+    })
     localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences))
   }, [preferences, reducedMotion, resolvedTheme])
 

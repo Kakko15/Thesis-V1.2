@@ -372,6 +372,23 @@ def upload_file() -> UploadFile:
 
 
 class TestUploadApi:
+    @pytest.fixture(autouse=True)
+    def normalized_catalog(self, monkeypatch):
+        """Keep queue tests focused; catalog ownership has dedicated PI-04 tests."""
+        monkeypatch.setattr(upload, 'get_user_scope', lambda _user_id: {'role': 'admin'})
+        monkeypatch.setattr(
+            upload,
+            'resolve_academic_selection',
+            lambda *_args, **_kwargs: SimpleNamespace(as_payload=lambda: {
+                'department_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                'program_id': None,
+                'specialization_id': None,
+                'track': '',
+                'legacy_track': None,
+                'classification_status': 'unclassified',
+            }),
+        )
+
     def test_submission_is_staged_with_idempotency_key(self, monkeypatch):
         client = UploadClient()
         monkeypatch.setattr(upload, 'sb', client)
