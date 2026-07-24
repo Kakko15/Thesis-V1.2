@@ -30,7 +30,6 @@ router = APIRouter(prefix='/duplication', tags=['duplication'])
 llm = ChatGoogleGenerativeAI(
     model=settings.gemini_verdict_model,
     google_api_key=settings.gemini_api_key,
-    temperature=0.1,
 )
 
 

@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import { toast } from 'sonner'
 import {
   ShieldCheck, FileSearch, FileText, X, History, Send,
-  ArrowLeftRight, MessageSquareText, Sparkles, ScanSearch, AlertTriangle,
+  ArrowLeftRight, MessageSquareText, Sparkles, ScanSearch, AlertTriangle, Download, Info,
 } from 'lucide-react'
 import { scanDuplication, getScanHistory, scanDuplicationChat, apiErrorMessage, getDepartments } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -18,6 +18,7 @@ import { PageTransition } from '../components/ui/Motion'
 import { Skeleton } from '../components/ui/Skeleton'
 import { Select } from '../components/ui/Input'
 import { cn, normalizePercent, scanMetrics, timeAgo, verdictLabel } from '../lib/utils'
+import { downloadNoveltyReport } from './novelty/report'
 
 /* ------------------------------------------------------------------ */
 function ScanDropzone({ onScan, scanning }) {
@@ -166,6 +167,17 @@ function ScanResult({ scan, onAsk }) {
               <span className="truncate text-sm font-semibold">{scan.filename}</span>
               <Badge tone="neutral">{timeAgo(scan.created_at)}</Badge>
               {scan.department && <Badge tone="neutral">{scan.department}</Badge>}
+              <Button
+                variant="secondary"
+                size="sm"
+                className="sm:ml-auto"
+                onClick={() => {
+                  downloadNoveltyReport(scan)
+                  toast.success('Metadata-only report downloaded')
+                }}
+              >
+                <Download size={14} /> Download report
+              </Button>
             </div>
             <div className="mt-4 grid gap-2 text-left sm:grid-cols-2">
               <div className="glass rounded-xl p-3">
@@ -212,6 +224,20 @@ function ScanResult({ scan, onAsk }) {
         </div>
         <div className="prose-chat">
           <ReactMarkdown>{scan.verdict_summary || ''}</ReactMarkdown>
+        </div>
+      </GlassCard>
+
+      <GlassCard className="border border-gold-400/25 p-5">
+        <div className="flex items-start gap-3">
+          <Info size={17} className="mt-0.5 shrink-0 text-gold-500" />
+          <div>
+            <div className="text-sm font-bold">Interpretation limits</div>
+            <p className="mt-1 text-xs leading-relaxed opacity-65">
+              This is a similarity advisory, not a plagiarism verdict. Highest passage similarity
+              and matched-chunk coverage are separate measures, and faculty review remains required.
+              The downloadable report contains metadata only—never manuscript excerpts or reviewer chat.
+            </p>
+          </div>
         </div>
       </GlassCard>
 

@@ -27,7 +27,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14.6'
           cache: pip
           cache-dependency-path: rag-thesis-backend/requirements.txt
 
@@ -46,7 +46,7 @@ jobs:
         run: >
           pytest --cov=routers --cov=services --cov=dependencies --cov=workers
           --cov=main --cov=config --cov=models
-          --cov-report=xml --cov-report=term --cov-fail-under=83.18
+          --cov-report=xml --cov-report=term --cov-fail-under=85
 
       - name: Pylint (Maintainability)
         run: pylint --rcfile=.pylintrc routers services dependencies workers main.py config.py models.py
@@ -70,7 +70,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '24.18.0'
           cache: npm
           cache-dependency-path: rag-thesis-frontend/package-lock.json
 

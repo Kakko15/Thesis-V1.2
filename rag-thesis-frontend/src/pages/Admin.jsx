@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ShieldCheck } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../supabaseClient'
 import { isE2ETestMode } from '../testing/e2eSession'
@@ -120,11 +120,11 @@ export default function Admin() {
             {displayName} • <span className="capitalize">{role === 'superadmin' ? 'Super Admin at System' : <>{role === 'admin' ? 'Administrator' : role} at {department || 'Unassigned'}</>}</span>
           </p>
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
-            Institutional <span className="text-gradient-isu">Analytics</span>
+            Research <span className="text-gradient-isu">Administration</span>
           </h1>
-          <p className="mt-1 text-sm opacity-55">Research usage, archive composition, and access management.</p>
+          <p className="mt-1 text-sm opacity-55">Evidence readiness, archive operations, academic catalog, and access governance.</p>
         </div>
-        <div className="glass flex items-center rounded-2xl p-1" role="tablist" aria-label="Administration sections">
+        <div className="glass flex max-w-full items-center overflow-x-auto rounded-2xl p-1" role="tablist" aria-label="Administration sections">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -133,7 +133,7 @@ export default function Admin() {
               aria-selected={activeTab === tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                'rounded-xl px-4 py-1.5 text-sm font-semibold transition-all duration-300',
+                'shrink-0 whitespace-nowrap rounded-xl px-4 py-1.5 text-sm font-semibold transition-all duration-300',
                 activeTab === tab.id
                   ? 'bg-gradient-to-br from-forest-600 to-forest-800 text-white shadow-md'
                   : 'opacity-60 hover:opacity-100',

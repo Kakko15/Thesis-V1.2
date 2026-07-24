@@ -47,7 +47,20 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
   const screening = scanMetrics(paper.duplication_scan)
   return (
     <motion.div variants={staggerItem} layout>
-      <GlassCard hover className="group flex h-full cursor-pointer flex-col p-5" onClick={() => onOpen(paper)}>
+      <GlassCard
+        hover
+        role="button"
+        tabIndex={0}
+        aria-label={`View metadata for ${paper.title}`}
+        className="group flex h-full cursor-pointer flex-col p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400"
+        onClick={() => onOpen(paper)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onOpen(paper)
+          }
+        }}
+      >
         <div className="flex items-start justify-between gap-2">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-md">
             <BookMarked size={16} className="text-gold-300" />
@@ -56,7 +69,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(paper) }}
               aria-label="Delete paper"
-              className="rounded-lg p-1.5 text-flame-500 opacity-0 transition-opacity hover:bg-flame-500/10 group-hover:opacity-70 hover:!opacity-100"
+              className="rounded-lg p-1.5 text-flame-500 opacity-0 transition-opacity hover:bg-flame-500/10 group-hover:opacity-70 hover:!opacity-100 focus:opacity-100"
             >
               <Trash2 size={15} />
             </button>
@@ -92,6 +105,7 @@ function ArchiveResults({
   onDelete,
   onOpen,
   onClear,
+  onRetry,
 }) {
   if (isLoading) {
     return (
@@ -107,6 +121,7 @@ function ArchiveResults({
           icon={AlertTriangle}
           title="Archive unavailable"
           message="The archive could not be loaded. Check the backend and database configuration, then try again."
+          action={<Button variant="secondary" size="sm" onClick={onRetry}>Retry archive</Button>}
         />
       </GlassCard>
     )
@@ -158,8 +173,10 @@ export default function Archive() {
   const {
     papers, isLoading, isError: papersError, departments, years, filtered,
     filters, setFilter, clearFilters, activeTracks, trackLabel,
+    programs, specializations, refetch,
     deleteTarget, setDeleteTarget, detail, setDetail, busy, submitDelete,
   } = archive
+  const hasFilters = Object.values(filters).some(Boolean)
 
   return (
     <PageTransition className="mx-auto max-w-6xl space-y-6">
@@ -179,8 +196,8 @@ export default function Archive() {
       </div>
 
       {/* Filters */}
-      <GlassCard className="flex flex-col gap-3 p-4 sm:flex-row">
-        <div className="relative flex-1">
+      <GlassCard className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-12">
+        <div className="relative sm:col-span-2 lg:col-span-4">
           <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
           <Input
             className="pl-11"
@@ -189,23 +206,45 @@ export default function Archive() {
             onChange={(e) => setFilter('query', e.target.value)}
           />
         </div>
-        {activeTracks.length > 0 && (
-          <Select value={filters.track} onChange={(e) => setFilter('track', e.target.value)} className="sm:w-52" aria-label={`Filter by ${trackLabel}`}>
+        {programs.length > 0 ? (
+          <Select value={filters.program_id} onChange={(e) => setFilter('program_id', e.target.value)} className="lg:col-span-2" aria-label="Filter by academic program">
+            <option value="">All programs</option>
+            {programs.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}
+          </Select>
+        ) : activeTracks.length > 0 ? (
+          <Select value={filters.track} onChange={(e) => setFilter('track', e.target.value)} className="lg:col-span-2" aria-label={`Filter by ${trackLabel}`}>
             <option value="">All {trackLabel}s</option>
             {activeTracks.map((t) => <option key={t} value={t}>{t}</option>)}
           </Select>
+        ) : null}
+        {specializations.length > 0 && (
+          <Select value={filters.specialization_id} onChange={(e) => setFilter('specialization_id', e.target.value)} className="lg:col-span-2" aria-label="Filter by academic specialization">
+            <option value="">All specializations</option>
+            {specializations.map((specialization) => (
+              <option key={specialization.id} value={specialization.id}>{specialization.code} — {specialization.name}</option>
+            ))}
+          </Select>
         )}
         {isSuperadmin && (
-          <Select value={filters.department} onChange={(e) => setFilter('department', e.target.value)} className="sm:w-40" aria-label="Filter by department">
+          <Select value={filters.department} onChange={(e) => setFilter('department', e.target.value)} className="lg:col-span-2" aria-label="Filter by department">
             <option value="">All depts</option>
             {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
           </Select>
         )}
-        <Select value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="sm:w-36" aria-label="Filter by year">
+        <Select value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="lg:col-span-2" aria-label="Filter by year">
           <option value="">All years</option>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
         </Select>
       </GlassCard>
+
+      <div className="flex min-h-8 flex-wrap items-center justify-between gap-2" aria-live="polite">
+        <p className="text-xs font-medium opacity-55">
+          Showing {filtered.length} of {papers.length} indexed {papers.length === 1 ? 'thesis' : 'theses'}
+        </p>
+        {hasFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters}><X size={14} /> Clear active filters</Button>
+        )}
+      </div>
 
       {/* Grid */}
       <ArchiveResults
@@ -217,6 +256,7 @@ export default function Archive() {
         onDelete={setDeleteTarget}
         onOpen={setDetail}
         onClear={clearFilters}
+        onRetry={() => refetch()}
       />
 
       {/* Detail modal — metadata only (indirect access model) */}

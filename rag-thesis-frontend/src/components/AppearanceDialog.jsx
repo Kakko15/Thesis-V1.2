@@ -52,7 +52,7 @@ function ChoiceGrid({ value, options, onChange }) {
 
 export function AppearanceDialog({ open, onClose }) {
   const {
-    theme, palette, motion, effects, updatePreference, resetPreferences,
+    theme, palette, motion, effects, contrast, updatePreference, resetPreferences,
   } = usePreferences()
 
   return (
@@ -106,6 +106,20 @@ export function AppearanceDialog({ open, onClose }) {
               <option value="low">Low energy</option>
             </Select>
           </div>
+        </section>
+
+        <section>
+          <span className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <Monitor size={16} aria-hidden="true" /> Contrast
+          </span>
+          <Select
+            value={contrast}
+            onChange={(event) => updatePreference('contrast', event.target.value)}
+            aria-label="Contrast"
+          >
+            <option value="standard">Standard Material contrast</option>
+            <option value="high">High contrast</option>
+          </Select>
         </section>
 
         <div className="surface-tonal flex gap-3 rounded-2xl p-4 text-sm">

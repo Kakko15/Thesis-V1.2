@@ -1,0 +1,19 @@
+{
+  "approvals": {
+    "ccsict_department_chair": null,
+    "privacy_officer": null,
+    "thesis_adviser": null,
+    "university_librarian": null
+  },
+  "corpus_id": "ISU-ECHAGUE-CCSICT-DEFENSE-2026",
+  "department": "CCSICT",
+  "expected_paper_count": 50,
+  "papers": [],
+  "processing_profile": {
+    "allowed_content": "redacted_non_personal_non_confidential_only",
+    "gemini_service_tier": "unpaid"
+  },
+  "purpose": "Fixed 50-thesis corpus for the approved CCSICT baseline-versus-RAG defense evaluation.",
+  "schema_version": 1,
+  "status": "draft"
+}

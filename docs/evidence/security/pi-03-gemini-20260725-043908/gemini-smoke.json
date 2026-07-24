@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-24T20:41:26.171137+00:00",
+  "profile": "live-gemini-release-smoke",
+  "privacy": {
+    "synthetic_input_only": true,
+    "response_content_preserved": false,
+    "credential_material_preserved": false
+  },
+  "configuration": {
+    "chat_model": "gemini-3.6-flash",
+    "verdict_model": "gemini-3.5-flash-lite",
+    "embedding_model": "models/gemini-embedding-2",
+    "embedding_dimensions": 768,
+    "chat_thinking_level": "low"
+  },
+  "observed": {
+    "chat_model": "gemini-3.6-flash",
+    "verdict_model": "gemini-3.5-flash-lite",
+    "embedding_dimensions": 768,
+    "latency_ms": {
+      "chat": 1748.07,
+      "verdict": 1071.51,
+      "embedding": 501.3
+    }
+  },
+  "checks": {
+    "chat_nonempty": true,
+    "verdict_nonempty": true,
+    "embedding_dimension": true,
+    "embedding_finite": true
+  },
+  "result": "PASS"
+}

@@ -39,7 +39,7 @@ if settings.effective_langsmith_tracing:
     os.environ.setdefault('LANGCHAIN_API_KEY', settings.effective_langsmith_api_key)
     os.environ.setdefault('LANGCHAIN_PROJECT', settings.effective_langsmith_project)
 
-from routers import analytics, chat, departments, duplication, maintenance, papers, sessions, upload
+from routers import analytics, catalog, chat, departments, duplication, maintenance, papers, sessions, upload
 from routers import settings as settings_router
 
 
@@ -89,6 +89,7 @@ app.include_router(sessions.router)
 app.include_router(duplication.router)
 app.include_router(analytics.router)
 app.include_router(departments.router)
+app.include_router(catalog.router)
 app.include_router(settings_router.router)
 app.include_router(maintenance.router)
 

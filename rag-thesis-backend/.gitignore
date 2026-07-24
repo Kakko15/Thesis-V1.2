@@ -6,6 +6,7 @@
 venv/
 .venv/
 .venv312/
+.venv*/
 
 # Python artifacts
 __pycache__/

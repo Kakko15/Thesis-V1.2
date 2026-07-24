@@ -61,6 +61,75 @@ async function mockApi(page, handlers = {}) {
   return unexpected
 }
 
+function parseHex(hex) {
+  const value = hex.replace('#', '')
+  const channels = value.match(/.{2}/g).map((channel) => Number.parseInt(channel, 16) / 255)
+  return { rgb: channels.slice(0, 3), alpha: channels[3] ?? 1 }
+}
+
+function composite(foreground, background) {
+  const front = parseHex(foreground)
+  const back = parseHex(background)
+  return front.rgb.map((channel, index) => channel * front.alpha + back.rgb[index] * (1 - front.alpha))
+}
+
+function relativeLuminance(rgb) {
+  const linear = rgb.map((channel) => (
+    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  ))
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+}
+
+function contrastRatio(foreground, surface, background) {
+  const foregroundRgb = parseHex(foreground).rgb
+  const surfaceRgb = composite(surface, background)
+  const lighter = Math.max(relativeLuminance(foregroundRgb), relativeLuminance(surfaceRgb))
+  const darker = Math.min(relativeLuminance(foregroundRgb), relativeLuminance(surfaceRgb))
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+async function semanticTheme(page) {
+  return page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement)
+    const token = (name) => root.getPropertyValue(name).trim().toUpperCase()
+    return {
+      theme: document.documentElement.dataset.theme,
+      background: token('--background'),
+      foreground: token('--card-foreground'),
+      card: token('--card'),
+      surfaces: [0, 1, 2, 3].map((level) => token(`--surface-${level}`)),
+    }
+  })
+}
+
+function expectReadableCard(tokens) {
+  expect(tokens.card).toMatch(/^#[0-9A-F]{8}$/)
+  tokens.surfaces.forEach((surface) => expect(surface).toMatch(/^#[0-9A-F]{6}$/))
+  expect(new Set(tokens.surfaces).size).toBe(4)
+  expect(contrastRatio(tokens.foreground, tokens.card, tokens.background)).toBeGreaterThanOrEqual(4.5)
+}
+
+test('light and dark Material surfaces keep readable semantic contrast', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('isu-thesis-preferences-v2', JSON.stringify({
+      theme: 'light', palette: 'isu', motion: 'reduced', effects: 'low', contrast: 'standard',
+    }))
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Appearance and energy settings' }).click()
+
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  const lightTokens = await semanticTheme(page)
+  expectReadableCard(lightTokens)
+  expect(lightTokens.card).not.toBe('#000000E6')
+
+  await page.getByRole('radio', { name: 'Dark', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  expectReadableCard(await semanticTheme(page))
+
+  await expect(page.getByRole('heading', { name: 'Appearance and energy' })).toBeVisible()
+})
+
 test('protected routes redirect signed-out visitors to sign in', async ({ page }) => {
   const unexpected = await mockApi(page)
 
@@ -143,11 +212,39 @@ test('guest chat restores the question after an API failure and can retry', asyn
   await composer.fill(question)
   await page.getByRole('button', { name: 'Send' }).click()
 
-  await expect(page.getByText('IskAI could not answer')).toBeVisible()
+  await expect(page.locator('#main-content').getByText('IskAI could not answer')).toBeVisible()
   await expect(composer).toHaveValue(question)
   await page.getByRole('button', { name: 'Send' }).click()
   await expect(page.getByText(/retry succeeded/i)).toBeVisible()
   expect(attempts).toBe(2)
+  expect(unexpected).toEqual([])
+})
+
+test('guest chat can stop waiting without losing the research question', async ({ page }) => {
+  let attempts = 0
+  const unexpected = await mockApi(page, {
+    'POST /chat': async () => {
+      attempts += 1
+      await new Promise((resolve) => setTimeout(resolve, 10_000))
+      return {
+        answer: 'This late response should be discarded by the browser.',
+        sources: [], no_relevant_thesis: true, history_saved: false,
+      }
+    },
+  })
+
+  await page.goto('/chat')
+  const composer = page.getByPlaceholder(/Ask IskAI about CCSICT thesis research/)
+  const question = 'Which studies used anomaly detection?'
+  await composer.fill(question)
+  await page.getByRole('button', { name: 'Send' }).click()
+  await page.getByRole('button', { name: 'Stop waiting for response' }).click()
+
+  const recovery = page.locator('#main-content').getByRole('alert')
+  await expect(recovery.getByText('Response stopped')).toBeVisible()
+  await expect(recovery.getByText(`“${question}”`)).toBeVisible()
+  await expect(composer).toHaveValue('')
+  expect(attempts).toBe(1)
   expect(unexpected).toEqual([])
 })
 
@@ -162,11 +259,18 @@ test('authenticated archive renders legacy-safe records and filters them', async
       year: 2026,
       track: 'Data Mining',
       department: 'CCSICT',
+      program_id: 'program-bscs',
+      specialization_id: 'specialization-dm',
       duplication_scan: null,
     }],
     'GET /upload/tracks': { tracks: ['Data Mining'] },
-    'GET /departments/': [{
-      id: 'dept-1', name: 'CCSICT', track_label: 'Academic track', tracks: ['Data Mining'],
+    'GET /catalog/departments/legacy': [{
+      id: 'dept-1', name: 'CCSICT', track_label: 'Program / specialization',
+      tracks: ['Data Mining'],
+      programs: [{
+        id: 'program-bscs', code: 'BSCS', name: 'Computer Science',
+        specializations: [{ id: 'specialization-dm', code: 'DM', name: 'Data Mining' }],
+      }],
     }],
   })
 
@@ -174,9 +278,15 @@ test('authenticated archive renders legacy-safe records and filters them', async
   await expect(page.getByRole('heading', { name: /Thesis Archive/ })).toBeVisible()
   await expect(page.getByText('A Centralized AI-Powered Thesis Library')).toBeVisible()
 
+  await page.getByRole('combobox', { name: 'Filter by academic program' }).click()
+  await page.getByRole('option', { name: /BSCS/ }).click()
+  await page.getByRole('combobox', { name: 'Filter by academic specialization' }).click()
+  await page.getByRole('option', { name: /Data Mining/ }).click()
+  await expect(page.getByText('Showing 1 of 1 indexed thesis')).toBeVisible()
+
   await page.getByPlaceholder(/Search titles, authors, abstracts/).fill('missing topic')
   await expect(page.getByText('No matches found')).toBeVisible()
-  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await page.locator('#main-content').getByRole('button', { name: 'Clear filters', exact: true }).click()
   await expect(page.getByText('A Centralized AI-Powered Thesis Library')).toBeVisible()
   expect(unexpected).toEqual([])
 })
@@ -217,6 +327,9 @@ test('faculty novelty scan renders deterministic advisory metrics', async ({ pag
   await expect(page.getByText('25.00%')).toBeVisible()
   await expect(page.getByText('2 / 8')).toBeVisible()
   await expect(page.getByText('Review suggested')).toBeVisible()
+  const reportDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download report' }).click()
+  await expect((await reportDownload).suggestedFilename()).toMatch(/^novelty-report-.*\.json$/)
   expect(unexpected).toEqual([])
 })
 
@@ -225,8 +338,13 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   let acceptedKey
   let statusChecks = 0
   const unexpected = await mockApi(page, {
-    'GET /departments/': [{
-      id: 'dept-1', name: 'CCSICT', track_label: 'Academic track', tracks: ['Data Mining'],
+    'GET /catalog/departments/legacy': [{
+      id: 'dept-1', name: 'CCSICT', track_label: 'Program / specialization',
+      tracks: ['Data Mining'],
+      programs: [{
+        id: 'program-bscs', code: 'BSCS', name: 'Bachelor of Science in Computer Science',
+        specializations: [{ id: 'specialization-dm', code: 'DM', name: 'Data Mining' }],
+      }],
     }],
     'POST /upload/extract-metadata': {
       title: 'Deterministic E2E Thesis', authors: 'A. Researcher, C. Researcher', year: 2026,
@@ -272,8 +390,10 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   await expect(page.getByText('Metadata autofilled')).toBeVisible()
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  await page.getByRole('combobox', { name: /Academic track/i }).click()
-  await page.getByRole('option', { name: 'Data Mining' }).click()
+  await page.getByRole('combobox', { name: 'Select academic program' }).click()
+  await page.getByRole('option', { name: /BSCS/ }).click()
+  await page.getByRole('combobox', { name: 'Select academic specialization' }).click()
+  await page.getByRole('option', { name: /Data Mining/ }).click()
   await page.getByRole('button', { name: 'Review' }).click()
   await expect(page.getByText('Deterministic E2E Thesis')).toBeVisible()
   await page.getByRole('button', { name: /Ingest into archive/ }).click()

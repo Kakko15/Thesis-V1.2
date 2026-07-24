@@ -13,6 +13,7 @@ from config import settings
 from dependencies.auth import get_current_user, invalidate_role_cache, require_admin, sb
 from models import ProfileUpdate, RoleUpdate, UserUpdate
 from services.activity import log_activity
+from services.catalog import resolve_academic_selection
 
 logger = logging.getLogger(__name__)
 
@@ -322,8 +323,19 @@ def get_system_logs(limit: int = 200, user=Depends(require_admin)):
 @router.get('/me')
 def my_profile(user=Depends(get_current_user)):
     """Return the current user's public profile fields."""
-    fields = 'id,email,full_name,role,department,status,created_at,avatar_url'
-    result = sb.table('profiles').select(fields).eq('id', user.id).execute()
+    fields = (
+        'id,email,full_name,role,department,status,created_at,avatar_url,'
+        'program_id,specialization_id'
+    )
+    try:
+        result = sb.table('profiles').select(fields).eq('id', user.id).execute()
+    except Exception as normalized_error:
+        logger.warning(
+            'Normalized profile fields unavailable; serving legacy profile fields (%s).',
+            type(normalized_error).__name__,
+        )
+        legacy_fields = 'id,email,full_name,role,department,status,created_at,avatar_url'
+        result = sb.table('profiles').select(legacy_fields).eq('id', user.id).execute()
     if result.data:
         return result.data[0]
     raise HTTPException(404, 'Profile not found')
@@ -342,6 +354,27 @@ def update_my_profile(data: ProfileUpdate, user=Depends(get_current_user)):
         if data.avatar_url and not data.avatar_url.startswith(f'{user.id}/'):
             raise HTTPException(422, 'Avatar must be an image uploaded to your account')
         update_data['avatar_url'] = data.avatar_url
+    if {'program_id', 'specialization_id'} & data.model_fields_set:
+        profile = sb.table('profiles').select('role,department').eq('id', user.id).limit(1).execute()
+        current = profile.data[0] if profile.data else {}
+        try:
+            selection = resolve_academic_selection(
+                sb,
+                department_name=current.get('department') or settings.thesis_evaluation_department,
+                program_id=data.program_id,
+                specialization_id=data.specialization_id,
+                legacy_track=None,
+                require_program=current.get('role') == 'student',
+            )
+        except HTTPException:
+            raise
+        except Exception as catalog_error:
+            raise HTTPException(
+                503,
+                'Academic program updates are unavailable until the catalog migration is applied.',
+            ) from catalog_error
+        update_data['program_id'] = selection.program_id
+        update_data['specialization_id'] = selection.specialization_id
 
     if not update_data:
         return {'status': 'no changes'}

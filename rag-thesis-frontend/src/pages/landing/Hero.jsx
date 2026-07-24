@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { motion, useScroll, useTransform } from 'framer-motion'
 import {
   ArrowRight, ChevronDown, Lock, MessageSquareText, Quote, ShieldCheck, Sparkles,

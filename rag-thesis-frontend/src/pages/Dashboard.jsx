@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import {
   BookMarked, GitBranch, CalendarRange, Layers, MessageSquareText,
   ShieldCheck, UploadCloud, ArrowRight, Library, Sparkles, Fingerprint,
+  AlertTriangle,
 } from 'lucide-react'
 import { listPapers } from '../api'
 import { supabase } from '../supabaseClient'
@@ -34,7 +35,19 @@ function StatTile({ icon: Icon, label, value, suffix = '' }) {
 
 function QuickAction({ icon: Icon, title, text, onClick, tone = 'forest' }) {
   return (
-    <GlassCard hover className="group cursor-pointer p-6" onClick={onClick}>
+    <GlassCard
+      hover
+      role="button"
+      tabIndex={0}
+      className="group cursor-pointer p-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400"
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onClick()
+        }
+      }}
+    >
       <div className="flex items-start justify-between">
         <div
           className={
@@ -115,9 +128,11 @@ function SecurityCard() {
 }
 
 export default function Dashboard() {
-  const { displayName, role, department, canScan, isAdmin } = useAuth()
+  const { displayName, role, department, canArchive, canScan, isAdmin } = useAuth()
   const navigate = useNavigate()
-  const { data: papers, isLoading } = useQuery({ queryKey: ['papers'], queryFn: () => listPapers() })
+  const {
+    data: papers, isLoading, isError: papersError, refetch: retryPapers,
+  } = useQuery({ queryKey: ['papers'], queryFn: () => listPapers() })
 
   const stats = useMemo(() => {
     const list = papers || []
@@ -160,6 +175,17 @@ export default function Dashboard() {
         </Button>
       </div>
 
+      {papersError && (
+        <GlassCard role="alert" className="flex flex-wrap items-center gap-3 border border-flame-500/25 p-4 text-sm">
+          <AlertTriangle size={17} className="shrink-0 text-flame-500" />
+          <div className="min-w-0 flex-1">
+            <div className="font-bold">Archive metrics are temporarily unavailable</div>
+            <div className="mt-0.5 text-xs opacity-60">No unavailable values are being presented as measured zeros.</div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => retryPapers()}>Retry</Button>
+        </GlassCard>
+      )}
+
       {/* Stats bento */}
       <motion.div
         variants={staggerContainer}
@@ -167,7 +193,7 @@ export default function Dashboard() {
         animate="show"
         className="grid grid-cols-2 gap-4 lg:grid-cols-4"
       >
-        {isLoading ? (
+        {isLoading || papersError ? (
           [...Array(4)].map((_, i) => <Skeleton key={i} className="h-32" />)
         ) : (
           <>
@@ -188,12 +214,14 @@ export default function Dashboard() {
             text="Ask natural-language questions and receive citation-backed answers."
             onClick={() => navigate('/chat')}
           />
-          <QuickAction
-            icon={Library}
-            title="Browse archive"
-            text="Explore thesis metadata by track, year, and author."
-            onClick={() => navigate('/archive')}
-          />
+          {canArchive && (
+            <QuickAction
+              icon={Library}
+              title="Browse archive"
+              text="Explore thesis metadata by program, specialization, year, and author."
+              onClick={() => navigate('/archive')}
+            />
+          )}
           {canScan && (
             <QuickAction
               icon={ShieldCheck}
@@ -226,6 +254,11 @@ export default function Dashboard() {
           {isLoading ? (
             <div className="space-y-3">
               {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16" />)}
+            </div>
+          ) : papersError ? (
+            <div className="py-10 text-center">
+              <p className="text-sm opacity-55">Recent additions could not be loaded.</p>
+              <Button variant="ghost" size="sm" className="mt-2" onClick={() => retryPapers()}>Retry archive</Button>
             </div>
           ) : recent.length === 0 ? (
             <p className="py-10 text-center text-sm opacity-50">

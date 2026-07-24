@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import {
   AnimatePresence, motion, useSpring, useTransform,
 } from 'framer-motion'
@@ -219,7 +219,7 @@ export default function Login() {
   }
 
   return (
-    <div
+    <main
       onPointerMove={onRootPointerMove}
       className="relative flex min-h-screen items-stretch overflow-hidden"
     >
@@ -376,6 +376,6 @@ export default function Login() {
           )}
         </motion.div>
       </div>
-    </div>
+    </main>
   )
 }

@@ -1,30 +1,31 @@
 # ISU Thesis AI Library — backend dependencies
 # Pinned to the verified production set (regenerate the thesis paper's
 # version tables from these values).
-fastapi==0.139.0
-uvicorn[standard]==0.49.0
+fastapi==0.139.2
+uvicorn[standard]==0.51.0
 python-multipart==0.0.32
 pydantic==2.13.4
 pydantic-settings==2.14.2
 python-dotenv==1.2.2
 
 # RAG orchestration (LangChain + Gemini + Supabase pgvector)
-langchain==1.3.11
-langchain-core==1.4.8
+langchain==1.3.14
+langchain-core==1.5.1
 langchain-text-splitters==1.1.2
 tiktoken==0.13.0
-langchain-google-genai==4.2.6
-langsmith==0.9.6
+langchain-google-genai==4.3.1
+langsmith==0.10.10
 supabase==2.31.0
 
 # Document digitization
 pymupdf==1.28.0
-pytesseract==0.3.13  # OCR fallback for scanned manuscripts (needs the Tesseract binary)
+tesserocr==2.10.0    # Bundled manylinux OCR runtime for Python 3.14 on amd64/arm64
+tessdata.eng==1.0.0  # Pinned English recognition model, installed inside the venv
 Pillow==12.3.0
 
 # Production hardening
 slowapi==0.1.10
-redis==5.2.1
+redis==8.0.1
 cryptography==49.0.0
 
 # Testing (ISO/IEC 25010 — Functional Suitability / Maintainability)

@@ -1,0 +1,133 @@
+{
+  "buildx.build.provenance/linux/amd64": {
+    "builder": {
+      "id": ""
+    },
+    "buildType": "https://mobyproject.org/buildkit@v1",
+    "materials": [
+      {
+        "uri": "pkg:docker/cgr.dev/chainguard/python@latest?platform=linux%2Famd64",
+        "digest": {
+          "sha256": "2c6a2e8bdeb1336cd8545d3586d1c1e5b4f7564ef00924b0447ebfbe57a549ee"
+        }
+      },
+      {
+        "uri": "pkg:docker/cgr.dev/chainguard/python@latest-dev?platform=linux%2Famd64",
+        "digest": {
+          "sha256": "041bd8c87c20ff8bbabceedf9f3edd0d70530290d73a53b7fd040093238edbe0"
+        }
+      },
+      {
+        "uri": "pkg:docker/docker/buildkit-syft-scanner@stable-1",
+        "digest": {
+          "sha256": "79e7b013cbec16bbb436f312819a49a4a57752b2270c1a9332ae1a10fcc82a68"
+        }
+      }
+    ],
+    "invocation": {
+      "configSource": {
+        "entryPoint": "Dockerfile"
+      },
+      "parameters": {
+        "frontend": "dockerfile.v0",
+        "locals": [
+          {
+            "name": "context"
+          },
+          {
+            "name": "dockerfile"
+          }
+        ],
+        "root": {
+          "configSource": {
+            "path": "Dockerfile"
+          },
+          "request": {
+            "args": {
+              "vcs:localdir:context": "rag-thesis-backend",
+              "vcs:localdir:dockerfile": "rag-thesis-backend",
+              "vcs:revision": "b2bba58b941c7027813b009b2250c31a6d29ff9f",
+              "vcs:source": "https://github.com/Kakko15/Thesis-V1.2.git"
+            }
+          }
+        },
+        "compatibilityVersion": 30
+      },
+      "environment": {
+        "dockerfileVersion": "1.25.0",
+        "platform": "linux/amd64"
+      }
+    }
+  },
+  "buildx.build.provenance/linux/arm64": {
+    "builder": {
+      "id": ""
+    },
+    "buildType": "https://mobyproject.org/buildkit@v1",
+    "materials": [
+      {
+        "uri": "pkg:docker/cgr.dev/chainguard/python@latest?platform=linux%2Farm64",
+        "digest": {
+          "sha256": "2c6a2e8bdeb1336cd8545d3586d1c1e5b4f7564ef00924b0447ebfbe57a549ee"
+        }
+      },
+      {
+        "uri": "pkg:docker/cgr.dev/chainguard/python@latest-dev?platform=linux%2Farm64",
+        "digest": {
+          "sha256": "041bd8c87c20ff8bbabceedf9f3edd0d70530290d73a53b7fd040093238edbe0"
+        }
+      },
+      {
+        "uri": "pkg:docker/docker/buildkit-syft-scanner@stable-1",
+        "digest": {
+          "sha256": "79e7b013cbec16bbb436f312819a49a4a57752b2270c1a9332ae1a10fcc82a68"
+        }
+      }
+    ],
+    "invocation": {
+      "configSource": {
+        "entryPoint": "Dockerfile"
+      },
+      "parameters": {
+        "frontend": "dockerfile.v0",
+        "locals": [
+          {
+            "name": "context"
+          },
+          {
+            "name": "dockerfile"
+          }
+        ],
+        "root": {
+          "configSource": {
+            "path": "Dockerfile"
+          },
+          "request": {
+            "args": {
+              "vcs:localdir:context": "rag-thesis-backend",
+              "vcs:localdir:dockerfile": "rag-thesis-backend",
+              "vcs:revision": "b2bba58b941c7027813b009b2250c31a6d29ff9f",
+              "vcs:source": "https://github.com/Kakko15/Thesis-V1.2.git"
+            }
+          }
+        },
+        "compatibilityVersion": 30
+      },
+      "environment": {
+        "dockerfileVersion": "1.25.0",
+        "platform": "linux/amd64"
+      }
+    }
+  },
+  "buildx.build.ref": "desktop-linux/desktop-linux/ym5g11181ij881j419y27rcys",
+  "containerimage.descriptor": {
+    "mediaType": "application/vnd.oci.image.index.v1+json",
+    "digest": "sha256:6c3c58e14356bbc692ae61b66352222ca4c34d3b2a432cb3488605593d7a6618",
+    "size": 1609,
+    "annotations": {
+      "org.opencontainers.image.created": "2026-07-24T20:54:04Z"
+    }
+  },
+  "containerimage.digest": "sha256:6c3c58e14356bbc692ae61b66352222ca4c34d3b2a432cb3488605593d7a6618",
+  "image.name": "docker.io/library/thesis-v1-api:pi03-20260725-044816"
+}

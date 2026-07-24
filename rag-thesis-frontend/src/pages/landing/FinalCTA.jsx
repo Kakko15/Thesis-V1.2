@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { ArrowRight } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { GlassCard } from '../../components/ui/GlassCard'

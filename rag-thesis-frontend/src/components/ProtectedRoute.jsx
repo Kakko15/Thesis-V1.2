@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate } from 'react-router'
 import { useAuth } from '../context/AuthContext'
 import { Spinner } from './ui/Spinner'
 import { AlertTriangle, XCircle } from 'lucide-react'

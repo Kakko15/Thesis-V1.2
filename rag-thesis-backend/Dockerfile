@@ -1,14 +1,15 @@
-FROM python:3.12-slim
+FROM cgr.dev/chainguard/python:latest-dev AS build
 
-# Tesseract OCR binary for scanned-manuscript digitization
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends tesseract-ocr \
-    && rm -rf /var/lib/apt/lists/*
+USER root
+RUN python -c "import sys; assert sys.version_info[:3] == (3, 14, 6), sys.version"
 
 WORKDIR /app
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN python -c "import tessdata, tesserocr; path=tessdata.data_path(); assert 'eng' in tesserocr.get_languages(path)[1]; print(tesserocr.tesseract_version())"
 
 # Resolve and cache the fixed tokenizer vocabulary at build time so runtime
 # chunking never depends on a network request.
@@ -22,10 +23,21 @@ COPY routers/*.py ./routers/
 COPY services/*.py ./services/
 COPY dependencies/*.py ./dependencies/
 COPY workers/*.py ./workers/
+COPY scripts/gemini_release_smoke.py ./scripts/
+RUN chown -R 65532:65532 /app /opt/venv /opt/tiktoken-cache
 
-# Run as an unprivileged user (never root in production)
-RUN useradd --create-home appuser && chown -R appuser:appuser /app
-USER appuser
+FROM cgr.dev/chainguard/python:latest
+
+WORKDIR /app
+ENV PATH="/opt/venv/bin:$PATH" \
+    TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache
+
+COPY --from=build /opt/venv /opt/venv
+COPY --from=build /opt/tiktoken-cache /opt/tiktoken-cache
+COPY --from=build --chown=65532:65532 /app /app
+
+USER 65532:65532
+ENTRYPOINT []
 
 EXPOSE 8000
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, Palette, Search, UserRound } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { Modal } from './ui/Modal'
 import { Input } from './ui/Input'
 

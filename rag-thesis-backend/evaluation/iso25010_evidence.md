@@ -1,6 +1,31 @@
 # ISO/IEC 25010 Evidence Snapshot
 
+> **Snapshot notice:** This file records the dated evidence below and is not a live delivery-status ledger. The authoritative release gates and current status are maintained in [ISU_ECHAGUE_PRODUCTION_ROADMAP.md](../../ISU_ECHAGUE_PRODUCTION_ROADMAP.md). Final evidence must be regenerated from the immutable release manifest described there.
+
 This file reports only observed command results. Pending external measurements are never represented as successful results.
+
+## Current local revalidation - 2026-07-25
+
+This revalidation used Python 3.14.2, PyTest 9.1.1, Pylint 4.0.6, Node.js 24.12.0, npm 11.6.2, and Vite 8.1.5 on Windows 11. Python 3.14.6 and Node 24.18.0 remain the pinned CI/container targets, not claims about this workstation.
+
+| Criterion | Instrument | Observed result | Status |
+|---|---|---|---|
+| Backend dependency consistency | `pip check` in `.venv312` | No broken requirements found | Passed |
+| Backend dependency vulnerability audit | pip-audit 2.10.1 | No known vulnerabilities found | Passed |
+| Backend functional suitability | PyTest with pytest-cov and enforced `--cov-fail-under=83.18` | 342 passed and 3 opt-in external integration tests skipped; 83.29% coverage | Passed current gate; below roadmap 85% target |
+| PI-04 catalog controls | PyTest | 8/8 normalized selection, safe legacy/pre-migration translation, no-guess review, nested API, CRUD/archive, additive migration, and rollback contract tests passed | Passed locally |
+| PI-08 corpus controls | PyTest + Pylint | 15/15 manifest validation, immutable-locking, no-overwrite, and tamper-evidence tests passed; focused Pylint 10.00/10 | Passed locally |
+| Backend maintainability | Pylint | 10.00/10 | Passed |
+| PI-06 critical experience | Browser QA + Playwright | 360px and 1280px landing/auth/chat checks had no horizontal overflow or console errors; archive normalization, chat stop/retry, metadata-only reporting, upload recovery, and operations journeys passed | Passed focused local gate; full device/accessibility matrix pending |
+| Frontend unit tests | Node test runner | 23/23 passed | Passed |
+| Frontend maintainability | ESLint | 0 errors and 0 warnings | Passed |
+| Frontend production build | Vite 8.1.5 | 3,803 modules transformed; production build completed | Passed |
+| Critical browser journeys | Playwright 1.61.1 with Chromium | 8/8 passed | Passed |
+| Frontend production dependency audit | npm audit --omit=dev | Two high findings from one React Router RSC-mode CSRF advisory; the Vite SPA does not enable RSC, but the zero-high release gate remains open | Blocked upstream |
+
+The three skipped backend checks are two explicitly authorized disposable-Supabase integrations and one ClamAV Docker/EICAR integration. The PI-04 migration has not been applied to a disposable Supabase project because no local Supabase CLI/Docker daemon was available. They remain deployment/evidence gates and were not represented as passing. Deployed security-header validation also remains pending because it requires the final deployment URL.
+
+## Archived evidence snapshot - 2026-07-20
 
 - Snapshot date: 2026-07-20 (Asia/Taipei)
 - Host: Windows 11
@@ -45,24 +70,27 @@ This file reports only observed command results. Pending external measurements a
 ```powershell
 # Backend: current suite and enforced coverage gate
 cd rag-thesis-backend
-.\.venv\Scripts\python.exe -m pytest `
-  --cov=routers --cov=services --cov=dependencies `
+.\.venv312\Scripts\python.exe -m pip check
+.\.venv312\Scripts\python.exe -m pytest `
+  --cov=routers --cov=services --cov=dependencies --cov=workers `
   --cov=main --cov=config --cov=models `
-  --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+  --cov-report=term-missing --cov-report=xml --cov-fail-under=83.18
 
 # Opt-in disposable-project integration test
 $env:ALLOW_DISPOSABLE_SUPABASE_TESTS='1'
-.\.venv\Scripts\python.exe -m pytest -m integration -v
+.\.venv312\Scripts\python.exe -m pytest -m integration -v
 
 # Backend maintainability
-.\.venv\Scripts\python.exe -m pylint --rcfile=.pylintrc `
-  routers services dependencies main.py config.py models.py
+.\.venv312\Scripts\python.exe -m pylint --rcfile=.pylintrc `
+  routers services dependencies workers main.py config.py models.py
 
 # Frontend
 cd ..\rag-thesis-frontend
 npm.cmd run lint
 npm.cmd test
 npm.cmd run build
+npm.cmd run test:e2e
+npm.cmd run security:headers -- https://your-deployment.example
 ```
 
 ## Artifact hashes

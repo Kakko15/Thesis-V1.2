@@ -17,13 +17,14 @@ import { useSceneRuntime } from './useSceneRuntime'
  */
 export default function AuthScene() {
   const isDark = useIsDark()
-  const { degraded, lost, onCreated, pointerRef, setDegraded } = useSceneRuntime()
+  const { degraded, lost, paused, onCreated, pointerRef, setDegraded } = useSceneRuntime()
 
   if (lost) return null
 
   return (
     <Canvas
       aria-hidden="true"
+      frameloop={paused ? 'never' : 'always'}
       dpr={degraded ? [1, 1.25] : [1, 1.75]}
       camera={{ position: [0, 0, 8.4], fov: 42 }}
       resize={{ scroll: false }}

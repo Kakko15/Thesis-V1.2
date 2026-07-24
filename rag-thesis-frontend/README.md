@@ -16,8 +16,8 @@ Decorative Three.js scenes load only after capability, preference, viewport, vis
 
 ## Requirements
 
-- Node.js 22 or newer
-- npm 10 or newer
+- Node.js 24.18.0 LTS (`.nvmrc`)
+- npm 11.6.2 (lockfile package manager)
 - The FastAPI backend running on `http://127.0.0.1:8000` for normal development
 
 ## Environment

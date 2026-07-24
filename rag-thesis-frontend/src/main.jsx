@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import App from './App.jsx'
@@ -8,6 +8,7 @@ import { AuthProvider } from './context/AuthContext'
 import { PreferenceMotion, PreferencesProvider } from './context/PreferencesContext'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { TooltipProvider } from './components/ui/Tooltip'
+import { normalizeDepartments } from './lib/catalog'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -25,6 +26,10 @@ const queryClient = new QueryClient({
     },
   },
 })
+
+// Keep already-cached catalog data safe across development hot reloads and
+// accept both the one-release legacy array and the versioned response shape.
+queryClient.setQueryDefaults(['departments'], { select: normalizeDepartments })
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

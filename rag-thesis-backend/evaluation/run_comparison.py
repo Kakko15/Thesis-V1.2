@@ -35,7 +35,6 @@ RESULTS_DIR = Path(__file__).parent / 'results'
 baseline_llm = ChatGoogleGenerativeAI(
     model=settings.gemini_chat_model,
     google_api_key=settings.gemini_api_key,
-    temperature=0.6,
 )
 
 BASELINE_PROMPT = (

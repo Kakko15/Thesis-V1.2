@@ -39,27 +39,24 @@ export function ProfileSettingsModal({ open, onClose }) {
   const fileInputRef = useRef(null)
   const wasOpen = useRef(false)
 
-  // Sync profile data gracefully
-  useEffect(() => {
-    if (open) {
-      setFullName(prev => (!prev && profile?.full_name) ? profile.full_name : prev)
-      setEmail(prev => (!prev && user?.email) ? user.email : prev)
-    }
-  }, [open, profile, user])
-
   // Reset UI fields only when the modal is freshly opened
   useEffect(() => {
     if (open && !wasOpen.current) {
-      setPassword('')
-      setTab('profile')
-      setVerifyingEmail(false)
-      setEmailCode('')
-      setVerifyingPassword(false)
-      setPasswordCode('')
-      setFullName(profile?.full_name || '')
-      setEmail(user?.email || '')
+      const frame = window.requestAnimationFrame(() => {
+        wasOpen.current = true
+        setPassword('')
+        setTab('profile')
+        setVerifyingEmail(false)
+        setEmailCode('')
+        setVerifyingPassword(false)
+        setPasswordCode('')
+        setFullName(profile?.full_name || '')
+        setEmail(user?.email || '')
+      })
+      return () => window.cancelAnimationFrame(frame)
     }
     wasOpen.current = open
+    return undefined
   }, [open, profile, user])
 
   const handleSaveProfile = async () => {

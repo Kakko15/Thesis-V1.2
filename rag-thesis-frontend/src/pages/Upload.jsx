@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -47,7 +47,10 @@ function DepartmentLoadError({ show, onRetry }) {
 function uploadMetadataErrors(form) {
   const errors = {}
   if (form.title.trim().length < 5) errors.title = 'Enter the full thesis title'
-  if (!form.track) errors.track = 'Select the academic track'
+  if (!form.program_id) errors.program_id = 'Select the academic program'
+  if (form.requires_specialization && !form.specialization_id) {
+    errors.specialization_id = 'Select the program specialization'
+  }
   if (!form.department) errors.department = 'Select the department'
   const latestYear = new Date().getFullYear() + 1
   if (form.year && (!/^\d{4}$/.test(form.year) || +form.year < 1978 || +form.year > latestYear)) {
@@ -284,8 +287,10 @@ export default function Upload() {
   
   // Find the currently selected department object
   const currentDept = departments.find(d => d.name === form.department)
-  const trackLabel = currentDept?.track_label || 'Track'
-  const currentTracks = currentDept?.tracks || []
+  const currentPrograms = currentDept?.programs || []
+  const currentProgram = currentPrograms.find((item) => item.id === form.program_id)
+  const currentSpecializations = currentProgram?.specializations || []
+  const currentSpecialization = currentSpecializations.find((item) => item.id === form.specialization_id)
 
   const stopPolling = useCallback(() => {
     pollGenerationRef.current += 1
@@ -535,19 +540,48 @@ export default function Upload() {
               </div>
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field 
-                  label={trackLabel} 
-                  error={errors.track} 
+                  label="Academic program"
+                  error={errors.program_id}
                   required 
-                  hint="Metadata tag attached to semantic chunk"
+                  hint="Validated against the official CCSICT catalog"
                 >
-                  <Select value={form.track} onChange={set('track')} error={errors.track} disabled={!form.department || currentTracks.length === 0} aria-label={`Select ${trackLabel}`}>
-                    <option value="">Select {trackLabel}…</option>
-                    {currentTracks.map((t) => <option key={t} value={t}>{t}</option>)}
+                  <Select value={form.program_id} onChange={(event) => {
+                    const program = currentPrograms.find((item) => item.id === event.target.value)
+                    setForm((current) => ({
+                      ...current,
+                      program_id: event.target.value,
+                      specialization_id: '',
+                      requires_specialization: Boolean(program?.specializations?.length),
+                      track: program?.specializations?.length ? '' : (program?.code || ''),
+                    }))
+                  }} error={errors.program_id} disabled={!form.department || currentPrograms.length === 0} aria-label="Select academic program">
+                    <option value="">Select program…</option>
+                    {currentPrograms.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}
                   </Select>
+                  {currentSpecializations.length > 0 && (
+                    <Select className="mt-2" value={form.specialization_id} onChange={(event) => {
+                      const specialization = currentSpecializations.find((item) => item.id === event.target.value)
+                      setForm((current) => ({
+                        ...current,
+                        specialization_id: event.target.value,
+                        track: specialization?.name || '',
+                      }))
+                    }} error={errors.specialization_id} aria-label="Select academic specialization">
+                      <option value="">Select specialization…</option>
+                      {currentSpecializations.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
+                    </Select>
+                  )}
                 </Field>
                 <Field label="Department" error={errors.department} required hint="Department this thesis belongs to">
                   {isSuperadmin ? (
-                    <Select value={form.department} onChange={(e) => setForm(f => ({...f, department: e.target.value, track: ''}))} error={errors.department} disabled={loadingDepts} aria-label="Select thesis department">
+                    <Select value={form.department} onChange={(e) => setForm(f => ({
+                      ...f,
+                      department: e.target.value,
+                      track: '',
+                      program_id: '',
+                      specialization_id: '',
+                      requires_specialization: false,
+                    }))} error={errors.department} disabled={loadingDepts} aria-label="Select thesis department">
                       <option value="">Select a Department…</option>
                       {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
                     </Select>
@@ -596,8 +630,11 @@ export default function Upload() {
                     <div className="mt-0.5 font-medium">{form.authors || '—'}</div>
                   </div>
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Track</div>
-                    <div className="mt-0.5"><Badge tone="forest">{form.track}</Badge></div>
+                    <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Program / specialization</div>
+                    <div className="mt-0.5 flex flex-wrap gap-1.5">
+                      <Badge tone="forest">{currentProgram?.code || 'Pending program'}</Badge>
+                      {currentSpecialization && <Badge tone="gold">{currentSpecialization.code}</Badge>}
+                    </div>
                   </div>
                   <div>
                     <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Department</div>
@@ -648,6 +685,22 @@ export default function Upload() {
                     "{form.title}" is now part of the semantic archive with {job.chunks} embedded chunks.
                   </p>
                   <UploadScreening scan={job.duplication} />
+                  <div className="mt-6 grid w-full max-w-xl gap-2 text-left sm:grid-cols-2">
+                    {[
+                      [ShieldCheck, 'Malware screening', 'Completed before document processing'],
+                      [ScanText, 'Text preparation', 'OCR fallback, cleanup, and structure extraction applied'],
+                      [Scissors, 'Privacy processing', 'Supported PII redaction rules applied before indexing'],
+                      [Archive, 'Source protection', 'Original manuscript retained in private storage only'],
+                    ].map(([Icon, label, description]) => (
+                      <div key={label} className="glass flex items-start gap-3 rounded-2xl p-3.5">
+                        <Icon size={16} className="mt-0.5 shrink-0 text-forest-600 dark:text-forest-300" />
+                        <div>
+                          <div className="text-xs font-bold">{label}</div>
+                          <div className="mt-0.5 text-[0.68rem] leading-relaxed opacity-55">{description}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                   <div className="mt-7 flex gap-3">
                     <Button variant="secondary" onClick={reset}>Upload another</Button>
                     <Button onClick={() => navigate('/archive')}>View archive <ArrowRight size={15} /></Button>
