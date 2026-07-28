@@ -24,6 +24,7 @@ _ISOLATED_TEST_ENV = {
     'RETENTION_ENFORCEMENT_ENABLED': 'false',
     'LANGSMITH_TRACING': 'false',
     'LANGCHAIN_TRACING_V2': 'false',
+    'TURNSTILE_SECRET_KEY': '',
 }
 
 for _name, _value in _ISOLATED_TEST_ENV.items():

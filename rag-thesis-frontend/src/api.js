@@ -127,14 +127,19 @@ export const chatQuery = async (
   guest_history = [],
   guest_source_ids = [],
   signal = undefined,
+  turnstileToken = null,
 ) => {
-  const { data } = await api.post('/chat', { 
-    question: query, 
-    session_id, 
+  const { data } = await api.post('/chat', {
+    question: query,
+    session_id,
     department_filter,
     guest_history,
     guest_source_ids,
-  }, { signal })
+  }, {
+    signal,
+    // One-time guest verification when the backend Turnstile guard is enabled.
+    headers: turnstileToken ? { 'X-Turnstile-Token': turnstileToken } : undefined,
+  })
   return data
 }
 

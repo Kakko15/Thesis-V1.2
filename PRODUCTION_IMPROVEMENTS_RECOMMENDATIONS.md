@@ -24,14 +24,14 @@ Every item carries three labels:
 | # | Item | Why it matters most | Priority | Effort | Phase |
 |---|---|---|---|---|---|
 | 1 | Enforce `@isu.edu.ph` signup allowlist server-side (§4.1) | Today anyone with any email can create a student account; the domain appears only as placeholder text | P0 | S | A |
-| 2 | Load-test the actual `/chat` RAG path (§2.5) | The measured JMeter evidence never exercised chat; production capacity for the core feature is unknown | P0 | M | A/B |
+| 2 | Load-test the actual `/chat` RAG path (§2.5) | The measured JMeter evidence never exercised chat; production capacity for the core feature is unknown | P0 | M | A/B — **rig implemented 2026-07-28** (`jmeter/chat_load.jmx`); measured run still pending a disposable project |
 | 3 | Multi-process API + externalized runtime state (§2.1) | Single uvicorn process is the whole API; one CPU-bound request degrades everyone | P0 | M | B |
 | 4 | Prometheus metrics + dashboards + paging (§3.1) | Operations data already exists in code but is only visible in a superadmin tab; nobody gets woken up when it breaks | P1 | M | B |
 | 5 | Scheduled automated encrypted backups + drill cadence (§6.1) | Backup tooling is excellent but manual; production needs unattended schedule + tested RTO/RPO | P1 | S | A |
 | 6 | Gemini paid tier + quota strategy (§2.4) | Free-tier quotas and data-use terms are the single biggest availability and privacy constraint for real users | P0 | S–M | B |
 | 7 | Server-side archive pagination/search (§2.2) | `GET /papers` ships the whole catalog to the browser; breaks at real corpus sizes | P1 | M | B |
 | 8 | Hybrid retrieval + reranking (§5.1) | Known best-practice quality jump for specialized vocabulary; already planned as PI-12 | P1 | L | B |
-| 9 | Turnstile (or equivalent) on guest chat (§4.2) | Guest chat spends Gemini quota with only IP+guest-ID rate limits between the public internet and the bill | P1 | S | A |
+| 9 | Turnstile (or equivalent) on guest chat (§4.2) | Guest chat spends Gemini quota with only IP+guest-ID rate limits between the public internet and the bill | P1 | S | A — **✅ implemented 2026-07-28**, config-gated (enable via `TURNSTILE_SECRET_KEY`) |
 | 10 | Ragas regression smoke in CI with synthetic data (§5.4) | The scoring path has never executed non-empty; PI-10 defense evaluation depends on it working | P1 | S | A |
 
 ---
@@ -57,6 +57,8 @@ Every item carries three labels:
 ### 2.5 Load-test the real RAG chat path — P0 · M · Phase A (test rig) / B (with real corpus)
 **Observed:** the JMeter evidence (900/900, p95 204 ms) exercised only `/health`, `/upload/tracks`, `/analytics/summary` (`jmeter/provider_independent_load.jmx`); live Gemini smoke was 3 single-user calls against an empty corpus. Chat concurrency capacity is unmeasured.
 **Recommend:** add a `chat_load.jmx` profile posting realistic guest questions at 5/10/20 concurrent users against a disposable project with a seeded synthetic corpus; measure p95/p99 end-to-end and the rate-limit/429 envelope; run it via the existing `evaluation/summarize_jmeter.py`. Rerun against the production corpus after PI-10 so the ISO Performance Efficiency claim covers the core feature.
+
+> **Status (2026-07-28): rig implemented.** `jmeter/chat_load.jmx` exists (parameterized users/loops/ramp, stable per-thread guest IDs, 60 s response timeout) with usage and quota caveats in `jmeter/README.md`. The measured evidence run against a disposable project remains pending.
 
 ### 2.6 Worker fleet scale-out documentation — P2 · S · Phase B
 **Observed:** the leased job queue already supports N workers safely (PostgreSQL leases, heartbeats, idempotent commit), but compose runs exactly one worker and no doc states the scaling contract.
@@ -95,6 +97,8 @@ Every item carries three labels:
 ### 4.2 Bot/abuse protection on guest chat — P1 · S · Phase A
 **Observed:** Turnstile protects auth flows only; guest chat is protected by 30/min-per-guest + 300/min-per-IP rate limits. A scripted guest can still burn daily Gemini quota from rotating IPs.
 **Recommend:** require a Turnstile token on the first guest chat request per session (verify server-side in `get_optional_user` or a dedicated dependency), plus a global daily guest-token budget breaker in Redis. Both are additive and safe pre-defense (they gate access; they do not alter the evaluated pipeline).
+
+> **Status (2026-07-28): ✅ implemented, config-gated.** `services/turnstile.py` verifies one token per guest session against Cloudflare (fail-closed, TTL-cached, in-process — move the cache to Redis with §2.1) and the `/chat` route enforces it via `ensure_guest_chat_verification()`; the widget appears once in the guest banner (`Chat.jsx`). Off by default: enable by setting `TURNSTILE_SECRET_KEY` (backend) with `VITE_TURNSTILE_SITE_KEY` (frontend). The evaluation harness's direct `_chat_impl` path is untouched. The global daily guest-token budget breaker remains open.
 
 ### 4.3 Supply-chain hardening — P1 · M · Phase A
 **Observed:** direct Python deps are exact-pinned but transitive deps are not hash-locked; base images use tags not digests (comparison report §9); no SBOM or image signing. CI already runs pip-audit, npm audit, Trivy, Gitleaks.
@@ -226,7 +230,7 @@ These subsystems were verified strong during the audit; future work should exten
 
 ## 11. Suggested sequencing
 
-1. **Now → defense (Phase A, no pipeline changes):** §4.1 email allowlist · §4.2 guest-chat Turnstile · §6.1 scheduled backups · §3.3 uptime checks · §5.4 Ragas CI smoke · §2.5 chat load-test rig (disposable) · §4.3 supply-chain hardening · §7.1 coverage/smell burn-down · §7.3 CI tightening
+1. **Now → defense (Phase A, no pipeline changes):** §4.1 email allowlist (deferred by researcher decision 2026-07-28 — any email may register for now) · §4.2 guest-chat Turnstile ✅ done 2026-07-28 · §6.1 scheduled backups · §3.3 uptime checks · §5.4 Ragas CI smoke · §2.5 chat load-test rig ✅ done 2026-07-28 (measured run pending) · §4.3 supply-chain hardening · §7.1 coverage/smell burn-down · §7.3 CI tightening
 2. **Defense (2026-08-28):** PI-08/09/10/11 per the roadmap — untouched by this document
 3. **First post-defense quarter (Phase B):** §2.1 multi-worker API · §2.4 Gemini paid tier · §3.1 metrics/dashboards/paging · §2.2 archive pagination · §5.1 hybrid retrieval + reranking · SSE streaming · email notifications · §7.2 staging + safe deploys · §4.4–4.6 secrets/WAF/pen-test · §6.3 retention activation · WCAG audit
 4. **University scale (Phase C):** SSO · multi-department activation · paid HA platform · SLA + status page · i18n · cost governance

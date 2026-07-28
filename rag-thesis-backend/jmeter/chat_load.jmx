@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree><TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="Concurrent guest RAG chat load" enabled="true">
+    <stringProp name="TestPlan.comments">Every sample makes a LIVE Gemini call plus a full retrieval pass. Run only against a disposable Supabase project with a seeded synthetic corpus; never against production data or quota. TURNSTILE_SECRET_KEY must be unset in the target environment. Each thread keeps one stable X-Guest-ID so the per-guest 30/minute chat limit applies per simulated user; keep LOOPS within that budget or expect HTTP 429.</stringProp>
+    <boolProp name="TestPlan.functional_mode">false</boolProp><boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
+  </TestPlan><hashTree>
+    <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Concurrent guest researchers" enabled="true">
+      <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+      <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Loops" enabled="true">
+        <boolProp name="LoopController.continue_forever">false</boolProp><stringProp name="LoopController.loops">${__P(LOOPS,3)}</stringProp>
+      </elementProp>
+      <stringProp name="ThreadGroup.num_threads">${__P(USERS,5)}</stringProp><stringProp name="ThreadGroup.ramp_time">${__P(RAMP,15)}</stringProp><boolProp name="ThreadGroup.scheduler">false</boolProp>
+    </ThreadGroup><hashTree>
+      <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP defaults" enabled="true">
+        <elementProp name="HTTPsampler.Arguments" elementType="Arguments"><collectionProp name="Arguments.arguments"/></elementProp>
+        <stringProp name="HTTPSampler.domain">${__P(HOST,127.0.0.1)}</stringProp><stringProp name="HTTPSampler.port">${__P(PORT,8000)}</stringProp><stringProp name="HTTPSampler.protocol">http</stringProp>
+        <stringProp name="HTTPSampler.response_timeout">${__P(RESPONSE_TIMEOUT_MS,60000)}</stringProp>
+      </ConfigTestElement><hashTree/>
+      <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Guest chat headers" enabled="true">
+        <collectionProp name="HeaderManager.headers">
+          <elementProp name="" elementType="Header"><stringProp name="Header.name">Content-Type</stringProp><stringProp name="Header.value">application/json</stringProp></elementProp>
+          <elementProp name="" elementType="Header"><stringProp name="Header.name">X-Guest-ID</stringProp><stringProp name="Header.value">chat-load-guest-${__threadNum}</stringProp></elementProp>
+        </collectionProp>
+      </HeaderManager><hashTree/>
+      <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="POST /chat" enabled="true">
+        <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+        <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+          <collectionProp name="Arguments.arguments">
+            <elementProp name="" elementType="HTTPArgument">
+              <boolProp name="HTTPArgument.always_encode">false</boolProp>
+              <stringProp name="Argument.value">{"question": "${__P(QUESTION,What machine learning thesis studies exist in the archive?)}"}</stringProp>
+              <stringProp name="Argument.metadata">=</stringProp>
+            </elementProp>
+          </collectionProp>
+        </elementProp>
+        <stringProp name="HTTPSampler.path">/chat</stringProp><stringProp name="HTTPSampler.method">POST</stringProp><boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+      </HTTPSamplerProxy><hashTree/>
+    </hashTree>
+  </hashTree></hashTree>
+</jmeterTestPlan>
