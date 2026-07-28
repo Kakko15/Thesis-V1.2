@@ -3,7 +3,7 @@
 | Control | Value |
 |---|---|
 | Purpose | Every recommended improvement and enhancement to take the ISU Thesis Library (IskAI) from its current defense-ready state to a real-world production service |
-| Baseline | Commit `e44184d` (2026-07-28), immediately after the joint paper-vs-system audit |
+| Baseline | Commit `54cb6e9` (2026-07-28), the joint paper-vs-system audit |
 | Grounding | Each item cites the verified observation it addresses, from `PAPER_VS_SYSTEM_COMPARISON.md`, the dated evidence in `docs/evidence/` and `rag-thesis-backend/evaluation/iso25010_evidence.md`, and direct code inspection |
 | Authority | This document is advisory. `ISU_ECHAGUE_PRODUCTION_ROADMAP.md` remains the only authoritative ledger for owners, dates, and delivery status. Items overlapping PI-12/PI-13 are marked as such |
 
