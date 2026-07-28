@@ -65,6 +65,15 @@ class Settings(BaseSettings):
     clamav_host: str = '127.0.0.1'
     clamav_port: int = Field(default=3310, ge=1, le=65535)
     clamav_timeout_seconds: float = Field(default=20.0, ge=1.0, le=120.0)
+    # Optional: Cloudflare Turnstile guard for guest chat. When the secret is
+    # set, unauthenticated /chat callers must present one verified Turnstile
+    # token per guest session (the client-minted X-Guest-ID is otherwise free
+    # to rotate past per-guest rate limits). Empty secret = guard off, so the
+    # frozen thesis-evaluation pipeline and default behavior are unchanged.
+    turnstile_secret_key: str = ''
+    turnstile_verify_timeout_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
+    turnstile_guest_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+
     # Optional: Supabase legacy JWT secret (Project Settings -> API). When set,
     # rate limiting keys on the HS256-VERIFIED user id instead of the client
     # IP, so users behind one campus NAT get individual quotas. Signature

@@ -47,6 +47,7 @@ from services.retriever import (
     search_chunks,
     split_author_names,
 )
+from services.turnstile import ensure_guest_chat_verification
 
 logger = logging.getLogger(__name__)
 
@@ -576,6 +577,7 @@ async def chat(
     background_tasks: BackgroundTasks,
     user=Depends(get_optional_user),
 ):
+    await ensure_guest_chat_verification(request, user)
     async with safe_trace('rag.chat.total', metadata={
         'question_length': len(req.question),
         'authenticated': bool(user),

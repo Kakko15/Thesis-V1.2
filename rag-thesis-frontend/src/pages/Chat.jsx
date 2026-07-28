@@ -6,11 +6,13 @@ import ReactMarkdown from 'react-markdown'
 import { toast } from 'sonner'
 import {
   Send, Plus, MessageSquareText, Trash2, PencilLine,
-  AlertTriangle, BookMarked, History, Info, GraduationCap, Square, X,
+  AlertTriangle, BookMarked, History, Info, GraduationCap, ShieldCheck, Square, X,
 } from 'lucide-react'
 import {
   chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getDepartments, getPublicSettings
 } from '../api'
+import { TurnstileWidget } from '../components/security/TurnstileWidget'
+import { useGuestChatGate } from './chat/useGuestChatGate'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/Button'
 import { GlassCard } from '../components/ui/GlassCard'
@@ -362,6 +364,22 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, 
 }
 
 /* ------------------------------------------------------------------ */
+function GuestGatePanel({ gate }) {
+  if (!gate.active) return null
+  return (
+    <div className="border-b border-forest-900/10 bg-gold-400/8 px-5 py-3 dark:border-white/10">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gold-700 dark:text-gold-300">
+        <ShieldCheck size={13} className="shrink-0" aria-hidden="true" />
+        One quick security check unlocks guest chat for this session.
+      </div>
+      <div className="max-w-sm">
+        <TurnstileWidget action="guest_chat" onToken={gate.setToken} resetKey={gate.resetKey} />
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /* Main chat page                                                      */
 /* ------------------------------------------------------------------ */
 export default function Chat() {
@@ -380,6 +398,7 @@ export default function Chat() {
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [busy, setBusy] = useState(false)
+  const guestGate = useGuestChatGate(user)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
   const requestControllerRef = useRef(null)
@@ -454,6 +473,7 @@ export default function Chat() {
   const send = async (text) => {
     const question = (text ?? input).trim()
     if (!question || requestControllerRef.current) return
+    if (!guestGate.ensureReady()) return
     setInput('')
     setChatError(null)
     setMessages((m) => [...m, { kind: 'user', text: question }])
@@ -484,8 +504,10 @@ export default function Chat() {
         guestHistory,
         latestGuestSources,
         controller.signal,
+        guestGate.tokenForRequest(),
       )
       if (controller.signal.aborted) return
+      guestGate.markPassed()
       setMessages((m) => [...m, { kind: 'ai', ...res, isNew: true }])
       if (user && res.history_saved === false) {
         toast.warning('Answer received, but chat history was not saved', {
@@ -501,6 +523,7 @@ export default function Chat() {
       if (cancelled) return
       setMessages((m) => m.slice(0, -1))
       setInput(question)
+      guestGate.handleChatError(err)
       const message = apiErrorMessage(err)
       setChatError({ title: 'IskAI could not answer', message, question })
       toast.error('IskAI could not answer', { description: message })
@@ -651,6 +674,7 @@ export default function Chat() {
             You're in Guest Researcher mode — CCSICT only, and conversations are not saved.
           </div>
         )}
+        <GuestGatePanel gate={guestGate} />
         <ConfigurationWarning show={settingsError || (isSuperadmin && departmentsError)} />
         {chatError && (
           <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-flame-500/20 bg-flame-500/8 px-5 py-3 text-xs">
