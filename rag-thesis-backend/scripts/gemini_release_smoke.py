@@ -51,7 +51,6 @@ def main() -> int:
         # Gemini 3 thinking tokens share the output allowance. A 32-token cap
         # can exhaust the budget before any visible text is emitted.
         max_output_tokens=256,
-        temperature=0,
         thinking_level=settings.gemini_thinking_level,
     )
     verdict = ChatGoogleGenerativeAI(
@@ -60,7 +59,6 @@ def main() -> int:
         timeout=settings.gemini_timeout_seconds,
         max_retries=settings.gemini_max_retries,
         max_output_tokens=64,
-        temperature=0,
         thinking_level='minimal',
     )
     embeddings = GoogleGenerativeAIEmbeddings(

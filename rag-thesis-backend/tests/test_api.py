@@ -6,12 +6,29 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import app
-from models import CCSICT_TRACKS, ChatRequest
+from models import CCSICT_TRACKS, ChatRequest, DuplicationAlert
 
 
 @pytest.fixture(scope='module')
 def client():
     return TestClient(app, raise_server_exceptions=False)
+
+
+def test_duplication_alert_never_serializes_archived_text():
+    alert = DuplicationAlert(**{
+        'flagged': True,
+        'similarity': 91.2,
+        'threshold': 85.0,
+        'matched_paper': {'id': 'paper-1', 'title': 'Metadata only'},
+        'matched_abstract': 'private abstract',
+        'matched_excerpt': 'private archived chunk',
+        'summary': 'Safe generated summary.',
+    })
+
+    public = alert.model_dump()
+    assert 'matched_abstract' not in public
+    assert 'matched_excerpt' not in public
+    assert public['summary'] == 'Safe generated summary.'
 
 
 class TestHealth:

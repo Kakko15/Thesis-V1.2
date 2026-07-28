@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import { toast } from 'sonner'
 import {
   ShieldCheck, FileSearch, FileText, X, History, Send,
-  ArrowLeftRight, MessageSquareText, Sparkles, ScanSearch, AlertTriangle, Download, Info,
+  MessageSquareText, Sparkles, ScanSearch, AlertTriangle, Download, Info,
 } from 'lucide-react'
 import { scanDuplication, getScanHistory, scanDuplicationChat, apiErrorMessage, getDepartments } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -78,48 +78,6 @@ function ScanDropzone({ onScan, scanning }) {
       )}
       </button>
     </>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-function ComparisonPairs({ pairs }) {
-  if (!pairs?.length) return null
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider opacity-50">
-        <ArrowLeftRight size={13} /> Matched excerpts (uploaded vs archived)
-      </div>
-      {pairs.map((p, i) => (
-        <motion.div
-          key={i}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.08 }}
-          className="glass overflow-hidden rounded-2xl"
-        >
-          <div className="flex items-center justify-between border-b border-forest-900/10 px-4 py-2 dark:border-white/10">
-            <span className="text-xs font-bold opacity-60">Excerpt {i + 1}</span>
-            <Badge tone={normalizePercent(p.similarity) >= 90 ? 'flame' : 'gold'}>
-              {normalizePercent(p.similarity).toFixed(1)}% similar
-            </Badge>
-          </div>
-          <div className="grid divide-y divide-forest-900/10 dark:divide-white/10 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
-            <div className="p-4">
-              <div className="mb-1.5 text-[0.65rem] font-bold uppercase tracking-wider text-gold-500 dark:text-gold-300">
-                Uploaded draft
-              </div>
-              <p className="max-h-36 overflow-y-auto text-xs leading-relaxed opacity-75">{p.uploaded_text}</p>
-            </div>
-            <div className="p-4">
-              <div className="mb-1.5 text-[0.65rem] font-bold uppercase tracking-wider text-forest-600 dark:text-forest-300">
-                Archived thesis
-              </div>
-              <p className="max-h-36 overflow-y-auto text-xs leading-relaxed opacity-75">{p.database_text}</p>
-            </div>
-          </div>
-        </motion.div>
-      ))}
-    </div>
   )
 }
 
@@ -240,13 +198,6 @@ function ScanResult({ scan, onAsk }) {
           </div>
         </div>
       </GlassCard>
-
-      {/* Excerpt comparison */}
-      {scan.matched_chunks?.length > 0 && (
-        <GlassCard className="p-6">
-          <ComparisonPairs pairs={scan.matched_chunks} />
-        </GlassCard>
-      )}
 
       {/* Follow-up chat */}
       <GlassCard className="p-6">

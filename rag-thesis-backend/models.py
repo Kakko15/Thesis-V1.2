@@ -32,12 +32,12 @@ class ChatRequest(BaseModel):
 
 
 class DuplicationAlert(BaseModel):
+    """Metadata-only alert safe for public API responses and chat history."""
+
     flagged: bool
     similarity: float
     threshold: float
     matched_paper: dict
-    matched_abstract: str = ''
-    matched_excerpt: str = ''
     matched_location: dict = Field(default_factory=dict)
     summary: str = ''
 

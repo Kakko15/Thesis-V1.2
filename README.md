@@ -106,10 +106,10 @@ Set `VITE_API_URL` only when the frontend must call a separately deployed backen
 cd rag-thesis-backend
 
 # Objective 4 — Functional Suitability (with coverage for SonarQube)
-pytest --cov=routers --cov=services --cov=dependencies --cov=main --cov=config --cov=models --cov-report=xml --cov-fail-under=80
+pytest --cov=routers --cov=services --cov=dependencies --cov=workers --cov=main --cov=config --cov=models --cov-report=xml --cov-fail-under=85
 
 # Objective 4 — Maintainability
-pylint --rcfile=.pylintrc routers services dependencies main.py config.py models.py
+pylint --rcfile=.pylintrc routers services dependencies workers main.py config.py models.py
 cd ../rag-thesis-frontend && npm run lint && npm test && npm run build
 
 # Objective 2 — Baseline vs RAG (requires: pip install -r evaluation/requirements-eval.txt)

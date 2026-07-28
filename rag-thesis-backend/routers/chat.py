@@ -614,6 +614,7 @@ async def _chat_impl(
     request: Request,
     background_tasks: BackgroundTasks,
     user,
+    evaluation_trace: dict | None = None,
 ):  # pylint: disable=too-many-return-statements
     effective_department = resolve_effective_department(user, req.department_filter)
     if req.session_id:
@@ -776,6 +777,14 @@ async def _chat_impl(
                 is_overview_followup,
             )
         context, sources, _top_similarity = retrieval_result
+        if evaluation_trace is not None:
+            # Private, in-process evidence for the formal research harness.
+            # Never attach raw context to ChatResponse or persisted chat data.
+            evaluation_trace.update({
+                'context': context,
+                'sources': sources,
+                'top_similarity': _top_similarity,
+            })
         if retrieval_run:
             retrieval_run.add_metadata({
                 'source_count': len(sources),

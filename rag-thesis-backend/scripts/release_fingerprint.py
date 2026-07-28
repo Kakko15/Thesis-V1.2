@@ -34,6 +34,8 @@ def git_commit() -> str | None:
 def build_manifest() -> dict:
     inputs = [
         ROOT / 'rag-thesis-backend' / 'requirements.txt',
+        ROOT / 'rag-thesis-backend' / 'config.py',
+        ROOT / 'rag-thesis-backend' / 'routers' / 'chat.py',
         ROOT / 'rag-thesis-frontend' / 'package-lock.json',
         ROOT / 'rag-thesis-backend' / 'Dockerfile',
         ROOT / 'rag-thesis-frontend' / 'Dockerfile',
@@ -47,6 +49,20 @@ def build_manifest() -> dict:
             'chat': settings.gemini_chat_model,
             'verdict': settings.gemini_verdict_model,
             'embedding': settings.gemini_embed_model,
+        },
+        'generation_contract': {
+            'timeout_seconds': settings.gemini_timeout_seconds,
+            'max_retries': settings.gemini_max_retries,
+            'max_output_tokens': settings.gemini_max_output_tokens,
+            'thinking_level': settings.gemini_thinking_level,
+        },
+        'rag_contract': {
+            'chunk_size_tokens': settings.chunk_size_tokens,
+            'chunk_overlap_tokens': settings.chunk_overlap_tokens,
+            'retrieval_threshold': settings.retrieval_threshold,
+            'retrieval_match_count': settings.retrieval_match_count,
+            'duplication_threshold': settings.duplication_threshold,
+            'evaluation_department': settings.thesis_evaluation_department,
         },
         'index_fingerprint': current_index_fingerprint(),
         'input_sha256': {
