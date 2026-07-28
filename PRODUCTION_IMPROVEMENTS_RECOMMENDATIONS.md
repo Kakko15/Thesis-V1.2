@@ -32,7 +32,7 @@ Every item carries three labels:
 | 7 | Server-side archive pagination/search (§2.2) | `GET /papers` ships the whole catalog to the browser; breaks at real corpus sizes | P1 | M | B |
 | 8 | Hybrid retrieval + reranking (§5.1) | Known best-practice quality jump for specialized vocabulary; already planned as PI-12 | P1 | L | B |
 | 9 | Turnstile (or equivalent) on guest chat (§4.2) | Guest chat spends Gemini quota with only IP+guest-ID rate limits between the public internet and the bill | P1 | S | A — **✅ implemented 2026-07-28**, config-gated (enable via `TURNSTILE_SECRET_KEY`) |
-| 10 | Ragas regression smoke in CI with synthetic data (§5.4) | The scoring path has never executed non-empty; PI-10 defense evaluation depends on it working | P1 | S | A |
+| 10 | Ragas regression smoke in CI with synthetic data (§5.4) | The scoring path has never executed non-empty; PI-10 defense evaluation depends on it working | P1 | S | A — **✅ smoke executed 2026-07-28**; found and fixed 2 harness defects |
 
 ---
 
@@ -139,6 +139,8 @@ Every item carries three labels:
 **Observed:** the Objective 2 harness is hardened but the Ragas scoring call has never run non-empty (open caveat in `PAPER_VS_SYSTEM_COMPARISON.md` appendix). PI-10 depends on it.
 **Recommend:** a small opt-in CI job (or pre-PI-10 checklist step) that installs `evaluation/requirements-eval.txt` in `.venv3146`-equivalent, runs `--allow-unvalidated` over 2–3 synthetic queries with synthetic contexts, and asserts finite metric values. Uses no real thesis content, so it is PI-08-safe.
 
+> **Status (2026-07-28): ✅ smoke executed end to end.** `evaluation/dev_smoke_dataset.json` (3 synthetic queries) ran through the deployed guest RAG path and full Ragas 0.4.3 scoring — Answer Correctness on both pathways, Faithfulness/Context Precision on real retrieved contexts (n=3), Shapiro-Wilk → paired t-test. It caught and fixed two harness defects before PI-10 could hit them: ragas' google provider is synchronous-only (evaluator switched to Gemini's OpenAI-compatible endpoint with `AsyncOpenAI`) and a numpy-bool JSON-serialization crash. Non-formal evidence: `evaluation/results/comparison_20260728_140718.json`. A recurring opt-in CI job remains optional follow-up.
+
 ### 5.5 Answer feedback loop — P2 · S–M · Phase B
 **Observed:** no thumbs-up/down or "was this helpful" anywhere in the frontend (verified absent).
 **Recommend:** add per-answer feedback buttons posting to a `chat_feedback` table (reuse the `activity_log` insert pattern and RLS posture), surfaced in the admin analytics tab. This is the cheapest source of retrieval-quality ground truth for tuning §5.1.
@@ -158,6 +160,8 @@ Every item carries three labels:
 **Observed:** `scripts/backup_system.ps1` (encrypted, hash-reported) and the disposable restore drill are excellent but manual and unscheduled.
 **Recommend:** schedule the backup nightly (Windows Task Scheduler now; a cron container in Phase B) with a stored-passphrase pattern from §4.4, alert on backup failure/staleness via §3.1, and run the restore drill quarterly, recording measured RTO/RPO against declared targets (suggest RPO 24 h, RTO 4 h for the pilot).
 
+> **Status (2026-07-28): ✅ tooling implemented.** `scripts/scheduled_backup.ps1` (unattended wrapper, DPAPI-protected passphrase, transcript logging, prune-after-success), `scripts/register_backup_task.ps1` (nightly 02:00 task registration), and `scripts/check_backup_freshness.ps1` (48 h staleness gate), documented in `docs/OPERATIONS_SECURITY_RUNBOOK.md`. Remaining: the operator's one-time passphrase-file creation and task registration on the backup machine.
+
 ### 6.2 Supabase PITR + storage growth — P2 · S · Phase B/C
 **Recommend:** on the paid Supabase tier enable point-in-time recovery (tightens RPO to minutes) and add storage-growth metrics (papers × chunks × vectors) to the operations summary so capacity is planned, not discovered.
 
@@ -173,6 +177,8 @@ Every item carries three labels:
 **Observed:** overall backend coverage is 85.86%, but `routers/chat.py` is 70.3% and `routers/upload.py` 70.9% — the two most complex request paths. Sonar carries 280 legacy code smells, whole-repo coverage 36.3% (frontend uncovered), and the gate passed with `ignoredConditions: true`.
 **Recommend:** target ≥85% on those two routers specifically (error paths, cancellation races); burn down the smell backlog in small PRs; then re-run Sonar without ignored conditions so the Reliability evidence is unqualified. Add frontend coverage reporting (`node --test --experimental-test-coverage`) to CI so the 36.3% whole-repo number stops hiding frontend gaps.
 
+> **Status (2026-07-28): ✅ router coverage done.** `tests/test_router_error_paths.py` (55 tests) lifts `routers/chat.py` to **97.0%** and `routers/upload.py` to **91.2%**; whole-backend coverage rose from 86.13% to **90.73%** (424 passed + 3 skipped). The Sonar smell burn-down and frontend coverage reporting remain open.
+
 ### 7.2 Staging environment + safe deploys — P1 · M · Phase B
 **Observed:** validation currently uses disposable Supabase projects (good) but there is no persistent staging, and deploys are docker-compose restarts.
 **Recommend:** a permanent staging stack (separate Supabase project + tunnel hostname) receiving every merge to `main`; production promotes a tested image digest. With ≥2 API replicas (§2.1), rolling restarts give zero-downtime deploys; document rollback = redeploy previous digest (fingerprints in `scripts/release_fingerprint.py` already identify builds).
@@ -180,6 +186,8 @@ Every item carries three labels:
 ### 7.3 CI contract and E2E tightening — P2 · S · Phase A
 **Observed:** OpenAPI snapshot + SHA (`scripts/export_openapi.py`, `docs/evidence/contracts/`) exists but CI does not fail on drift; Playwright runs but branch protection/required checks are not documented.
 **Recommend:** add a CI step that regenerates the OpenAPI snapshot and fails on unexplained diff; enable GitHub branch protection requiring the quality workflow; add the §2.5 chat load profile as a scheduled (weekly) workflow rather than per-push.
+
+> **Status (2026-07-28): ✅ drift gate live.** `docs/evidence/contracts/iskai-openapi.current.json` is the tracked contract and `tests/test_export_openapi.py` fails the suite (and therefore CI) on any unexplained schema drift — it immediately caught that the July 25 snapshot still advertised the two removed `DuplicationAlert` fields. Dated snapshots stay immutable. Branch protection and the scheduled load test remain open.
 
 ### 7.4 Release checklist automation — P3 · S · Phase B
 **Recommend:** a small script that assembles the release evidence bundle (fingerprint, coverage, Sonar export, JMeter summaries, corpus receipt when locked) into one dated folder — today this is assembled by hand across `docs/evidence/` and `evaluation/results/`.
@@ -230,7 +238,7 @@ These subsystems were verified strong during the audit; future work should exten
 
 ## 11. Suggested sequencing
 
-1. **Now → defense (Phase A, no pipeline changes):** §4.1 email allowlist (deferred by researcher decision 2026-07-28 — any email may register for now) · §4.2 guest-chat Turnstile ✅ done 2026-07-28 · §6.1 scheduled backups · §3.3 uptime checks · §5.4 Ragas CI smoke · §2.5 chat load-test rig ✅ done 2026-07-28 (measured run pending) · §4.3 supply-chain hardening · §7.1 coverage/smell burn-down · §7.3 CI tightening
+1. **Now → defense (Phase A, no pipeline changes):** §4.1 email allowlist (deferred by researcher decision 2026-07-28 — any email may register for now) · §4.2 guest-chat Turnstile ✅ done 2026-07-28 · §6.1 scheduled backups ✅ tooling done 2026-07-28 (one-time operator passphrase/task setup pending) · §3.3 uptime checks · §5.4 Ragas smoke ✅ done 2026-07-28 · §2.5 chat load-test rig ✅ done 2026-07-28 (measured run pending) · §4.3 supply-chain hardening · §7.1 chat/upload coverage ✅ done 2026-07-28 (97.0% / 91.2%; Sonar smell burn-down still open) · §7.3 OpenAPI drift gate ✅ done 2026-07-28 (branch protection + scheduled load test still open)
 2. **Defense (2026-08-28):** PI-08/09/10/11 per the roadmap — untouched by this document
 3. **First post-defense quarter (Phase B):** §2.1 multi-worker API · §2.4 Gemini paid tier · §3.1 metrics/dashboards/paging · §2.2 archive pagination · §5.1 hybrid retrieval + reranking · SSE streaming · email notifications · §7.2 staging + safe deploys · §4.4–4.6 secrets/WAF/pen-test · §6.3 retention activation · WCAG audit
 4. **University scale (Phase C):** SSO · multi-department activation · paid HA platform · SLA + status page · i18n · cost governance

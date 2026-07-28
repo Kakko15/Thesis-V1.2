@@ -201,21 +201,32 @@ def _metric_value(result) -> float:
     return float(value)
 
 
+# Gemini's OpenAI-compatible endpoint. Ragas 0.4.3's native google provider
+# wraps genai.Client synchronously (instructor.from_genai without use_async),
+# which makes every async ascore() call fail, and the ragas source itself
+# flags an upstream instructor safety-settings bug on that path with this
+# endpoint as the recommended workaround. Verified by the 2026-07-28 smoke.
+GEMINI_OPENAI_COMPAT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/'
+
+
 async def _score_with_ragas(rows: list[dict]) -> dict:
     """Use explicit Gemini-backed Ragas metrics with valid pathway semantics."""
     from google import genai
+    from openai import AsyncOpenAI
     from ragas.embeddings import GoogleEmbeddings
     from ragas.llms import llm_factory
     from ragas.metrics.collections import AnswerCorrectness, ContextPrecision, Faithfulness
 
-    client = genai.Client(api_key=settings.gemini_api_key)
     evaluator_llm = llm_factory(
         settings.gemini_verdict_model,
-        provider='google',
-        client=client,
+        provider='openai',
+        client=AsyncOpenAI(
+            api_key=settings.gemini_api_key,
+            base_url=GEMINI_OPENAI_COMPAT_BASE_URL,
+        ),
     )
     evaluator_embeddings = GoogleEmbeddings(
-        client=client,
+        client=genai.Client(api_key=settings.gemini_api_key),
         model=settings.gemini_embed_model.removeprefix('models/'),
     )
     answer_correctness = AnswerCorrectness(
@@ -281,7 +292,8 @@ def statistical_treatment(baseline_scores: list[float], rag_scores: list[float])
     from scipy import stats
 
     shapiro_stat, shapiro_p = stats.shapiro(diffs)
-    normal = shapiro_p > 0.05
+    # scipy returns numpy scalars; a raw numpy.bool_ breaks json.dumps later.
+    normal = bool(shapiro_p > 0.05)
     if normal:
         test_name = 'paired-samples t-test'
         stat, p = stats.ttest_rel(rag_scores, baseline_scores)
