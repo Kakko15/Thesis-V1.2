@@ -1,0 +1,27 @@
+{
+  "_purpose": "Development smoke dataset ONLY. Fully synthetic questions and ground truths — no thesis manuscript content, no faculty validation. Used with --allow-unvalidated to prove the Ragas scoring path executes end to end. Never use for formal Objective 2 results.",
+  "validated_by_faculty_panel": false,
+  "validation": {
+    "panel": []
+  },
+  "queries": [
+    {
+      "id": 1,
+      "question": "What does the acronym RAG stand for in AI systems, and what problem does it address?",
+      "ground_truth": "RAG stands for Retrieval-Augmented Generation. It grounds a language model's answers in documents retrieved from an external knowledge base, reducing hallucinations compared to relying on parametric memory alone.",
+      "source_thesis": "Synthetic smoke item — not derived from any archived thesis."
+    },
+    {
+      "id": 2,
+      "question": "Which PostgreSQL extension enables vector similarity search, and what distance metric is commonly used?",
+      "ground_truth": "The pgvector extension enables vector similarity search in PostgreSQL. Cosine similarity (or cosine distance) is a commonly used metric for comparing embeddings.",
+      "source_thesis": "Synthetic smoke item — not derived from any archived thesis."
+    },
+    {
+      "id": 3,
+      "question": "What thesis studies about machine learning exist in the archive?",
+      "ground_truth": "The archive contains undergraduate computing theses; any machine learning studies retrieved should be cited with title, authors, and year.",
+      "source_thesis": "Synthetic smoke item — not derived from any archived thesis."
+    }
+  ]
+}

@@ -45,6 +45,27 @@ Run from the backend directory after the Supabase CLI is logged in and linked. T
 
 Optional `-BackupPath`, `-EnvFile`, `-SupabaseUrl`, and `-ServiceRoleKey` overrides remain available for controlled recovery workflows. The script creates database dumps, an AES-256-GCM encrypted backup of `pdfs` and `avatars`, and filename-free SHA-256 reports. The passphrase is never written to disk. Store it in an approved password manager.
 
+## Scheduled unattended backups
+
+One-time setup as the operator account that stays able to log on to the backup machine (DPAPI binds the passphrase file to that user and machine):
+
+```powershell
+# 1. Store the backup passphrase, DPAPI-protected (12+ characters; keep a copy in the approved password manager)
+Read-Host 'Backup passphrase' -AsSecureString |
+  ConvertFrom-SecureString |
+  Set-Content -Encoding UTF8 "$HOME\.isu-backup-passphrase.dpapi"
+
+# 2. Confirm the Supabase CLI is logged in and linked, then register the nightly task (02:00, keeps newest 14)
+cd rag-thesis-backend
+.\scripts\register_backup_task.ps1
+
+# 3. Validate immediately
+Start-ScheduledTask -TaskName 'ISU Thesis Library nightly backup'
+.\scripts\check_backup_freshness.ps1
+```
+
+`scripts\scheduled_backup.ps1` wraps `backup_system.ps1`: the passphrase reaches only the process environment (`BACKUP_PASSPHRASE`, already supported by `storage_backup.py`), transcripts go to `ISU-Thesis-Backups\logs\`, pruning to the newest N runs happens only after a successful run, and a run without a `sha256-manifest.json` is treated as failed. `scripts\check_backup_freshness.ps1` exits non-zero when the newest completed backup is older than 48 hours — wire it into monitoring or run it before maintenance windows. Restore procedures are unchanged (next section).
+
 ## Disposable restore drill
 
 Never restore into production. Start disposable local Supabase, restore the database using its local PostgreSQL URI, then restore Storage using its local service-role key:
