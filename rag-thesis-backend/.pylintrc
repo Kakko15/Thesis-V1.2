@@ -1,6 +1,6 @@
 [MAIN]
 ignore=venv,.venv,tests
-py-version=3.12
+py-version=3.14
 
 [MESSAGES CONTROL]
 disable=

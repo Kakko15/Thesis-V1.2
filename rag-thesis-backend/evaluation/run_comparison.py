@@ -6,11 +6,13 @@ Runs every Golden Dataset query through BOTH computational pathways:
   * Proposed (experimental): the RAG + LLM pipeline constrained to the
     CCSICT vector archive.
 
-Both outputs are scored with the Ragas framework (Faithfulness and Context
-Precision, per Section 3.2.4), then subjected to the statistical treatment
-from Section 3.2.5: Shapiro-Wilk normality test, then a paired-samples
-t-test (parametric) or Wilcoxon Signed-Rank test (non-parametric) at
-alpha = 0.05.
+Both outputs are scored against the faculty-validated reference answers with
+Ragas Answer Correctness. The RAG pathway is additionally evaluated for
+Faithfulness and Context Precision. This distinction is necessary because a
+baseline with no retriever has no retrieved context whose precision can be
+measured. Paired Answer Correctness scores receive the statistical treatment
+from Section 3.2.5: Shapiro-Wilk normality test, then a paired-samples t-test
+(parametric) or Wilcoxon Signed-Rank test (non-parametric) at alpha = 0.05.
 
 Usage (from rag-thesis-backend/):
     pip install -r evaluation/requirements-eval.txt
@@ -20,21 +22,32 @@ Outputs CSV + JSON summaries into evaluation/results/.
 """
 
 import argparse
+import asyncio
+import hashlib
 import json
+import math
+import re
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
+from fastapi import BackgroundTasks
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from config import settings
-from services.retriever import search_chunks
+from models import ChatRequest
+from routers.chat import _chat_impl
+from scripts.release_fingerprint import build_manifest, sha256_file
 
 RESULTS_DIR = Path(__file__).parent / 'results'
 
 baseline_llm = ChatGoogleGenerativeAI(
     model=settings.gemini_chat_model,
     google_api_key=settings.gemini_api_key,
+    timeout=settings.gemini_timeout_seconds,
+    max_retries=settings.gemini_max_retries,
+    max_output_tokens=settings.gemini_max_output_tokens,
+    thinking_level=settings.gemini_thinking_level,
 )
 
 BASELINE_PROMPT = (
@@ -43,12 +56,79 @@ BASELINE_PROMPT = (
     'using only your own knowledge. Cite specific theses if you can.\n\nQuestion: {question}'
 )
 
-RAG_PROMPT = (
-    'You are a research assistant for the {department} department of Isabela State University, '
-    'Echague. Answer the question strictly and exclusively from the provided context of '
-    'archived {department} theses. If the context does not contain the answer, say so.\n\n'
-    'Context:\n{context}\n\nQuestion: {question}'
+_CONTEXT_BLOCK = re.compile(
+    r'^\[(\d+)\]\s+[^\n]*\n(.*?)(?=^\[\d+\]\s|\Z)',
+    flags=re.MULTILINE | re.DOTALL,
 )
+
+
+def validate_formal_dataset(dataset: dict) -> list[str]:
+    """Return every condition that prevents a defensible formal evaluation."""
+    issues: list[str] = []
+    queries = dataset.get('queries') or []
+    if not 30 <= len(queries) <= 50:
+        issues.append('the Golden Dataset must contain 30-50 queries')
+    ids = [query.get('id') for query in queries]
+    if len(ids) != len(set(ids)):
+        issues.append('query IDs must be unique')
+    for query in queries:
+        if not str(query.get('question', '')).strip():
+            issues.append(f'query {query.get("id", "?")} has no question')
+        for field in ('ground_truth', 'source_thesis'):
+            value = str(query.get(field, '')).strip()
+            if not value or value.upper().startswith('REPLACE:'):
+                issues.append(f'query {query.get("id", "?")} has an unverified {field}')
+    if dataset.get('validated_by_faculty_panel') is not True:
+        issues.append('validated_by_faculty_panel is not true')
+    panel = (dataset.get('validation') or {}).get('panel') or []
+    if len(panel) != 3:
+        issues.append('exactly three faculty validators are required')
+    elif any(
+        not all(str(member.get(field, '')).strip() for field in ('name', 'position', 'date_validated'))
+        for member in panel
+    ):
+        issues.append('all three faculty validator records must be complete')
+    else:
+        names = [str(member['name']).strip().casefold() for member in panel]
+        if len(set(names)) != 3:
+            issues.append('the three faculty validators must be distinct people')
+        for member in panel:
+            try:
+                date.fromisoformat(str(member['date_validated']).strip())
+            except ValueError:
+                issues.append('faculty validation dates must use ISO format YYYY-MM-DD')
+                break
+    return issues
+
+
+def _ranked_contexts(context: str) -> list[str]:
+    """Recover retrieved chunks in similarity order, before prompt reordering.
+
+    ``search_chunks`` labels citations before applying LongContextReorder, so
+    sorting the numbered blocks restores the original retrieval ranking that
+    Context Precision is defined to assess.
+    """
+    blocks = [(int(index), text.strip()) for index, text in _CONTEXT_BLOCK.findall(context or '')]
+    return [text for _index, text in sorted(blocks)]
+
+
+def sanitize_evaluation_rows(rows: list[dict]) -> list[dict]:
+    """Remove archived manuscript text before results are written or exported."""
+    sanitized = []
+    for row in rows:
+        contexts = row.get('rag_contexts') or []
+        public = {
+            key: value
+            for key, value in row.items()
+            if key not in {'rag_context', 'rag_contexts'}
+        }
+        public['retrieved_context_count'] = len(contexts)
+        public['retrieved_context_sha256'] = [
+            hashlib.sha256(context.encode('utf-8')).hexdigest()
+            for context in contexts
+        ]
+        sanitized.append(public)
+    return sanitized
 
 
 def _coerce(result) -> str:
@@ -58,32 +138,40 @@ def _coerce(result) -> str:
     return str(content)
 
 
-def run_pathways(queries: list[dict]) -> list[dict]:
-    """Process each Golden Dataset query through both pathways."""
+async def _run_pathways(queries: list[dict]) -> list[dict]:
+    """Process queries through the baseline and exact deployed guest RAG path."""
     rows = []
     for q in queries:
         question = q['question']
         print(f"  [{q['id']:>2}] {question[:70]}...")
-
-        # --- Control: baseline LLM, parametric memory only ---
-        t0 = time.perf_counter()
         department = settings.thesis_evaluation_department
-        baseline_answer = _coerce(baseline_llm.invoke(BASELINE_PROMPT.format(
-            question=question, department=department,
-        )))
-        baseline_latency = time.perf_counter() - t0
 
-        # --- Experimental: RAG + LLM, closed-domain retrieval ---
-        t0 = time.perf_counter()
-        context, sources, top_similarity = search_chunks(question, department)
-        rag_answer = _coerce(baseline_llm.invoke(
-            RAG_PROMPT.format(
-                context=context or 'No relevant thesis found.',
+        async def run_baseline():
+            started = time.perf_counter()
+            result = await baseline_llm.ainvoke(BASELINE_PROMPT.format(
                 question=question,
                 department=department,
+            ))
+            return _coerce(result), time.perf_counter() - started
+
+        async def run_rag():
+            started = time.perf_counter()
+            trace: dict = {}
+            response = await _chat_impl(
+                ChatRequest(question=question, department_filter=department),
+                None,
+                BackgroundTasks(),
+                None,
+                evaluation_trace=trace,
             )
-        ))
-        rag_latency = time.perf_counter() - t0
+            return response, trace, time.perf_counter() - started
+
+        (baseline_answer, baseline_latency), (rag_response, trace, rag_latency) = (
+            await asyncio.gather(run_baseline(), run_rag())
+        )
+        context = trace.get('context', '')
+        sources = trace.get('sources', [])
+        top_similarity = trace.get('top_similarity', 0.0)
 
         rows.append({
             'id': q['id'],
@@ -91,50 +179,106 @@ def run_pathways(queries: list[dict]) -> list[dict]:
             'ground_truth': q.get('ground_truth', ''),
             'baseline_answer': baseline_answer,
             'baseline_latency_s': round(baseline_latency, 3),
-            'rag_answer': rag_answer,
+            'rag_answer': rag_response.answer,
             'rag_context': context,
-            'rag_sources': [s.get('title') for s in sources],
+            'rag_contexts': _ranked_contexts(context),
+            'rag_sources': [
+                {'citation_id': source.get('citation_id'), 'title': source.get('title')}
+                for source in sources
+            ],
             'rag_top_similarity': round(top_similarity, 4),
-            'rag_latency_s': round(rag_latency, 3),
+            'rag_end_to_end_latency_s': round(rag_latency, 3),
         })
     return rows
 
 
-def score_with_ragas(rows: list[dict]) -> dict:
-    """Score both pathways with Ragas (Faithfulness, Context Precision)."""
-    from datasets import Dataset
-    from ragas import evaluate
-    from ragas.metrics import context_precision, faithfulness
+def run_pathways(queries: list[dict]) -> list[dict]:
+    return asyncio.run(_run_pathways(queries))
 
-    def build(answers_key: str, contexts_from_rag: bool) -> Dataset:
-        return Dataset.from_dict({
-            'question': [r['question'] for r in rows],
-            'answer': [r[answers_key] for r in rows],
-            'contexts': [
-                [r['rag_context']] if contexts_from_rag and r['rag_context'] else ['']
-                for r in rows
-            ],
-            'ground_truth': [r['ground_truth'] for r in rows],
+
+def _metric_value(result) -> float:
+    value = result.value if hasattr(result, 'value') else result
+    return float(value)
+
+
+async def _score_with_ragas(rows: list[dict]) -> dict:
+    """Use explicit Gemini-backed Ragas metrics with valid pathway semantics."""
+    from google import genai
+    from ragas.embeddings import GoogleEmbeddings
+    from ragas.llms import llm_factory
+    from ragas.metrics.collections import AnswerCorrectness, ContextPrecision, Faithfulness
+
+    client = genai.Client(api_key=settings.gemini_api_key)
+    evaluator_llm = llm_factory(
+        settings.gemini_verdict_model,
+        provider='google',
+        client=client,
+    )
+    evaluator_embeddings = GoogleEmbeddings(
+        client=client,
+        model=settings.gemini_embed_model.removeprefix('models/'),
+    )
+    answer_correctness = AnswerCorrectness(
+        llm=evaluator_llm,
+        embeddings=evaluator_embeddings,
+    )
+    faithfulness = Faithfulness(llm=evaluator_llm)
+    context_precision = ContextPrecision(llm=evaluator_llm)
+
+    baseline_scores: list[dict] = []
+    rag_scores: list[dict] = []
+    for index, row in enumerate(rows, start=1):
+        print(f'  Scoring query {index}/{len(rows)}...')
+        common = {'user_input': row['question'], 'reference': row['ground_truth']}
+        baseline_correctness = await answer_correctness.ascore(
+            **common,
+            response=row['baseline_answer'],
+        )
+        rag_correctness = await answer_correctness.ascore(
+            **common,
+            response=row['rag_answer'],
+        )
+        contexts = row.get('rag_contexts') or []
+        rag_faithfulness = None
+        rag_context_precision = None
+        if contexts:
+            rag_faithfulness = await faithfulness.ascore(
+                user_input=row['question'],
+                response=row['rag_answer'],
+                retrieved_contexts=contexts,
+            )
+            rag_context_precision = await context_precision.ascore(
+                **common,
+                retrieved_contexts=contexts,
+            )
+        baseline_scores.append({'answer_correctness': _metric_value(baseline_correctness)})
+        rag_scores.append({
+            'answer_correctness': _metric_value(rag_correctness),
+            'faithfulness': (
+                _metric_value(rag_faithfulness) if rag_faithfulness is not None else None
+            ),
+            'context_precision': (
+                _metric_value(rag_context_precision) if rag_context_precision is not None else None
+            ),
         })
+    return {'baseline': baseline_scores, 'rag': rag_scores}
 
-    print('  Scoring RAG pathway...')
-    rag_scores = evaluate(build('rag_answer', True), metrics=[faithfulness, context_precision])
-    print('  Scoring baseline pathway...')
-    base_scores = evaluate(build('baseline_answer', True), metrics=[faithfulness, context_precision])
 
-    return {
-        'baseline': base_scores.to_pandas().to_dict(orient='records'),
-        'rag': rag_scores.to_pandas().to_dict(orient='records'),
-    }
+def score_with_ragas(rows: list[dict]) -> dict:
+    return asyncio.run(_score_with_ragas(rows))
 
 
 def statistical_treatment(baseline_scores: list[float], rag_scores: list[float]) -> dict:
     """Section 3.2.5: Shapiro-Wilk, then paired t-test or Wilcoxon (alpha=0.05)."""
-    from scipy import stats
-
+    if len(baseline_scores) < 3 or len(rag_scores) < 3:
+        return {'note': 'At least three complete score pairs are required for statistical testing.'}
     diffs = [r - b for r, b in zip(rag_scores, baseline_scores)]
     if len(set(diffs)) <= 1:
         return {'note': 'All paired differences identical; statistical test not applicable.'}
+
+    # scipy ships with the evaluation extras (requirements-eval.txt), not the
+    # production set — import it only once a real statistical test is needed.
+    from scipy import stats
 
     shapiro_stat, shapiro_p = stats.shapiro(diffs)
     normal = shapiro_p > 0.05
@@ -159,12 +303,25 @@ def main():
     parser.add_argument('--dataset', default=str(Path(__file__).parent / 'golden_dataset.json'))
     parser.add_argument('--skip-ragas', action='store_true',
                         help='Only collect answers/latency; skip Ragas scoring')
+    parser.add_argument(
+        '--allow-unvalidated',
+        action='store_true',
+        help='Development smoke only: run with an unvalidated dataset and mark output non-formal',
+    )
     args = parser.parse_args()
 
-    dataset = json.loads(Path(args.dataset).read_text(encoding='utf-8'))
+    dataset_path = Path(args.dataset).resolve()
+    dataset = json.loads(dataset_path.read_text(encoding='utf-8'))
     queries = dataset['queries']
-    if not dataset.get('validated_by_faculty_panel'):
-        print('WARNING: golden_dataset.json is not yet marked as validated by the faculty panel.')
+    dataset_issues = validate_formal_dataset(dataset)
+    if dataset_issues and not args.allow_unvalidated:
+        details = '\n  - '.join(dataset_issues)
+        parser.error(
+            'formal evaluation is blocked until the dataset is complete:\n  - '
+            f'{details}\nUse --allow-unvalidated only for a development smoke run.'
+        )
+    if dataset_issues:
+        print('WARNING: development-only run; the dataset is not valid for formal results.')
 
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
@@ -172,34 +329,77 @@ def main():
     print(f'Running {len(queries)} queries through both pathways...')
     rows = run_pathways(queries)
 
+    sanitized_rows = sanitize_evaluation_rows(rows)
     output: dict = {
         'generated_at': stamp,
         'evaluation_department': settings.thesis_evaluation_department,
         'models': {'llm': settings.gemini_chat_model, 'embeddings': settings.gemini_embed_model},
-        'rows': rows,
+        'evaluator': {
+            'model': settings.gemini_verdict_model,
+            'framework': 'ragas==0.4.3',
+            'metrics': ['answer_correctness', 'faithfulness', 'context_precision'],
+        },
+        'reproducibility': {
+            'release': build_manifest(),
+            'golden_dataset_sha256': sha256_file(dataset_path),
+            'evaluation_requirements_sha256': sha256_file(
+                Path(__file__).parent / 'requirements-eval.txt'
+            ),
+            'evaluation_script_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        },
+        'formal_result': not dataset_issues,
+        'dataset_validation_issues': dataset_issues,
+        'rows': sanitized_rows,
     }
 
     if not args.skip_ragas:
-        print('Evaluating with Ragas (Faithfulness, Context Precision)...')
+        print('Evaluating with Ragas (Answer Correctness, RAG Faithfulness/Context Precision)...')
         ragas_results = score_with_ragas(rows)
         output['ragas'] = ragas_results
 
-        for metric in ('faithfulness', 'context_precision'):
-            base = [r.get(metric) for r in ragas_results['baseline'] if r.get(metric) is not None]
-            rag = [r.get(metric) for r in ragas_results['rag'] if r.get(metric) is not None]
-            if base and rag and len(base) == len(rag):
+        for metric in ('answer_correctness',):
+            pairs = [
+                (float(base_row[metric]), float(rag_row[metric]))
+                for base_row, rag_row in zip(
+                    ragas_results['baseline'], ragas_results['rag'], strict=True,
+                )
+                if base_row.get(metric) is not None
+                and rag_row.get(metric) is not None
+                and math.isfinite(float(base_row[metric]))
+                and math.isfinite(float(rag_row[metric]))
+            ]
+            if pairs:
+                base, rag = map(list, zip(*pairs, strict=True))
                 output.setdefault('statistics', {})[metric] = statistical_treatment(base, rag)
                 output.setdefault('means', {})[metric] = {
                     'baseline': sum(base) / len(base),
                     'rag': sum(rag) / len(rag),
                 }
+        output['rag_diagnostics'] = {}
+        for metric in ('faithfulness', 'context_precision'):
+            values = [
+                float(row[metric])
+                for row in ragas_results['rag']
+                if row.get(metric) is not None and math.isfinite(float(row[metric]))
+            ]
+            output['rag_diagnostics'][metric] = {
+                'mean': sum(values) / len(values) if values else None,
+                'n': len(values),
+                'not_applicable': len(ragas_results['rag']) - len(values),
+            }
 
     json_path = RESULTS_DIR / f'comparison_{stamp}.json'
-    json_path.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding='utf-8')
+    json_path.write_text(
+        json.dumps(output, indent=2, ensure_ascii=False, allow_nan=False),
+        encoding='utf-8',
+    )
 
     try:
         import pandas as pd
-        pd.DataFrame(rows).to_csv(RESULTS_DIR / f'comparison_{stamp}.csv', index=False)
+        pd.DataFrame(sanitized_rows).to_csv(
+            RESULTS_DIR / f'comparison_{stamp}.csv',
+            index=False,
+        )
     except ImportError:
         pass
 

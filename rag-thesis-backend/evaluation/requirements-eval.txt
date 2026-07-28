@@ -1,5 +1,9 @@
-# Extra dependencies for the Objective 2 evaluation harness
-ragas
-datasets
-pandas
-scipy      # Shapiro-Wilk + paired t-test / Wilcoxon Signed-Rank
+# Reproducible dependencies for the Objective 2 evaluation harness.
+# Keep these outside the production image; update only with an audited rerun.
+ragas==0.4.3
+google-genai==2.13.0
+datasets==5.0.0
+pandas==3.0.5
+scipy==1.18.0      # Shapiro-Wilk + paired t-test / Wilcoxon Signed-Rank
+# Ragas 0.4.3 imports a VertexAI compatibility module removed in 0.4.2.
+langchain-community==0.4.1
