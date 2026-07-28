@@ -1,0 +1,257 @@
+{
+  "generated_at": "20260728_140718",
+  "evaluation_department": "CCSICT",
+  "models": {
+    "llm": "gemini-3.6-flash",
+    "embeddings": "models/gemini-embedding-2"
+  },
+  "evaluator": {
+    "model": "gemini-3.5-flash-lite",
+    "framework": "ragas==0.4.3",
+    "metrics": [
+      "answer_correctness",
+      "faithfulness",
+      "context_precision"
+    ]
+  },
+  "reproducibility": {
+    "release": {
+      "schema_version": 1,
+      "git_commit": "dbc43dddcb90f1719b3f0069070d102a2ee74342",
+      "runtime": {
+        "python": "3.14.6",
+        "python_implementation": "CPython"
+      },
+      "models": {
+        "chat": "gemini-3.6-flash",
+        "verdict": "gemini-3.5-flash-lite",
+        "embedding": "models/gemini-embedding-2"
+      },
+      "generation_contract": {
+        "timeout_seconds": 25.0,
+        "max_retries": 1,
+        "max_output_tokens": 500,
+        "thinking_level": "low"
+      },
+      "rag_contract": {
+        "chunk_size_tokens": 800,
+        "chunk_overlap_tokens": 100,
+        "retrieval_threshold": 0.3,
+        "retrieval_match_count": 5,
+        "duplication_threshold": 0.85,
+        "evaluation_department": "CCSICT"
+      },
+      "index_fingerprint": {
+        "embedding_model": "models/gemini-embedding-2",
+        "embedding_dimensions": 768,
+        "preprocessing_version": "document-v1",
+        "chunking_version": "token-v1",
+        "tokenizer": "cl100k_base",
+        "chunk_size_tokens": 800,
+        "chunk_overlap_tokens": 100,
+        "provenance_status": "verified"
+      },
+      "input_sha256": {
+        "rag-thesis-backend/requirements.txt": "2a5ffed9133a6ae9cd7b3176d843f06310334f740b1077202dff1f5fba653aa2",
+        "rag-thesis-backend/config.py": "25c224453fd120b8a2f812b3e8a1f071bafd815e556400ec18e54148cc7ad1dd",
+        "rag-thesis-backend/routers/chat.py": "8f9d753f272e5eadd4acf9ffc66918b9c0f63bdd93d09273a0ff7548c4f55eb9",
+        "rag-thesis-frontend/package-lock.json": "60bd617bf39b982e4d727d57b1247e5054ea2c6a33344f52ed9d6a1165b686a2",
+        "rag-thesis-backend/Dockerfile": "6cc761ba2fd3eb4c5db9abd79038e2ee14036ac8ca82dae6272b6827ca5ce423",
+        "rag-thesis-frontend/Dockerfile": "d56848fc0140fda2423426145a85a7047d01769e7b063d15f209bcbeafb9bc03",
+        "docker-compose.operations.yml": "5d1a4f5e7472f90e41ced42628bf8db62505b2523d09dc2efadc13357e3092e3"
+      }
+    },
+    "golden_dataset_sha256": "e9591c80b9f1b36dda081f9bedab6f4d7d6e2308fb176890b4489731f3584468",
+    "evaluation_requirements_sha256": "554598117261ad9a492a0c7fa7365f91f1234f073ecbeb1f2978a8fa62f49da1",
+    "evaluation_script_sha256": "d6e255378f23649f1d2ceade48edaa1f9e8c33672833050bbd4f606ed3bf6c68"
+  },
+  "formal_result": false,
+  "dataset_validation_issues": [
+    "the Golden Dataset must contain 30-50 queries",
+    "validated_by_faculty_panel is not true",
+    "exactly three faculty validators are required"
+  ],
+  "rows": [
+    {
+      "id": 1,
+      "question": "What does the acronym RAG stand for in AI systems, and what problem does it address?",
+      "ground_truth": "RAG stands for Retrieval-Augmented Generation. It grounds a language model's answers in documents retrieved from an external knowledge base, reducing hallucinations compared to relying on parametric memory alone.",
+      "baseline_answer": "Greetings! As a research assistant for the **College of Computer Studies and Information and Communication Technology (",
+      "baseline_latency_s": 4.035,
+      "rag_answer": "The acronym **RAG** stands for **Retrieval-Augmented Generation** [1]. \n\nIn AI systems, RAG addresses several key problems:\n* **AI Hallucinations and Ungrounded Outputs:** Standalone Large Language Models (LLMs) rely on parametric memory, which risks fabricating academic citations, methodologies, or data when answering questions outside their training data or local institutional context [2], [5]. RAG grounds generated answers by retrieving relevant document chunks from an external vector database before synthesizing a response [1], [3].\n* **Limitations of Traditional Search Systems:** Traditional library systems (such as OPACs) use rigid Boolean logic and keyword matching, failing to process complex natural language queries [5]. RAG addresses this \"semantic gap\" by extracting deep semantic meanings through vector embeddings to retrieve contextually relevant material even without exact word matches [1], [5].\n* **Prompt Token Limits and Long-Context Issues:** Processing massive academic documents directly within LLM prompts often leads to token overflow or information loss—a phenomenon where models underutilize details located in the middle of long contexts [2], [5]. RAG resolves this by chunking documents and using vector searches to pinpoint only the most relevant text segments [2], [5].",
+      "rag_sources": [
+        {
+          "citation_id": 1,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 2,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 3,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 4,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 5,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        }
+      ],
+      "rag_top_similarity": 0.7007,
+      "rag_end_to_end_latency_s": 5.23,
+      "retrieved_context_count": 5,
+      "retrieved_context_sha256": [
+        "9c02c3cb6fe4c031b36f279c1384e7eb3107b550e69e9889a2264b28637688bf",
+        "7436f462c219ceabebe6780733b233cffaa020e1f1b5ba702e28f50ec8fbc774",
+        "4ff53f5df935254cb0180af7798240ff5e4d7a23a25e8c23aba148abeba5a19a",
+        "634eb2d7892670b7aa97b86d40a1122bc96dd7b32525e1c621e885ba0b149bbb",
+        "1fc4700802c1865b04434aab8943276354adeb37e8ddaa831e5852a0cbf49dd7"
+      ]
+    },
+    {
+      "id": 2,
+      "question": "Which PostgreSQL extension enables vector similarity search, and what distance metric is commonly used?",
+      "ground_truth": "The pgvector extension enables vector similarity search in PostgreSQL. Cosine similarity (or cosine distance) is a commonly used metric for comparing embeddings.",
+      "baseline_answer": "Greetings! As a research assistant for the College of Computer Studies and Information and Communication Technology (CC",
+      "baseline_latency_s": 3.861,
+      "rag_answer": "The PostgreSQL extension that enables vector similarity search is **pgvector**, as implemented in databases like Supabase to store and search pre-embedded document chunks [1], [2]. \n\nThe distance metric commonly used to compute geometric distance and semantic relevance between vectors is **Cosine Similarity** [1], [2]. It calculates the cosine of the angle between the query vector ($A$) and the document vector ($B$) to retrieve contextual matches even if they do not share exact keywords [1].",
+      "rag_sources": [
+        {
+          "citation_id": 1,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 2,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 3,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 4,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 5,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        }
+      ],
+      "rag_top_similarity": 0.7256,
+      "rag_end_to_end_latency_s": 2.662,
+      "retrieved_context_count": 5,
+      "retrieved_context_sha256": [
+        "9c02c3cb6fe4c031b36f279c1384e7eb3107b550e69e9889a2264b28637688bf",
+        "7436f462c219ceabebe6780733b233cffaa020e1f1b5ba702e28f50ec8fbc774",
+        "1fc4700802c1865b04434aab8943276354adeb37e8ddaa831e5852a0cbf49dd7",
+        "54975ab0ac526265964f96a83139f60da8e93e8d8871d66730fdc73881569077",
+        "30296088532a29786fb51a06cf2e8d29597ee0f0955f5005a80efd0a3120626e"
+      ]
+    },
+    {
+      "id": 3,
+      "question": "What thesis studies about machine learning exist in the archive?",
+      "ground_truth": "The archive contains undergraduate computing theses; any machine learning studies retrieved should be cited with title, authors, and year.",
+      "baseline_answer": "As a research assistant for the College of Computing Sciences, Information and Communication Technology",
+      "baseline_latency_s": 3.692,
+      "rag_answer": "No relevant thesis was found in the CCSICT archive for that query. Try rephrasing with different technical terms, or ask about another topic.",
+      "rag_sources": [
+        {
+          "citation_id": 1,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 2,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 3,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 4,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        },
+        {
+          "citation_id": 5,
+          "title": "A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"
+        }
+      ],
+      "rag_top_similarity": 0.6831,
+      "rag_end_to_end_latency_s": 4.897,
+      "retrieved_context_count": 5,
+      "retrieved_context_sha256": [
+        "109249682f7825ea2ec91ee5452cd5793a5b9cc0ccc630fe69eaee584d84cfbc",
+        "54975ab0ac526265964f96a83139f60da8e93e8d8871d66730fdc73881569077",
+        "25ef3ab7443b5102989a320848e28d5f25dd63a398da56de27aff9e44b14181a",
+        "a1e3f874eb19211ff1a80120a87565a67ba62edb6b7a092394bb2e697edffd92",
+        "87f48088c5e34753c83d924f68eca5be610d058133d6424692517e3e3beeb2f6"
+      ]
+    }
+  ],
+  "ragas": {
+    "baseline": [
+      {
+        "answer_correctness": 0.1373107099727714
+      },
+      {
+        "answer_correctness": 0.12910187930876646
+      },
+      {
+        "answer_correctness": 0.1611175115274101
+      }
+    ],
+    "rag": [
+      {
+        "answer_correctness": 0.3719340777094867,
+        "faithfulness": 1.0,
+        "context_precision": 0.8666666666377778
+      },
+      {
+        "answer_correctness": 0.5910851898680278,
+        "faithfulness": 0.8,
+        "context_precision": 0.99999999995
+      },
+      {
+        "answer_correctness": 0.1755650436985075,
+        "faithfulness": 0.0,
+        "context_precision": 0.0
+      }
+    ]
+  },
+  "statistics": {
+    "answer_correctness": {
+      "shapiro_wilk": {
+        "statistic": 0.9999141121885101,
+        "p_value": 0.9822999960631696,
+        "normal": true
+      },
+      "test": "paired-samples t-test",
+      "statistic": 1.834533593153689,
+      "p_value": 0.2080094080651504,
+      "significant_at_0.05": false
+    }
+  },
+  "means": {
+    "answer_correctness": {
+      "baseline": 0.14251003360298264,
+      "rag": 0.379528103758674
+    }
+  },
+  "rag_diagnostics": {
+    "faithfulness": {
+      "mean": 0.6,
+      "n": 3,
+      "not_applicable": 0
+    },
+    "context_precision": {
+      "mean": 0.6222222221959259,
+      "n": 3,
+      "not_applicable": 0
+    }
+  }
+}
