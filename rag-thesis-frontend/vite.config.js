@@ -73,7 +73,9 @@ export default defineConfig(({ mode }) => {
   return {
   plugins: [backendReadiness(), ...(mode === 'e2e' ? [e2eApiGuard()] : []), react(), tailwindcss()],
   define: {
-    'import.meta.env.VITE_TURNSTILE_SITE_KEY': JSON.stringify(turnstileSiteKey),
+'import.meta.env.VITE_TURNSTILE_SITE_KEY': JSON.stringify(
+  mode === 'e2e' ? '' : turnstileSiteKey,
+),
     ...(mode === 'e2e' ? {
       'import.meta.env.VITE_API_URL': JSON.stringify('/__e2e_api'),
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify('http://127.0.0.1:4173/__e2e_supabase'),
