@@ -18,6 +18,10 @@ RUN mkdir -p "$TIKTOKEN_CACHE_DIR" \
     && python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')" \
     && chmod -R a+rX "$TIKTOKEN_CACHE_DIR"
 
+# Build tooling is not needed at runtime and carries vendored packages that
+# unnecessarily expand the production image's vulnerability surface.
+RUN pip uninstall --yes pip setuptools
+
 COPY main.py config.py models.py ./
 COPY routers/*.py ./routers/
 COPY services/*.py ./services/
