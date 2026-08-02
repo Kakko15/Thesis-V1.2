@@ -143,7 +143,13 @@ def _ocr_page(page: 'fitz.Page') -> str:
     try:
         pix = page.get_pixmap(dpi=200)
         img = Image.open(io.BytesIO(pix.tobytes('png')))
-        with tesserocr.PyTessBaseAPI(path=tessdata.data_path(), lang='eng') as api:
+        # tesserocr is a compiled Cython extension, so PyTessBaseAPI is created
+        # by the native module at import time and is invisible to Pylint's
+        # static analysis. The false no-member appears only where the wheel is
+        # actually installed (Linux CI), never on Windows where the guarded
+        # import above falls back to None. Scoped to this line deliberately:
+        # the rule stays enabled for the rest of the file and the project.
+        with tesserocr.PyTessBaseAPI(path=tessdata.data_path(), lang='eng') as api:  # pylint: disable=no-member
             api.SetImage(img)
             return api.GetUTF8Text()
     except Exception as e:  # pragma: no cover - depends on native OCR runtime
