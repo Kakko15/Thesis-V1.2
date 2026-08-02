@@ -14,6 +14,7 @@ import asyncio
 import logging
 import re
 import time
+from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from langchain_core.prompts import ChatPromptTemplate
@@ -53,6 +54,9 @@ from services.turnstile import ensure_guest_chat_verification
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/chat', tags=['chat'])
+
+# Guests resolve to None; authenticated callers get an opaque Supabase record.
+OptionalUser = Annotated[Any, Depends(get_optional_user)]
 
 llm = ChatGoogleGenerativeAI(
     model=settings.gemini_chat_model,
@@ -576,7 +580,7 @@ async def chat(
     req: ChatRequest,
     request: Request,
     background_tasks: BackgroundTasks,
-    user=Depends(get_optional_user),
+    user: OptionalUser,
 ):
     await ensure_guest_chat_verification(request, user)
     async with safe_trace('rag.chat.total', metadata={

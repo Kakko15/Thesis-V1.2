@@ -1,6 +1,6 @@
 """Public runtime configuration and superadmin feature settings."""
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -10,6 +10,10 @@ from routers.openapi_responses import errors
 from services.activity import log_activity
 
 router = APIRouter(prefix='/settings', tags=['settings'])
+
+# The Supabase SDK returns an opaque user record, so Any is the honest type.
+CurrentUser = Annotated[Any, Depends(get_current_user)]
+SuperadminUser = Annotated[Any, Depends(require_superadmin)]
 
 DEFAULT_FEATURES = {
     'student': {'chat': True, 'archive': True, 'novelty': False, 'upload': False},
@@ -39,7 +43,7 @@ def get_public_settings():
 
 
 @router.get('/features')
-def get_features(user=Depends(get_current_user)):
+def get_features(user: CurrentUser):
     """Fetch feature toggles for all roles."""
     res = sb.table('system_settings').select('value').eq('key', 'role_features').execute()
     if res.data:
@@ -54,7 +58,7 @@ def get_features(user=Depends(get_current_user)):
 
 
 @router.put('/features', responses=errors(422))
-def update_features(payload: dict[str, Any], user=Depends(require_superadmin)):
+def update_features(payload: dict[str, Any], user: SuperadminUser):
     """Update feature toggles (Superadmin only)."""
     payload = _validated_features(payload)
     res = sb.table('system_settings').update({

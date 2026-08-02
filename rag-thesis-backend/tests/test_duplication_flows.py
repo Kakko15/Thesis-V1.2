@@ -42,7 +42,7 @@ def request():
 
 async def run_scan(file, department, user):
     endpoint = getattr(duplication.scan_duplication, '__wrapped__', duplication.scan_duplication)
-    return await endpoint(request(), file, department, user)
+    return await endpoint(request(), file, user=user, department=department)
 
 
 def run_chat(body, user):

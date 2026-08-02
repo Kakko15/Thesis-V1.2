@@ -6,6 +6,7 @@ paper and role administration for the student, faculty, and admin model.
 
 import logging
 from collections import Counter
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -19,6 +20,10 @@ from services.catalog import resolve_academic_selection
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/analytics', tags=['analytics'])
+
+# The Supabase SDK returns an opaque user record, so Any is the honest type.
+CurrentUser = Annotated[Any, Depends(get_current_user)]
+AdminUser = Annotated[Any, Depends(require_admin)]
 
 
 def _admin_scope(user) -> tuple[str, str | None]:
@@ -68,7 +73,7 @@ def public_summary():
 
 
 @router.get('/overview', responses=errors(403))
-def overview(user=Depends(require_admin)):
+def overview(user: AdminUser):
     """Return full analytics for the admin dashboard."""
     role, department = _admin_scope(user)
     paper_query = (
@@ -129,7 +134,7 @@ def overview(user=Depends(require_admin)):
 
 
 @router.get('/activity', responses=errors(403))
-def recent_activity(limit: int = 25, user=Depends(require_admin)):
+def recent_activity(user: AdminUser, limit: int = 25):
     """Return recent audit activity for authorized administrators."""
     limit = max(1, min(limit, 100))
     role, department = _admin_scope(user)
@@ -145,7 +150,7 @@ def recent_activity(limit: int = 25, user=Depends(require_admin)):
 # ---------------------------------------------------------------------------
 
 @router.get('/users')
-def list_users(user=Depends(require_admin)):
+def list_users(user: AdminUser):
     """List department users for admins or all users for superadmins."""
     query = sb.table('profiles').select('*').order('created_at', desc=True)
 
@@ -161,7 +166,7 @@ def list_users(user=Depends(require_admin)):
 
 
 @router.put('/users/{user_id}/role', responses=errors(400, 403, 404))
-def update_user_role(user_id: str, body: RoleUpdate, user=Depends(require_admin)):
+def update_user_role(user_id: str, body: RoleUpdate, user: AdminUser):
     """Update an authorized target user's role and approval status."""
     if user_id == user.id:
         raise HTTPException(400, 'You cannot change your own role.')
@@ -200,7 +205,7 @@ def update_user_role(user_id: str, body: RoleUpdate, user=Depends(require_admin)
 # ---------------------------------------------------------------------------
 
 @router.delete('/users/{user_id}', responses=errors(400, 403, 404, 500))
-def delete_user(user_id: str, user=Depends(require_admin)):
+def delete_user(user_id: str, user: AdminUser):
     """Delete an authorized target user."""
     if user_id == user.id:
         raise HTTPException(400, 'You cannot delete your own account.')
@@ -230,7 +235,7 @@ def delete_user(user_id: str, user=Depends(require_admin)):
 
 
 @router.put('/users/{user_id}/details', responses=errors(403, 404, 422))
-def update_user_details(user_id: str, data: UserUpdate, curr_user=Depends(require_admin)):
+def update_user_details(user_id: str, data: UserUpdate, curr_user: AdminUser):
     """Edit an authorized user's name, role, department, and status."""
     current_result = sb.table('profiles').select('role,department').eq('id', curr_user.id).execute()
     current_profile = current_result.data[0] if current_result.data else {}
@@ -283,7 +288,7 @@ def update_user_details(user_id: str, data: UserUpdate, curr_user=Depends(requir
 
 
 @router.get('/logs/system')
-def get_system_logs(limit: int = 200, user=Depends(require_admin)):
+def get_system_logs(user: AdminUser, limit: int = 200):
     """Return department-isolated activity logs."""
     limit = max(1, min(limit, 1000))
     current_result = sb.table('profiles').select('role,department').eq('id', user.id).execute()
@@ -322,7 +327,7 @@ def get_system_logs(limit: int = 200, user=Depends(require_admin)):
 # ---------------------------------------------------------------------------
 
 @router.get('/me', responses=errors(404))
-def my_profile(user=Depends(get_current_user)):
+def my_profile(user: CurrentUser):
     """Return the current user's public profile fields."""
     fields = (
         'id,email,full_name,role,department,status,created_at,avatar_url,'
@@ -343,7 +348,7 @@ def my_profile(user=Depends(get_current_user)):
 
 
 @router.put('/me', responses=errors(422, 500, 503))
-def update_my_profile(data: ProfileUpdate, user=Depends(get_current_user)):
+def update_my_profile(data: ProfileUpdate, user: CurrentUser):
     """Update only the current user's client-editable profile fields."""
     update_data = {}
     if data.full_name is not None:
