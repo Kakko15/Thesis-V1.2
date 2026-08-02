@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     turnstile_secret_key: str = ''
     turnstile_verify_timeout_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
     turnstile_guest_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+    # Cloudflare echoes the widget's action and the solving page's hostname.
+    # Checking both stops a token minted for another widget (for example the
+    # sign-in challenge) or on another site from unlocking guest chat.
+    turnstile_expected_action: str = 'guest_chat'
+    # Comma-separated public hostnames. Empty disables the hostname check so
+    # localhost development keeps working.
+    turnstile_allowed_hostnames: str = ''
 
     # Optional: Supabase legacy JWT secret (Project Settings -> API). When set,
     # rate limiting keys on the HS256-VERIFIED user id instead of the client
@@ -98,6 +105,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(',') if o.strip()]
+
+    @property
+    def turnstile_allowed_hostname_list(self) -> list[str]:
+        return [h.strip().lower() for h in self.turnstile_allowed_hostnames.split(',') if h.strip()]
 
     @property
     def effective_langsmith_tracing(self) -> bool:
