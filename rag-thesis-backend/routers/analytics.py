@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from config import settings
 from dependencies.auth import get_current_user, invalidate_role_cache, require_admin, sb
 from models import ProfileUpdate, RoleUpdate, UserUpdate
+from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.catalog import resolve_academic_selection
 
@@ -66,7 +67,7 @@ def public_summary():
     }
 
 
-@router.get('/overview')
+@router.get('/overview', responses=errors(403))
 def overview(user=Depends(require_admin)):
     """Return full analytics for the admin dashboard."""
     role, department = _admin_scope(user)
@@ -127,7 +128,7 @@ def overview(user=Depends(require_admin)):
     }
 
 
-@router.get('/activity')
+@router.get('/activity', responses=errors(403))
 def recent_activity(limit: int = 25, user=Depends(require_admin)):
     """Return recent audit activity for authorized administrators."""
     limit = max(1, min(limit, 100))
@@ -159,7 +160,7 @@ def list_users(user=Depends(require_admin)):
     return result.data or []
 
 
-@router.put('/users/{user_id}/role')
+@router.put('/users/{user_id}/role', responses=errors(400, 403, 404))
 def update_user_role(user_id: str, body: RoleUpdate, user=Depends(require_admin)):
     """Update an authorized target user's role and approval status."""
     if user_id == user.id:
@@ -198,7 +199,7 @@ def update_user_role(user_id: str, body: RoleUpdate, user=Depends(require_admin)
 # Superadmin user and system management
 # ---------------------------------------------------------------------------
 
-@router.delete('/users/{user_id}')
+@router.delete('/users/{user_id}', responses=errors(400, 403, 404, 500))
 def delete_user(user_id: str, user=Depends(require_admin)):
     """Delete an authorized target user."""
     if user_id == user.id:
@@ -228,7 +229,7 @@ def delete_user(user_id: str, user=Depends(require_admin)):
         raise HTTPException(500, 'The user could not be deleted safely') from error
 
 
-@router.put('/users/{user_id}/details')
+@router.put('/users/{user_id}/details', responses=errors(403, 404, 422))
 def update_user_details(user_id: str, data: UserUpdate, curr_user=Depends(require_admin)):
     """Edit an authorized user's name, role, department, and status."""
     current_result = sb.table('profiles').select('role,department').eq('id', curr_user.id).execute()
@@ -320,7 +321,7 @@ def get_system_logs(limit: int = 200, user=Depends(require_admin)):
 # Current user profile (role resolution for the frontend)
 # ---------------------------------------------------------------------------
 
-@router.get('/me')
+@router.get('/me', responses=errors(404))
 def my_profile(user=Depends(get_current_user)):
     """Return the current user's public profile fields."""
     fields = (
@@ -341,7 +342,7 @@ def my_profile(user=Depends(get_current_user)):
     raise HTTPException(404, 'Profile not found')
 
 
-@router.put('/me')
+@router.put('/me', responses=errors(422, 500, 503))
 def update_my_profile(data: ProfileUpdate, user=Depends(get_current_user)):
     """Update only the current user's client-editable profile fields."""
     update_data = {}

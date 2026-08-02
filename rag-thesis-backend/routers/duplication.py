@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from dependencies.auth import require_novelty_access, resolve_effective_department, sb
+from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.chunker import split_document, validate_chunk_records
 from services.index_provenance import retrieval_provenance_params
@@ -66,7 +67,7 @@ def _public_scan(scan: dict) -> dict:
     }
 
 
-@router.post('/scan')
+@router.post('/scan', responses=errors(400, 413, 415, 422, 502))
 @limiter.limit(settings.rate_limit_scan)
 async def scan_duplication(
     request: Request,
@@ -264,7 +265,7 @@ Format your response using Markdown.
     return _public_scan(stored)
 
 
-@router.post('/chat')
+@router.post('/chat', responses=errors(404, 502))
 @limiter.limit(settings.rate_limit_followup)
 def duplication_chat(
     req: DuplicationChatReq,

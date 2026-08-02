@@ -31,6 +31,7 @@ from models import (
     UploadCancelResponse,
     UploadJobStatus,
 )
+from routers.openapi_responses import errors
 from services.cleanup import record_storage_cleanup
 from services.catalog import resolve_academic_selection
 from services.rate_limiting import limiter
@@ -193,7 +194,10 @@ def _durable_job_status(job_id: str, owner_id: str) -> str | None:
     return str(current[0]['status']) if current else None
 
 
-@router.post('/paper', response_model=UploadAccepted, status_code=202)
+@router.post(
+    '/paper', response_model=UploadAccepted, status_code=202,
+    responses=errors(400, 409, 413, 415, 422, 503),
+)
 @limiter.limit(settings.rate_limit_upload)
 async def upload_paper(
     request: Request,
@@ -329,7 +333,7 @@ async def upload_paper(
     )
 
 
-@router.get('/status/{job_id}', response_model=UploadJobStatus)
+@router.get('/status/{job_id}', response_model=UploadJobStatus, responses=errors(404, 503))
 def upload_status(job_id: str, user=Depends(require_upload_access)):
     extended_fields = (
         'id,owner_id,department,status,stage,progress,message,paper_id,'
@@ -395,7 +399,10 @@ def upload_status(job_id: str, user=Depends(require_upload_access)):
     )
 
 
-@router.post('/jobs/{job_id}/cancel', response_model=UploadCancelResponse)
+@router.post(
+    '/jobs/{job_id}/cancel', response_model=UploadCancelResponse,
+    responses=errors(403, 404, 503),
+)
 @limiter.limit(settings.rate_limit_upload)
 def cancel_upload_job(
     request: Request,
@@ -458,7 +465,7 @@ def list_tracks():
     return {'tracks': CCSICT_TRACKS}
 
 
-@router.post('/extract-metadata')
+@router.post('/extract-metadata', responses=errors(400, 413, 415, 422))
 @limiter.limit(settings.rate_limit_upload)
 async def extract_metadata(
     request: Request,

@@ -22,6 +22,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from config import settings
 from dependencies.auth import get_optional_user, resolve_effective_department, sb
 from models import ChatRequest, ChatResponse, DuplicationAlert
+from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.citations import (
     enforce_citation_coverage,
@@ -568,7 +569,7 @@ async def _invoke_generation(prompt_template, generation_input: dict, alert_data
     return await chain.ainvoke(generation_input), None
 
 
-@router.post('', response_model=ChatResponse)
+@router.post('', response_model=ChatResponse, responses=errors(401, 502, 503))
 @limiter.limit(settings.rate_limit_chat_ip, key_func=ip_rate_limit_key)
 @limiter.limit(settings.rate_limit_chat)
 async def chat(

@@ -1082,6 +1082,9 @@
             },
             "description": "Successful Response"
           },
+          "403": {
+            "description": "The authenticated account is not permitted to perform this action."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1163,6 +1166,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
           }
         },
         "security": [
@@ -1198,14 +1204,13 @@
             "description": "Successful Response"
           },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
+          },
+          "500": {
+            "description": "The server could not complete the request."
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -1231,6 +1236,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "403": {
+            "description": "The authenticated account is not permitted to perform this action."
           }
         },
         "security": [
@@ -1313,6 +1321,15 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "description": "The request payload or parameters were rejected."
+          },
+          "403": {
+            "description": "The authenticated account is not permitted to perform this action."
+          },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1322,6 +1339,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "500": {
+            "description": "The server could not complete the request."
           }
         },
         "security": [
@@ -1369,15 +1389,14 @@
             },
             "description": "Successful Response"
           },
+          "403": {
+            "description": "The authenticated account is not permitted to perform this action."
+          },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
           }
         },
         "security": [
@@ -1424,6 +1443,15 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "The request payload or parameters were rejected."
+          },
+          "403": {
+            "description": "The authenticated account is not permitted to perform this action."
+          },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
           },
           "422": {
             "content": {
@@ -1508,14 +1536,7 @@
             "description": "Successful Response"
           },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
           }
         },
         "security": [
@@ -1562,15 +1583,11 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
           }
         },
         "security": [
@@ -1607,14 +1624,7 @@
             "description": "Successful Response"
           },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
           }
         },
         "security": [
@@ -1661,15 +1671,11 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
           }
         },
         "security": [
@@ -1707,6 +1713,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication is required, or the supplied token is not valid."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1716,6 +1725,12 @@
               }
             },
             "description": "Validation Error"
+          },
+          "502": {
+            "description": "An upstream AI service was unavailable or returned an error."
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -1778,6 +1793,9 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "description": "The request payload or parameters were rejected."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1823,6 +1841,12 @@
               }
             },
             "description": "Successful Response"
+          },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the resource."
           },
           "422": {
             "content": {
@@ -1880,15 +1904,17 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "description": "The request payload or parameters were rejected."
+          },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the resource."
+          },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
           }
         },
         "security": [
@@ -1924,6 +1950,9 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1933,6 +1962,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "502": {
+            "description": "An upstream AI service was unavailable or returned an error."
           }
         },
         "security": [
@@ -1992,15 +2024,20 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "description": "The request payload or parameters were rejected."
+          },
+          "413": {
+            "description": "The uploaded file exceeds the configured size limit."
+          },
+          "415": {
+            "description": "The uploaded file type is not accepted."
+          },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
+          },
+          "502": {
+            "description": "An upstream AI service was unavailable or returned an error."
           }
         },
         "security": [
@@ -2081,6 +2118,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2117,6 +2157,9 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2126,6 +2169,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2150,6 +2196,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2174,6 +2223,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2211,6 +2263,9 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "description": "The request conflicts with the current state of the resource."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2220,6 +2275,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2280,6 +2338,9 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2289,6 +2350,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2335,6 +2399,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2359,6 +2426,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2450,6 +2520,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2487,6 +2560,12 @@
             },
             "description": "Successful Response"
           },
+          "403": {
+            "description": "The authenticated account is not permitted to perform this action."
+          },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2496,6 +2575,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2615,6 +2697,9 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2668,6 +2753,9 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2712,6 +2800,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
           },
           "422": {
             "content": {
@@ -2784,14 +2875,7 @@
             "description": "Successful Response"
           },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
           }
         },
         "security": [
@@ -2848,15 +2932,17 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "description": "The request payload or parameters were rejected."
+          },
+          "413": {
+            "description": "The uploaded file exceeds the configured size limit."
+          },
+          "415": {
+            "description": "The uploaded file type is not accepted."
+          },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
           }
         },
         "security": [
@@ -2905,6 +2991,12 @@
             },
             "description": "Successful Response"
           },
+          "403": {
+            "description": "The authenticated account is not permitted to perform this action."
+          },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2914,6 +3006,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -2969,15 +3064,23 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "description": "The request payload or parameters were rejected."
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the resource."
+          },
+          "413": {
+            "description": "The uploaded file exceeds the configured size limit."
+          },
+          "415": {
+            "description": "The uploaded file type is not accepted."
+          },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -3016,6 +3119,9 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3025,6 +3131,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [

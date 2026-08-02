@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from dependencies.auth import require_superadmin, sb
 from models import CatalogEntityCreate, CatalogEntityUpdate
+from routers.openapi_responses import errors
 
 router = APIRouter(prefix='/catalog', tags=['Academic catalog'])
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ def list_catalog_legacy():
     return _nested_catalog()
 
 
-@router.post('/programs', status_code=status.HTTP_201_CREATED)
+@router.post('/programs', status_code=status.HTTP_201_CREATED, responses=errors(422))
 def create_program(body: CatalogEntityCreate, _user=Depends(require_superadmin)):
     parent = sb.table('departments').select('id').eq('id', body.parent_id).eq('active', True).execute()
     if not parent.data:
@@ -84,7 +85,7 @@ def create_program(body: CatalogEntityCreate, _user=Depends(require_superadmin))
     return sb.table('programs').insert(row).execute().data[0]
 
 
-@router.patch('/programs/{entity_id}')
+@router.patch('/programs/{entity_id}', responses=errors(404, 422))
 def update_program(entity_id: str, body: CatalogEntityUpdate, _user=Depends(require_superadmin)):
     values = body.model_dump(exclude_none=True)
     if not values:
@@ -95,7 +96,7 @@ def update_program(entity_id: str, body: CatalogEntityUpdate, _user=Depends(requ
     return result[0]
 
 
-@router.post('/specializations', status_code=status.HTTP_201_CREATED)
+@router.post('/specializations', status_code=status.HTTP_201_CREATED, responses=errors(422))
 def create_specialization(body: CatalogEntityCreate, _user=Depends(require_superadmin)):
     parent = sb.table('programs').select('id').eq('id', body.parent_id).eq('active', True).execute()
     if not parent.data:
@@ -104,7 +105,7 @@ def create_specialization(body: CatalogEntityCreate, _user=Depends(require_super
     return sb.table('specializations').insert(row).execute().data[0]
 
 
-@router.patch('/specializations/{entity_id}')
+@router.patch('/specializations/{entity_id}', responses=errors(404, 422))
 def update_specialization(entity_id: str, body: CatalogEntityUpdate, _user=Depends(require_superadmin)):
     values = body.model_dump(exclude_none=True)
     if not values:

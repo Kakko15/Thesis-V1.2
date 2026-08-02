@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from dependencies.auth import get_current_user, get_user_scope, sb
 from models import SessionCreate, SessionUpdate
+from routers.openapi_responses import errors
 
 router = APIRouter(prefix='/sessions', tags=['sessions'])
 
@@ -43,7 +44,7 @@ def create_session(session: SessionCreate, user=Depends(get_current_user)):
     return res.data[0] if res.data else None
 
 
-@router.put('/{session_id}')
+@router.put('/{session_id}', responses=errors(404))
 def update_session(session_id: str, session: SessionUpdate, user=Depends(get_current_user)):
     _owned_session_or_404(session_id, user.id)
     res = sb.table('chat_sessions').update({
@@ -52,14 +53,14 @@ def update_session(session_id: str, session: SessionUpdate, user=Depends(get_cur
     return res.data[0] if res.data else None
 
 
-@router.delete('/{session_id}')
+@router.delete('/{session_id}', responses=errors(404))
 def delete_session(session_id: str, user=Depends(get_current_user)):
     _owned_session_or_404(session_id, user.id)
     sb.table('chat_sessions').delete().eq('id', session_id).execute()
     return {'deleted': True}
 
 
-@router.get('/{session_id}/messages')
+@router.get('/{session_id}/messages', responses=errors(404))
 def get_session_messages(session_id: str, user=Depends(get_current_user)):
     _owned_session_or_404(session_id, user.id)
     res = (
