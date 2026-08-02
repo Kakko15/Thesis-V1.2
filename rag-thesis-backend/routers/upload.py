@@ -17,6 +17,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Annotated, Any
 
 import fitz
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
@@ -40,6 +41,9 @@ from services.operations import record_security_event
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/upload', tags=['upload'])
+
+# The Supabase SDK returns an opaque user record, so Any is the honest type.
+UploadUser = Annotated[Any, Depends(require_upload_access)]
 
 def _extract_title_page_metadata(text: str, departments: list[str]) -> dict[str, str]:
     """Extract conservative title-page fields without requiring an AI call."""
@@ -201,17 +205,17 @@ def _durable_job_status(job_id: str, owner_id: str) -> str | None:
 @limiter.limit(settings.rate_limit_upload)
 async def upload_paper(
     request: Request,
-    file: UploadFile = File(...),
-    title: str = Form(...),
-    authors: str = Form(''),
-    year: str = Form(''),
-    abstract: str = Form(''),
-    track: str = Form(''),
-    department: str | None = Form(None),
-    program_id: str | None = Form(None),
-    specialization_id: str | None = Form(None),
-    idempotency_key: str | None = Header(None, alias='Idempotency-Key'),
-    user=Depends(require_upload_access),
+    file: Annotated[UploadFile, File()],
+    title: Annotated[str, Form()],
+    user: UploadUser,
+    authors: Annotated[str, Form()] = '',
+    year: Annotated[str, Form()] = '',
+    abstract: Annotated[str, Form()] = '',
+    track: Annotated[str, Form()] = '',
+    department: Annotated[str | None, Form()] = None,
+    program_id: Annotated[str | None, Form()] = None,
+    specialization_id: Annotated[str | None, Form()] = None,
+    idempotency_key: Annotated[str | None, Header(alias='Idempotency-Key')] = None,
 ):
     department = resolve_effective_department(user, department)
     _validate_metadata(title, authors, year, abstract)
@@ -334,7 +338,7 @@ async def upload_paper(
 
 
 @router.get('/status/{job_id}', response_model=UploadJobStatus, responses=errors(404, 503))
-def upload_status(job_id: str, user=Depends(require_upload_access)):
+def upload_status(job_id: str, user: UploadUser):
     extended_fields = (
         'id,owner_id,department,status,stage,progress,message,paper_id,'
         'chunks,duplication,error,attempt_count,max_attempts,next_retry_at,'
@@ -408,7 +412,7 @@ def cancel_upload_job(
     request: Request,
     job_id: str,
     payload: UploadCancelRequest,
-    user=Depends(require_upload_access),
+    user: UploadUser,
 ):
     try:
         profile_rows = (
@@ -469,8 +473,8 @@ def list_tracks():
 @limiter.limit(settings.rate_limit_upload)
 async def extract_metadata(
     request: Request,
-    file: UploadFile = File(...),
-    user=Depends(require_upload_access),
+    file: Annotated[UploadFile, File()],
+    user: UploadUser,
 ):
     """Extract thesis metadata locally, with Gemini filling missing fields."""
     local_data = {'title': '', 'authors': '', 'year': '', 'department': ''}

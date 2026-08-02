@@ -7,6 +7,7 @@ advisers and administrators for title-defense topic validation.
 
 import html
 import logging
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -27,6 +28,9 @@ from services.rate_limiting import limiter
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/duplication', tags=['duplication'])
+
+# The Supabase SDK returns an opaque user record, so Any is the honest type.
+NoveltyUser = Annotated[Any, Depends(require_novelty_access)]
 
 llm = ChatGoogleGenerativeAI(
     model=settings.gemini_verdict_model,
@@ -71,9 +75,9 @@ def _public_scan(scan: dict) -> dict:
 @limiter.limit(settings.rate_limit_scan)
 async def scan_duplication(
     request: Request,
-    file: UploadFile = File(...),
-    department: str | None = Form(None),
-    user=Depends(require_novelty_access),
+    file: Annotated[UploadFile, File()],
+    user: NoveltyUser,
+    department: Annotated[str | None, Form()] = None,
 ):
     effective_department = resolve_effective_department(user, department)
     limit = settings.max_upload_mb * 1024 * 1024
@@ -270,7 +274,7 @@ Format your response using Markdown.
 def duplication_chat(
     req: DuplicationChatReq,
     request: Request,
-    user=Depends(require_novelty_access),
+    user: NoveltyUser,
 ):
     scan_res = sb.table('scan_history').select('*').eq('id', req.scan_id).eq('user_id', user.id).execute()
     if not scan_res.data:
@@ -341,7 +345,7 @@ AI:
 
 
 @router.get('/history')
-def get_history(user=Depends(require_novelty_access)):
+def get_history(user: NoveltyUser):
     fields = (
         'id,user_id,filename,department,duplication_percentage,highest_similarity,'
         'matched_chunk_percentage,matched_chunk_count,total_chunks,verdict_level,'

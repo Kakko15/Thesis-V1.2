@@ -1,5 +1,7 @@
 """Superadmin department-management endpoints."""
 
+from typing import Annotated, Any
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from config import settings
@@ -8,6 +10,9 @@ from models import DepartmentCreate, DepartmentOut, DepartmentUpdate
 from routers.openapi_responses import errors
 
 router = APIRouter(prefix='/departments', tags=['Departments'])
+
+# The Supabase SDK returns an opaque user record, so Any is the honest type.
+SuperadminUser = Annotated[Any, Depends(require_superadmin)]
 
 
 @router.get('/', response_model=list[DepartmentOut])
@@ -18,7 +23,7 @@ def list_departments():
 
 
 @router.post('/', response_model=DepartmentOut, responses=errors(400))
-def create_department(body: DepartmentCreate, user=Depends(require_superadmin)):
+def create_department(body: DepartmentCreate, user: SuperadminUser):
     """Create a department and its tracks."""
     existing = sb.table('departments').select('id').eq('name', body.name).execute()
     if existing.data:
@@ -37,7 +42,7 @@ def create_department(body: DepartmentCreate, user=Depends(require_superadmin)):
 def update_department(
     department_id: str,
     body: DepartmentUpdate,
-    user=Depends(require_superadmin),
+    user: SuperadminUser,
 ):
     """Update a department."""
     existing = sb.table('departments').select('*').eq('id', department_id).execute()
@@ -73,7 +78,7 @@ def update_department(
 
 
 @router.delete('/{department_id}', responses=errors(404, 409))
-def delete_department(department_id: str, user=Depends(require_superadmin)):
+def delete_department(department_id: str, user: SuperadminUser):
     """Delete a department."""
     existing = sb.table('departments').select('*').eq('id', department_id).execute()
     if not existing.data:

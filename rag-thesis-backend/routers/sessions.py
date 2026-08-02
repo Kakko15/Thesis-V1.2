@@ -1,5 +1,7 @@
 """Chat session management (authenticated users)."""
 
+from typing import Annotated, Any
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from dependencies.auth import get_current_user, get_user_scope, sb
@@ -7,6 +9,9 @@ from models import SessionCreate, SessionUpdate
 from routers.openapi_responses import errors
 
 router = APIRouter(prefix='/sessions', tags=['sessions'])
+
+# The Supabase SDK returns an opaque user record, so Any is the honest type.
+CurrentUser = Annotated[Any, Depends(get_current_user)]
 
 
 def _owned_session_or_404(session_id: str, user_id: str):
@@ -22,7 +27,7 @@ def _owned_session_or_404(session_id: str, user_id: str):
 
 
 @router.get('')
-def list_sessions(user=Depends(get_current_user)):
+def list_sessions(user: CurrentUser):
     res = (
         sb.table('chat_sessions')
         .select('*')
@@ -34,7 +39,7 @@ def list_sessions(user=Depends(get_current_user)):
 
 
 @router.post('')
-def create_session(session: SessionCreate, user=Depends(get_current_user)):
+def create_session(session: SessionCreate, user: CurrentUser):
     scope = get_user_scope(user.id)
     res = sb.table('chat_sessions').insert({
         'user_id': user.id,
@@ -45,7 +50,7 @@ def create_session(session: SessionCreate, user=Depends(get_current_user)):
 
 
 @router.put('/{session_id}', responses=errors(404))
-def update_session(session_id: str, session: SessionUpdate, user=Depends(get_current_user)):
+def update_session(session_id: str, session: SessionUpdate, user: CurrentUser):
     _owned_session_or_404(session_id, user.id)
     res = sb.table('chat_sessions').update({
         'title': session.title,
@@ -54,14 +59,14 @@ def update_session(session_id: str, session: SessionUpdate, user=Depends(get_cur
 
 
 @router.delete('/{session_id}', responses=errors(404))
-def delete_session(session_id: str, user=Depends(get_current_user)):
+def delete_session(session_id: str, user: CurrentUser):
     _owned_session_or_404(session_id, user.id)
     sb.table('chat_sessions').delete().eq('id', session_id).execute()
     return {'deleted': True}
 
 
 @router.get('/{session_id}/messages', responses=errors(404))
-def get_session_messages(session_id: str, user=Depends(get_current_user)):
+def get_session_messages(session_id: str, user: CurrentUser):
     _owned_session_or_404(session_id, user.id)
     res = (
         sb.table('chat_messages')

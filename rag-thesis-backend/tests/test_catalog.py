@@ -136,24 +136,29 @@ def test_catalog_falls_back_safely_before_normalized_migration(monkeypatch):
     assert department['tracks'] == ['Web Development']
 
 
+# The routes now declare the injected superadmin with Annotated, so direct
+# calls must supply it explicitly instead of relying on a Depends default.
+_SUPERADMIN = SimpleNamespace(id='root')
+
+
 def test_superadmin_catalog_create_update_and_archive_paths(monkeypatch):
     client = Client()
     monkeypatch.setattr(catalog, 'sb', client)
     program = catalog.create_program(SimpleNamespace(
         parent_id='dept', code='BLIS', name='Library and Information Science',
-    ))
+    ), _user=_SUPERADMIN)
     assert program['code'] == 'BLIS'
     updated = catalog.update_program('bscs', SimpleNamespace(
         model_dump=lambda **_kwargs: {'name': 'Computer Science and Data Mining'},
-    ))
+    ), _user=_SUPERADMIN)
     assert updated['name'] == 'Computer Science and Data Mining'
     specialization = catalog.create_specialization(SimpleNamespace(
         parent_id='bsit', code='NETSEC', name='Network and Security',
-    ))
+    ), _user=_SUPERADMIN)
     assert specialization['code'] == 'NETSEC'
     archived = catalog.update_specialization('dm', SimpleNamespace(
         model_dump=lambda **_kwargs: {'active': False},
-    ))
+    ), _user=_SUPERADMIN)
     assert archived['active'] is False
 
 
@@ -161,16 +166,22 @@ def test_catalog_rejects_missing_parents_and_entities(monkeypatch):
     client = Client()
     monkeypatch.setattr(catalog, 'sb', client)
     with pytest.raises(HTTPException, match='parent department'):
-        catalog.create_program(SimpleNamespace(parent_id='missing', code='NEW', name='New'))
+        catalog.create_program(
+            SimpleNamespace(parent_id='missing', code='NEW', name='New'), _user=_SUPERADMIN,
+        )
     with pytest.raises(HTTPException, match='Program not found'):
         catalog.update_program('missing', SimpleNamespace(
             model_dump=lambda **_kwargs: {'active': False},
-        ))
+        ), _user=_SUPERADMIN)
     with pytest.raises(HTTPException, match='parent program'):
         catalog.create_specialization(SimpleNamespace(
             parent_id='missing', code='NEW', name='New Specialization',
-        ))
+        ), _user=_SUPERADMIN)
     with pytest.raises(HTTPException, match='program field'):
-        catalog.update_program('bscs', SimpleNamespace(model_dump=lambda **_kwargs: {}))
+        catalog.update_program(
+            'bscs', SimpleNamespace(model_dump=lambda **_kwargs: {}), _user=_SUPERADMIN,
+        )
     with pytest.raises(HTTPException, match='specialization field'):
-        catalog.update_specialization('dm', SimpleNamespace(model_dump=lambda **_kwargs: {}))
+        catalog.update_specialization(
+            'dm', SimpleNamespace(model_dump=lambda **_kwargs: {}), _user=_SUPERADMIN,
+        )

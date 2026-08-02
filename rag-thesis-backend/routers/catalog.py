@@ -1,6 +1,7 @@
 """Normalized, server-owned academic catalog API."""
 
 import logging
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -10,6 +11,9 @@ from routers.openapi_responses import errors
 
 router = APIRouter(prefix='/catalog', tags=['Academic catalog'])
 logger = logging.getLogger(__name__)
+
+# The Supabase SDK returns an opaque user record, so Any is the honest type.
+SuperadminUser = Annotated[Any, Depends(require_superadmin)]
 
 
 def _legacy_catalog() -> list[dict]:
@@ -77,7 +81,7 @@ def list_catalog_legacy():
 
 
 @router.post('/programs', status_code=status.HTTP_201_CREATED, responses=errors(422))
-def create_program(body: CatalogEntityCreate, _user=Depends(require_superadmin)):
+def create_program(body: CatalogEntityCreate, _user: SuperadminUser):
     parent = sb.table('departments').select('id').eq('id', body.parent_id).eq('active', True).execute()
     if not parent.data:
         raise HTTPException(422, 'Active parent department not found.')
@@ -86,7 +90,7 @@ def create_program(body: CatalogEntityCreate, _user=Depends(require_superadmin))
 
 
 @router.patch('/programs/{entity_id}', responses=errors(404, 422))
-def update_program(entity_id: str, body: CatalogEntityUpdate, _user=Depends(require_superadmin)):
+def update_program(entity_id: str, body: CatalogEntityUpdate, _user: SuperadminUser):
     values = body.model_dump(exclude_none=True)
     if not values:
         raise HTTPException(422, 'At least one program field is required.')
@@ -97,7 +101,7 @@ def update_program(entity_id: str, body: CatalogEntityUpdate, _user=Depends(requ
 
 
 @router.post('/specializations', status_code=status.HTTP_201_CREATED, responses=errors(422))
-def create_specialization(body: CatalogEntityCreate, _user=Depends(require_superadmin)):
+def create_specialization(body: CatalogEntityCreate, _user: SuperadminUser):
     parent = sb.table('programs').select('id').eq('id', body.parent_id).eq('active', True).execute()
     if not parent.data:
         raise HTTPException(422, 'Active parent program not found.')
@@ -106,7 +110,7 @@ def create_specialization(body: CatalogEntityCreate, _user=Depends(require_super
 
 
 @router.patch('/specializations/{entity_id}', responses=errors(404, 422))
-def update_specialization(entity_id: str, body: CatalogEntityUpdate, _user=Depends(require_superadmin)):
+def update_specialization(entity_id: str, body: CatalogEntityUpdate, _user: SuperadminUser):
     values = body.model_dump(exclude_none=True)
     if not values:
         raise HTTPException(422, 'At least one specialization field is required.')

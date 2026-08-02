@@ -1,6 +1,7 @@
 """Archive metadata endpoints (indirect access model - metadata only)."""
 
 import logging
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -13,6 +14,10 @@ from services.cleanup import record_storage_cleanup
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/papers', tags=['papers'])
+
+# The Supabase SDK returns an opaque user record, so Any is the honest type.
+CurrentUser = Annotated[Any, Depends(get_current_user)]
+AdminUser = Annotated[Any, Depends(require_admin)]
 
 
 def _ready_papers_query(fields: str, department: str | None):
@@ -27,10 +32,10 @@ def _ready_papers_query(fields: str, department: str | None):
 
 @router.get('', response_model=list[PaperOut], responses=errors(503))
 def list_papers(
+    user: CurrentUser,
     department: str | None = None,
     program_id: str | None = None,
     specialization_id: str | None = None,
-    user=Depends(get_current_user),
 ):
     """Return citation metadata without full text, file paths, or URLs."""
     profile_res = sb.table('profiles').select('role,department').eq('id', user.id).execute()
@@ -79,7 +84,7 @@ def list_papers(
 
 
 @router.delete('/{paper_id}', responses=errors(403, 404, 503))
-def delete_paper(paper_id: str, user=Depends(require_admin)):
+def delete_paper(paper_id: str, user: AdminUser):
     """Safely delete a paper and its private original."""
     profile_res = sb.table('profiles').select('role,department').eq('id', user.id).execute()
     current_profile = profile_res.data[0] if profile_res.data else {}

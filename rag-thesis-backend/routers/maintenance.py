@@ -2,6 +2,7 @@
 
 import hashlib
 from datetime import datetime, timedelta, timezone
+from typing import Annotated, Any
 
 import logging
 
@@ -16,6 +17,9 @@ from services.operations import evaluate_operations, record_security_event, rete
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/maintenance', tags=['maintenance'])
+
+# The Supabase SDK returns an opaque user record, so Any is the honest type.
+SuperadminUser = Annotated[Any, Depends(require_superadmin)]
 
 
 def _worker_view(row: dict) -> dict:
@@ -33,7 +37,7 @@ def _worker_view(row: dict) -> dict:
 
 
 @router.get('/operations/summary', responses=errors(503))
-def operations_summary(user=Depends(require_superadmin)):
+def operations_summary(user: SuperadminUser):
     try:
         return evaluate_operations(sb)
     except Exception as error:
@@ -41,7 +45,7 @@ def operations_summary(user=Depends(require_superadmin)):
 
 
 @router.get('/workers', responses=errors(503))
-def list_workers(user=Depends(require_superadmin)):
+def list_workers(user: SuperadminUser):
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     try:
         rows = (
@@ -54,7 +58,7 @@ def list_workers(user=Depends(require_superadmin)):
 
 
 @router.get('/upload-jobs', responses=errors(503))
-def list_upload_jobs(limit: int = 100, user=Depends(require_superadmin)):
+def list_upload_jobs(user: SuperadminUser, limit: int = 100):
     safe_limit = max(1, min(limit, 250))
     fields = (
         'id,department,status,stage,progress,attempt_count,max_attempts,'
@@ -72,7 +76,7 @@ def list_upload_jobs(limit: int = 100, user=Depends(require_superadmin)):
 
 
 @router.get('/alerts', responses=errors(503))
-def list_operational_alerts(limit: int = 100, user=Depends(require_superadmin)):
+def list_operational_alerts(user: SuperadminUser, limit: int = 100):
     try:
         rows = (
             sb.table('operational_alerts').select('*').order('last_seen_at', desc=True)
@@ -84,7 +88,7 @@ def list_operational_alerts(limit: int = 100, user=Depends(require_superadmin)):
 
 
 @router.post('/alerts/{alert_id}/acknowledge', responses=errors(404, 503))
-def acknowledge_alert(alert_id: str, user=Depends(require_superadmin)):
+def acknowledge_alert(alert_id: str, user: SuperadminUser):
     now = datetime.now(timezone.utc).isoformat()
     try:
         rows = (
@@ -107,7 +111,7 @@ def acknowledge_alert(alert_id: str, user=Depends(require_superadmin)):
 
 
 @router.post('/retention/run', responses=errors(409, 503))
-def run_retention(apply: bool = False, user=Depends(require_superadmin)):
+def run_retention(user: SuperadminUser, apply: bool = False):
     if apply and not settings.retention_enforcement_enabled:
         raise HTTPException(409, 'Retention enforcement requires institutional approval and server enablement')
     try:
@@ -122,7 +126,7 @@ def run_retention(apply: bool = False, user=Depends(require_superadmin)):
 
 
 @router.get('/retention/report', responses=errors(503))
-def get_retention_report(user=Depends(require_superadmin)):
+def get_retention_report(user: SuperadminUser):
     try:
         return retention_report(sb, apply=False)
     except Exception as error:
@@ -130,7 +134,7 @@ def get_retention_report(user=Depends(require_superadmin)):
 
 
 @router.get('/storage-cleanup')
-def list_pending_storage_cleanup(user=Depends(require_superadmin)):
+def list_pending_storage_cleanup(user: SuperadminUser):
     result = (
         sb.table('storage_cleanup_queue')
         .select('id,operation,paper_id,job_id,error_category,attempts,created_at')
@@ -142,7 +146,7 @@ def list_pending_storage_cleanup(user=Depends(require_superadmin)):
 
 
 @router.post('/storage-cleanup/{task_id}/retry', responses=errors(404, 503))
-def retry_storage_cleanup(task_id: int, user=Depends(require_superadmin)):
+def retry_storage_cleanup(task_id: int, user: SuperadminUser):
     result = (
         sb.table('storage_cleanup_queue')
         .select('id,operation,resource_path,paper_id,job_id,attempts,status')
