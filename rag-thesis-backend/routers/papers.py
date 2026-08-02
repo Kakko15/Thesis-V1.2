@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from dependencies.auth import get_current_user, require_admin, sb
 from models import PaperOut
+from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.cleanup import record_storage_cleanup
 
@@ -24,7 +25,7 @@ def _ready_papers_query(fields: str, department: str | None):
     return query.eq('department', department) if department else query
 
 
-@router.get('', response_model=list[PaperOut])
+@router.get('', response_model=list[PaperOut], responses=errors(503))
 def list_papers(
     department: str | None = None,
     program_id: str | None = None,
@@ -77,7 +78,7 @@ def list_papers(
     return papers
 
 
-@router.delete('/{paper_id}')
+@router.delete('/{paper_id}', responses=errors(403, 404, 503))
 def delete_paper(paper_id: str, user=Depends(require_admin)):
     """Safely delete a paper and its private original."""
     profile_res = sb.table('profiles').select('role,department').eq('id', user.id).execute()

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from dependencies.auth import require_superadmin, sb
 from config import settings
+from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.operations import evaluate_operations, record_security_event, retention_report
 
@@ -31,7 +32,7 @@ def _worker_view(row: dict) -> dict:
     }
 
 
-@router.get('/operations/summary')
+@router.get('/operations/summary', responses=errors(503))
 def operations_summary(user=Depends(require_superadmin)):
     try:
         return evaluate_operations(sb)
@@ -39,7 +40,7 @@ def operations_summary(user=Depends(require_superadmin)):
         raise HTTPException(503, 'Operational status is temporarily unavailable') from error
 
 
-@router.get('/workers')
+@router.get('/workers', responses=errors(503))
 def list_workers(user=Depends(require_superadmin)):
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     try:
@@ -52,7 +53,7 @@ def list_workers(user=Depends(require_superadmin)):
     return {'workers': [_worker_view(row) for row in rows]}
 
 
-@router.get('/upload-jobs')
+@router.get('/upload-jobs', responses=errors(503))
 def list_upload_jobs(limit: int = 100, user=Depends(require_superadmin)):
     safe_limit = max(1, min(limit, 250))
     fields = (
@@ -70,7 +71,7 @@ def list_upload_jobs(limit: int = 100, user=Depends(require_superadmin)):
     return {'jobs': rows}
 
 
-@router.get('/alerts')
+@router.get('/alerts', responses=errors(503))
 def list_operational_alerts(limit: int = 100, user=Depends(require_superadmin)):
     try:
         rows = (
@@ -82,7 +83,7 @@ def list_operational_alerts(limit: int = 100, user=Depends(require_superadmin)):
     return {'alerts': rows}
 
 
-@router.post('/alerts/{alert_id}/acknowledge')
+@router.post('/alerts/{alert_id}/acknowledge', responses=errors(404, 503))
 def acknowledge_alert(alert_id: str, user=Depends(require_superadmin)):
     now = datetime.now(timezone.utc).isoformat()
     try:
@@ -105,7 +106,7 @@ def acknowledge_alert(alert_id: str, user=Depends(require_superadmin)):
     return {'id': alert_id, 'status': 'acknowledged'}
 
 
-@router.post('/retention/run')
+@router.post('/retention/run', responses=errors(409, 503))
 def run_retention(apply: bool = False, user=Depends(require_superadmin)):
     if apply and not settings.retention_enforcement_enabled:
         raise HTTPException(409, 'Retention enforcement requires institutional approval and server enablement')
@@ -120,7 +121,7 @@ def run_retention(apply: bool = False, user=Depends(require_superadmin)):
         raise HTTPException(503, 'Retention reporting is temporarily unavailable') from error
 
 
-@router.get('/retention/report')
+@router.get('/retention/report', responses=errors(503))
 def get_retention_report(user=Depends(require_superadmin)):
     try:
         return retention_report(sb, apply=False)
@@ -140,7 +141,7 @@ def list_pending_storage_cleanup(user=Depends(require_superadmin)):
     return {'tasks': result.data or []}
 
 
-@router.post('/storage-cleanup/{task_id}/retry')
+@router.post('/storage-cleanup/{task_id}/retry', responses=errors(404, 503))
 def retry_storage_cleanup(task_id: int, user=Depends(require_superadmin)):
     result = (
         sb.table('storage_cleanup_queue')

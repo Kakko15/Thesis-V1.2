@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from config import settings
 from dependencies.auth import get_current_user, invalidate_features_cache, require_superadmin, sb
+from routers.openapi_responses import errors
 from services.activity import log_activity
 
 router = APIRouter(prefix='/settings', tags=['settings'])
@@ -52,7 +53,7 @@ def get_features(user=Depends(get_current_user)):
     return DEFAULT_FEATURES
 
 
-@router.put('/features')
+@router.put('/features', responses=errors(422))
 def update_features(payload: dict[str, Any], user=Depends(require_superadmin)):
     """Update feature toggles (Superadmin only)."""
     payload = _validated_features(payload)
