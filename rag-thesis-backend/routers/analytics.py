@@ -230,7 +230,7 @@ def delete_user(user_id: str, user: AdminUser):
         log_activity(user.id, 'user_delete', {'deleted_user_id': user_id})
         return {'deleted': True}
     except Exception as error:
-        logger.error('Failed to delete user (%s)', type(error).__name__)
+        logger.exception('Failed to delete user (%s)', type(error).__name__)
         raise HTTPException(500, 'The user could not be deleted safely') from error
 
 

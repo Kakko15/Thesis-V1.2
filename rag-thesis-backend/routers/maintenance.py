@@ -176,7 +176,7 @@ def retry_storage_cleanup(task_id: int, user: SuperadminUser):
                 'source_stored': False,
             }).eq('id', task['job_id']).execute()
     except Exception as exc:
-        logger.error('Cleanup retry %s failed (%s)', task_id, type(exc).__name__)
+        logger.exception('Cleanup retry %s failed (%s)', task_id, type(exc).__name__)
         sb.table('storage_cleanup_queue').update({
             'attempts': attempts,
             'error_category': type(exc).__name__,

@@ -515,7 +515,7 @@ async def _summarize_duplication(alert: dict) -> str:
     try:
         return _coerce_answer(await llm.ainvoke(prompt)).strip()
     except Exception as e:
-        logger.error('Duplication summary generation failed (%s)', type(e).__name__)
+        logger.exception('Duplication summary generation failed (%s)', type(e).__name__)
         return ''
 
 

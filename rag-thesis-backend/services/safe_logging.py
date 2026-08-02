@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import traceback
 
 _AUTH_RE = re.compile(r"(?i)(authorization|apikey|token|secret|password)(\s*[:=]\s*)([^\s,;]+)")
 _BEARER_RE = re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+")
@@ -30,6 +31,14 @@ class PrivacyFilter(logging.Filter):
             message = str(record.msg)
         record.msg = redact_log_text(message)
         record.args = ()
+        if record.exc_info and not record.exc_text:
+            # logger.exception() carries the traceback in exc_info, which the
+            # formatter renders separately and would otherwise emit verbatim.
+            # Pre-rendering it into exc_text puts the exception message and
+            # frame locals through the same redaction as the log message.
+            record.exc_text = redact_log_text(
+                ''.join(traceback.format_exception(*record.exc_info)),
+            )
         return True
 
 
