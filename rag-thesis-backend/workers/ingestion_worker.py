@@ -122,7 +122,7 @@ def process_claimed_job(client, job: dict, worker_id: str,
     except LeaseLostError:
         logger.warning('Stopped work on %s because its lease was lost', job_id)
     except Exception as error:
-        logger.error('Durable ingestion job %s failed (%s)', job_id, type(error).__name__)
+        logger.exception('Durable ingestion job %s failed (%s)', job_id, type(error).__name__)
         attempts = int(job.get('attempt_count') or 1)
         max_attempts = int(job.get('max_attempts') or settings.ingestion_max_attempts)
         if isinstance(error, MalwareDetectedIngestionError):
@@ -183,7 +183,7 @@ def run_worker(*, once: bool = False, stop_event: threading.Event | None = None,
             try:
                 job = claim_job(client, worker_id, settings.ingestion_lease_seconds)
             except Exception as error:
-                logger.error('Could not claim an ingestion job (%s)', type(error).__name__)
+                logger.exception('Could not claim an ingestion job (%s)', type(error).__name__)
                 if once:
                     return processed
                 stop_event.wait(settings.ingestion_poll_seconds)

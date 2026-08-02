@@ -153,7 +153,7 @@ def _ocr_page(page: 'fitz.Page') -> str:
             api.SetImage(img)
             return api.GetUTF8Text()
     except Exception as e:  # pragma: no cover - depends on native OCR runtime
-        logger.error('OCR failed on page %d (%s)', page.number, type(e).__name__)
+        logger.exception('OCR failed on page %d (%s)', page.number, type(e).__name__)
         return ''
 
 

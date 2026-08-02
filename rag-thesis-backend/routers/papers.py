@@ -107,7 +107,7 @@ def delete_paper(paper_id: str, user: AdminUser):
         try:
             sb.storage.from_('pdfs').remove([paper['storage_path']])
         except Exception as error:
-            logger.error(
+            logger.exception(
                 'Failed to remove private file for paper %s (%s)',
                 paper_id, type(error).__name__,
             )

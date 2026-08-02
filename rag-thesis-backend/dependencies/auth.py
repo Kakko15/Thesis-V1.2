@@ -36,7 +36,7 @@ def get_user_role(user_id: str) -> str:
         if role not in (ROLE_STUDENT, ROLE_FACULTY, ROLE_ADMIN, ROLE_SUPERADMIN):
             role = ROLE_STUDENT
     except Exception as e:
-        logger.error('Failed to fetch user role from profiles (%s)', type(e).__name__)
+        logger.exception('Failed to fetch user role from profiles (%s)', type(e).__name__)
         role = ROLE_STUDENT
     _ROLE_CACHE[user_id] = (role, time.monotonic() + _ROLE_CACHE_TTL)
     return role
@@ -60,7 +60,7 @@ def get_user_scope(user_id: str) -> dict:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error('Failed to fetch user scope (%s)', type(e).__name__)
+        logger.exception('Failed to fetch user scope (%s)', type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail='User department validation is unavailable.',
@@ -91,7 +91,7 @@ def resolve_effective_department(user, requested: str | None = None) -> str:
     try:
         res = sb.table('departments').select('name').eq('name', selected).limit(1).execute()
     except Exception as e:
-        logger.error('Failed to validate requested department (%s)', type(e).__name__)
+        logger.exception('Failed to validate requested department (%s)', type(e).__name__)
         raise HTTPException(status_code=503, detail='Department validation is unavailable.') from e
     if not res.data:
         raise HTTPException(status_code=422, detail='Unknown department.')
@@ -111,7 +111,7 @@ def _ensure_approved_account(user_id: str) -> None:
     try:
         result = sb.table('profiles').select('status').eq('id', user_id).limit(1).execute()
     except Exception as error:
-        logger.error('Failed to validate account status (%s)', type(error).__name__)
+        logger.exception('Failed to validate account status (%s)', type(error).__name__)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail='Account validation is temporarily unavailable.',
@@ -301,7 +301,7 @@ def get_role_features() -> dict:
             _FEATURES_CACHE['expires_at'] = time.monotonic() + 60.0
             return features
     except Exception as e:
-        logger.error('Failed to fetch role features (%s)', type(e).__name__)
+        logger.exception('Failed to fetch role features (%s)', type(e).__name__)
     return {}
 
 def require_novelty_access(

@@ -178,7 +178,7 @@ def _remove_staged_source(source_path: str, job_id: str) -> bool:
         sb.storage.from_('pdfs').remove([source_path])
         return True
     except Exception as cleanup_error:
-        logger.error('Staged upload cleanup failed for %s (%s)', job_id, type(cleanup_error).__name__)
+        logger.exception('Staged upload cleanup failed for %s (%s)', job_id, type(cleanup_error).__name__)
         record_storage_cleanup(
             sb,
             operation='rollback_upload',
@@ -293,7 +293,7 @@ async def upload_paper(
                 cleanup_pending=not removed,
             )
         except Exception as status_error:
-            logger.error('Could not record staging failure for %s (%s)', job_id, type(status_error).__name__)
+            logger.exception('Could not record staging failure for %s (%s)', job_id, type(status_error).__name__)
         raise HTTPException(503, 'The private manuscript could not be staged safely') from error
 
     try:
@@ -323,7 +323,7 @@ async def upload_paper(
                     cleanup_pending=not removed,
                 )
             except Exception as status_error:
-                logger.error(
+                logger.exception(
                     'Could not record queue-transition failure for %s (%s)',
                     job_id, type(status_error).__name__,
                 )
@@ -534,5 +534,5 @@ Text:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error('Metadata extraction failed (%s)', type(e).__name__)
+        logger.exception('Metadata extraction failed (%s)', type(e).__name__)
         return local_data

@@ -236,5 +236,5 @@ def process_ingestion_job(client, job: dict, worker_id: str,
             'highest_similarity': (duplication_scan or {}).get('highest_similarity', 0.0),
         })
     except Exception as activity_error:  # paper commit must not be undone by audit availability
-        logger.error('Upload activity logging failed (%s)', type(activity_error).__name__)
+        logger.exception('Upload activity logging failed (%s)', type(activity_error).__name__)
     return paper_id

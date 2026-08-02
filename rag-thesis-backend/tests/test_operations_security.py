@@ -6,6 +6,7 @@ import inspect
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -197,6 +198,22 @@ def test_privacy_filter_discards_unsafe_format_arguments():
     assert PrivacyFilter().filter(record)
     assert record.args == ()
     assert 'secret' not in record.getMessage()
+
+
+def test_privacy_filter_redacts_the_traceback_carried_by_exception_logging():
+    """logger.exception() attaches exc_info, which the formatter renders
+    separately from the message; it must go through the same redaction."""
+    try:
+        raise RuntimeError('upstream rejected Authorization: Bearer secret-token')
+    except RuntimeError:
+        record = logging.LogRecord(
+            'test', logging.ERROR, '', 1, 'operation failed', (), sys.exc_info(),
+        )
+    assert PrivacyFilter().filter(record)
+    assert 'secret-token' not in record.exc_text
+    # The diagnostic value of the traceback is preserved.
+    assert 'RuntimeError' in record.exc_text
+    assert 'Traceback' in record.exc_text
 
 
 def test_storage_encryption_round_trip_and_wrong_passphrase(tmp_path):

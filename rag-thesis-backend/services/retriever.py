@@ -462,7 +462,7 @@ def check_topic_duplication(
             logger=logger,
         )
     except Exception as e:
-        logger.error('Topic duplication check failed (%s)', type(e).__name__)
+        logger.exception('Topic duplication check failed (%s)', type(e).__name__)
         return None
 
     if not res.data:
