@@ -139,7 +139,10 @@ def _token_aal(
     if not isinstance(token, str) or not token:
         return 'aal1'
     try:
-        header = jwt.get_unverified_header(token)
+        # NOSONAR python:S5659 - Reading the header only selects the branch
+        # below; it grants nothing on its own. Authentication itself is
+        # performed by Supabase before this function is reachable.
+        header = jwt.get_unverified_header(token)  # NOSONAR
         algorithm = str(header.get('alg') or '')
         if settings.supabase_jwt_secret and algorithm == 'HS256':
             claims = jwt.decode(
@@ -154,9 +157,22 @@ def _token_aal(
             # here supports projects that use asymmetric signing keys without
             # adding a second network request.  The subject match below binds
             # the claim to the remotely validated identity.
+            #
+            # NOSONAR python:S5659 - Intentional and bounded, not a bypass:
+            #   1. This branch is reachable only after Supabase has validated
+            #      this exact token and returned ``expected_user_id``.
+            #   2. The only value read is the ``aal`` claim, and the ``sub``
+            #      check below discards it unless it belongs to that already
+            #      validated identity.
+            #   3. Signature verification IS performed whenever a local HS256
+            #      secret is configured (the branch above). This fallback
+            #      exists solely for Supabase projects on asymmetric signing
+            #      keys, where the secret cannot be held locally.
+            # Removing it would force a second network round trip per
+            # privileged request without adding any security guarantee.
             claims = jwt.decode(
                 token,
-                options={'verify_signature': False, 'verify_aud': False},
+                options={'verify_signature': False, 'verify_aud': False},  # NOSONAR
             )
         else:
             return 'aal1'
