@@ -55,14 +55,19 @@ Read-Host 'Backup passphrase' -AsSecureString |
   ConvertFrom-SecureString |
   Set-Content -Encoding UTF8 "$HOME\.isu-backup-passphrase.dpapi"
 
-# 2. Confirm the Supabase CLI is logged in and linked, then register the nightly task (02:00, keeps newest 14)
+# 2. Confirm the Supabase CLI is logged in and linked, then register the nightly task (02:00, keeps newest 14).
+#    The script prompts for the Windows account password: supplying it is what allows
+#    the backup to run while logged out. Press Enter to skip and accept a
+#    logged-in-only task (the script warns when it registers in that mode).
 cd rag-thesis-backend
 .\scripts\register_backup_task.ps1
 
-# 3. Validate immediately
+# 3. Validate immediately, ideally by signing out after the manual run to confirm the schedule holds
 Start-ScheduledTask -TaskName 'ISU Thesis Library nightly backup'
 .\scripts\check_backup_freshness.ps1
 ```
+
+Logon-type constraint: only the `Password` logon type produces an unattended backup. It loads the full user profile, so the job can reach both Supabase and the DPAPI-protected passphrase file. `S4U` is unusable here because it can neither reach the network nor decrypt DPAPI data, and `InteractiveToken` runs only inside an existing session. Rotate the stored credential through the scheduled task whenever the Windows password changes, or the job starts failing silently — `check_backup_freshness.ps1` is what surfaces that.
 
 `scripts\scheduled_backup.ps1` wraps `backup_system.ps1`: the passphrase reaches only the process environment (`BACKUP_PASSPHRASE`, already supported by `storage_backup.py`), transcripts go to `ISU-Thesis-Backups\logs\`, pruning to the newest N runs happens only after a successful run, and a run without a `sha256-manifest.json` is treated as failed. `scripts\check_backup_freshness.ps1` exits non-zero when the newest completed backup is older than 48 hours — wire it into monitoring or run it before maintenance windows. Restore procedures are unchanged (next section).
 

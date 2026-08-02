@@ -64,6 +64,32 @@ def reset_guest_verifications() -> None:
         _verified_guests.clear()
 
 
+def _token_context_is_expected(result: dict) -> bool:
+    """Reject a valid token that was minted for another widget or site.
+
+    Cloudflare echoes ``action`` (the widget identifier) and ``hostname`` (the
+    page that solved the challenge). Every widget in this app sets an action,
+    so a configured check is always enforced: a missing or mismatched value
+    fails. Clear the corresponding setting to disable a check —
+    ``TURNSTILE_EXPECTED_ACTION=`` or an empty ``TURNSTILE_ALLOWED_HOSTNAMES``
+    (the default, which keeps localhost development working).
+    """
+    expected_action = settings.turnstile_expected_action.strip()
+    if expected_action:
+        action = str(result.get('action') or '').strip()
+        if action != expected_action:
+            logger.warning('Turnstile token rejected: missing or unexpected widget action')
+            return False
+
+    allowed_hostnames = settings.turnstile_allowed_hostname_list
+    if allowed_hostnames:
+        hostname = str(result.get('hostname') or '').strip().lower()
+        if hostname not in allowed_hostnames:
+            logger.warning('Turnstile token rejected: missing or unexpected solving hostname')
+            return False
+    return True
+
+
 async def verify_turnstile_token(token: str, remote_ip: str | None) -> bool:
     """Ask Cloudflare to verify one token. Fail closed on any error."""
     payload = {'secret': settings.turnstile_secret_key, 'response': token}
@@ -73,10 +99,13 @@ async def verify_turnstile_token(token: str, remote_ip: str | None) -> bool:
         async with httpx.AsyncClient(timeout=settings.turnstile_verify_timeout_seconds) as client:
             response = await client.post(VERIFY_URL, data=payload)
             response.raise_for_status()
-            return bool(response.json().get('success'))
+            result = response.json()
     except (httpx.HTTPError, ValueError) as error:
         logger.warning('Turnstile verification unavailable: %s', type(error).__name__)
         return False
+    if not result.get('success'):
+        return False
+    return _token_context_is_expected(result)
 
 
 async def ensure_guest_chat_verification(request, user) -> None:

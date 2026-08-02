@@ -124,6 +124,72 @@ class TestCloudflareCall:
         monkeypatch.setattr(turnstile.httpx, 'AsyncClient', FailingClient)
         assert run(turnstile.verify_turnstile_token('tok', None)) is False
 
+    def test_token_from_another_widget_action_is_rejected(self, monkeypatch):
+        monkeypatch.setattr(settings, 'turnstile_secret_key', 'secret')
+        monkeypatch.setattr(settings, 'turnstile_expected_action', 'guest_chat')
+        assert turnstile._token_context_is_expected(
+            {'success': True, 'action': 'signin'},
+        ) is False
+        assert turnstile._token_context_is_expected(
+            {'success': True, 'action': 'guest_chat'},
+        ) is True
+
+    def test_token_solved_on_another_hostname_is_rejected(self, monkeypatch):
+        monkeypatch.setattr(settings, 'turnstile_secret_key', 'secret')
+        monkeypatch.setattr(settings, 'turnstile_expected_action', 'guest_chat')
+        monkeypatch.setattr(settings, 'turnstile_allowed_hostnames', 'thesis.isu.edu.ph')
+        assert turnstile._token_context_is_expected(
+            {'success': True, 'action': 'guest_chat', 'hostname': 'attacker.example'},
+        ) is False
+        # Hostname comparison is case-insensitive.
+        assert turnstile._token_context_is_expected(
+            {'success': True, 'action': 'guest_chat', 'hostname': 'THESIS.ISU.EDU.PH'},
+        ) is True
+
+    def test_configured_checks_reject_missing_context_fields(self, monkeypatch):
+        """A configured check is enforced; a missing field must not slip past it."""
+        monkeypatch.setattr(settings, 'turnstile_secret_key', 'secret')
+        monkeypatch.setattr(settings, 'turnstile_expected_action', 'guest_chat')
+        monkeypatch.setattr(settings, 'turnstile_allowed_hostnames', 'thesis.isu.edu.ph')
+        assert turnstile._token_context_is_expected({'success': True}) is False
+        assert turnstile._token_context_is_expected(
+            {'success': True, 'action': 'guest_chat'},
+        ) is False  # hostname allowlist configured but hostname absent
+        assert turnstile._token_context_is_expected(
+            {'success': True, 'action': 'guest_chat', 'hostname': 'thesis.isu.edu.ph'},
+        ) is True
+
+    def test_cleared_settings_disable_each_check_for_local_development(self, monkeypatch):
+        monkeypatch.setattr(settings, 'turnstile_secret_key', 'secret')
+        monkeypatch.setattr(settings, 'turnstile_expected_action', '')
+        monkeypatch.setattr(settings, 'turnstile_allowed_hostnames', '')
+        assert turnstile._token_context_is_expected({'success': True}) is True
+
+    def test_valid_token_with_wrong_action_fails_the_full_verification(self, monkeypatch):
+        monkeypatch.setattr(settings, 'turnstile_secret_key', 'secret')
+        monkeypatch.setattr(settings, 'turnstile_expected_action', 'guest_chat')
+
+        class SigninTokenClient:
+            def __init__(self, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def post(self, url, data=None):
+                request = httpx.Request('POST', url)
+                return httpx.Response(
+                    200,
+                    json={'success': True, 'action': 'signin', 'hostname': 'thesis.isu.edu.ph'},
+                    request=request,
+                )
+
+        monkeypatch.setattr(turnstile.httpx, 'AsyncClient', SigninTokenClient)
+        assert run(turnstile.verify_turnstile_token('tok', None)) is False
+
     def test_success_flag_from_cloudflare_is_honored(self, monkeypatch):
         monkeypatch.setattr(settings, 'turnstile_secret_key', 'secret')
         captured = {}
@@ -142,7 +208,11 @@ class TestCloudflareCall:
                 captured['url'] = url
                 captured['data'] = data
                 request = httpx.Request('POST', url)
-                return httpx.Response(200, json={'success': True}, request=request)
+                return httpx.Response(
+                    200,
+                    json={'success': True, 'action': 'guest_chat'},
+                    request=request,
+                )
 
         monkeypatch.setattr(turnstile.httpx, 'AsyncClient', OkClient)
         assert run(turnstile.verify_turnstile_token('tok', '198.51.100.7')) is True
