@@ -57,16 +57,6 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allow_headers=['Authorization', 'Content-Type', 'X-Guest-ID', 'Idempotency-Key', 'X-Turnstile-Token'],
-    # The guest-chat guard signals "solve the challenge" via this header.
-    expose_headers=['X-Guest-Verification'],
-)
-
 # Compress large JSON responses (archive listings, RAG answers)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
@@ -82,6 +72,22 @@ async def security_headers(request: Request, call_next):
     if request.url.scheme == 'https':
         response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
     return response
+
+
+# Registered last on purpose. Starlette applies middleware in reverse
+# registration order, so this leaves CORS as the OUTERMOST layer and every
+# response carries its headers - including rate-limit rejections and errors
+# raised inside the inner middleware. Otherwise the browser reports those as
+# opaque cross-origin failures instead of the real status.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allow_headers=['Authorization', 'Content-Type', 'X-Guest-ID', 'Idempotency-Key', 'X-Turnstile-Token'],
+    # The guest-chat guard signals "solve the challenge" via this header.
+    expose_headers=['X-Guest-Verification'],
+)
 
 
 app.include_router(upload.router)

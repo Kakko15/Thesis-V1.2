@@ -304,8 +304,11 @@ def main(argv: list[str] | None = None) -> int:
 
     from services.retriever import sb
 
-    print(json.dumps(run_apply(args, sb), indent=2))
-    return 0
+    result = run_apply(args, sb)
+    print(json.dumps(result, indent=2))
+    # A re-index that left papers in the failed set must not report success:
+    # callers and CI treat exit code 0 as a completed, trustworthy re-index.
+    return 1 if result.get('failed') else 0
 
 
 if __name__ == '__main__':

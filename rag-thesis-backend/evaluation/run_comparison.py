@@ -56,10 +56,13 @@ BASELINE_PROMPT = (
     'using only your own knowledge. Cite specific theses if you can.\n\nQuestion: {question}'
 )
 
-_CONTEXT_BLOCK = re.compile(
-    r'^\[(\d+)\]\s+[^\n]*\n(.*?)(?=^\[\d+\]\s|\Z)',
-    flags=re.MULTILINE | re.DOTALL,
-)
+# Matches only the citation header line; bodies are recovered by slicing
+# between consecutive headers. This replaces a lazy dot-all quantifier bounded
+# by an anchored alternation inside a lookahead, which was both ambiguous to
+# read and able to backtrack super-linearly. `[^\n]*` takes the rest of the
+# line in one unambiguous pass (an `\s+` prefix would also match newlines and
+# overlap this class), so header scanning and slicing are linear.
+_CONTEXT_HEADER = re.compile(r'^\[(\d+)\][^\n]*\n', flags=re.MULTILINE)
 
 
 def validate_formal_dataset(dataset: dict) -> list[str]:
@@ -108,8 +111,13 @@ def _ranked_contexts(context: str) -> list[str]:
     sorting the numbered blocks restores the original retrieval ranking that
     Context Precision is defined to assess.
     """
-    blocks = [(int(index), text.strip()) for index, text in _CONTEXT_BLOCK.findall(context or '')]
-    return [text for _index, text in sorted(blocks)]
+    text = context or ''
+    headers = list(_CONTEXT_HEADER.finditer(text))
+    blocks = []
+    for position, header in enumerate(headers):
+        body_end = headers[position + 1].start() if position + 1 < len(headers) else len(text)
+        blocks.append((int(header.group(1)), text[header.end():body_end].strip()))
+    return [body for _index, body in sorted(blocks)]
 
 
 def sanitize_evaluation_rows(rows: list[dict]) -> list[dict]:
