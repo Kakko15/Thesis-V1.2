@@ -29,7 +29,7 @@ cryptography==49.0.0
 PyJWT==2.13.0
 httpx==0.28.1
 msgpack==1.2.1
-setuptools==78.1.1
+setuptools==83.0.0
 
 # Testing (ISO/IEC 25010 — Functional Suitability / Maintainability)
 pytest==9.1.1
