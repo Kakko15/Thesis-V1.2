@@ -120,7 +120,7 @@ jobs:
       - name: Build ${{ matrix.name }} image
         run: docker build -t isu-thesis-${{ matrix.name }}:ci ${{ matrix.context }}
       - name: Scan ${{ matrix.name }} image
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: isu-thesis-${{ matrix.name }}:ci
           format: table
