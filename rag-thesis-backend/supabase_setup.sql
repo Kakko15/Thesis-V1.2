@@ -40,22 +40,36 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
+-- Sign-up goes straight from the browser to Supabase Auth and never traverses the
+-- API, so this trigger is the only place an institutional-domain rule can be
+-- enforced. Off-domain accounts are held at 'pending' rather than rejected:
+-- raising here would abort the auth.users insert and surface as an opaque signup
+-- error, and legitimate exceptions exist. Override the domain per deployment with
+--   alter database postgres set app.institutional_email_domain = 'isu.edu.ph';
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
+declare
+  institutional_domain text := coalesce(
+    nullif(current_setting('app.institutional_email_domain', true), ''),
+    'isu.edu.ph'
+  );
+  requested_role text := new.raw_user_meta_data ->> 'requested_role';
+  is_institutional boolean := lower(coalesce(new.email, '')) like ('%@' || lower(institutional_domain));
 begin
   insert into public.profiles (id, email, full_name, role, department, status)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
-    case when new.raw_user_meta_data ->> 'requested_role' = 'faculty'
-      then 'faculty' else 'student' end,
+    case when requested_role = 'faculty' then 'faculty' else 'student' end,
     'CCSICT', -- Public registration cannot self-assign another department.
-    case 
-      when new.raw_user_meta_data ->> 'requested_role' = 'faculty' then 'pending'
+    -- Faculty always needs review; so does anyone off the institutional domain.
+    case
+      when requested_role = 'faculty' then 'pending'
+      when not is_institutional then 'pending'
       else 'approved'
     end
   )
@@ -717,7 +731,9 @@ create index if not exists storage_cleanup_pending_idx
 -- Durable cross-worker status for background ingestion jobs.
 create table if not exists public.upload_jobs (
   id uuid primary key,
-  owner_id uuid not null references auth.users(id) on delete restrict,
+  -- Nullable on purpose: the job history is ingestion provenance and outlives the
+  -- account, so deleting an uploader clears the owner rather than being refused.
+  owner_id uuid references auth.users(id) on delete set null,
   department text not null default 'CCSICT',
   status text not null default 'queued'
     check (status in ('queued', 'processing', 'completed', 'failed')),
@@ -1239,7 +1255,7 @@ $$;
 -- ============================================================================
 -- 15. DURABLE, LEASED INGESTION QUEUE (ITEMS 5 AND 7)
 -- ============================================================================
-+-- Durable, leased, idempotent thesis-ingestion queue (Items 5 and 7).
+-- Durable, leased, idempotent thesis-ingestion queue (Items 5 and 7).
 -- Apply to a disposable project first. All objects remain backend/service-role only.
 
 alter table public.upload_jobs
@@ -1268,10 +1284,12 @@ where idempotency_key is null;
 alter table public.upload_jobs
   alter column idempotency_key set not null;
 
+-- Idempotent re-assert for databases created before the owner became nullable.
+alter table public.upload_jobs alter column owner_id drop not null;
 alter table public.upload_jobs drop constraint if exists upload_jobs_owner_id_fkey;
 alter table public.upload_jobs
   add constraint upload_jobs_owner_id_fkey
-  foreign key (owner_id) references auth.users(id) on delete restrict;
+  foreign key (owner_id) references auth.users(id) on delete set null;
 
 alter table public.upload_jobs drop constraint if exists upload_jobs_status_check;
 alter table public.upload_jobs

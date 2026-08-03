@@ -1330,6 +1330,9 @@
           "404": {
             "description": "The resource does not exist, or is not visible to this account."
           },
+          "409": {
+            "description": "The request conflicts with the current state of the resource."
+          },
           "422": {
             "content": {
               "application/json": {

@@ -246,6 +246,33 @@ class TestSqlSecurityContracts:
         assert "new.raw_user_meta_data ->> 'department'" not in sql
         assert "'ccsict', -- public registration" in sql
 
+    def test_signup_does_not_auto_approve_off_domain_accounts(self):
+        # Sign-up goes browser -> Supabase Auth and never reaches FastAPI, so this
+        # trigger is the only enforcement point. Without the domain test, any
+        # address on the internet received status 'approved' and could read the
+        # archive immediately.
+        sql = open('supabase_setup.sql', encoding='utf-8').read().lower()
+        assert 'is_institutional' in sql
+        assert 'when not is_institutional then \'pending\'' in sql
+        assert 'app.institutional_email_domain' in sql
+        # The domain check must be applied to the status, and the approved branch
+        # must be the last resort rather than a default.
+        approved_at = sql.index("else 'approved'")
+        assert sql.index('when not is_institutional') < approved_at
+        # Case must not be a bypass: a capitalised address is the same account.
+        assert 'lower(coalesce(new.email' in sql
+
+    def test_upload_job_owner_survives_account_deletion(self):
+        # ON DELETE RESTRICT on a NOT NULL owner made deleting any uploader fail
+        # outright. The job history is provenance and has to outlive the account,
+        # so the owner is cleared instead of the row being destroyed or retained.
+        sql = open('supabase_setup.sql', encoding='utf-8').read().lower()
+        assert 'owner_id uuid references auth.users(id) on delete set null' in sql
+        assert 'owner_id uuid not null references auth.users(id) on delete restrict' not in sql
+        assert 'foreign key (owner_id) references auth.users(id) on delete restrict' not in sql
+        # Cascading would delete the audit trail along with the account.
+        assert 'foreign key (owner_id) references auth.users(id) on delete cascade' not in sql
+
     def test_processing_papers_are_excluded_from_both_retrieval_rpcs(self):
         sql = open('supabase_setup.sql', encoding='utf-8').read().lower()
         assert sql.count("p.ingestion_status = 'ready'") >= 2
