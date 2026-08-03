@@ -591,7 +591,12 @@ async def chat(
         response = await _chat_impl(req, request, background_tasks, user)
         if user:
             try:
-                department = resolve_effective_department(user, req.department_filter)
+                # Reads the profile (and, for superadmins, the department list)
+                # over the network, so it belongs in a thread like every other
+                # Supabase call on this path.
+                department = await asyncio.to_thread(
+                    resolve_effective_department, user, req.department_filter,
+                )
                 session_id = await asyncio.to_thread(
                     _persist_chat_exchange,
                     req,
@@ -623,7 +628,9 @@ async def _chat_impl(
     user,
     evaluation_trace: dict | None = None,
 ):  # pylint: disable=too-many-return-statements
-    effective_department = resolve_effective_department(user, req.department_filter)
+    effective_department = await asyncio.to_thread(
+        resolve_effective_department, user, req.department_filter,
+    )
     if req.session_id:
         if not user:
             raise HTTPException(status_code=401, detail='Guest conversations do not have saved sessions.')
