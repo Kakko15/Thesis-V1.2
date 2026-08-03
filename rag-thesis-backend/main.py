@@ -7,6 +7,7 @@ Run (production):   uvicorn main:app --host 0.0.0.0 --port 8000
 import logging
 import os
 import threading
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -43,6 +44,57 @@ from routers import analytics, catalog, chat, departments, duplication, maintena
 from routers import settings as settings_router
 
 
+_operations_stop = threading.Event()
+_OPERATIONS_STATE = {'thread': None}
+
+
+def _operations_monitor() -> None:
+    from dependencies.auth import sb
+    from services.operations import evaluate_operations
+
+    while not _operations_stop.is_set():
+        try:
+            evaluate_operations(sb)
+        except Exception as error:
+            logger.warning('Operations monitor failed (%s)', type(error).__name__)
+        _operations_stop.wait(settings.operations_monitor_seconds)
+
+
+def start_operations_monitor() -> None:
+    if not settings.operations_monitor_enabled or _OPERATIONS_STATE['thread'] is not None:
+        return
+    _operations_stop.clear()
+    thread = threading.Thread(target=_operations_monitor, daemon=True)
+    _OPERATIONS_STATE['thread'] = thread
+    thread.start()
+
+
+def stop_operations_monitor() -> None:
+    _operations_stop.set()
+    thread = _OPERATIONS_STATE['thread']
+    if thread is not None:
+        thread.join(timeout=2)
+    _OPERATIONS_STATE['thread'] = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Own the operations monitor's whole lifecycle as one scoped unit.
+
+    Replaces the `@app.on_event('startup')` / `('shutdown')` pair, deprecated
+    since Starlette 0.26 / FastAPI 0.93 and slated for removal; on 0.139.2 each
+    one emitted a DeprecationWarning at every application start. Starting and
+    stopping the monitor are two halves of a single lifecycle, which one
+    context manager expresses and two independent hooks cannot — the stop now
+    runs even if startup work later raises.
+    """
+    start_operations_monitor()
+    try:
+        yield
+    finally:
+        stop_operations_monitor()
+
+
 app = FastAPI(
     title='ISU Thesis AI Library API',
     description=(
@@ -51,6 +103,7 @@ app = FastAPI(
         'Isabela State University, Echague.'
     ),
     version='2.1.0',
+    lifespan=lifespan,
 )
 
 app.state.limiter = limiter
@@ -100,41 +153,6 @@ app.include_router(departments.router)
 app.include_router(catalog.router)
 app.include_router(settings_router.router)
 app.include_router(maintenance.router)
-
-
-_operations_stop = threading.Event()
-_OPERATIONS_STATE = {'thread': None}
-
-
-def _operations_monitor() -> None:
-    from dependencies.auth import sb
-    from services.operations import evaluate_operations
-
-    while not _operations_stop.is_set():
-        try:
-            evaluate_operations(sb)
-        except Exception as error:
-            logger.warning('Operations monitor failed (%s)', type(error).__name__)
-        _operations_stop.wait(settings.operations_monitor_seconds)
-
-
-@app.on_event('startup')
-def start_operations_monitor() -> None:
-    if not settings.operations_monitor_enabled or _OPERATIONS_STATE['thread'] is not None:
-        return
-    _operations_stop.clear()
-    thread = threading.Thread(target=_operations_monitor, daemon=True)
-    _OPERATIONS_STATE['thread'] = thread
-    thread.start()
-
-
-@app.on_event('shutdown')
-def stop_operations_monitor() -> None:
-    _operations_stop.set()
-    thread = _OPERATIONS_STATE['thread']
-    if thread is not None:
-        thread.join(timeout=2)
-    _OPERATIONS_STATE['thread'] = None
 
 
 def _verify_database_contract() -> None:

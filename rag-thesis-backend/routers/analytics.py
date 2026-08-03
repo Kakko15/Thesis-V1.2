@@ -8,7 +8,7 @@ import logging
 from collections import Counter
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from config import settings
 from dependencies.auth import get_current_user, invalidate_role_cache, require_admin, sb
@@ -16,6 +16,7 @@ from models import ProfileUpdate, RoleUpdate, UserUpdate
 from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.catalog import resolve_academic_selection
+from services.rate_limiting import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +63,14 @@ def _count(table: str, **filters) -> int:
 
 
 @router.get('/summary')
-def public_summary():
-    """Return lightweight, non-sensitive landing-page statistics."""
+@limiter.limit(settings.rate_limit_public)
+def public_summary(request: Request):
+    """Return lightweight, non-sensitive landing-page statistics.
+
+    Unauthenticated by design — the landing page calls it for every anonymous
+    visitor — so it carries an explicit rate limit. Without one, only the global
+    default applied and a trivial loop forced a full-table read per request.
+    """
     papers = (
         sb.table('papers')
         .select('id,track,year')
@@ -338,15 +345,16 @@ def get_system_logs(user: AdminUser, limit: int = 200):
         )
         profiles = {profile['id']: profile for profile in (profile_result.data or [])}
 
-    filtered_logs = []
+    # PostgREST already applies .limit(limit), so this slice is only a defensive
+    # bound for a client layer that ignores it. It replaces an in-loop
+    # `if len(...) >= limit: break`, which against a limit-honouring query could
+    # never fire and read as though a filter were being applied here.
+    logs = logs[:limit]
     for log in logs:
         if log.get('user_id'):
             log['user'] = profiles.get(log['user_id'])
-        filtered_logs.append(log)
-        if len(filtered_logs) >= limit:
-            break
 
-    return filtered_logs
+    return logs
 
 
 # ---------------------------------------------------------------------------

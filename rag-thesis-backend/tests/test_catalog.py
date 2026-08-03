@@ -1,13 +1,24 @@
 """PI-04 normalized catalog and migration contract tests."""
 
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from routers import catalog
 from services.catalog import resolve_academic_selection
+
+
+def public_request(path='/'):
+    """slowapi's wrapper needs a real Request, so rate-limited handlers cannot
+    be called with a stand-in object even after unwrapping the decorator."""
+    return Request({
+        'type': 'http', 'method': 'GET', 'path': path, 'headers': [],
+        'query_string': b'', 'client': ('127.0.0.1', 1234),
+        'server': ('test', 80), 'scheme': 'http',
+    })
 
 
 class Result:
@@ -119,17 +130,17 @@ def test_nested_catalog_contract_and_active_filter(monkeypatch):
         'department_id': 'dept', 'active': False,
     })
     monkeypatch.setattr(catalog, 'sb', client)
-    payload = catalog.list_catalog()
+    payload = inspect.unwrap(catalog.list_catalog)(public_request('/catalog/departments'))
     assert payload['contract_version'] == '2026-07-25'
     department = payload['departments'][0]
     assert [program['code'] for program in department['programs']] == ['BSCS', 'BSIT']
     assert department['tracks'] == ['Data Mining', 'Web and Mobile Application Development']
-    assert catalog.list_catalog_legacy() == payload['departments']
+    assert inspect.unwrap(catalog.list_catalog_legacy)(public_request('/catalog/departments/legacy')) == payload['departments']
 
 
 def test_catalog_falls_back_safely_before_normalized_migration(monkeypatch):
     monkeypatch.setattr(catalog, 'sb', PreMigrationClient())
-    department = catalog.list_catalog_legacy()[0]
+    department = inspect.unwrap(catalog.list_catalog_legacy)(public_request('/catalog/departments/legacy'))[0]
     assert department['code'] == 'CCSICT'
     assert department['active'] is True
     assert department['programs'] == []

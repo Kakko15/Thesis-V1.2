@@ -48,16 +48,53 @@ class CancellationRequested(RuntimeError):
 
 
 class LeaseHeartbeat:
-    """Keep a claimed lease alive and expose authoritative stage updates."""
+    """Keep a claimed lease alive and expose authoritative stage updates.
+
+    Two threads drive this: the pipeline thread reports real stage transitions,
+    and a background thread keeps the lease alive between them. Both used to
+    read and write `valid`/`cancel_requested` unsynchronized and could issue
+    overlapping control RPCs, so depending on arrival order at PostgreSQL a job
+    row could end up with a stale stage — the admin's progress bar jumping
+    backwards — or a transient background failure could clear `valid` mid-check
+    on the pipeline thread and abort a healthy job with LeaseLostError.
+
+    The mutable state is now guarded by a lock, and the background thread sends
+    a bare keep-alive that never carries a stage, progress, or message.
+    """
 
     def __init__(self, client, job_id: str, worker_id: str, scanner: str = 'healthy'):
         self.client = client
         self.job_id = job_id
         self.worker_id = worker_id
-        self.valid = True
-        self.cancel_requested = False
+        self._state_lock = threading.Lock()
+        self._valid = True
+        self._cancel_requested = False
+        # Only one control RPC may be in flight, so a keep-alive cannot land
+        # out of order against a real stage update.
+        self._rpc_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, args=(scanner,), daemon=True)
+
+    # Preserved as attributes so existing callers and tests keep reading them.
+    @property
+    def valid(self) -> bool:
+        with self._state_lock:
+            return self._valid
+
+    @valid.setter
+    def valid(self, value: bool) -> None:
+        with self._state_lock:
+            self._valid = bool(value)
+
+    @property
+    def cancel_requested(self) -> bool:
+        with self._state_lock:
+            return self._cancel_requested
+
+    @cancel_requested.setter
+    def cancel_requested(self, value: bool) -> None:
+        with self._state_lock:
+            self._cancel_requested = bool(value)
 
     def __enter__(self):
         self._thread.start()
@@ -68,27 +105,35 @@ class LeaseHeartbeat:
         self._thread.join(timeout=settings.ingestion_heartbeat_seconds + 1)
 
     def update(self, **updates) -> bool:
-        if self.cancel_requested:
-            raise CancellationRequested('Upload cancellation was requested')
-        if not self.valid:
-            return False
+        with self._state_lock:
+            if self._cancel_requested:
+                raise CancellationRequested('Upload cancellation was requested')
+            if not self._valid:
+                return False
         try:
-            control = heartbeat_job_control(
-                self.client, self.job_id, self.worker_id,
-                settings.ingestion_lease_seconds, **updates,
-            )
-            self.valid = bool(control.get('lease_valid'))
-            self.cancel_requested = bool(control.get('cancel_requested'))
+            with self._rpc_lock:
+                control = heartbeat_job_control(
+                    self.client, self.job_id, self.worker_id,
+                    settings.ingestion_lease_seconds, **updates,
+                )
+            with self._state_lock:
+                self._valid = bool(control.get('lease_valid'))
+                self._cancel_requested = bool(control.get('cancel_requested'))
+                valid, cancelled = self._valid, self._cancel_requested
         except Exception as error:
             logger.warning('Upload heartbeat failed for %s (%s)', self.job_id, type(error).__name__)
-            self.valid = False
-        if self.cancel_requested:
+            with self._state_lock:
+                self._valid = False
+            return False
+        if cancelled:
             raise CancellationRequested('Upload cancellation was requested')
-        return self.valid
+        return valid
 
     def _run(self, scanner: str):
         while not self._stop.wait(settings.ingestion_heartbeat_seconds):
             try:
+                # A bare keep-alive: passing no stage, progress, or message means
+                # this thread can never overwrite what the pipeline reported.
                 if not self.update():
                     return
                 register_worker(

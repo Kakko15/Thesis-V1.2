@@ -36,6 +36,8 @@ from models import (
 from routers.openapi_responses import errors
 from services.cleanup import record_storage_cleanup
 from services.catalog import resolve_academic_selection
+from services.filenames import sanitize_filename
+from services.llm_output import coerce_text, strip_code_fence
 from services.rate_limiting import limiter
 from services.operations import record_security_event
 
@@ -92,9 +94,7 @@ def _extract_title_page_metadata(text: str, departments: list[str]) -> dict[str,
 
 def _sanitize_filename(filename: str | None) -> str:
     """Return a storage-safe PDF filename without client path components."""
-    base = re.split(r'[\\/]+', filename or 'thesis.pdf')[-1]
-    stem = re.sub(r'[^A-Za-z0-9._-]+', '_', base.rsplit('.', 1)[0]).strip('._')
-    return f'{(stem or "thesis")[:100]}.pdf'
+    return sanitize_filename(filename, default_stem='thesis', force_suffix='pdf')
 
 
 def _validate_pdf_upload(file_bytes: bytes, filename: str | None, content_type: str | None) -> str:
@@ -143,7 +143,11 @@ def _validate_metadata(title: str, authors: str, year: str, abstract: str) -> No
         raise HTTPException(422, 'Authors must not exceed 500 characters')
     if len(abstract) > 10000:
         raise HTTPException(422, 'Abstract must not exceed 10,000 characters')
-    if year and (not year.isdigit() or len(year) != 4 or not 1978 <= int(year) <= datetime.now().year + 1):
+    # Timezone-aware on purpose: datetime.now() used the server's local zone
+    # while every other timestamp in the codebase is UTC, so a New Year's Eve
+    # upload could be accepted or rejected depending on the host's offset.
+    current_year = datetime.now(timezone.utc).year
+    if year and (not year.isdigit() or len(year) != 4 or not 1978 <= int(year) <= current_year + 1):
         raise HTTPException(422, 'Year must be a valid four-digit completion year')
 
 
@@ -414,8 +418,14 @@ def upload_status(job_id: str, user: UploadUser):
             .eq('job_id', job_id).order('created_at', desc=True).limit(1).execute().data or []
         )
         last_event_at = event[0].get('created_at') if event else None
-    except Exception:
-        pass
+    except Exception as error:
+        # This field is presentational, so the request still succeeds without
+        # it — but a bare `pass` hid genuine database problems with no log line
+        # at all, which is exactly the case someone would need to diagnose.
+        logger.warning(
+            'Could not read the last upload event for %s (%s)',
+            job_id, type(error).__name__,
+        )
     cancel_requested = bool(job.get('cancel_requested_at'))
     status = job.get('status', 'queued')
     return UploadJobStatus(
@@ -564,9 +574,7 @@ Text:
 {text[:8000]}
 """
         result = await llm.ainvoke(prompt)
-        content = result.content if hasattr(result, 'content') else str(result)
-        clean_json = content.strip().lstrip('`').lstrip('json').rstrip('`').strip()
-        data = json.loads(clean_json)
+        data = json.loads(strip_code_fence(coerce_text(result)))
 
         ai_year = str(data.get('year', '') or '').strip()
         if ai_year and not re.search(rf'\b{re.escape(ai_year)}\b', title_page_text):

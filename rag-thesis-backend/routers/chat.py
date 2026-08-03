@@ -38,6 +38,7 @@ from services.guards import (
     is_ambiguous_followup,
     prohibited_reason,
 )
+from services.llm_output import coerce_text
 from services.observability import safe_trace
 from services.rate_limiting import ip_rate_limit_key, limiter
 from services.retriever import (
@@ -238,12 +239,31 @@ def _is_capacity_error(error: Exception) -> bool:
     ))
 
 
+CAPACITY_MESSAGE = (
+    'IskAI has reached the research AI service usage limit, so your question could not '
+    'be processed right now. Please try again later.'
+)
+# Stored exchanges whose answer is one of these are system notices, not research
+# findings. They carry no sources, so replaying them as conversational context
+# gives the model an apology to build on and leaves a follow-up with nothing to
+# anchor to. Recognized on load and excluded from the prompt.
+_NON_ANSWER_MARKERS = (
+    CAPACITY_MESSAGE,
+    REFUSAL_MESSAGE,
+    'No relevant thesis was found in the',
+)
+
+
+def _is_stored_non_answer(answer: str) -> bool:
+    normalized = re.sub(r'\s+', ' ', answer or '').strip()
+    if not normalized:
+        return False
+    return any(normalized.startswith(marker[:60]) for marker in _NON_ANSWER_MARKERS)
+
+
 def _capacity_response(session_id: str | None = None) -> ChatResponse:
     return ChatResponse(
-        answer=(
-            'IskAI has reached the research AI service usage limit, so your question could not '
-            'be processed right now. Please try again later.'
-        ),
+        answer=CAPACITY_MESSAGE,
         sources=[],
         session_id=session_id,
     )
@@ -351,14 +371,9 @@ def get_no_relevant_message(department: str | None = None) -> str:
     )
 
 
-def _coerce_answer(result) -> str:
-    content = result.content if hasattr(result, 'content') else str(result)
-    if isinstance(content, list):
-        return ''.join(
-            block.get('text', '') if isinstance(block, dict) else str(block)
-            for block in content
-        )
-    return str(content)
+# Kept as a module-local name; the implementation is now shared with
+# routers/duplication.py and routers/upload.py.
+_coerce_answer = coerce_text
 
 
 def _load_chat_history(session_id: str, user_id: str) -> list[dict]:
@@ -672,6 +687,7 @@ async def _chat_impl(
         history_messages = [
             message for message in history_messages
             if not prohibited_reason(message.get('question', ''))
+            and not _is_stored_non_answer(message.get('answer', ''))
         ]
         source_ids = []
         for message in reversed(history_messages):
@@ -822,10 +838,14 @@ async def _chat_impl(
 
     # 3. Threshold enforcement: history can never substitute for current evidence.
     if not context:
+        # A flagged match still has to reach the user here. This return passed
+        # `duplication_alert`, which is only built after generation below, so it
+        # was always None — the alert was computed and then silently dropped
+        # whenever the retrieved context came back empty.
         return ChatResponse(
             answer=get_no_relevant_message(effective_department),
             sources=[],
-            duplication_alert=duplication_alert,
+            duplication_alert=DuplicationAlert(**alert_data) if alert_data else None,
             session_id=req.session_id,
             no_relevant_thesis=True,
         )

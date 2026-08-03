@@ -1,3 +1,4 @@
+import threading
 import time
 import logging
 import jwt
@@ -22,13 +23,36 @@ ROLE_SUPERADMIN = 'superadmin'
 # Short-lived in-process role cache: {user_id: (role, expires_at)}
 _ROLE_CACHE: dict[str, tuple[str, float]] = {}
 _ROLE_CACHE_TTL = 60.0  # seconds
+# Nothing removed an entry that was never read again, so a long-running process
+# serving a whole university accumulated one tuple per user who had ever
+# authenticated, forever. Prune expired keys on write and cap the total.
+_ROLE_CACHE_MAX_ENTRIES = 2048
+# Reads and writes arrive from the event loop's worker threads and from
+# FastAPI's sync-dependency pool, so the prune-then-delete sequence needs a
+# lock. Held for dict access only, never across the profile lookup.
+_role_cache_lock = threading.Lock()
+
+
+def _prune_role_cache(now: float) -> None:
+    """Drop expired entries, then oldest-first while still over the ceiling."""
+    for user_id in [
+        user_id for user_id, (_role, expires_at) in _ROLE_CACHE.items() if expires_at <= now
+    ]:
+        del _ROLE_CACHE[user_id]
+    overflow = len(_ROLE_CACHE) - _ROLE_CACHE_MAX_ENTRIES + 1
+    if overflow <= 0:
+        return
+    # dict preserves insertion order, so the earliest inserts come first.
+    for user_id in list(_ROLE_CACHE)[:overflow]:
+        del _ROLE_CACHE[user_id]
 
 
 def get_user_role(user_id: str) -> str:
     """Return the user's role from profiles, with a short in-process cache."""
-    cached = _ROLE_CACHE.get(user_id)
-    if cached and cached[1] > time.monotonic():
-        return cached[0]
+    with _role_cache_lock:
+        cached = _ROLE_CACHE.get(user_id)
+        if cached and cached[1] > time.monotonic():
+            return cached[0]
     try:
         res = sb.table('profiles').select('role,status').eq('id', user_id).execute()
         profile = res.data[0] if res.data else {}
@@ -42,7 +66,10 @@ def get_user_role(user_id: str) -> str:
         # would 403 with no way to clear it. Fail safe, then retry next call.
         logger.exception('Failed to fetch user role from profiles (%s)', type(e).__name__)
         return ROLE_STUDENT
-    _ROLE_CACHE[user_id] = (role, time.monotonic() + _ROLE_CACHE_TTL)
+    with _role_cache_lock:
+        now = time.monotonic()
+        _prune_role_cache(now)
+        _ROLE_CACHE[user_id] = (role, now + _ROLE_CACHE_TTL)
     return role
 
 
@@ -104,10 +131,11 @@ def resolve_effective_department(user, requested: str | None = None) -> str:
 
 def invalidate_role_cache(user_id: str | None = None):
     """Drop cached roles (e.g. after an admin changes someone's role)."""
-    if user_id:
-        _ROLE_CACHE.pop(user_id, None)
-    else:
-        _ROLE_CACHE.clear()
+    with _role_cache_lock:
+        if user_id:
+            _ROLE_CACHE.pop(user_id, None)
+        else:
+            _ROLE_CACHE.clear()
 
 
 def _ensure_approved_account(user_id: str) -> None:
