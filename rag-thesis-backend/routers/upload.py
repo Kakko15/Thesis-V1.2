@@ -503,9 +503,14 @@ async def extract_metadata(
         if all(local_data.get(field) for field in ('title', 'authors', 'year', 'department')):
             return local_data
 
+        # Bounded like the chat client: metadata extraction runs during an upload,
+        # so an unbounded call would hold the request open indefinitely.
         llm = ChatGoogleGenerativeAI(
             model=settings.gemini_chat_model,
             google_api_key=settings.gemini_api_key,
+            timeout=settings.gemini_timeout_seconds,
+            max_retries=settings.gemini_max_retries,
+            max_output_tokens=settings.gemini_max_output_tokens,
         )
 
         prompt = f"""Extract the Title, Authors, Year completed, and Department of the thesis from the text below.
