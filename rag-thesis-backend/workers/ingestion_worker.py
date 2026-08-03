@@ -47,7 +47,7 @@ class CancellationRequested(RuntimeError):
     """Internal control signal raised only at safe ingestion checkpoints."""
 
 
-class LeaseHeartbeat:
+class LeaseHeartbeat:  # pylint: disable=too-many-instance-attributes
     """Keep a claimed lease alive and expose authoritative stage updates.
 
     Two threads drive this: the pipeline thread reports real stage transitions,
@@ -60,6 +60,13 @@ class LeaseHeartbeat:
 
     The mutable state is now guarded by a lock, and the background thread sends
     a bare keep-alive that never carries a stage, progress, or message.
+
+    The nine attributes are three cohesive groups — job identity, lease state
+    with the lock guarding it, and the background thread with the lock
+    serializing its control RPCs. Splitting the class would separate a lock
+    from the state it protects, so the count is deliberate. The two locks stay
+    distinct on purpose: sharing one would hold it across a network round trip
+    and make reading `valid` block for the length of an RPC.
     """
 
     def __init__(self, client, job_id: str, worker_id: str, scanner: str = 'healthy'):
