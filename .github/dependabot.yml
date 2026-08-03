@@ -13,6 +13,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # eslint-plugin-react caps its peer range at eslint ^9.7 and no released
+    # version supports 10, so grouping an eslint 10 bump in makes `npm ci` fail
+    # ERESOLVE and takes the whole group PR down with it. Hold the major until
+    # the plugin ships support, then drop this entry.
+    ignore:
+      - dependency-name: eslint
+        versions: [">=10"]
     groups:
       frontend-production:
         patterns: ["*"]
