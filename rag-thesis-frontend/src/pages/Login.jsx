@@ -247,7 +247,7 @@ export default function Login() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1.4, duration: 0.8 }}
-          className="absolute bottom-7 left-12 text-[0.68rem] font-medium tracking-wide opacity-30"
+          className="absolute bottom-7 left-12 text-xs font-medium tracking-wide opacity-30"
         >
           © {new Date().getFullYear()} Isabela State University · CCSICT
         </motion.p>

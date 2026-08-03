@@ -51,8 +51,8 @@ function OrbitingCard({ title, track, year, incline, phase, speed, radius = 2.95
             zIndexRange={[5, 0]}
           >
             <div className="glass w-44 rounded-xl px-3.5 py-3 shadow-xl">
-              <div className="font-display text-[0.7rem] font-bold leading-snug">{title}</div>
-              <div className="mt-1.5 flex items-center justify-between gap-2 text-[0.6rem]">
+              <div className="font-display text-xs font-bold leading-snug">{title}</div>
+              <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
                 <span className="truncate rounded-full bg-forest-500/15 px-2 py-0.5 font-semibold text-forest-700 dark:text-forest-300">
                   {track}
                 </span>

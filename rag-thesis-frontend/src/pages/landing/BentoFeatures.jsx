@@ -91,7 +91,7 @@ export function BentoFeatures() {
                     <span
                       key={label}
                       className={cn(
-                        'glass absolute left-0 top-0 rounded-lg px-2.5 py-1.5 text-[0.65rem] font-semibold shadow transition-all duration-500',
+                        'glass absolute left-0 top-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold shadow transition-all duration-500',
                         i === 0 && 'z-30 group-hover:-translate-y-1 group-hover:-rotate-3',
                         i === 1 &&
                           'z-20 translate-x-3 translate-y-2.5 group-hover:translate-x-9 group-hover:translate-y-1.5 group-hover:rotate-2',
@@ -154,7 +154,7 @@ export function BentoFeatures() {
                       <Globe size={13} />
                       <span className="line-through">Internet access</span>
                     </span>
-                    <span className="ml-auto rounded-md bg-forest-500/15 px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider text-forest-700 dark:text-forest-300">
+                    <span className="ml-auto rounded-md bg-forest-500/15 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-forest-700 dark:text-forest-300">
                       Archive only
                     </span>
                   </div>

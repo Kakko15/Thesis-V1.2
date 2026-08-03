@@ -52,7 +52,7 @@ export function LandingNav() {
             <div className="font-display text-sm font-extrabold tracking-tight sm:text-base">
               ISU Thesis <span className="text-gradient-gold">AI</span> Library
             </div>
-            <div className="hidden text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-ink-muted sm:block">
+            <div className="hidden text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted sm:block">
               Isabela State University · CCSICT
             </div>
           </div>

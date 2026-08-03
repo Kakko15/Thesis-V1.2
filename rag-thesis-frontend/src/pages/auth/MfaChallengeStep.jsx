@@ -102,7 +102,7 @@ export function MfaChallengeStep({ onUseAnotherAccount }) {
           </Rise>
 
           <Rise>
-            <p className="mt-4 text-center text-[0.68rem] leading-relaxed text-ink-faint">
+            <p className="mt-4 text-center text-xs leading-relaxed text-ink-faint">
               Codes rotate every 30 seconds — use the current one.
             </p>
           </Rise>

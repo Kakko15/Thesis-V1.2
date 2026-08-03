@@ -25,7 +25,7 @@ export function BrandMark({ compact = false }) {
           <div className="font-display text-[0.95rem] font-extrabold tracking-tight">
             ISU Thesis <span className="text-gradient-gold">AI</span> Library
           </div>
-          <div className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-ink-muted">
+          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-muted">
             CCSICT · Echague
           </div>
         </div>

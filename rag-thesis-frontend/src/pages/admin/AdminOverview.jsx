@@ -48,7 +48,7 @@ function StatCard({ icon: Icon, label, value }) {
       <GlassCard hover className="p-5">
         <Icon size={18} className="mb-2.5 text-gold-400" />
         <div className="font-display text-2xl font-extrabold"><AnimatedCounter value={value} /></div>
-        <div className="mt-0.5 text-[0.68rem] font-semibold uppercase tracking-wider text-ink-muted">{label}</div>
+        <div className="mt-0.5 text-xs font-semibold uppercase tracking-wider text-ink-muted">{label}</div>
       </GlassCard>
     </motion.div>
   )
@@ -228,11 +228,11 @@ export default function AdminOverview() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{meta.label}</div>
-                    <div className="truncate text-[0.65rem] text-ink-faint">
+                    <div className="truncate text-xs text-ink-faint">
                       {typeof a.detail === 'object' ? JSON.stringify(a.detail) : (a.detail?.title || a.detail?.filename || a.detail?.target_email || a.detail || '')}
                     </div>
                   </div>
-                  <span className="shrink-0 text-[0.65rem] text-ink-faint">{timeAgo(a.created_at)}</span>
+                  <span className="shrink-0 text-xs text-ink-faint">{timeAgo(a.created_at)}</span>
                 </div>
               )
             })}

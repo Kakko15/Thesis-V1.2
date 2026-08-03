@@ -145,19 +145,19 @@ function ScanResult({ scan, onAsk }) {
             </div>
             <div className="mt-4 grid gap-2 text-left sm:grid-cols-2">
               <div className="glass rounded-xl p-3">
-                <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Highest passage similarity</div>
+                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Highest passage similarity</div>
                 <div className="mt-1 font-display text-xl font-extrabold">{metrics.highest.toFixed(2)}%</div>
               </div>
               <div className="glass rounded-xl p-3">
-                <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Matched chunk coverage</div>
+                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Matched chunk coverage</div>
                 <div className="mt-1 font-display text-xl font-extrabold">{metrics.coverage.toFixed(2)}%</div>
               </div>
               <div className="glass rounded-xl p-3">
-                <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Matched chunks / total chunks</div>
+                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Matched chunks / total chunks</div>
                 <div className="mt-1 font-display text-xl font-extrabold">{metrics.matchedChunks} / {metrics.totalChunks}</div>
               </div>
               <div className="glass rounded-xl p-3">
-                <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Advisory verdict</div>
+                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Advisory verdict</div>
                 <div className="mt-1 text-sm font-bold">{verdictLabel(metrics.verdict)}</div>
               </div>
             </div>
@@ -393,7 +393,7 @@ export default function Novelty() {
                         {metrics.coverage.toFixed(0)}%
                       </span>
                     </div>
-                    <div className="mt-1 text-[0.65rem] text-ink-faint">{timeAgo(scan.created_at)}</div>
+                    <div className="mt-1 text-xs text-ink-faint">{timeAgo(scan.created_at)}</div>
                   </button>
                 )
               })}

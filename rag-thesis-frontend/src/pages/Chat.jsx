@@ -136,7 +136,7 @@ function Composer({
           onStop={onStop}
         />
       </form>
-      <p className="mt-2 text-center text-[0.65rem] text-ink-faint">{footnote}</p>
+      <p className="mt-2 text-center text-xs text-ink-faint">{footnote}</p>
     </div>
   )
 }
@@ -211,7 +211,7 @@ function SourceCard({ sources, index }) {
               const citationId = item.citation_id ?? itemIndex + 1
               const pageLabel = pageLabelFor(item)
               return (
-                <div key={`${item.chunk_id}-${citationId}`} className="flex flex-wrap items-center gap-1.5 text-[0.68rem]">
+                <div key={`${item.chunk_id}-${citationId}`} className="flex flex-wrap items-center gap-1.5 text-xs">
                   <span className="font-mono font-bold text-gold-text dark:text-gold-300">[{citationId}]</span>
                   {Number.isInteger(item.chunk_index) && <span>Chunk {item.chunk_index + 1}</span>}
                   {pageLabel && <Badge tone="neutral">{pageLabel}</Badge>}
@@ -225,7 +225,7 @@ function SourceCard({ sources, index }) {
           </div>
         )}
         {locationPending && (
-          <div className="mt-1.5 text-[0.65rem] italic text-ink-faint">
+          <div className="mt-1.5 text-xs italic text-ink-faint">
             Some evidence locations are pending citation backfill.
           </div>
         )}
@@ -403,7 +403,7 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, 
                 <MessageSquareText size={14} className="shrink-0 opacity-50" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{s.title}</span>
-                  <span className="block text-[0.65rem] text-ink-faint">
+                  <span className="block text-xs text-ink-faint">
                     {s.department || 'CCSICT'} · {timeAgo(s.created_at)}
                   </span>
                 </span>
@@ -729,7 +729,7 @@ export default function Chat() {
             <Logo size={32} />
             <div className="min-w-0">
               <h1 className="font-display text-sm font-extrabold">IskAI</h1>
-              <div className="truncate text-[0.65rem] text-ink-faint">
+              <div className="truncate text-xs text-ink-faint">
                 Grounded in the {effectiveDepartment} archive · citations included
               </div>
             </div>
@@ -767,7 +767,7 @@ export default function Chat() {
 
         {/* Guest banner */}
         {!user && (
-          <div className="flex items-center gap-2 border-b border-gold-400/20 bg-gold-400/[0.09] px-4 py-2 text-[0.7rem] font-medium text-gold-800 dark:text-gold-200 sm:px-5">
+          <div className="flex items-center gap-2 border-b border-gold-400/20 bg-gold-400/[0.09] px-4 py-2 text-xs font-medium text-gold-800 dark:text-gold-200 sm:px-5">
             <Info size={12} className="shrink-0 opacity-70" aria-hidden="true" />
             <span className="min-w-0 truncate">
               <span className="font-bold">Guest Researcher</span>

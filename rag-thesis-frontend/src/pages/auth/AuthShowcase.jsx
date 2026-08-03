@@ -211,7 +211,7 @@ export function AuthShowcase() {
             variants={chipRise}
             whileHover={{ y: -2, scale: 1.04 }}
             transition={{ type: 'spring', stiffness: 380, damping: 22 }}
-            className="glass-subtle inline-flex cursor-default items-center gap-1.5 rounded-full px-3 py-1.5 text-[0.7rem] font-semibold opacity-75"
+            className="glass-subtle inline-flex cursor-default items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold opacity-75"
           >
             <Icon size={12} className="text-gold-500 dark:text-gold-300" />
             {label}

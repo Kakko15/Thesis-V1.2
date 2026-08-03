@@ -219,7 +219,7 @@ function DepartmentsManagement() {
                         <Input value={form.tracks} onChange={e => setForm({...form, tracks: e.target.value})} placeholder="Comma-separated" className="h-8 text-xs w-full min-w-[200px]" />
                       ) : (
                         <div className="flex flex-wrap gap-1">
-                          {d.tracks.map(t => <Badge key={t} tone="neutral" className="text-[10px] py-0">{t}</Badge>)}
+                          {d.tracks.map(t => <Badge key={t} tone="neutral" className="text-xs py-0">{t}</Badge>)}
                           {d.tracks.length === 0 && <span className="text-ink-faint italic text-xs">No tracks</span>}
                         </div>
                       )}
@@ -478,7 +478,7 @@ export default function SystemManagementTab() {
                           )}
                           <div>
                             <div className="font-bold">{u.full_name || u.email}</div>
-                            <div className="mt-0.5 text-[0.65rem] font-semibold text-forest-700 dark:text-gold-400 capitalize">
+                            <div className="mt-0.5 text-xs font-semibold text-forest-700 dark:text-gold-400 capitalize">
                               {u.role === 'superadmin' ? 'Super Admin at System' : <>{u.role === 'admin' ? 'Administrator' : u.role} at {u.department || 'Unassigned'}</>}
                             </div>
                             <div className="mt-0.5 text-xs text-ink-muted">{u.email}</div>
@@ -586,7 +586,7 @@ export default function SystemManagementTab() {
         <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
           <TerminalSquare size={13} /> Raw System Logs
         </div>
-        <div className="bg-canvas-950 text-white rounded-2xl p-4 font-mono text-[0.65rem] max-h-96 overflow-y-auto space-y-2">
+        <div className="bg-canvas-950 text-white rounded-2xl p-4 font-mono text-xs max-h-96 overflow-y-auto space-y-2">
           {loadingLogs ? <div className="opacity-50">Loading system logs...</div> : (
             logs.map(log => (
               <div key={log.id} className="border-b border-white/10 pb-2">

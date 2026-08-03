@@ -158,7 +158,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
           <motion.span
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-gold-400/15 px-2 py-1 text-[0.7rem] font-semibold text-gold-text dark:text-gold-300"
+            className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-gold-400/15 px-2 py-1 text-xs font-semibold text-gold-text dark:text-gold-300"
           >
             <TriangleAlert size={11} /> Caps Lock is on
           </motion.span>
@@ -187,7 +187,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
 
       <Rise className="flex items-center gap-3 py-1" aria-hidden="true">
         <span className="h-px flex-1 bg-forest-900/10 dark:bg-white/10" />
-        <span className="text-[0.65rem] font-bold uppercase tracking-widest text-ink-faint">or</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-ink-faint">or</span>
         <span className="h-px flex-1 bg-forest-900/10 dark:bg-white/10" />
       </Rise>
 

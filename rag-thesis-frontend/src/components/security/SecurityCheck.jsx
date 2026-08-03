@@ -89,17 +89,17 @@ function StatusRow({ status, view, isPanel, headline, body, onRetry }) {
       <StatusIcon view={view} isPanel={isPanel} />
 
       <div className={cn('min-w-0', isPanel && 'flex-1')}>
-        <p className={cn('font-bold leading-snug', isPanel ? 'text-xs' : 'text-[0.7rem]', TONE_TEXT[view.tone])}>
+        <p className={cn('font-bold leading-snug', isPanel ? 'text-xs' : 'text-xs', TONE_TEXT[view.tone])}>
           {headline}
         </p>
-        {isPanel && body && <p className="mt-0.5 text-[0.7rem] leading-relaxed text-ink-muted">{body}</p>}
+        {isPanel && body && <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">{body}</p>}
       </div>
 
       {view.retry && (
         <button
           type="button"
           onClick={onRetry}
-          className={cn('state-layer shrink-0 rounded-lg px-2.5 py-1 text-[0.7rem] font-bold', TONE_TEXT[view.tone])}
+          className={cn('state-layer shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold', TONE_TEXT[view.tone])}
         >
           Try again
         </button>
