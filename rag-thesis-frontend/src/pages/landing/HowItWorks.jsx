@@ -35,7 +35,7 @@ function ChunkViz() {
 function RetrieveViz() {
   return (
     <div aria-hidden="true" className="flex items-center gap-2.5">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold-300 to-gold-400 text-[0.65rem] font-extrabold text-forest-950">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold-300 to-gold-400 text-xs font-extrabold text-forest-950">
         Q
       </span>
       <span className="animate-pulse-glow h-px w-10 bg-gradient-to-r from-gold-400 to-forest-500 sm:w-16" />
@@ -43,7 +43,7 @@ function RetrieveViz() {
         {['0.92', '0.81', '0.74'].map((score, i) => (
           <span
             key={score}
-            className="animate-pulse-glow rounded-lg bg-forest-500/15 px-2 py-1 font-mono text-[0.65rem] font-semibold text-forest-700 dark:text-forest-300"
+            className="animate-pulse-glow rounded-lg bg-forest-500/15 px-2 py-1 font-mono text-xs font-semibold text-forest-700 dark:text-forest-300"
             style={{ animationDelay: `${i * 260}ms` }}
           >
             {score}
@@ -55,7 +55,7 @@ function RetrieveViz() {
 }
 
 function SynthViz() {
-  const chip = 'rounded-md bg-gold-400/25 px-1.5 py-0.5 font-mono text-[0.6rem] font-semibold text-gold-text dark:text-gold-300'
+  const chip = 'rounded-md bg-gold-400/25 px-1.5 py-0.5 font-mono text-xs font-semibold text-gold-text dark:text-gold-300'
   return (
     <div aria-hidden="true" className="max-w-sm space-y-2">
       <div className="shimmer h-2.5 w-full rounded-full bg-forest-500/15" />

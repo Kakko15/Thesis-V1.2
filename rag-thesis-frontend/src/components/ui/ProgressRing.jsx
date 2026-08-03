@@ -34,7 +34,7 @@ export function ProgressRing({ value = 0, size = 140, strokeWidth = 11, label, c
         <span className="font-display text-2xl font-extrabold" style={{ color }}>
           <AnimatedCounter value={clamped} suffix="%" />
         </span>
-        {label && <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-ink-muted">{label}</span>}
+        {label && <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted">{label}</span>}
       </div>
     </div>
   )

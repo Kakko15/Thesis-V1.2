@@ -99,8 +99,8 @@ function SecurityCard() {
           <span
             className={
               enabled
-                ? 'inline-flex items-center gap-1.5 rounded-full bg-forest-500/12 px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider text-forest-700 dark:text-forest-300'
-                : 'inline-flex items-center gap-1.5 rounded-full bg-forest-900/8 px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider text-ink-muted dark:bg-white/8'
+                ? 'inline-flex items-center gap-1.5 rounded-full bg-forest-500/12 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-forest-700 dark:text-forest-300'
+                : 'inline-flex items-center gap-1.5 rounded-full bg-forest-900/8 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-ink-muted dark:bg-white/8'
             }
           >
             <span className={enabled ? 'h-1.5 w-1.5 rounded-full bg-forest-500' : 'h-1.5 w-1.5 rounded-full bg-forest-900/30 dark:bg-white/30'} />

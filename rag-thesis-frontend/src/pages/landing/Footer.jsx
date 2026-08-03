@@ -23,7 +23,7 @@ export function Footer() {
             A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation —
             preserving and unlocking the research memory of CCSICT.
           </p>
-          <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-forest-500/10 px-3 py-1.5 font-mono text-[0.65rem] font-semibold text-forest-700 dark:text-forest-300">
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-forest-500/10 px-3 py-1.5 font-mono text-xs font-semibold text-forest-700 dark:text-forest-300">
             RAG · Gemini · pgvector
           </div>
         </div>

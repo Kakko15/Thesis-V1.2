@@ -207,7 +207,7 @@ export function AppShell({ children }) {
           <Logo size={30} />
           <span className="min-w-0">
             <span className="block truncate font-display text-sm font-extrabold">ISU Thesis Library</span>
-            <span className="block truncate text-[0.65rem] text-ink-muted">{activeItem?.label || 'Research discovery'}</span>
+            <span className="block truncate text-xs text-ink-muted">{activeItem?.label || 'Research discovery'}</span>
           </span>
         </button>
         <div className="flex items-center gap-1">
@@ -225,14 +225,14 @@ export function AppShell({ children }) {
           const Icon = item.icon
           return (
             <NavLink key={item.to} to={item.to} className={({ isActive }) => cn(
-              'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-[0.64rem] font-semibold',
+              'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-xs font-semibold',
               isActive ? 'bg-[var(--primary-container)] text-[var(--primary-container-foreground)]' : 'opacity-65',
             )}>
               <Icon size={18} aria-hidden="true" /><span className="truncate">{item.shortLabel}</span>
             </NavLink>
           )
         })}
-        <button type="button" onClick={() => setMobileOpen(true)} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-[0.64rem] font-semibold text-ink-muted">
+        <button type="button" onClick={() => setMobileOpen(true)} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-xs font-semibold text-ink-muted">
           <MoreHorizontal size={18} aria-hidden="true" /><span>More</span>
         </button>
       </nav>

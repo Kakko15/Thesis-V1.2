@@ -98,14 +98,14 @@ export function ResetPasswordStep({ onDone }) {
                     ))}
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="text-[0.68rem] font-semibold text-ink-muted">{STRENGTH_LABELS[strength]}</span>
+                    <span className="text-xs font-semibold text-ink-muted">{STRENGTH_LABELS[strength]}</span>
                     {PASSWORD_RULES.map((rule) => {
                       const ok = rule.test(password)
                       return (
                         <span
                           key={rule.key}
                           className={cn(
-                            'inline-flex items-center gap-1 text-[0.65rem] font-medium transition-colors duration-300',
+                            'inline-flex items-center gap-1 text-xs font-medium transition-colors duration-300',
                             ok ? 'text-forest-700 dark:text-forest-300' : 'opacity-40',
                           )}
                         >

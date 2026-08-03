@@ -114,7 +114,7 @@ export function AskDemo() {
               <span className="h-2.5 w-2.5 rounded-full bg-gold-400/70" />
               <span className="h-2.5 w-2.5 rounded-full bg-forest-500/70" />
             </div>
-            <span className="font-mono text-[0.65rem] uppercase tracking-wider text-ink-faint">
+            <span className="font-mono text-xs uppercase tracking-wider text-ink-faint">
               Guest Researcher session · CCSICT archive
             </span>
             <Button variant="ghost" size="icon-sm" aria-label="Replay the demo" onClick={replay}>
@@ -160,7 +160,7 @@ export function AskDemo() {
                           <motion.span
                             key={ANSWER_WORD_KEYS[i]}
                             variants={wordVariant}
-                            className="mx-0.5 inline-block rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-[0.7rem] font-semibold text-gold-text dark:text-gold-300"
+                            className="mx-0.5 inline-block rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-xs font-semibold text-gold-text dark:text-gold-300"
                           >
                             {word}
                           </motion.span>
@@ -192,12 +192,12 @@ export function AskDemo() {
                     transition={{ delay: 0.15 + i * 0.12, type: 'spring', stiffness: 320, damping: 24 }}
                     className={cn('glass flex items-start gap-2.5 rounded-xl px-3.5 py-3')}
                   >
-                    <span className="mt-0.5 rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-[0.65rem] font-semibold text-gold-text dark:text-gold-300">
+                    <span className="mt-0.5 rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-xs font-semibold text-gold-text dark:text-gold-300">
                       [{source.n}]
                     </span>
                     <span>
                       <span className="block text-xs font-bold leading-snug">{source.title}</span>
-                      <span className="mt-0.5 block text-[0.65rem] text-ink-muted">{source.meta}</span>
+                      <span className="mt-0.5 block text-xs text-ink-muted">{source.meta}</span>
                     </span>
                   </motion.div>
                 ))}

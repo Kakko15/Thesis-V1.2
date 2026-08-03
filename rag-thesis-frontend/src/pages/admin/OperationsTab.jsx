@@ -21,7 +21,7 @@ function Metric({ icon: Icon, label, value, tone = 'text-forest-500' }) {
     <GlassCard className="p-5">
       <Icon size={18} className={tone} />
       <div className="mt-3 font-display text-2xl font-extrabold">{value ?? '—'}</div>
-      <div className="text-[0.68rem] font-bold uppercase tracking-wider text-ink-faint">{label}</div>
+      <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">{label}</div>
     </GlassCard>
   )
 }

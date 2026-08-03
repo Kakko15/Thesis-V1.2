@@ -134,7 +134,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
             <div className="flex h-10 items-center gap-2 rounded-xl border border-forest-900/10 bg-forest-900/[0.035] px-3 text-sm font-semibold dark:border-white/10 dark:bg-white/[0.04]">
               <Lock size={14} aria-hidden="true" />
               CCSICT
-              <span className="ml-auto text-[0.62rem] font-medium uppercase tracking-wider text-ink-faint">Assigned</span>
+              <span className="ml-auto text-xs font-medium uppercase tracking-wider text-ink-faint">Assigned</span>
             </div>
           </Field>
           <Field label="Account Type" required>
@@ -191,14 +191,14 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
                   ))}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="text-[0.68rem] font-semibold text-ink-muted">{STRENGTH_LABELS[strength]}</span>
+                  <span className="text-xs font-semibold text-ink-muted">{STRENGTH_LABELS[strength]}</span>
                   {PASSWORD_RULES.map((rule) => {
                     const ok = rule.test(password)
                     return (
                       <span
                         key={rule.key}
                         className={cn(
-                          'inline-flex items-center gap-1 text-[0.65rem] font-medium transition-colors duration-300',
+                          'inline-flex items-center gap-1 text-xs font-medium transition-colors duration-300',
                           ok ? 'text-forest-700 dark:text-forest-300' : 'opacity-40',
                         )}
                       >
@@ -258,7 +258,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       </Rise>
 
       <Rise>
-        <p className="text-center text-[0.68rem] leading-relaxed text-ink-faint">
+        <p className="text-center text-xs leading-relaxed text-ink-faint">
           We'll send a 6-digit code to verify your email.
         </p>
       </Rise>

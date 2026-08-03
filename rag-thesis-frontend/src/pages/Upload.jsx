@@ -82,7 +82,7 @@ function UploadScreening({ scan }) {
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-[0.7rem] text-ink-muted">
+      <p className="mt-2 text-xs text-ink-muted">
         The manuscript was still indexed. This is advisory only; faculty makes the final decision.
       </p>
     </div>
@@ -110,7 +110,7 @@ function StepIndicator({ current }) {
             >
               {i < current ? <CheckCircle2 size={18} /> : i + 1}
             </motion.div>
-            <span className={cn('text-[0.65rem] font-semibold uppercase tracking-wider', i === current ? 'text-ink' : 'text-ink-faint')}>
+            <span className={cn('text-xs font-semibold uppercase tracking-wider', i === current ? 'text-ink' : 'text-ink-faint')}>
               {label}
             </span>
           </div>
@@ -232,7 +232,7 @@ function PipelineProgress({ job }) {
               >
                 {done ? <CheckCircle2 size={16} /> : <stage.icon size={16} className={active ? 'animate-pulse' : ''} />}
               </div>
-              <span className={cn('text-[0.6rem] font-semibold leading-tight', active || done ? 'text-ink' : 'text-ink-faint')}>
+              <span className={cn('text-xs font-semibold leading-tight', active || done ? 'text-ink' : 'text-ink-faint')}>
                 {stage.label}
               </span>
             </div>
@@ -622,26 +622,26 @@ export default function Upload() {
                 </div>
                 <div className="grid gap-3 border-t border-forest-900/10 pt-4 text-sm dark:border-white/10 sm:grid-cols-2">
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Title</div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Title</div>
                     <div className="mt-0.5 font-medium">{form.title}</div>
                   </div>
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Authors</div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Authors</div>
                     <div className="mt-0.5 font-medium">{form.authors || '—'}</div>
                   </div>
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Program / specialization</div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Program / specialization</div>
                     <div className="mt-0.5 flex flex-wrap gap-1.5">
                       <Badge tone="forest">{currentProgram?.code || 'Pending program'}</Badge>
                       {currentSpecialization && <Badge tone="gold">{currentSpecialization.code}</Badge>}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Department</div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Department</div>
                     <div className="mt-0.5"><Badge tone="neutral">{form.department}</Badge></div>
                   </div>
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Year</div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Year</div>
                     <div className="mt-0.5 font-medium">{form.year || '—'}</div>
                   </div>
                 </div>
@@ -696,7 +696,7 @@ export default function Upload() {
                         <Icon size={16} className="mt-0.5 shrink-0 text-forest-700 dark:text-forest-300" />
                         <div>
                           <div className="text-xs font-bold">{label}</div>
-                          <div className="mt-0.5 text-[0.68rem] leading-relaxed text-ink-muted">{description}</div>
+                          <div className="mt-0.5 text-xs leading-relaxed text-ink-muted">{description}</div>
                         </div>
                       </div>
                     ))}

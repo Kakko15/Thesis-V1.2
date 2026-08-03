@@ -206,7 +206,7 @@ export function Hero() {
             {TRUST_CHIPS.map(({ icon: Icon, label }) => (
               <span
                 key={label}
-                className="glass-subtle inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[0.7rem] font-semibold opacity-80"
+                className="glass-subtle inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold opacity-80"
               >
                 <Icon size={12} className="text-gold-500 dark:text-gold-300" />
                 {label}

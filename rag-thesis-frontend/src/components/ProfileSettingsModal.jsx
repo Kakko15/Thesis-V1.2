@@ -334,7 +334,7 @@ export function ProfileSettingsModal({ open, onClose }) {
                         Update
                       </Button>
                     </div>
-                    <p className="text-[10px] text-ink-muted mt-1.5 ml-1">You will need to verify your new email with a 6-digit code.</p>
+                    <p className="text-xs text-ink-muted mt-1.5 ml-1">You will need to verify your new email with a 6-digit code.</p>
                   </>
                 )}
               </div>
