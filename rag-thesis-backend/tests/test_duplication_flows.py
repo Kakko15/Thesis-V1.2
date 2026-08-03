@@ -92,6 +92,32 @@ class TestNoveltyScan:
         assert response['verdict_summary'] == 'Faculty review advised.'
         assert 'matched_chunks' not in response
 
+    def test_scan_survives_every_matched_paper_being_deleted(self, monkeypatch):
+        # The vector search returns a paper id, then the papers fetch comes back
+        # empty because the row was deleted in between. Indexing the top-matches
+        # list crashed with IndexError here, so faculty saw a 500 at the exact
+        # moment a matched thesis had just been removed.
+        prepare(monkeypatch)
+        match = {
+            'paper_id': 'p1', 'content': 'Archived content', 'similarity': 0.9,
+            'page_start': 2, 'page_end': 2, 'section': 'Introduction',
+        }
+        client = Client([[match]], {'papers': [[]], 'scan_history': [[]]})
+        monkeypatch.setattr(duplication, 'sb', client)
+        # The verdict must not need the LLM: there are no excerpts left to compare.
+        monkeypatch.setattr(duplication, 'llm', SimpleNamespace(
+            invoke=lambda _prompt: pytest.fail('must not call the model with no matched papers'),
+        ))
+
+        response = asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
+
+        # The deterministic half of the scan is still true and still reported.
+        assert response['highest_similarity'] == 90
+        assert response['matched_chunk_percentage'] == 100
+        assert response['verdict_level'] == 'high_overlap'
+        assert response['top_matches'] == []
+        assert 'no longer in the archive' in response['verdict_summary']
+
     def test_extraction_and_empty_content_fail_cleanly(self, monkeypatch):
         monkeypatch.setattr(duplication, 'resolve_effective_department', lambda *_: 'CCSICT')
         monkeypatch.setattr(duplication, 'extract_document', lambda *_: (_ for _ in ()).throw(ValueError('bad')))
