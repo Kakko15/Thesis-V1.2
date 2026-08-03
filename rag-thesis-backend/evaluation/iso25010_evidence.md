@@ -1,29 +1,34 @@
 # ISO/IEC 25010 Evidence Snapshot
 
-> **Snapshot notice:** This file records the dated evidence below and is not a live delivery-status ledger. The authoritative release gates and current status are maintained in [ISU_ECHAGUE_PRODUCTION_ROADMAP.md](../../ISU_ECHAGUE_PRODUCTION_ROADMAP.md). Final evidence must be regenerated from the immutable release manifest described there.
+> **Snapshot notice:** This file records the dated evidence below and is not a live delivery-status ledger. The current defect and improvement ledger is [`SYSTEM_IMPROVEMENTS_AND_BUGS_2026-08-03.md`](../../SYSTEM_IMPROVEMENTS_AND_BUGS_2026-08-03.md), and the paper-to-system comparison is [`PAPER_VS_SYSTEM_COMPARISON_2026-08-03.md`](../../PAPER_VS_SYSTEM_COMPARISON_2026-08-03.md). Final evidence must be regenerated from the immutable release manifest (`scripts/corpus_manifest.py` and `scripts/release_fingerprint.py`).
+>
+> This notice previously pointed at `ISU_ECHAGUE_PRODUCTION_ROADMAP.md` as the authoritative ledger. That file does not exist in the repository and is listed in `.gitignore`, so anyone following the link — including a panel member — reached nothing.
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
-## Current local revalidation - 2026-07-25
+## Current local revalidation - 2026-08-03
 
-This revalidation used Python 3.14.2, PyTest 9.1.1, Pylint 4.0.6, Node.js 24.12.0, npm 11.6.2, and Vite 8.1.5 on Windows 11. Python 3.14.6 and Node 24.18.0 remain the pinned CI/container targets, not claims about this workstation.
+Measured on Windows 11 with Python 3.14.6, PyTest 9.1.1, Pylint 4.0.6, Node.js 24.18.0, npm 11.16.0, Vite 8.1.5, Playwright 1.61.1 and axe-core 4.12.1. This workstation now matches the pinned CI/container targets (Python 3.14.6, Node 24.18.0), and the active virtual environment is `.venv3146`.
 
 | Criterion | Instrument | Observed result | Status |
 |---|---|---|---|
-| Backend dependency consistency | `pip check` in `.venv312` | No broken requirements found | Passed |
-| Backend dependency vulnerability audit | pip-audit 2.10.1 | No known vulnerabilities found | Passed |
-| Backend functional suitability | PyTest with pytest-cov and enforced `--cov-fail-under=83.18` | 342 passed and 3 opt-in external integration tests skipped; 83.29% coverage | Passed current gate; below roadmap 85% target |
+| Backend dependency consistency | `pip check` in `.venv3146` | No broken requirements found | Passed |
+| Backend functional suitability | PyTest with pytest-cov and enforced `--cov-fail-under=85` | 539 passed and 3 opt-in external integration tests skipped; 91.28% coverage | Passed |
 | PI-04 catalog controls | PyTest | 8/8 normalized selection, safe legacy/pre-migration translation, no-guess review, nested API, CRUD/archive, additive migration, and rollback contract tests passed | Passed locally |
 | PI-08 corpus controls | PyTest + Pylint | 15/15 manifest validation, immutable-locking, no-overwrite, and tamper-evidence tests passed; focused Pylint 10.00/10 | Passed locally |
 | Backend maintainability | Pylint | 10.00/10 | Passed |
-| PI-06 critical experience | Browser QA + Playwright | 360px and 1280px landing/auth/chat checks had no horizontal overflow or console errors; archive normalization, chat stop/retry, metadata-only reporting, upload recovery, and operations journeys passed | Passed focused local gate; full device/accessibility matrix pending |
-| Frontend unit tests | Node test runner | 23/23 passed | Passed |
-| Frontend maintainability | ESLint | 0 errors and 0 warnings | Passed |
-| Frontend production build | Vite 8.1.5 | 3,803 modules transformed; production build completed | Passed |
-| Critical browser journeys | Playwright 1.61.1 with Chromium | 8/8 passed | Passed |
-| Frontend production dependency audit | npm audit --omit=dev | Two high findings from one React Router RSC-mode CSRF advisory; the Vite SPA does not enable RSC, but the zero-high release gate remains open | Blocked upstream |
+| Frontend unit tests | Node test runner | 44/44 passed | Passed |
+| Frontend maintainability | ESLint 9.39.5 | 0 errors and 0 warnings | Passed |
+| Frontend production build | Vite 8.1.5 | 3,859 modules transformed; production build completed | Passed |
+| Critical browser journeys | Playwright 1.61.1 with Chromium | 21/21 passed (11 accessibility surfaces, 9 critical flows, 1 visual-quality matrix) | Passed |
+| Accessibility (WCAG 2.2 AA) | Playwright + axe-core 4.12.1 | 0 blocking (serious/critical) findings across 11 surfaces x 4 theme states x {1280px, 360px}; 25 advisory `heading-order` findings remain open | Passed blocking gate; advisory backlog open |
+| Frontend production dependency audit | `npm audit --omit=dev` | found 0 vulnerabilities | Passed |
+| Backend dependency vulnerability audit | pip-audit | Not re-run in this pass; requires network access to the advisory database. Last dated result (2026-07-25) was clean | Pending re-run |
+| Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771 | Not re-run in this pass; no SonarQube server was available. See the 2026-07-20 snapshot below and its recorded qualifications | Pending re-run |
 
 The three skipped backend checks are two explicitly authorized disposable-Supabase integrations and one ClamAV Docker/EICAR integration. The PI-04 migration has not been applied to a disposable Supabase project because no local Supabase CLI/Docker daemon was available. They remain deployment/evidence gates and were not represented as passing. Deployed security-header validation also remains pending because it requires the final deployment URL.
+
+> **Superseded evidence — Objective 2 smoke run.** `evaluation/results/comparison_20260728_140718.json` records `generation_contract.max_output_tokens: 500`, while `config.py` now specifies **700**. Its fingerprint therefore no longer describes this build and it must not be presented as characterizing the current system. The artifact is retained unaltered as dated evidence; it has to be re-run and re-fingerprinted before the formal evaluation. It was in any case a three-query synthetic development smoke explicitly marked `"formal_result": false`.
 
 ## Archived evidence snapshot - 2026-07-20
 
@@ -70,18 +75,18 @@ The three skipped backend checks are two explicitly authorized disposable-Supaba
 ```powershell
 # Backend: current suite and enforced coverage gate
 cd rag-thesis-backend
-.\.venv312\Scripts\python.exe -m pip check
-.\.venv312\Scripts\python.exe -m pytest `
+.\.venv3146\Scripts\python.exe -m pip check
+.\.venv3146\Scripts\python.exe -m pytest `
   --cov=routers --cov=services --cov=dependencies --cov=workers `
   --cov=main --cov=config --cov=models `
-  --cov-report=term-missing --cov-report=xml --cov-fail-under=83.18
+  --cov-report=term-missing --cov-report=xml --cov-fail-under=85
 
 # Opt-in disposable-project integration test
 $env:ALLOW_DISPOSABLE_SUPABASE_TESTS='1'
-.\.venv312\Scripts\python.exe -m pytest -m integration -v
+.\.venv3146\Scripts\python.exe -m pytest -m integration -v
 
 # Backend maintainability
-.\.venv312\Scripts\python.exe -m pylint --rcfile=.pylintrc `
+.\.venv3146\Scripts\python.exe -m pylint --rcfile=.pylintrc `
   routers services dependencies workers main.py config.py models.py
 
 # Frontend
