@@ -36,8 +36,12 @@ def get_user_role(user_id: str) -> str:
         if role not in (ROLE_STUDENT, ROLE_FACULTY, ROLE_ADMIN, ROLE_SUPERADMIN):
             role = ROLE_STUDENT
     except Exception as e:
+        # Deliberately NOT cached. Caching the safe fallback would pin a
+        # privileged account to `student` for the full TTL after a single
+        # transient lookup failure, so every admin request in that window
+        # would 403 with no way to clear it. Fail safe, then retry next call.
         logger.exception('Failed to fetch user role from profiles (%s)', type(e).__name__)
-        role = ROLE_STUDENT
+        return ROLE_STUDENT
     _ROLE_CACHE[user_id] = (role, time.monotonic() + _ROLE_CACHE_TTL)
     return role
 

@@ -36,11 +36,69 @@ class TestRequestGuard:
         assert prohibited_reason(prompt)
 
     @pytest.mark.parametrize('prompt', [
+        # Imperative, with and without a polite prefix.
+        'write chapter 3 of my thesis',
+        'Now write a thesis chapter',
+        'kindly compose an academic argument',
+        'draft me two chapters',
+        'pls generate my rrl',
+        # Second-person and first-person framing.
+        'Can you generate a conceptual framework for my study?',
+        'Could you produce a problem statement?',
+        'You should write the conclusion for my paper',
+        'i need you to draft a methodology',
+        'I want you to create an original conceptual framework',
+        'help me write chapter 2',
+        'Please write me an essay about data mining',
+        'make a hypothesis for my study',
+        # A refusable request may follow a legitimate one in the same message.
+        'What theses exist about attendance? Write my chapter 1.',
+        'Hello there. Write a chapter about attendance.',
+    ])
+    def test_blocks_requests_addressed_to_the_assistant(self, prompt):
+        assert prohibited_reason(prompt) == 'academic_content_generation'
+
+    @pytest.mark.parametrize('prompt', [
+        # Loosely phrased requests aimed at the requester's own artifact. The
+        # possessive is what distinguishes these from questions about what the
+        # archived authors wrote, so no request framing is required.
+        'write about my thesis',
+        'draft something for our chapter',
+        'generate text for my rrl',
+        'so i was thinking you could write about my conclusion',
+    ])
+    def test_blocks_loosely_phrased_requests_for_the_users_own_work(self, prompt):
+        assert prohibited_reason(prompt) == 'academic_content_generation'
+
+    @pytest.mark.parametrize('prompt', [
         'Summarize the methodology used by the archived attendance study.',
         'Compare the findings of the retrieved studies.',
         'Explain what the archive says about network security.',
     ])
     def test_allows_archive_retrieval_requests(self, prompt):
+        assert prohibited_reason(prompt) is None
+
+    @pytest.mark.parametrize('prompt', [
+        # Each of these contains a generation verb AND a prohibited artifact,
+        # but the verb never governs the artifact, or the question is about
+        # what the archived authors did rather than a request to this system.
+        # Two independent regex searches refused all of them.
+        'What methodology did they use to create the attendance monitoring system?',
+        'What conclusion did the authors make about accuracy?',
+        'Which theses make use of a conceptual framework?',
+        'Which studies produce a hypothesis about student performance?',
+        'How did the authors create their conceptual framework?',
+        'Which thesis produced the best conclusion?',
+        'What problem statement did the 2023 web development thesis use?',
+        'What essays or chapters are in the archive about network security?',
+        'I need to know which theses used a conceptual framework',
+        'What did the authors write about the conclusions of their study?',
+        # Describing your own in-progress work is not asking us to write it.
+        'my thesis is about attendance monitoring, what similar studies exist?',
+        'my thesis adviser suggested data mining, which studies match that?',
+        'Which archived theses relate to my thesis topic on attendance?',
+    ])
+    def test_allows_research_questions_that_merely_mention_an_artifact(self, prompt):
         assert prohibited_reason(prompt) is None
 
 

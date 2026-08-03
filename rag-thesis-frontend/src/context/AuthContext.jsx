@@ -2,6 +2,7 @@ import { createContext, useState, useEffect, useContext, useCallback, useRef } f
 import { supabase } from '../supabaseClient'
 import { getFeaturePermissions } from '../api'
 import { avatarPublicUrl } from '../lib/avatar'
+import { canUseFeature } from '../lib/permissions'
 import {
   clearE2EAuthFixture,
   isE2ETestMode,
@@ -9,11 +10,6 @@ import {
 } from '../testing/e2eSession'
 
 const AuthContext = createContext({})
-
-function canUseFeature(role, features, feature) {
-  if (role === 'admin' || role === 'superadmin') return true
-  return Boolean(features?.[role]?.[feature])
-}
 
 function getDisplayName(profile, user) {
   return profile?.full_name
@@ -74,20 +70,33 @@ export const AuthProvider = ({ children }) => {
     }
   }, [])
 
+  const loadFeatures = useCallback(async () => {
+    try {
+      setFeatures(await getFeaturePermissions())
+    } catch {
+      // Leave features null; canUseFeature falls back to the server defaults.
+      setFeatures(null)
+    }
+  }, [])
+
   const syncSession = useCallback(async (session) => {
     const currentUser = session?.user ?? null
     await checkMfa(currentUser)
     setUser(currentUser)
     if (currentUser) {
-      await fetchProfile(currentUser.id)
-      getFeaturePermissions().then(setFeatures).catch(() => {})
+      // Permissions must resolve BEFORE loading clears. They were previously
+      // fetched without awaiting, so the first render after sign-in saw
+      // features === null and every can* flag was false — long enough for
+      // ProtectedRoute to bounce a student or faculty member off /chat,
+      // /archive, /novelty, or /upload to /dashboard on any hard refresh.
+      await Promise.all([fetchProfile(currentUser.id), loadFeatures()])
     } else {
       setProfile(null)
       setProfileError(false)
       setFeatures(null)
     }
     setLoading(false)
-  }, [checkMfa, fetchProfile])
+  }, [checkMfa, fetchProfile, loadFeatures])
 
   const reloadSession = useCallback(async () => {
     if (isE2ETestMode) {
@@ -132,17 +141,17 @@ export const AuthProvider = ({ children }) => {
         { event: 'features_updated' },
         () => {
           // Instantly fetch the newest permissions when any admin broadcasts an update
-          getFeaturePermissions().then(setFeatures).catch(() => {})
+          void loadFeatures()
         }
       )
       .subscribe()
-      
+
     broadcastChannelRef.current = channel
     return () => {
       broadcastChannelRef.current = null
       supabase.removeChannel(channel)
     }
-  }, [user])
+  }, [user, loadFeatures])
 
   const role = profile?.role ?? null
   const department = profile?.department ?? 'CCSICT'

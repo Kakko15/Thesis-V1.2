@@ -60,6 +60,16 @@ class TestRoleAndScope:
         monkeypatch.setattr(auth, 'sb', Client({'profiles': ([], RuntimeError('offline'))}))
         assert auth.get_user_role('u1') == 'student'
 
+    def test_role_lookup_failure_is_not_cached(self, monkeypatch):
+        # Caching the safe fallback pinned a privileged account to `student`
+        # for the full TTL after one transient failure, so every admin request
+        # in that window 403'd with no way to clear it.
+        monkeypatch.setattr(auth, 'sb', Client({'profiles': ([], RuntimeError('offline'))}))
+        assert auth.get_user_role('u1') == 'student'
+        assert 'u1' not in auth._ROLE_CACHE
+        monkeypatch.setattr(auth, 'sb', Client({'profiles': ([{'role': 'admin'}], None)}))
+        assert auth.get_user_role('u1') == 'admin'
+
     def test_scope_defaults_department_and_rejects_missing_profile(self, monkeypatch):
         monkeypatch.setattr(auth, 'sb', Client({
             'profiles': ([{'role': None, 'department': None, 'status': 'approved'}], None),

@@ -9,13 +9,55 @@ REFUSAL_MESSAGE = (
     'academic arguments for you. Ask me what the archive contains about your topic instead.'
 )
 
-_GENERATION_VERBS = re.compile(
-    r'\b(write|draft|compose|generate|create|produce|complete|make)\b', re.IGNORECASE
+_GENERATION_VERB = r'(?:write|draft|compose|generate|create|produce|complete|make)'
+# Artifacts this system must never author on a user's behalf.
+_ARTIFACT = (
+    r'(?:thesis|chapters?|rrl|review\s+of\s+related\s+literature|methodolog(?:y|ies)|'
+    r'conclusions?|hypothes(?:is|es)|research\s+proposals?|problem\s+statements?|'
+    r'conceptual\s+frameworks?|assignments?|essays?|academic\s+arguments?)'
 )
-_PROHIBITED_ARTIFACTS = re.compile(
-    r'\b(my\s+)?(thesis|chapter|rrl|review of related literature|methodology|conclusion|'
-    r'hypothesis|research proposal|problem statement|conceptual framework|assignment|essay|'
-    r'academic argument)\b',
+# Determiners, quantifiers, and adjectives that legitimately sit between the
+# verb and the artifact in a real request ("write me a full chapter"). This is
+# deliberately a closed list: matching arbitrary words between the two is what
+# made the previous rule fire on ordinary retrieval questions.
+_MODIFIER = (
+    r'(?:me|us|my|our|the|a|an|another|this|that|these|those|some|one|two|three|'
+    r'new|original|full|entire|whole|complete|final|sample|draft|brief|short|'
+    r'detailed|good|proper|\d+)'
+)
+
+# The verb must actually govern the artifact. "write a chapter" qualifies;
+# "...used to create the system" alongside the word "methodology" does not.
+_VERB_GOVERNS_ARTIFACT = re.compile(
+    rf'\b{_GENERATION_VERB}\s+(?:{_MODIFIER}\s+){{0,3}}{_ARTIFACT}\b',
+    re.IGNORECASE,
+)
+# The artifact is claimed as the requester's own work ("my thesis chapter").
+_OWNED_ARTIFACT = re.compile(
+    rf'\b(?:my|our)\s+(?:{_MODIFIER}\s+){{0,2}}{_ARTIFACT}\b',
+    re.IGNORECASE,
+)
+# A generation verb aimed at the requester's own artifact, even loosely phrased
+# ("write about my thesis", "draft something for our chapter"). Requiring the
+# possessive keeps this off questions about what archived authors wrote.
+_GENERATE_OWNED_ARTIFACT = re.compile(
+    rf'\b{_GENERATION_VERB}\b(?:\s+\S+){{0,4}}?\s+(?:my|our)\s+'
+    rf'(?:{_MODIFIER}\s+){{0,2}}{_ARTIFACT}\b',
+    re.IGNORECASE,
+)
+# The sentence asks *this assistant* to produce something, rather than asking
+# what the archived studies did.
+_DIRECTED_AT_ASSISTANT = re.compile(
+    # Imperative, at the start of the message or of a later sentence.
+    rf'(?:^|[.!?;]\s+)(?:(?:please|kindly|pls|now|just|first)\s+)*{_GENERATION_VERB}\b'
+    # Second-person request.
+    r'|\b(?:can|could|would|will|shall|should)\s+(?:you|u)\b'
+    r'|\byou\s+(?:should|must|will|can|need\s+to|have\s+to)\b'
+    # First-person demand.
+    r'|\bi\s+(?:want|need|would\s+like)\b'
+    r'|\bhelp\s+(?:me|us)\b'
+    r'|\bfor\s+(?:me|us)\b'
+    r'|\bon\s+(?:my|our)\s+behalf\b',
     re.IGNORECASE,
 )
 _INJECTION = re.compile(
@@ -34,12 +76,34 @@ _FOLLOWUP_START = re.compile(
 )
 
 
+def _is_generation_request(normalized: str) -> bool:
+    """True only when a generation verb governs a prohibited artifact *and* the
+    sentence asks this assistant to produce it.
+
+    Two independent searches — "contains a generation verb" and "contains a
+    prohibited artifact" — refused ordinary retrieval questions, because the
+    verb and the artifact never had to be related to each other. "What
+    conclusion did the authors make about accuracy?" was blocked. Requiring
+    the verb to govern the artifact, and the request to be addressed to the
+    assistant, keeps the refusal contract while allowing those questions.
+    Rule 6 of the grounded prompt still refuses anything this misses.
+    """
+    if _GENERATE_OWNED_ARTIFACT.search(normalized):
+        return True
+    if not _VERB_GOVERNS_ARTIFACT.search(normalized):
+        return False
+    return bool(
+        _DIRECTED_AT_ASSISTANT.search(normalized)
+        or _OWNED_ARTIFACT.search(normalized)
+    )
+
+
 def prohibited_reason(text: str) -> str | None:
     """Return a stable block category, or None for allowed retrieval requests."""
     normalized = re.sub(r'\s+', ' ', text or '').strip()
     if _INJECTION.search(normalized):
         return 'prompt_injection'
-    if _GENERATION_VERBS.search(normalized) and _PROHIBITED_ARTIFACTS.search(normalized):
+    if _is_generation_request(normalized):
         return 'academic_content_generation'
     return None
 

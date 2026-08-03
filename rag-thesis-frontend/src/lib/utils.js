@@ -35,6 +35,14 @@ export function timeAgo(iso) {
   return formatDate(iso)
 }
 
+/**
+ * Render a stored percentage, upgrading a legacy 0-1 ratio.
+ *
+ * Only safe for values that cannot legitimately fall in (0, 1]: a similarity
+ * or threshold is always at or above the retrieval/duplication threshold, so a
+ * value of 1 or less is certainly an old ratio. Do NOT use it for matched-chunk
+ * coverage, which genuinely can be a fraction of one percent — see scanMetrics.
+ */
 export function normalizePercent(value) {
   const number = Number(value ?? 0)
   if (!Number.isFinite(number)) return 0
@@ -42,13 +50,29 @@ export function normalizePercent(value) {
   return Math.min(100, Math.max(0, percent))
 }
 
+/**
+ * Duplication metrics for one ingestion screening or novelty scan record.
+ *
+ * Coverage is derived from the chunk counts whenever both are present, because
+ * the stored percentage is ambiguous below 1. One matching chunk in a
+ * 300-chunk manuscript is 0.33% coverage, which normalizePercent would read as
+ * a legacy ratio and report as 33% — contradicting the verdict shown beside it
+ * and overstating the overlap by two orders of magnitude, including in the
+ * downloadable scan report. The counts carry no such ambiguity. Records too
+ * old to carry counts still fall back to the stored percentage.
+ */
 export function scanMetrics(scan = {}) {
   const record = scan && typeof scan === 'object' && !Array.isArray(scan) ? scan : {}
   const matchedChunks = Math.max(0, Number(record.matched_chunk_count ?? 0) || 0)
   const totalChunks = Math.max(0, Number(record.total_chunks ?? 0) || 0)
+  const hasChunkCounts = record.matched_chunk_count != null
+    && record.total_chunks != null
+    && totalChunks > 0
   return {
     highest: normalizePercent(record.highest_similarity),
-    coverage: normalizePercent(record.matched_chunk_percentage ?? record.duplication_percentage),
+    coverage: hasChunkCounts
+      ? Math.min(100, (matchedChunks / totalChunks) * 100)
+      : normalizePercent(record.matched_chunk_percentage ?? record.duplication_percentage),
     matchedChunks,
     totalChunks,
     verdict: record.verdict_level || (matchedChunks === 0 ? 'clear' : 'review_suggested'),

@@ -95,7 +95,7 @@ const PAPERS = [
     duplication_scan: {
       flagged: true,
       highest_similarity: 88.5,
-      matched_chunk_percentage: 12.5,
+      matched_chunk_percentage: 11.9,
       matched_chunk_count: 5,
       total_chunks: 42,
       verdict_level: 'review_suggested',
