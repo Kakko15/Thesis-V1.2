@@ -32,6 +32,15 @@ def upload_file():
     return UploadFile(filename='draft.pdf', file=__import__('io').BytesIO(b'%PDF-dummy'))
 
 
+def fake_llm(reply=None, *, fail_with=None):
+    """The scan awaits the model, so the double exposes ainvoke, not invoke."""
+    async def ainvoke(_prompt):
+        if fail_with is not None:
+            fail_with()
+        return SimpleNamespace(content=reply)
+    return SimpleNamespace(ainvoke=ainvoke)
+
+
 def request():
     return Request({
         'type': 'http', 'method': 'POST', 'path': '/duplication/scan',
@@ -84,7 +93,7 @@ class TestNoveltyScan:
             'scan_history': [[]],
         })
         monkeypatch.setattr(duplication, 'sb', client)
-        monkeypatch.setattr(duplication, 'llm', SimpleNamespace(invoke=lambda _prompt: SimpleNamespace(content='Faculty review advised.')))
+        monkeypatch.setattr(duplication, 'llm', fake_llm('Faculty review advised.'))
         response = asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
         assert response['highest_similarity'] == 90
         assert response['matched_chunk_percentage'] == 100
@@ -105,9 +114,9 @@ class TestNoveltyScan:
         client = Client([[match]], {'papers': [[]], 'scan_history': [[]]})
         monkeypatch.setattr(duplication, 'sb', client)
         # The verdict must not need the LLM: there are no excerpts left to compare.
-        monkeypatch.setattr(duplication, 'llm', SimpleNamespace(
-            invoke=lambda _prompt: pytest.fail('must not call the model with no matched papers'),
-        ))
+        monkeypatch.setattr(duplication, 'llm', fake_llm(fail_with=lambda: pytest.fail(
+            'must not call the model with no matched papers',
+        )))
 
         response = asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
 

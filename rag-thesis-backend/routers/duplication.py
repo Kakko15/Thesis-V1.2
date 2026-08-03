@@ -5,6 +5,7 @@ paper-mandated 85% cosine similarity threshold. Accessible to faculty
 advisers and administrators for title-defense topic validation.
 """
 
+import asyncio
 import html
 import logging
 from typing import Annotated, Any
@@ -76,61 +77,36 @@ def _public_scan(scan: dict) -> dict:
     }
 
 
-@router.post('/scan', responses=errors(400, 413, 415, 422, 502))
-@limiter.limit(settings.rate_limit_scan)
-async def scan_duplication(
-    request: Request,
-    file: Annotated[UploadFile, File()],
-    user: NoveltyUser,
-    department: Annotated[str | None, Form()] = None,
-):
-    effective_department = resolve_effective_department(user, department)
-    limit = settings.max_upload_mb * 1024 * 1024
-    file_bytes = await file.read(limit + 1)
-    if len(file_bytes) > limit:
-        raise HTTPException(413, f'File exceeds the {settings.max_upload_mb} MB limit')
-    filename = file.filename or ''
-    suffix = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
-    if suffix not in {'pdf', 'txt'}:
-        raise HTTPException(415, 'Only PDF or UTF-8 text manuscripts are accepted')
-    if suffix == 'pdf' and not file_bytes.startswith(b'%PDF-'):
-        raise HTTPException(422, 'File content is not a valid PDF')
-    if suffix == 'txt' and file.content_type not in {'text/plain', 'application/octet-stream'}:
-        raise HTTPException(415, 'Text manuscripts must use a plain-text MIME type')
-
-    try:
-        document = extract_document(file_bytes, file.filename)
-        content = document.text
-    except Exception as e:
-        logger.exception('Text extraction failed during novelty scan')
-        raise HTTPException(400, 'Could not process the uploaded manuscript') from e
-    if not content.strip():
-        raise HTTPException(400, 'Could not extract text from file')
-
-    # Chunk with the same pipeline used for ingestion, then embed
-    chunk_records = validate_chunk_records([
+def _clean_chunk_records(document) -> list[dict]:
+    """Chunk and noise-filter with the same pipeline the ingestion worker uses."""
+    return validate_chunk_records([
         record for record in split_document(document)
         if not is_noise_chunk(record['content'])
     ])
-    chunks = [record['content'] for record in chunk_records]
-    if not chunk_records:
-        raise HTTPException(400, 'The document contained no clean, indexable text')
-    embeddings = embed_texts(chunks)
-    if len(embeddings) != len(chunks):
-        raise HTTPException(502, 'The embedding provider returned an incomplete scan result')
-    if any(len(vector) != settings.embedding_dimensions for vector in embeddings):
-        raise HTTPException(502, 'The embedding provider returned an invalid scan result')
 
-    match_scores = []
-    text_pairs = []
 
-    # Per-chunk nearest-neighbor search at the paper's 85% threshold
+def _match_chunks_against_archive(
+    embeddings: list[list[float]],
+    chunk_records: list[dict],
+    chunks: list[str],
+    department: str,
+) -> tuple[list[dict], list[dict]]:
+    """Per-chunk nearest-neighbour search at the paper's 85% threshold.
+
+    Extracted so the whole serial loop crosses into a worker thread once
+    instead of issuing one round trip per chunk on the event loop. The loop
+    body is unchanged, so the duplication mathematics and the stored evidence
+    are identical; batching the round trips is deliberately deferred because
+    that would alter a scored pipeline stage.
+    """
+    match_scores: list[dict] = []
+    text_pairs: list[dict] = []
     for i, emb in enumerate(embeddings):
         res = sb.rpc('match_chunks', {
             'query_embedding': emb,
             'match_count': 1,
             'match_threshold': settings.duplication_threshold,
-            'p_department': effective_department,
+            'p_department': department,
             **retrieval_provenance_params(),
         }).execute()
         if res.data:
@@ -147,6 +123,66 @@ async def scan_duplication(
                 'archived_page_end': best_match.get('page_end'),
                 'archived_section': best_match.get('section'),
             })
+    return match_scores, text_pairs
+
+
+@router.post('/scan', responses=errors(400, 413, 415, 422, 502))
+@limiter.limit(settings.rate_limit_scan)
+async def scan_duplication(
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    user: NoveltyUser,
+    department: Annotated[str | None, Form()] = None,
+):
+    # Every blocking call below is offloaded with asyncio.to_thread, matching
+    # routers/chat.py. FastAPI runs an `async def` handler on the event loop
+    # itself, so the embedding batch, the per-chunk RPC loop, and the verdict
+    # call previously froze the entire API — every other request, including
+    # /health and the readiness probe — for the full duration of one scan.
+    effective_department = await asyncio.to_thread(
+        resolve_effective_department, user, department,
+    )
+    limit = settings.max_upload_mb * 1024 * 1024
+    file_bytes = await file.read(limit + 1)
+    if len(file_bytes) > limit:
+        raise HTTPException(413, f'File exceeds the {settings.max_upload_mb} MB limit')
+    filename = file.filename or ''
+    suffix = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+    if suffix not in {'pdf', 'txt'}:
+        raise HTTPException(415, 'Only PDF or UTF-8 text manuscripts are accepted')
+    if suffix == 'pdf' and not file_bytes.startswith(b'%PDF-'):
+        raise HTTPException(422, 'File content is not a valid PDF')
+    if suffix == 'txt' and file.content_type not in {'text/plain', 'application/octet-stream'}:
+        raise HTTPException(415, 'Text manuscripts must use a plain-text MIME type')
+
+    try:
+        document = await asyncio.to_thread(extract_document, file_bytes, file.filename)
+        content = document.text
+    except Exception as e:
+        logger.exception('Text extraction failed during novelty scan')
+        raise HTTPException(400, 'Could not process the uploaded manuscript') from e
+    if not content.strip():
+        raise HTTPException(400, 'Could not extract text from file')
+
+    # Chunk with the same pipeline used for ingestion, then embed
+    chunk_records = await asyncio.to_thread(_clean_chunk_records, document)
+    chunks = [record['content'] for record in chunk_records]
+    if not chunk_records:
+        raise HTTPException(400, 'The document contained no clean, indexable text')
+    embeddings = await asyncio.to_thread(embed_texts, chunks)
+    if len(embeddings) != len(chunks):
+        raise HTTPException(502, 'The embedding provider returned an incomplete scan result')
+    if any(len(vector) != settings.embedding_dimensions for vector in embeddings):
+        raise HTTPException(502, 'The embedding provider returned an invalid scan result')
+
+    # Per-chunk nearest-neighbor search at the paper's 85% threshold
+    match_scores, text_pairs = await asyncio.to_thread(
+        _match_chunks_against_archive,
+        embeddings,
+        chunk_records,
+        chunks,
+        effective_department,
+    )
 
     percentage = compute_duplication_percentage(len(match_scores), len(chunks))
     highest_similarity = percent(max((m.get('similarity', 0.0) for m in match_scores), default=0.0))
@@ -173,7 +209,11 @@ async def scan_duplication(
     else:
         top_pids = sorted(paper_matches, key=lambda x: paper_matches[x]['count'], reverse=True)[:3]
 
-        papers_res = sb.table('papers').select('id,title,authors,year,track,department').in_('id', top_pids).execute()
+        papers_res = await asyncio.to_thread(
+            lambda: sb.table('papers')
+            .select('id,title,authors,year,track,department')
+            .in_('id', top_pids).execute()
+        )
         paper_lookup = {p['id']: p for p in (papers_res.data or [])}
 
         top_papers_json = []
@@ -253,7 +293,7 @@ async def scan_duplication(
     Format your response using Markdown.
     """
             try:
-                verdict = _coerce(llm.invoke(prompt))
+                verdict = _coerce(await llm.ainvoke(prompt))
             except Exception:
                 logger.exception('Verdict generation failed')
                 verdict = (
@@ -278,9 +318,11 @@ async def scan_duplication(
         'matched_chunks': primary_pairs_saved,
         'chat_log': [],
     }
-    hist_res = sb.table('scan_history').insert(history_data).execute()
+    hist_res = await asyncio.to_thread(
+        lambda: sb.table('scan_history').insert(history_data).execute()
+    )
 
-    log_activity(user.id, 'novelty_scan', {
+    await asyncio.to_thread(log_activity, user.id, 'novelty_scan', {
         'filename': file.filename,
         'duplication_percentage': round(percentage, 2),
         'highest_similarity': highest_similarity,

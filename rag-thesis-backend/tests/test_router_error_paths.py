@@ -604,7 +604,9 @@ class _FakeMetadataLLM:
     def __init__(self, reply):
         self.reply = reply
 
-    def invoke(self, _prompt):
+    async def ainvoke(self, _prompt):
+        # The handler awaits the model so the call does not occupy a worker
+        # thread for the full Gemini timeout.
         if isinstance(self.reply, Exception):
             raise self.reply
         return SimpleNamespace(content=self.reply)

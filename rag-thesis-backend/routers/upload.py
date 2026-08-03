@@ -11,6 +11,7 @@ executes the durable job while the admin UI polls authoritative database state.
 Original PDFs are never publicly reachable (indirect access model).
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -198,6 +199,39 @@ def _durable_job_status(job_id: str, owner_id: str) -> str | None:
     return str(current[0]['status']) if current else None
 
 
+def _content_digest(file_bytes: bytes) -> str:
+    """Hash the manuscript. Named so it can be offloaded off the event loop."""
+    return hashlib.sha256(file_bytes).hexdigest()
+
+
+def _reserve_durable_job(payload: dict) -> dict:
+    return _reserved_job(sb.rpc('reserve_upload_job', payload).execute().data)
+
+
+def _store_staged_source(source_path: str, file_bytes: bytes) -> None:
+    sb.storage.from_('pdfs').upload(
+        source_path,
+        file_bytes,
+        file_options={'content-type': 'application/pdf', 'upsert': 'true'},
+    )
+
+
+def _queue_durable_job(job_id: str, owner_id: str) -> bool:
+    return _rpc_boolean(sb.rpc('queue_upload_job', {
+        'p_job_id': job_id,
+        'p_owner_id': owner_id,
+    }).execute().data)
+
+
+def _title_page_texts(file_bytes: bytes) -> list[str]:
+    """Return the first three pages, which carry the bibliographic fields."""
+    document = fitz.open(stream=file_bytes, filetype='pdf')
+    try:
+        return [document[index].get_text() for index in range(min(3, len(document)))]
+    finally:
+        document.close()
+
+
 @router.post(
     '/paper', response_model=UploadAccepted, status_code=202,
     responses=errors(400, 409, 413, 415, 422, 503),
@@ -217,10 +251,16 @@ async def upload_paper(
     specialization_id: Annotated[str | None, Form()] = None,
     idempotency_key: Annotated[str | None, Header(alias='Idempotency-Key')] = None,
 ):
-    department = resolve_effective_department(user, department)
+    # Every blocking call below is offloaded with asyncio.to_thread, matching
+    # routers/chat.py. FastAPI runs an `async def` handler on the event loop
+    # itself, so PDF parsing, the profile and catalog lookups, and the private
+    # storage upload of up to 25 MB previously stalled every other request —
+    # including /health and the readiness probe — for the whole submission.
+    department = await asyncio.to_thread(resolve_effective_department, user, department)
     _validate_metadata(title, authors, year, abstract)
-    scope = get_user_scope(user.id)
-    classification = resolve_academic_selection(
+    scope = await asyncio.to_thread(get_user_scope, user.id)
+    classification = await asyncio.to_thread(
+        resolve_academic_selection,
         sb,
         department_name=department,
         program_id=program_id,
@@ -230,7 +270,9 @@ async def upload_paper(
     )
 
     file_bytes = await _read_limited_upload(file)
-    safe_filename = _validate_pdf_upload(file_bytes, file.filename, file.content_type)
+    safe_filename = await asyncio.to_thread(
+        _validate_pdf_upload, file_bytes, file.filename, file.content_type,
+    )
     try:
         effective_key = str(uuid.UUID(idempotency_key)) if idempotency_key else str(uuid.uuid4())
     except (TypeError, ValueError) as error:
@@ -238,7 +280,7 @@ async def upload_paper(
 
     job_id = str(uuid.uuid4())
     source_path = f'uploads/{user.id}/{job_id}/{safe_filename}'
-    content_sha256 = hashlib.sha256(file_bytes).hexdigest()
+    content_sha256 = await asyncio.to_thread(_content_digest, file_bytes)
     request_payload = {
         'title': title.strip(),
         'authors': authors.strip(),
@@ -249,7 +291,7 @@ async def upload_paper(
         'uploader_id': user.id,
     }
     try:
-        reserved = _reserved_job(sb.rpc('reserve_upload_job', {
+        reserved = await asyncio.to_thread(_reserve_durable_job, {
             'p_job_id': job_id,
             'p_owner_id': user.id,
             'p_department': department,
@@ -259,7 +301,7 @@ async def upload_paper(
             'p_content_sha256': content_sha256,
             'p_request_payload': request_payload,
             'p_max_attempts': settings.ingestion_max_attempts,
-        }).execute().data)
+        })
     except Exception as error:
         if 'different content' in str(error).lower():
             raise HTTPException(409, 'Idempotency-Key was already used for another file') from error
@@ -279,15 +321,12 @@ async def upload_paper(
         )
 
     try:
-        sb.storage.from_('pdfs').upload(
-            source_path,
-            file_bytes,
-            file_options={'content-type': 'application/pdf', 'upsert': 'true'},
-        )
+        await asyncio.to_thread(_store_staged_source, source_path, file_bytes)
     except Exception as error:
-        removed = _remove_staged_source(source_path, job_id)
+        removed = await asyncio.to_thread(_remove_staged_source, source_path, job_id)
         try:
-            _fail_staging_job(
+            await asyncio.to_thread(
+                _fail_staging_job,
                 job_id,
                 type(error).__name__,
                 cleanup_pending=not removed,
@@ -297,27 +336,25 @@ async def upload_paper(
         raise HTTPException(503, 'The private manuscript could not be staged safely') from error
 
     try:
-        queued = _rpc_boolean(sb.rpc('queue_upload_job', {
-            'p_job_id': job_id,
-            'p_owner_id': user.id,
-        }).execute().data)
-        if not queued and _durable_job_status(job_id, user.id) not in {
-            'queued', 'processing', 'retry_wait', 'completed',
-        }:
+        queued = await asyncio.to_thread(_queue_durable_job, job_id, user.id)
+        if not queued and await asyncio.to_thread(
+            _durable_job_status, job_id, user.id,
+        ) not in {'queued', 'processing', 'retry_wait', 'completed'}:
             raise RuntimeError('Durable queue transition was not confirmed')
     except Exception as error:
         # The response may be lost after PostgreSQL commits. Never compensate
         # an already-queued job by deleting the source underneath its worker.
         try:
-            advanced = _durable_job_status(job_id, user.id) in {
-                'queued', 'processing', 'retry_wait', 'completed',
-            }
+            advanced = await asyncio.to_thread(
+                _durable_job_status, job_id, user.id,
+            ) in {'queued', 'processing', 'retry_wait', 'completed'}
         except Exception:
             advanced = False
         if not advanced:
-            removed = _remove_staged_source(source_path, job_id)
+            removed = await asyncio.to_thread(_remove_staged_source, source_path, job_id)
             try:
-                _fail_staging_job(
+                await asyncio.to_thread(
+                    _fail_staging_job,
                     job_id,
                     type(error).__name__,
                     cleanup_pending=not removed,
@@ -477,25 +514,29 @@ async def extract_metadata(
     user: UploadUser,
 ):
     """Extract thesis metadata locally, with Gemini filling missing fields."""
+    # As in upload_paper: PDF parsing, the department read, and the Gemini call
+    # must not run on the event loop, or one metadata autofill freezes the API.
     local_data = {'title': '', 'authors': '', 'year': '', 'department': ''}
     try:
         file_bytes = await _read_limited_upload(file)
-        _validate_pdf_upload(file_bytes, file.filename, file.content_type)
-        doc = fitz.open(stream=file_bytes, filetype='pdf')
+        await asyncio.to_thread(
+            _validate_pdf_upload, file_bytes, file.filename, file.content_type,
+        )
 
         # Use the title page as the authoritative source for bibliographic
         # fields. Later pages are context for Gemini, but their citation years
         # must never be mistaken for the thesis completion year.
-        page_texts = [doc[i].get_text() for i in range(min(3, len(doc)))]
+        page_texts = await asyncio.to_thread(_title_page_texts, file_bytes)
         title_page_text = page_texts[0] if page_texts else ''
         text = '\n'.join(page_texts)
-        doc.close()
 
         if not text.strip():
             return {'title': '', 'authors': ''}
 
         # Fetch dynamic departments for prompt injection
-        depts_res = sb.table('departments').select('name').execute()
+        depts_res = await asyncio.to_thread(
+            lambda: sb.table('departments').select('name').execute()
+        )
         dept_names = [d['name'] for d in depts_res.data] if depts_res.data else ['CCSICT', 'CAS']
         dept_str = ", ".join(f'"{name}"' for name in dept_names)
         local_data = _extract_title_page_metadata(title_page_text, dept_names)
@@ -522,7 +563,7 @@ Do not wrap in markdown code blocks.
 Text:
 {text[:8000]}
 """
-        result = llm.invoke(prompt)
+        result = await llm.ainvoke(prompt)
         content = result.content if hasattr(result, 'content') else str(result)
         clean_json = content.strip().lstrip('`').lstrip('json').rstrip('`').strip()
         data = json.loads(clean_json)
