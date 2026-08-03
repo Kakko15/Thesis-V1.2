@@ -12,6 +12,35 @@ PROVENANCE_MIGRATION = BACKEND_ROOT / 'migrations' / '20260720_index_embedding_p
 FULL_SCHEMA = BACKEND_ROOT / 'supabase_setup.sql'
 
 
+class TestSqlFilesAreApplicable:
+    """Guards against SQL that cannot be applied at all.
+
+    supabase_setup.sql shipped for some time with a stray '+' left over from a
+    pasted diff on the line introducing the ingestion queue. Postgres reads that
+    as an operator followed by a comment and aborts, so the canonical schema
+    could not be run against a fresh project — and nothing caught it, because
+    every other test only asserts on the file as text.
+    """
+
+    def sql_files(self):
+        return [FULL_SCHEMA, *sorted((BACKEND_ROOT / 'migrations').glob('*.sql'))]
+
+    def test_no_diff_markers_survive_in_committed_sql(self):
+        for path in self.sql_files():
+            for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+                # '-' is not checked: '--' is a legitimate SQL comment.
+                assert not line.startswith('+'), (
+                    f'{path.name}:{number} starts with a diff marker: {line[:60]!r}'
+                )
+
+    def test_dollar_quotes_are_balanced(self):
+        # An unbalanced $$ swallows everything after it into a string literal, so
+        # the file parses as valid SQL while doing almost nothing it should.
+        for path in self.sql_files():
+            body = path.read_text(encoding='utf-8')
+            assert body.count('$$') % 2 == 0, f'{path.name} has an unbalanced $$ pair'
+
+
 class TestMigrationContract:
     def test_exact_boundary_department_and_active_version_filters(self):
         sql = MIGRATION.read_text(encoding='utf-8').lower()

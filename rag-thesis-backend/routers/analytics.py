@@ -34,6 +34,21 @@ def _admin_scope(user) -> tuple[str, str | None]:
     return profile.get('role', 'student'), profile.get('department')
 
 
+# Postgres foreign-key violation. Supabase surfaces the driver error through
+# several shapes depending on where it is raised, so match the SQLSTATE on the
+# attributes it might carry and fall back to the rendered message.
+_FK_VIOLATION_SQLSTATE = '23503'
+
+
+def _is_reference_conflict(error: Exception) -> bool:
+    for attribute in ('code', 'pgcode'):
+        if str(getattr(error, attribute, '') or '') == _FK_VIOLATION_SQLSTATE:
+            return True
+    details = getattr(error, 'details', None) or getattr(error, 'message', None) or str(error)
+    text = str(details).lower()
+    return _FK_VIOLATION_SQLSTATE in text or 'foreign key constraint' in text
+
+
 def _count(table: str, **filters) -> int:
     try:
         query = sb.table(table).select('id', count='exact')
@@ -204,7 +219,7 @@ def update_user_role(user_id: str, body: RoleUpdate, user: AdminUser):
 # Superadmin user and system management
 # ---------------------------------------------------------------------------
 
-@router.delete('/users/{user_id}', responses=errors(400, 403, 404, 500))
+@router.delete('/users/{user_id}', responses=errors(400, 403, 404, 409, 500))
 def delete_user(user_id: str, user: AdminUser):
     """Delete an authorized target user."""
     if user_id == user.id:
@@ -226,12 +241,24 @@ def delete_user(user_id: str, user: AdminUser):
 
     try:
         sb.auth.admin.delete_user(user_id)
-        invalidate_role_cache(user_id)
-        log_activity(user.id, 'user_delete', {'deleted_user_id': user_id})
-        return {'deleted': True}
     except Exception as error:
+        # A row somewhere still references this account with ON DELETE RESTRICT or
+        # NO ACTION. Reported as a conflict rather than a server fault: nothing is
+        # broken, the delete is refused, and the administrator can act on that.
+        # Returning 500 here told them only that "something went wrong".
+        if _is_reference_conflict(error):
+            logger.warning('Refusing to delete user with dependent records (%s)', type(error).__name__)
+            raise HTTPException(
+                409,
+                'This account is still referenced by records that must be kept. '
+                'Reassign or remove them before deleting the account.',
+            ) from error
         logger.exception('Failed to delete user (%s)', type(error).__name__)
         raise HTTPException(500, 'The user could not be deleted safely') from error
+
+    invalidate_role_cache(user_id)
+    log_activity(user.id, 'user_delete', {'deleted_user_id': user_id})
+    return {'deleted': True}
 
 
 @router.put('/users/{user_id}/details', responses=errors(403, 404, 422))

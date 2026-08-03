@@ -431,6 +431,48 @@ class TestAnalyticsAdministration:
         )
         assert updated['department'] == 'CAS' and updated['role'] == 'faculty'
 
+    def test_delete_blocked_by_dependent_records_is_a_conflict(self, monkeypatch):
+        # A row that must be kept still references the account, so Postgres raises
+        # 23503. That is a refusal, not a server fault: reporting 500 told the
+        # administrator only that "something went wrong" with no way to act on it.
+        root = SimpleNamespace(id='root')
+
+        class ForeignKeyViolation(Exception):
+            code = '23503'
+            message = 'update or delete on table "users" violates foreign key constraint'
+
+        blocked = ScriptedClient({'profiles': [
+            [{'role': 'superadmin', 'department': None}],
+            [{'department': 'CCSICT', 'role': 'student'}],
+        ]})
+        blocked.auth = SimpleNamespace(
+            admin=SimpleNamespace(
+                delete_user=lambda _user_id: (_ for _ in ()).throw(ForeignKeyViolation()),
+            ),
+        )
+        monkeypatch.setattr(analytics, 'sb', blocked)
+        # Neither side effect may run when the delete was refused.
+        monkeypatch.setattr(analytics, 'invalidate_role_cache',
+                            lambda *_a: pytest.fail('cache invalidated despite refusal'))
+        monkeypatch.setattr(analytics, 'log_activity',
+                            lambda *_a: pytest.fail('deletion logged despite refusal'))
+
+        with pytest.raises(HTTPException) as conflict:
+            analytics.delete_user('u2', root)
+        assert conflict.value.status_code == 409
+        assert 'referenced' in conflict.value.detail
+
+    def test_reference_conflict_detection_shapes(self):
+        # Supabase surfaces the driver error differently depending on where it is
+        # raised, so the SQLSTATE has to be found on any of these shapes.
+        assert analytics._is_reference_conflict(SimpleNamespace(code='23503'))
+        assert analytics._is_reference_conflict(SimpleNamespace(pgcode='23503'))
+        assert analytics._is_reference_conflict(RuntimeError('violates foreign key constraint'))
+        assert analytics._is_reference_conflict(RuntimeError('SQLSTATE 23503'))
+        # Unrelated failures must still be treated as faults, not refusals.
+        assert not analytics._is_reference_conflict(RuntimeError('offline'))
+        assert not analytics._is_reference_conflict(SimpleNamespace(code='23505'))
+
     def test_user_delete_failure_and_detail_guards_fail_closed(self, monkeypatch):
         root = SimpleNamespace(id='root')
         failing_client = ScriptedClient({'profiles': [
