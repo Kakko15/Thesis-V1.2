@@ -98,7 +98,14 @@ Set `VITE_API_URL` only when the frontend must call a separately deployed backen
 | Guest Researcher | Landing page, CCSICT-only chat (no saved history or manuscript access) |
 | Student | Chat with sessions, dashboard, archive metadata browsing |
 | Faculty | Student capabilities + topic novelty scanning and scan history |
-| Admin | Everything + paper upload/deletion, analytics, user role management |
+| Admin | Everything above + paper upload/deletion, analytics, user role management — scoped to their own department |
+| Superadmin | Admin capabilities across **all** departments + the operations console (workers, alerts, retention, storage cleanup), the academic catalog (departments → programs → specializations), and the role-feature permission matrix |
+
+Upload defaults to admin and superadmin, but can be granted to students or
+faculty through the server-owned role-feature matrix (`PUT /settings/features`,
+superadmin only). Novelty scanning is granted to faculty by default. Privileged
+roles additionally require MFA (AAL2) when `REQUIRE_PRIVILEGED_MFA` is enabled,
+which production configuration enforces.
 
 ## Evaluation and testing
 
