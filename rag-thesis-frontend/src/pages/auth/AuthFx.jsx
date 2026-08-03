@@ -85,7 +85,7 @@ export function ValidTick({ show, className }) {
     The wrapping element must carry `group relative`. */
 export function FieldIcon({ icon: Icon }) {
   return (
-    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40 transition-all duration-300 group-focus-within:scale-110 group-focus-within:text-forest-600 group-focus-within:opacity-100 dark:group-focus-within:text-forest-300">
+    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40 transition-all duration-300 group-focus-within:scale-110 group-focus-within:text-forest-700 group-focus-within:opacity-100 dark:group-focus-within:text-forest-300">
       <Icon size={16} />
     </span>
   )

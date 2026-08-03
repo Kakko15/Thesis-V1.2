@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Fingerprint, Landmark, Lock, MessageSquareText, Quote, ShieldCheck } from 'lucide-react'
 import { Logo } from '../../components/ui/Logo'
 import { cn } from '../../lib/utils'
+import { contentKeys } from '../../lib/keys'
 import { EASE } from './AuthFx'
 
 const HIGHLIGHTS = [
@@ -51,10 +52,12 @@ const chipRise = {
     whitespace collapsing can't swallow the separators. */
 function MaskedWords({ text, delay = 0, step = 0.07 }) {
   const words = text.split(' ')
+  // Words repeat within a headline, so keys carry an occurrence number.
+  const wordKeys = contentKeys(words, 'word')
   return (
     <>
       {words.map((word, i) => (
-        <span key={i} className="inline-block overflow-hidden pb-[0.12em] -mb-[0.12em] align-baseline">
+        <span key={wordKeys[i]} className="inline-block overflow-hidden pb-[0.12em] -mb-[0.12em] align-baseline">
           <motion.span
             className="inline-block will-change-transform"
             initial={{ y: '110%' }}
@@ -122,7 +125,7 @@ export function AuthShowcase() {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.62, duration: 0.7, ease: EASE }}
-        className="mt-4 text-sm leading-relaxed opacity-65"
+        className="mt-4 text-sm leading-relaxed text-ink-muted"
       >
         The Centralized AI-Powered Thesis Library of CCSICT, Isabela State University —
         semantic search, grounded synthesis, and novelty validation in one place.
@@ -157,7 +160,7 @@ export function AuthShowcase() {
               </motion.div>
               <div>
                 <div className="font-display text-sm font-bold">{active.title}</div>
-                <p className="mt-1 text-xs leading-relaxed opacity-65">{active.text}</p>
+                <p className="mt-1 text-xs leading-relaxed text-ink-muted">{active.text}</p>
               </div>
             </div>
           </motion.div>

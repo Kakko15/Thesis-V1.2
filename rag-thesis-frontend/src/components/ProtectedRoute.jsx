@@ -35,11 +35,11 @@ export function ProtectedRoute({ children, roles, isAllowed, allowGuest = false 
           <AlertTriangle size={28} className="text-gold-500" />
         </div>
         <h2 className="font-display text-2xl font-bold">Profile temporarily unavailable</h2>
-        <p className="mt-2 max-w-sm text-sm opacity-60">
+        <p className="mt-2 max-w-sm text-sm text-ink-muted">
           Access is paused because your authoritative role and department could not be verified.
           Please reload or try again shortly.
         </p>
-        <button onClick={() => window.location.reload()} className="mt-6 text-sm font-semibold text-forest-600 hover:text-forest-500">
+        <button onClick={() => window.location.reload()} className="mt-6 text-sm font-semibold text-forest-700 hover:text-forest-500">
           Reload
         </button>
       </div>
@@ -53,10 +53,10 @@ export function ProtectedRoute({ children, roles, isAllowed, allowGuest = false 
           <AlertTriangle size={28} className="text-gold-500" />
         </div>
         <h2 className="font-display text-2xl font-bold">Pending Approval</h2>
-        <p className="mt-2 max-w-sm text-sm opacity-60">
+        <p className="mt-2 max-w-sm text-sm text-ink-muted">
           Your account request has been received. You will be able to access the platform once an administrator approves your {role} role.
         </p>
-        <button onClick={signOut} className="mt-6 text-sm font-semibold text-forest-600 hover:text-forest-500">
+        <button onClick={signOut} className="mt-6 text-sm font-semibold text-forest-700 hover:text-forest-500">
           Sign out
         </button>
       </div>
@@ -70,10 +70,10 @@ export function ProtectedRoute({ children, roles, isAllowed, allowGuest = false 
           <XCircle size={28} className="text-flame-500" />
         </div>
         <h2 className="font-display text-2xl font-bold">Application Rejected</h2>
-        <p className="mt-2 max-w-sm text-sm opacity-60">
+        <p className="mt-2 max-w-sm text-sm text-ink-muted">
           Your application for the {role} role was rejected by an administrator. Please contact your department if you believe this was a mistake.
         </p>
-        <button onClick={signOut} className="mt-6 text-sm font-semibold text-forest-600 hover:text-forest-500">
+        <button onClick={signOut} className="mt-6 text-sm font-semibold text-forest-700 hover:text-forest-500">
           Sign out
         </button>
       </div>

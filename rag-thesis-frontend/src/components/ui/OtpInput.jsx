@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '../../lib/utils'
+import { slotKeys } from '../../lib/keys'
 
 /**
  * Segmented one-time-code input.
@@ -22,6 +23,9 @@ export function OtpInput({
 }) {
   const refs = useRef([])
   const chars = Array.from({ length }, (_, i) => value[i] ?? '')
+  // A code box is identified by its slot, not by the digit currently in it:
+  // keying on the character would remount boxes as the user types.
+  const slotIds = slotKeys(length, 'otp')
 
   const focusIndex = (i) => refs.current[Math.max(0, Math.min(length - 1, i))]?.focus()
 
@@ -91,7 +95,7 @@ export function OtpInput({
     >
       {chars.map((char, i) => (
         <motion.input
-          key={i}
+          key={slotIds[i]}
           ref={(el) => {
             refs.current[i] = el
           }}

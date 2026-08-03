@@ -17,6 +17,10 @@ import { PageTransition, AnimatedCounter, staggerContainer, staggerItem } from '
 import { Button } from '../components/ui/Button'
 import { MfaEnrollDialog } from '../components/MfaEnrollDialog'
 import { formatDate } from '../lib/utils'
+import { slotKeys } from '../lib/keys'
+
+const STAT_SKELETONS = slotKeys(4, 'dashboard-stat')
+const RECENT_SKELETONS = slotKeys(4, 'dashboard-recent')
 
 function StatTile({ icon: Icon, label, value, suffix = '' }) {
   return (
@@ -27,7 +31,7 @@ function StatTile({ icon: Icon, label, value, suffix = '' }) {
         <div className="font-display text-3xl font-extrabold">
           <AnimatedCounter value={value} suffix={suffix} />
         </div>
-        <div className="mt-1 text-xs font-semibold uppercase tracking-wider opacity-55">{label}</div>
+        <div className="mt-1 text-xs font-semibold uppercase tracking-wider text-ink-muted">{label}</div>
       </GlassCard>
     </motion.div>
   )
@@ -61,7 +65,7 @@ function QuickAction({ icon: Icon, title, text, onClick, tone = 'forest' }) {
         <ArrowRight size={17} className="opacity-30 transition-all duration-300 group-hover:translate-x-1 group-hover:opacity-80" />
       </div>
       <h3 className="font-display mt-4 text-base font-bold">{title}</h3>
-      <p className="mt-1 text-xs leading-relaxed opacity-60">{text}</p>
+      <p className="mt-1 text-xs leading-relaxed text-ink-muted">{text}</p>
     </GlassCard>
   )
 }
@@ -95,8 +99,8 @@ function SecurityCard() {
           <span
             className={
               enabled
-                ? 'inline-flex items-center gap-1.5 rounded-full bg-forest-500/12 px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider text-forest-600 dark:text-forest-300'
-                : 'inline-flex items-center gap-1.5 rounded-full bg-forest-900/8 px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider opacity-60 dark:bg-white/8'
+                ? 'inline-flex items-center gap-1.5 rounded-full bg-forest-500/12 px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider text-forest-700 dark:text-forest-300'
+                : 'inline-flex items-center gap-1.5 rounded-full bg-forest-900/8 px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider text-ink-muted dark:bg-white/8'
             }
           >
             <span className={enabled ? 'h-1.5 w-1.5 rounded-full bg-forest-500' : 'h-1.5 w-1.5 rounded-full bg-forest-900/30 dark:bg-white/30'} />
@@ -104,7 +108,7 @@ function SecurityCard() {
           </span>
         </div>
         <h3 className="font-display mt-4 text-base font-bold">Account security</h3>
-        <p className="mt-1 text-xs leading-relaxed opacity-60">
+        <p className="mt-1 text-xs leading-relaxed text-ink-muted">
           {enabled
             ? 'Sign-ins require your authenticator code. Manage or disable it here.'
             : 'Protect your account with an authenticator app — takes about a minute.'}
@@ -155,14 +159,14 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-gold-500 dark:text-gold-300">{greeting},</p>
+          <p className="text-sm font-semibold text-gold-text dark:text-gold-300">{greeting},</p>
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
             {displayName}
           </h1>
-          <p className="mt-1 text-sm font-semibold text-forest-600 dark:text-gold-400 capitalize">
+          <p className="mt-1 text-sm font-semibold text-forest-700 dark:text-gold-400 capitalize">
             {role === 'superadmin' ? 'Super Admin at System' : <>{role === 'admin' ? 'Administrator' : role} at {department || 'Unassigned'}</>}
           </p>
-          <p className="mt-1.5 text-sm opacity-55">
+          <p className="mt-1.5 text-sm text-ink-muted">
             {role === 'admin'
               ? 'Manage the archive, monitor usage, and validate research novelty.'
               : role === 'faculty'
@@ -180,7 +184,7 @@ export default function Dashboard() {
           <AlertTriangle size={17} className="shrink-0 text-flame-500" />
           <div className="min-w-0 flex-1">
             <div className="font-bold">Archive metrics are temporarily unavailable</div>
-            <div className="mt-0.5 text-xs opacity-60">No unavailable values are being presented as measured zeros.</div>
+            <div className="mt-0.5 text-xs text-ink-muted">No unavailable values are being presented as measured zeros.</div>
           </div>
           <Button variant="secondary" size="sm" onClick={() => retryPapers()}>Retry</Button>
         </GlassCard>
@@ -194,7 +198,7 @@ export default function Dashboard() {
         className="grid grid-cols-2 gap-4 lg:grid-cols-4"
       >
         {isLoading || papersError ? (
-          [...Array(4)].map((_, i) => <Skeleton key={i} className="h-32" />)
+          STAT_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-32" />)
         ) : (
           <>
             <StatTile icon={BookMarked} label="Theses indexed" value={stats.total} />
@@ -253,15 +257,15 @@ export default function Dashboard() {
           </div>
           {isLoading ? (
             <div className="space-y-3">
-              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16" />)}
+              {RECENT_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-16" />)}
             </div>
           ) : papersError ? (
             <div className="py-10 text-center">
-              <p className="text-sm opacity-55">Recent additions could not be loaded.</p>
+              <p className="text-sm text-ink-muted">Recent additions could not be loaded.</p>
               <Button variant="ghost" size="sm" className="mt-2" onClick={() => retryPapers()}>Retry archive</Button>
             </div>
           ) : recent.length === 0 ? (
-            <p className="py-10 text-center text-sm opacity-50">
+            <p className="py-10 text-center text-sm text-ink-faint">
               The archive is empty. {isAdmin ? 'Upload the first thesis to begin.' : 'Check back soon.'}
             </p>
           ) : (
@@ -273,17 +277,17 @@ export default function Dashboard() {
                   className="glass flex items-center gap-4 rounded-2xl p-4"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-forest-600/12 dark:bg-forest-400/12">
-                    <BookMarked size={16} className="text-forest-600 dark:text-forest-300" />
+                    <BookMarked size={16} className="text-forest-700 dark:text-forest-300" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold">{p.title}</div>
-                    <div className="mt-0.5 truncate text-xs opacity-55">
+                    <div className="mt-0.5 truncate text-xs text-ink-muted">
                       {p.authors || 'Unknown authors'}{p.year ? ` · ${p.year}` : ''}
                     </div>
                   </div>
                   <div className="hidden shrink-0 items-center gap-2 sm:flex">
                     {p.track && <Badge tone="forest">{p.track}</Badge>}
-                    <span className="text-xs opacity-40">{formatDate(p.created_at)}</span>
+                    <span className="text-xs text-ink-faint">{formatDate(p.created_at)}</span>
                   </div>
                 </motion.div>
               ))}

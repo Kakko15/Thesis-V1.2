@@ -81,14 +81,14 @@ export function CommandPalette({ open, onClose, items, onOpenAppearance, onOpenP
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold">{command.label}</span>
-                <span className="block truncate text-xs opacity-55">{command.description}</span>
+                <span className="block truncate text-xs text-ink-muted">{command.description}</span>
               </span>
               <ArrowRight size={15} className="opacity-35" aria-hidden="true" />
             </button>
           )
         })}
         {filtered.length === 0 && (
-          <p className="px-3 py-8 text-center text-sm opacity-55">No matching destination or action.</p>
+          <p className="px-3 py-8 text-center text-sm text-ink-muted">No matching destination or action.</p>
         )}
       </div>
     </Modal>

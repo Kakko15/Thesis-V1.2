@@ -146,7 +146,7 @@ export function Hero() {
 
           <motion.p
             {...enter(0.32)}
-            className="mx-auto mt-6 max-w-xl text-base leading-relaxed opacity-70 sm:text-lg lg:mx-0"
+            className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-ink-muted sm:text-lg lg:mx-0"
           >
             Isabela State University’s centralized, AI-assisted research library.
             Ask in plain language — get AI-synthesized answers grounded exclusively in the
@@ -224,7 +224,7 @@ export function Hero() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 1.6 }}
-        className="absolute bottom-7 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 text-xs opacity-40"
+        className="absolute bottom-7 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 text-xs text-ink-faint"
       >
         Scroll to explore
         <ChevronDown size={16} className="animate-bounce" />

@@ -3,6 +3,7 @@ import process from 'node:process'
 
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.js',
   fullyParallel: false,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),

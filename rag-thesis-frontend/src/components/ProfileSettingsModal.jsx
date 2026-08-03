@@ -10,7 +10,7 @@ import { toast } from 'sonner'
 import { cn, extractOwnedAvatarPath } from '../lib/utils'
 import { OtpInput } from './ui/OtpInput'
 import { authOptions, friendlyAuthError, isStrongPassword } from '../pages/auth/authUtils'
-import { TurnstileWidget } from './security/TurnstileWidget'
+import { SecurityCheck } from './security/SecurityCheck'
 import { turnstileEnabled } from './security/turnstileConfig'
 
 export function ProfileSettingsModal({ open, onClose }) {
@@ -225,7 +225,7 @@ export function ProfileSettingsModal({ open, onClose }) {
           onClick={() => setTab('profile')}
           className={cn(
             "pb-2 font-medium text-sm transition-colors relative",
-            tab === 'profile' ? "text-forest-600 dark:text-forest-400" : "opacity-60 hover:opacity-100"
+            tab === 'profile' ? "text-forest-700 dark:text-forest-400" : "text-ink-muted hover:text-ink"
           )}
         >
           Profile
@@ -235,7 +235,7 @@ export function ProfileSettingsModal({ open, onClose }) {
           onClick={() => setTab('security')}
           className={cn(
             "pb-2 font-medium text-sm transition-colors relative",
-            tab === 'security' ? "text-forest-600 dark:text-forest-400" : "opacity-60 hover:opacity-100"
+            tab === 'security' ? "text-forest-700 dark:text-forest-400" : "text-ink-muted hover:text-ink"
           )}
         >
           Security
@@ -274,14 +274,14 @@ export function ProfileSettingsModal({ open, onClose }) {
               </div>
               <div className="flex-1">
                 <h3 className="text-sm font-semibold mb-1">Profile Picture</h3>
-                <p className="text-xs opacity-60">Upload a new avatar. JPG or PNG. Max size 2MB.</p>
+                <p className="text-xs text-ink-muted">Upload a new avatar. JPG or PNG. Max size 2MB.</p>
               </div>
             </div>
 
             {/* Profile Fields */}
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider opacity-60 mb-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-ink-muted mb-2">
                   Full Name
                 </label>
                 <Input 
@@ -302,7 +302,7 @@ export function ProfileSettingsModal({ open, onClose }) {
             
             <div className="space-y-4">
               <div className="relative">
-                <label className="block text-xs font-semibold uppercase tracking-wider opacity-60 mb-2 flex items-center gap-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-ink-muted mb-2 flex items-center gap-2">
                   <Mail size={12} /> Email Address
                 </label>
                 
@@ -334,13 +334,13 @@ export function ProfileSettingsModal({ open, onClose }) {
                         Update
                       </Button>
                     </div>
-                    <p className="text-[10px] opacity-60 mt-1.5 ml-1">You will need to verify your new email with a 6-digit code.</p>
+                    <p className="text-[10px] text-ink-muted mt-1.5 ml-1">You will need to verify your new email with a 6-digit code.</p>
                   </>
                 )}
               </div>
 
               <div className="pt-2 border-t border-forest-900/10 dark:border-white/10">
-                <label className="block text-xs font-semibold uppercase tracking-wider opacity-60 mb-2 flex items-center gap-2 mt-4">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-ink-muted mb-2 flex items-center gap-2 mt-4">
                   <Lock size={12} /> Change Password
                 </label>
                 
@@ -362,7 +362,7 @@ export function ProfileSettingsModal({ open, onClose }) {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <TurnstileWidget action="password_reset" onToken={setCaptchaToken} resetKey={captchaReset} />
+                    <SecurityCheck variant="inline" action="password_reset" onToken={setCaptchaToken} resetKey={captchaReset} />
                     <div className="flex gap-2">
                       <Input
                         type="password"

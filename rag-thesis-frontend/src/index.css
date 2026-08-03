@@ -33,16 +33,32 @@
   --color-gold-800: #78350f;
   --color-gold-900: #451a03;
 
-  /* Flame red (ISU torch) */
+  /* Flame red (ISU torch). 200 and 800 exist for text on the /12 badge tint,
+     where 400 and 600 measure 4.06:1 and below. */
+  --color-flame-200: #fecaca;
   --color-flame-400: #f87171;
   --color-flame-500: #ef4444;
   --color-flame-600: #d22630;
   --color-flame-700: #b91c1c;
+  --color-flame-800: #991b1b;
 
   /* Ivory (ISU book pages) */
   --color-ivory-50: #fdfcf8;
   --color-ivory-100: #faf7f0;
   --color-ivory-200: #f3eee0;
+
+  /* Text roles. materialTheme.js supplies the real values per palette, theme
+     and contrast state; the fallbacks here only cover the pre-hydration paint.
+     Use these instead of opacity-* for de-emphasised text — every value is
+     verified >= 4.5:1 against every surface by materialTheme.test.js. */
+  --color-ink: var(--text-primary, #102018);
+  --color-ink-muted: var(--text-secondary, #535552);
+  --color-ink-faint: var(--text-tertiary, #5f615e);
+
+  /* Gold reads as ISU's accent but gold-500 is only 3.10:1 on light surfaces.
+     This is the text-safe gold; gold-400/500 stay for fills, borders and icons,
+     which answer to the 3:1 non-text threshold. */
+  --color-gold-text: #7d5205;
 
   /* Deep canvas (dark mode surfaces, green-tinted) */
   --color-canvas-950: #04160c;
@@ -127,6 +143,17 @@
 
 html[data-contrast="high"] {
   --glass-opacity: 0.96;
+  --text-primary: #000000;
+  --text-secondary: #2e312e;
+  --text-tertiary: #40433f;
+}
+
+/* Needs the extra class to outrank the light block above, which the attribute
+   selector would otherwise win on specificity in dark high-contrast. */
+html.dark[data-contrast="high"] {
+  --text-primary: #ffffff;
+  --text-secondary: #e7e9e4;
+  --text-tertiary: #d0d2cd;
 }
 
 html[data-contrast="high"] :where(button, a, input, select, textarea):focus-visible {
@@ -158,6 +185,9 @@ html[data-contrast="high"] :where(button, a, input, select, textarea):focus-visi
   --tertiary-foreground: #ffffff;
   --muted: #eaf0ea;
   --muted-foreground: #536159;
+  --text-primary: #102018;
+  --text-secondary: #535552;
+  --text-tertiary: #5f615e;
   --accent: #dcefe3;
   --accent-foreground: #123f29;
   --destructive: #b3261e;
@@ -193,6 +223,9 @@ html[data-contrast="high"] :where(button, a, input, select, textarea):focus-visi
   --tertiary-foreground: #24372b;
   --muted: #152c1d;
   --muted-foreground: #aec0b3;
+  --text-primary: #edf8ef;
+  --text-secondary: #afb1ad;
+  --text-tertiary: #9c9e9a;
   --accent: #1b3b27;
   --accent-foreground: #d5f6df;
   --destructive: #ffb4ab;

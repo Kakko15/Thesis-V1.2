@@ -56,7 +56,7 @@ function OrbitingCard({ title, track, year, incline, phase, speed, radius = 2.95
                 <span className="truncate rounded-full bg-forest-500/15 px-2 py-0.5 font-semibold text-forest-700 dark:text-forest-300">
                   {track}
                 </span>
-                <span className="font-mono opacity-60">{year}</span>
+                <span className="font-mono text-ink-muted">{year}</span>
               </div>
             </div>
           </Html>

@@ -24,7 +24,10 @@ const BASE_TABS = [
 
 function AdminTabFallback() {
   return (
-    <div className="space-y-4" aria-label="Loading administration data">
+    // `role="status"` is what lets the element carry a name at all — a bare div
+    // cannot — and it announces the load to assistive tech rather than leaving
+    // the region silent.
+    <div className="space-y-4" role="status" aria-label="Loading administration data">
       <Skeleton className="h-28" />
       <div className="grid gap-4 lg:grid-cols-2">
         <Skeleton className="h-72" />
@@ -68,7 +71,7 @@ function AdminSecurityGate({ state, query, navigate, refreshMfa }) {
       <GlassCard className="p-8 text-center">
         <ShieldCheck className={`mx-auto ${content.tone}`} size={32} />
         <h1 className="font-display mt-4 text-2xl font-extrabold">{content.title}</h1>
-        <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed opacity-65">{content.message}</p>
+        <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">{content.message}</p>
         <Button className="mt-6" onClick={content.action}>{content.label}</Button>
       </GlassCard>
     </PageTransition>
@@ -116,13 +119,13 @@ export default function Admin() {
     <PageTransition className="mx-auto max-w-6xl space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-gold-500 dark:text-gold-300">
+          <p className="text-sm font-semibold text-gold-text dark:text-gold-300">
             {displayName} • <span className="capitalize">{role === 'superadmin' ? 'Super Admin at System' : <>{role === 'admin' ? 'Administrator' : role} at {department || 'Unassigned'}</>}</span>
           </p>
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
             Research <span className="text-gradient-isu">Administration</span>
           </h1>
-          <p className="mt-1 text-sm opacity-55">Evidence readiness, archive operations, academic catalog, and access governance.</p>
+          <p className="mt-1 text-sm text-ink-muted">Evidence readiness, archive operations, academic catalog, and access governance.</p>
         </div>
         <div className="glass flex max-w-full items-center overflow-x-auto rounded-2xl p-1" role="tablist" aria-label="Administration sections">
           {tabs.map((tab) => (
@@ -136,7 +139,7 @@ export default function Admin() {
                 'shrink-0 whitespace-nowrap rounded-xl px-4 py-1.5 text-sm font-semibold transition-all duration-300',
                 activeTab === tab.id
                   ? 'bg-gradient-to-br from-forest-600 to-forest-800 text-white shadow-md'
-                  : 'opacity-60 hover:opacity-100',
+                  : 'text-ink-muted hover:text-ink',
               )}
             >
               {tab.label}

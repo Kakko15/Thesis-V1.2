@@ -18,13 +18,14 @@ import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/Modal'
 import { formatDate } from '../../lib/utils'
 import { avatarPublicUrl } from '../../lib/avatar'
+import { TableScroller } from '../../components/ui/TableScroller'
 
 function PaginationControls({ page, setPage, total, limit }) {
   const totalPages = Math.ceil(total / limit)
   if (total <= limit) return null
   return (
     <div className="flex items-center justify-between border-t border-forest-900/10 px-6 py-3 dark:border-white/10">
-      <div className="text-xs opacity-60">Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total}</div>
+      <div className="text-xs text-ink-muted">Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total}</div>
       <div className="flex gap-2">
         <Button size="sm" variant="secondary" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1} className="h-auto px-3 py-1 text-xs">Prev</Button>
         <Button size="sm" variant="secondary" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages} className="h-auto px-3 py-1 text-xs">Next</Button>
@@ -65,11 +66,11 @@ function FeaturePermissionsManagement() {
   return (
     <GlassCard className="overflow-hidden mb-6">
       <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex items-center justify-between">
-        <div className="text-sm font-bold uppercase tracking-wider opacity-70">Role Feature Permissions</div>
+        <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">Role Feature Permissions</div>
       </div>
-      <div className="overflow-x-auto">
+      <TableScroller label="Role feature permissions">
         <table className="w-full text-left text-sm">
-          <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider opacity-60 dark:bg-white/5">
+          <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
             <tr>
               <th className="px-6 py-3 w-1/4">Role</th>
               <th className="px-6 py-3 w-3/4">Granted Features</th>
@@ -77,7 +78,7 @@ function FeaturePermissionsManagement() {
           </thead>
           <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
             {isLoading ? (
-              <tr><td colSpan={2} className="px-6 py-8 text-center opacity-50">Loading features...</td></tr>
+              <tr><td colSpan={2} className="px-6 py-8 text-center text-ink-faint">Loading features...</td></tr>
             ) : (
               ['student', 'faculty'].map(role => (
                 <tr key={role} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
@@ -103,7 +104,7 @@ function FeaturePermissionsManagement() {
                               />
                               <div className="w-9 h-5 bg-forest-900/20 peer-focus:outline-none rounded-full peer dark:bg-white/10 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-forest-500"></div>
                             </div>
-                            <span className="text-sm font-medium group-hover:text-forest-600 dark:group-hover:text-gold-400 transition-colors">
+                            <span className="text-sm font-medium group-hover:text-forest-700 dark:group-hover:text-gold-400 transition-colors">
                               {labelMap[feature]}
                             </span>
                           </label>
@@ -116,7 +117,7 @@ function FeaturePermissionsManagement() {
             )}
           </tbody>
         </table>
-      </div>
+      </TableScroller>
     </GlassCard>
   )
 }
@@ -187,12 +188,12 @@ function DepartmentsManagement() {
     <>
     <GlassCard className="overflow-hidden mb-6">
       <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex items-center justify-between">
-        <div className="text-sm font-bold uppercase tracking-wider opacity-70">Departments & Tracks Configuration</div>
+        <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">Departments & Tracks Configuration</div>
         <Button size="sm" onClick={startCreate} disabled={editingId !== null}><Plus size={14} className="mr-1" /> Add Dept</Button>
       </div>
-      <div className="overflow-x-auto">
+      <TableScroller label="Departments and tracks configuration">
         <table className="w-full text-left text-sm">
-          <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider opacity-60 dark:bg-white/5">
+          <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
             <tr>
               <th className="px-6 py-3">Dept Name</th>
               <th className="px-6 py-3">Track Label</th>
@@ -202,7 +203,7 @@ function DepartmentsManagement() {
           </thead>
           <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
             {isLoading ? (
-              <tr><td colSpan={4} className="px-6 py-8 text-center opacity-50">Loading departments...</td></tr>
+              <tr><td colSpan={4} className="px-6 py-8 text-center text-ink-faint">Loading departments...</td></tr>
             ) : (
               <>
                 {paginated.map(d => (
@@ -219,7 +220,7 @@ function DepartmentsManagement() {
                       ) : (
                         <div className="flex flex-wrap gap-1">
                           {d.tracks.map(t => <Badge key={t} tone="neutral" className="text-[10px] py-0">{t}</Badge>)}
-                          {d.tracks.length === 0 && <span className="opacity-40 italic text-xs">No tracks</span>}
+                          {d.tracks.length === 0 && <span className="text-ink-faint italic text-xs">No tracks</span>}
                         </div>
                       )}
                     </td>
@@ -257,7 +258,7 @@ function DepartmentsManagement() {
             )}
           </tbody>
         </table>
-      </div>
+      </TableScroller>
       <PaginationControls page={page} setPage={setPage} total={departments.length} limit={5} />
     </GlassCard>
     <ConfirmDialog
@@ -404,7 +405,7 @@ export default function SystemManagementTab() {
     <div className="space-y-6">
       <GlassCard className="overflow-hidden">
         <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-col gap-4 sm:flex-row sm:items-center justify-between">
-          <div className="text-sm font-bold uppercase tracking-wider opacity-70">User Directory</div>
+          <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">User Directory</div>
           <div className="flex flex-wrap gap-2 items-center">
             <div className="relative">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
@@ -437,9 +438,9 @@ export default function SystemManagementTab() {
             </Select>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <TableScroller label="User directory">
           <table className="w-full text-left text-sm">
-            <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider opacity-60 dark:bg-white/5">
+            <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
               <tr>
                 <th className="px-6 py-3">User</th>
                 <th className="px-6 py-3">Role</th>
@@ -451,9 +452,9 @@ export default function SystemManagementTab() {
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
               {loadingUsers ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center opacity-50">Loading users...</td></tr>
+                <tr><td colSpan={6} className="px-6 py-8 text-center text-ink-faint">Loading users...</td></tr>
               ) : filteredUsers.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center opacity-50">No users found.</td></tr>
+                <tr><td colSpan={6} className="px-6 py-8 text-center text-ink-faint">No users found.</td></tr>
               ) : (
                 // Declarative table-cell variants are intentionally colocated for editing consistency.
                 // eslint-disable-next-line complexity
@@ -477,10 +478,10 @@ export default function SystemManagementTab() {
                           )}
                           <div>
                             <div className="font-bold">{u.full_name || u.email}</div>
-                            <div className="mt-0.5 text-[0.65rem] font-semibold text-forest-600 dark:text-gold-400 capitalize">
+                            <div className="mt-0.5 text-[0.65rem] font-semibold text-forest-700 dark:text-gold-400 capitalize">
                               {u.role === 'superadmin' ? 'Super Admin at System' : <>{u.role === 'admin' ? 'Administrator' : u.role} at {u.department || 'Unassigned'}</>}
                             </div>
-                            <div className="mt-0.5 text-xs opacity-60">{u.email}</div>
+                            <div className="mt-0.5 text-xs text-ink-muted">{u.email}</div>
                           </div>
                         </div>
                       )}
@@ -535,7 +536,7 @@ export default function SystemManagementTab() {
                         <Badge tone="neutral">{u.department || 'Unassigned'}</Badge>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-xs opacity-70">{formatDate(u.created_at)}</td>
+                    <td className="px-6 py-4 text-xs text-ink-muted">{formatDate(u.created_at)}</td>
                     <td className="px-6 py-4 text-right">
                       {u.id !== me?.id && (
                         <div className="flex justify-end gap-2">
@@ -577,12 +578,12 @@ export default function SystemManagementTab() {
               )}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
         <PaginationControls page={userPage} setPage={setUserPage} total={filteredUsers.length} limit={5} />
       </GlassCard>
 
       <GlassCard className="p-6">
-        <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-50">
+        <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
           <TerminalSquare size={13} /> Raw System Logs
         </div>
         <div className="bg-canvas-950 text-white rounded-2xl p-4 font-mono text-[0.65rem] max-h-96 overflow-y-auto space-y-2">
@@ -608,7 +609,7 @@ export default function SystemManagementTab() {
 
       <GlassCard className="overflow-hidden">
         <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-col gap-4 sm:flex-row sm:items-center justify-between">
-          <div className="text-sm font-bold uppercase tracking-wider opacity-70">Database Papers & Buckets</div>
+          <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">Database Papers & Buckets</div>
           <div className="flex flex-wrap gap-2 items-center">
             <div className="relative">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
@@ -628,9 +629,9 @@ export default function SystemManagementTab() {
             )}
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <TableScroller label="Database papers and buckets">
           <table className="w-full text-left text-sm">
-            <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider opacity-60 dark:bg-white/5">
+            <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
               <tr>
                 <th className="px-6 py-3">Title & Authors</th>
                 <th className="px-6 py-3">Dept / Track</th>
@@ -638,15 +639,15 @@ export default function SystemManagementTab() {
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
               {loadingPapers ? (
-                <tr><td colSpan={2} className="px-6 py-8 text-center opacity-50">Loading database papers...</td></tr>
+                <tr><td colSpan={2} className="px-6 py-8 text-center text-ink-faint">Loading database papers...</td></tr>
               ) : filteredPapers.length === 0 ? (
-                <tr><td colSpan={2} className="px-6 py-8 text-center opacity-50">No papers found.</td></tr>
+                <tr><td colSpan={2} className="px-6 py-8 text-center text-ink-faint">No papers found.</td></tr>
               ) : (
                 paginatedPapers.map(p => (
                   <tr key={p.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
                     <td className="px-6 py-4 max-w-sm">
                       <div className="font-bold line-clamp-1">{p.title}</div>
-                      <div className="text-xs opacity-60 line-clamp-1 mt-0.5">{p.authors || 'Unknown'}</div>
+                      <div className="text-xs text-ink-muted line-clamp-1 mt-0.5">{p.authors || 'Unknown'}</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex gap-1">
@@ -659,7 +660,7 @@ export default function SystemManagementTab() {
               )}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
         <PaginationControls page={paperPage} setPage={setPaperPage} total={filteredPapers.length} limit={5} />
       </GlassCard>
       <ConfirmDialog

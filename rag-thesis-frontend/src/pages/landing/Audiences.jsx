@@ -36,7 +36,7 @@ export function Audiences() {
                     <audience.icon size={26} className="text-forest-950" />
                   </div>
                   <h3 className="font-display text-xl font-extrabold">{audience.title}</h3>
-                  <p className="mt-2.5 text-sm leading-relaxed opacity-65">{audience.text}</p>
+                  <p className="mt-2.5 text-sm leading-relaxed text-ink-muted">{audience.text}</p>
                 </div>
               </SpotlightCard>
             </Reveal>

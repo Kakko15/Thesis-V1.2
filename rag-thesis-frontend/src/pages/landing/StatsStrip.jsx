@@ -36,12 +36,12 @@ export function StatsStrip() {
               <span className="font-display text-3xl font-extrabold sm:text-4xl">
                 {isPending || (isError && !data) ? '—' : <AnimatedCounter value={value} />}
               </span>
-              <span className="text-xs font-medium uppercase tracking-wider opacity-55">{label}</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-ink-muted">{label}</span>
             </div>
           ))}
         </div>
         {isError && !data && (
-          <div className="mt-4 flex items-center justify-center gap-2 text-center text-xs font-medium opacity-60">
+          <div className="mt-4 flex items-center justify-center gap-2 text-center text-xs font-medium text-ink-muted">
             <span>Statistics temporarily unavailable. Reconnecting automatically.</span>
             <button
               type="button"

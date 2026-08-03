@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component {
             <AlertTriangle className="text-flame-500" size={26} />
           </div>
           <h1 className="font-display text-xl font-bold">Something went wrong</h1>
-          <p className="mt-2 text-sm opacity-65">
+          <p className="mt-2 text-sm text-ink-muted">
             An unexpected error occurred while rendering this page. Reloading usually fixes it.
           </p>
           <button

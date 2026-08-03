@@ -10,14 +10,17 @@ import { ConfirmDialog, Modal } from '../components/ui/Modal'
 import { PageTransition, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { Button } from '../components/ui/Button'
 import { formatDate, normalizePercent, scanMetrics, verdictLabel } from '../lib/utils'
+import { slotKeys } from '../lib/keys'
 import { useArchiveCatalog } from './archive/useArchiveCatalog'
+
+const ARCHIVE_SKELETONS = slotKeys(6, 'archive-card')
 
 function ScreeningDetail({ scan }) {
   if (!scan?.flagged) return null
   const metrics = scanMetrics(scan)
   return (
     <div>
-      <div className="text-xs font-bold uppercase tracking-wider opacity-50">
+      <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">
         Duplication screening (at upload)
       </div>
       <div className="mt-1.5 rounded-xl border border-flame-500/25 bg-flame-500/8 px-3.5 py-2.5 text-xs leading-relaxed">
@@ -78,7 +81,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
         <h3 className="font-display mt-3.5 line-clamp-2 text-sm font-bold leading-snug">
           {paper.title}
         </h3>
-        <p className="mt-1.5 line-clamp-1 text-xs opacity-55">
+        <p className="mt-1.5 line-clamp-1 text-xs text-ink-muted">
           {paper.authors || 'Unknown authors'}
         </p>
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-4">
@@ -110,7 +113,7 @@ function ArchiveResults({
   if (isLoading) {
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {[...Array(6)].map((_, index) => <Skeleton key={index} className="h-44" />)}
+        {ARCHIVE_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-44" />)}
       </div>
     )
   }
@@ -185,11 +188,11 @@ export default function Archive() {
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
             Thesis <span className="text-gradient-isu">Archive</span>
           </h1>
-          <p className="mt-1 text-sm opacity-55">
+          <p className="mt-1 text-sm text-ink-muted">
             Metadata catalog of every indexed thesis.
           </p>
         </div>
-        <div className="glass flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium opacity-70">
+        <div className="glass flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-ink-muted">
           <Lock size={12} className="text-gold-400" />
           Indirect access — full manuscripts are never exposed
         </div>
@@ -238,7 +241,7 @@ export default function Archive() {
       </GlassCard>
 
       <div className="flex min-h-8 flex-wrap items-center justify-between gap-2" aria-live="polite">
-        <p className="text-xs font-medium opacity-55">
+        <p className="text-xs font-medium text-ink-muted">
           Showing {filtered.length} of {papers.length} indexed {papers.length === 1 ? 'thesis' : 'theses'}
         </p>
         {hasFilters && (
@@ -269,19 +272,19 @@ export default function Archive() {
             <Badge tone="neutral">Indexed {formatDate(detail?.created_at)}</Badge>
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider opacity-50">Authors</div>
+            <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Authors</div>
             <p className="mt-1 text-sm">{detail?.authors || 'Unknown'}</p>
           </div>
           {detail?.abstract && (
             <div>
-              <div className="text-xs font-bold uppercase tracking-wider opacity-50">Abstract</div>
+              <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Abstract</div>
               <p className="mt-1 max-h-56 overflow-y-auto text-sm leading-relaxed opacity-80">
                 {detail.abstract}
               </p>
             </div>
           )}
           <ScreeningDetail scan={detail?.duplication_scan} />
-          <div className="glass flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs opacity-70">
+          <div className="glass flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs text-ink-muted">
             <Lock size={13} className="shrink-0 text-gold-400" />
             Full text is available only through AI-mediated synthesis in Chat — this protects the
             author's intellectual property.

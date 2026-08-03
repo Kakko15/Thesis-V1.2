@@ -102,7 +102,7 @@ export function MfaChallengeStep({ onUseAnotherAccount }) {
           </Rise>
 
           <Rise>
-            <p className="mt-4 text-center text-[0.68rem] leading-relaxed opacity-45">
+            <p className="mt-4 text-center text-[0.68rem] leading-relaxed text-ink-faint">
               Codes rotate every 30 seconds — use the current one.
             </p>
           </Rise>
@@ -113,7 +113,7 @@ export function MfaChallengeStep({ onUseAnotherAccount }) {
         <button
           type="button"
           onClick={onUseAnotherAccount}
-          className="text-xs font-semibold opacity-50 transition-opacity hover:opacity-100"
+          className="text-xs font-semibold text-ink-faint transition-colors hover:text-ink"
         >
           Use a different account
         </button>
