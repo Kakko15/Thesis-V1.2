@@ -97,7 +97,8 @@ export function ConstellationOrb({ isDark, pointerRef, scrollProgress, degraded 
   const pulses = useMemo(() => {
     const rand = mulberry32(99)
     const count = degraded ? 5 : 10
-    return Array.from({ length: count }, () => ({
+    return Array.from({ length: count }, (_, index) => ({
+      id: `pulse-${index}`,
       curve: Math.floor(rand() * curves.length),
       offset: rand(),
       speed: 0.1 + rand() * 0.16,
@@ -238,9 +239,9 @@ export function ConstellationOrb({ isDark, pointerRef, scrollProgress, degraded 
       </lineSegments>
 
       {/* Traveling citation pulses */}
-      {pulses.map((_, i) => (
+      {pulses.map((pulse, i) => (
         <sprite
-          key={i}
+          key={pulse.id}
           ref={(el) => {
             pulseRefs.current[i] = el
           }}

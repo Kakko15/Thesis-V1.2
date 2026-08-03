@@ -17,7 +17,7 @@ export default function NotFound() {
           <Compass size={32} className="text-gold-400" />
         </motion.div>
         <h1 className="font-display text-7xl font-extrabold tracking-tight text-gradient-isu">404</h1>
-        <p className="mt-3 text-sm opacity-60">
+        <p className="mt-3 text-sm text-ink-muted">
           This page isn't in the archive — and unlike our AI, we won't make one up.
         </p>
         <Button className="mt-8" onClick={() => navigate('/')}>

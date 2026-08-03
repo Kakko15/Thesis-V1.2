@@ -7,7 +7,7 @@ import { Button } from '../../components/ui/Button'
 import { StepHeader } from './StepHeader'
 import { formStagger, Rise, Shine, UnderlineLink } from './AuthFx'
 import { authOptions, friendlyAuthError, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
-import { TurnstileWidget } from '../../components/security/TurnstileWidget'
+import { SecurityCheck } from '../../components/security/SecurityCheck'
 import { turnstileEnabled } from '../../components/security/turnstileConfig'
 
 const getEmailLink = (email) => {
@@ -74,8 +74,17 @@ export function OtpSignInStep({ email, onBack }) {
           </Button>
         </Rise>
 
-        <Rise className="mt-5 text-center text-xs opacity-60">
-          <TurnstileWidget action="otp_resend" onToken={setCaptchaToken} resetKey={captchaReset} />
+        <Rise className="mt-5">
+          <SecurityCheck
+            variant="inline"
+            action="otp_resend"
+            onToken={setCaptchaToken}
+            resetKey={captchaReset}
+            className="text-center"
+          />
+        </Rise>
+
+        <Rise className="mt-3 text-center text-xs text-ink-muted">
           Didn't get it?{' '}
           {cooldown > 0 ? (
             <span className="font-semibold tabular-nums">Resend in {cooldown}s</span>
@@ -84,7 +93,7 @@ export function OtpSignInStep({ email, onBack }) {
               onClick={resend}
               disabled={resending || (turnstileEnabled && !captchaToken)}
               aria-disabled={turnstileEnabled && !captchaToken}
-              className="text-forest-600 disabled:opacity-50 dark:text-gold-300"
+              className="text-forest-700 disabled:opacity-50 dark:text-gold-300"
             >
               {resending ? 'Sending…' : 'Resend link'}
             </UnderlineLink>

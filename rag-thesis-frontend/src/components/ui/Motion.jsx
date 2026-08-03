@@ -2,6 +2,7 @@ import { motion, useInView, useSpring, useTransform } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { usePreferences } from '../../context/PreferencesContext'
 import { cn } from '../../lib/utils'
+import { contentKeys } from '../../lib/keys'
 
 /** Route-level page transition wrapper. */
 export function PageTransition({ children, className }) {
@@ -205,10 +206,13 @@ export function SpotlightCard({ children, className }) {
 
 /** Seamless duplicated-row marquee. `render(item, i)` draws one chip. */
 export function MarqueeRow({ items, render, reverse = false, slow = false, className }) {
+  // Items are caller-supplied and may repeat across the duplicated rows, so
+  // keys come from each item's own content rather than its position.
+  const itemKeys = contentKeys(items, 'marquee')
   const half = (hidden) => (
     <div aria-hidden={hidden || undefined} className="flex shrink-0 items-center gap-4 pr-4">
       {items.map((item, i) => (
-        <div key={i} className="shrink-0">
+        <div key={itemKeys[i]} className="shrink-0">
           {render(item, i)}
         </div>
       ))}

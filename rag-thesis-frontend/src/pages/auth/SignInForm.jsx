@@ -6,7 +6,7 @@ import { ArrowRight, KeyRound, Lock, Mail, TriangleAlert } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
-import { TurnstileWidget } from '../../components/security/TurnstileWidget'
+import { SecurityCheck } from '../../components/security/SecurityCheck'
 import { turnstileEnabled } from '../../components/security/turnstileConfig'
 import { authOptions, friendlyAuthError, isValidEmail } from './authUtils'
 import {
@@ -99,7 +99,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
     >
       <Rise>
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider opacity-70">
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-muted">
             Email <span className="text-flame-500">*</span>
           </span>
           <div className="group relative">
@@ -125,12 +125,12 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
 
       <Rise>
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wider opacity-70">
+          <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
             Password <span className="text-flame-500">*</span>
           </span>
           <UnderlineLink
             onClick={onForgot}
-            className="text-xs text-forest-600 hover:text-forest-500 dark:text-gold-300 dark:hover:text-gold-200"
+            className="text-xs text-forest-700 hover:text-forest-500 dark:text-gold-300 dark:hover:text-gold-200"
           >
             Forgot password?
           </UnderlineLink>
@@ -158,7 +158,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
           <motion.span
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-gold-400/15 px-2 py-1 text-[0.7rem] font-semibold text-gold-600 dark:text-gold-300"
+            className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-gold-400/15 px-2 py-1 text-[0.7rem] font-semibold text-gold-text dark:text-gold-300"
           >
             <TriangleAlert size={11} /> Caps Lock is on
           </motion.span>
@@ -168,7 +168,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
       {errors.form && <ErrorAlert key={errorNonce}>{errors.form}</ErrorAlert>}
 
       <Rise>
-        <TurnstileWidget action="signin" onToken={setCaptchaToken} resetKey={captchaReset} />
+        <SecurityCheck variant="inline" action="signin" onToken={setCaptchaToken} resetKey={captchaReset} />
       </Rise>
 
       <Rise>
@@ -187,7 +187,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
 
       <Rise className="flex items-center gap-3 py-1" aria-hidden="true">
         <span className="h-px flex-1 bg-forest-900/10 dark:bg-white/10" />
-        <span className="text-[0.65rem] font-bold uppercase tracking-widest opacity-40">or</span>
+        <span className="text-[0.65rem] font-bold uppercase tracking-widest text-ink-faint">or</span>
         <span className="h-px flex-1 bg-forest-900/10 dark:bg-white/10" />
       </Rise>
 

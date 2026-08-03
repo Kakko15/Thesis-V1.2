@@ -82,7 +82,7 @@ function UploadScreening({ scan }) {
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-[0.7rem] opacity-55">
+      <p className="mt-2 text-[0.7rem] text-ink-muted">
         The manuscript was still indexed. This is advisory only; faculty makes the final decision.
       </p>
     </div>
@@ -110,7 +110,7 @@ function StepIndicator({ current }) {
             >
               {i < current ? <CheckCircle2 size={18} /> : i + 1}
             </motion.div>
-            <span className={cn('text-[0.65rem] font-semibold uppercase tracking-wider', i === current ? 'opacity-90' : 'opacity-40')}>
+            <span className={cn('text-[0.65rem] font-semibold uppercase tracking-wider', i === current ? 'text-ink' : 'text-ink-faint')}>
               {label}
             </span>
           </div>
@@ -167,10 +167,10 @@ function Dropzone({ file, onFile }) {
       {file ? (
         <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex flex-col items-center pb-10">
           <div className="glass mb-4 flex h-16 w-16 items-center justify-center rounded-3xl">
-            <FileText size={26} className="text-forest-600 dark:text-gold-300" />
+            <FileText size={26} className="text-forest-700 dark:text-gold-300" />
           </div>
           <div className="max-w-xs truncate text-sm font-semibold">{file.name}</div>
-          <div className="mt-1 text-xs opacity-50">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
+          <div className="mt-1 text-xs text-ink-faint">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
         </motion.div>
       ) : (
         <>
@@ -183,7 +183,7 @@ function Dropzone({ file, onFile }) {
           <div className="font-display text-base font-bold">
             Drop the manuscript here
           </div>
-          <p className="mt-1 text-xs opacity-55">
+          <p className="mt-1 text-xs text-ink-muted">
             or click to browse · PDF only · up to 25 MB · scanned copies are OCR-processed
           </p>
         </>
@@ -232,14 +232,14 @@ function PipelineProgress({ job }) {
               >
                 {done ? <CheckCircle2 size={16} /> : <stage.icon size={16} className={active ? 'animate-pulse' : ''} />}
               </div>
-              <span className={cn('text-[0.6rem] font-semibold leading-tight', active || done ? 'opacity-80' : 'opacity-40')}>
+              <span className={cn('text-[0.6rem] font-semibold leading-tight', active || done ? 'text-ink' : 'text-ink-faint')}>
                 {stage.label}
               </span>
             </div>
           )
         })}
       </div>
-      <p className="text-center text-sm opacity-65">{job?.message}</p>
+      <p className="text-center text-sm text-ink-muted">{job?.message}</p>
       {job?.status === 'retry_wait' && (
         <div className="rounded-xl border border-gold-400/35 bg-gold-400/10 px-4 py-3 text-center text-xs">
           Temporary service interruption. Automatic retry {job.attempt_count}/{job.max_attempts}
@@ -493,7 +493,7 @@ export default function Upload() {
         <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
           Upload <span className="text-gradient-isu">Thesis</span>
         </h1>
-        <p className="mt-1 text-sm opacity-55">
+        <p className="mt-1 text-sm text-ink-muted">
           Digitize a thesis manuscript into its department-scoped semantic archive.
         </p>
       </div>
@@ -617,36 +617,36 @@ export default function Upload() {
                   <FileText size={18} className="shrink-0 text-gold-400" />
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold">{file?.name}</div>
-                    <div className="text-xs opacity-50">{(file?.size / 1024 / 1024).toFixed(2)} MB</div>
+                    <div className="text-xs text-ink-faint">{(file?.size / 1024 / 1024).toFixed(2)} MB</div>
                   </div>
                 </div>
                 <div className="grid gap-3 border-t border-forest-900/10 pt-4 text-sm dark:border-white/10 sm:grid-cols-2">
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Title</div>
+                    <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Title</div>
                     <div className="mt-0.5 font-medium">{form.title}</div>
                   </div>
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Authors</div>
+                    <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Authors</div>
                     <div className="mt-0.5 font-medium">{form.authors || '—'}</div>
                   </div>
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Program / specialization</div>
+                    <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Program / specialization</div>
                     <div className="mt-0.5 flex flex-wrap gap-1.5">
                       <Badge tone="forest">{currentProgram?.code || 'Pending program'}</Badge>
                       {currentSpecialization && <Badge tone="gold">{currentSpecialization.code}</Badge>}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Department</div>
+                    <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Department</div>
                     <div className="mt-0.5"><Badge tone="neutral">{form.department}</Badge></div>
                   </div>
                   <div>
-                    <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-45">Year</div>
+                    <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Year</div>
                     <div className="mt-0.5 font-medium">{form.year || '—'}</div>
                   </div>
                 </div>
               </div>
-              <p className="text-xs leading-relaxed opacity-55">
+              <p className="text-xs leading-relaxed text-ink-muted">
                 On submit, the manuscript is cleaned (headers, footers, page numbers, TOC, and
                 bibliography stripped), split into 800-token chunks with metadata tags, embedded via
                 Gemini, and indexed in the pgvector archive. The original PDF is stored privately.
@@ -678,10 +678,10 @@ export default function Upload() {
                   className="flex flex-col items-center text-center"
                 >
                   <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-forest-600/15">
-                    <PartyPopper size={34} className="text-forest-600 dark:text-forest-300" />
+                    <PartyPopper size={34} className="text-forest-700 dark:text-forest-300" />
                   </div>
                   <h2 className="font-display text-2xl font-extrabold">Thesis indexed!</h2>
-                  <p className="mt-2 max-w-sm text-sm opacity-60">
+                  <p className="mt-2 max-w-sm text-sm text-ink-muted">
                     "{form.title}" is now part of the semantic archive with {job.chunks} embedded chunks.
                   </p>
                   <UploadScreening scan={job.duplication} />
@@ -693,10 +693,10 @@ export default function Upload() {
                       [Archive, 'Source protection', 'Original manuscript retained in private storage only'],
                     ].map(([Icon, label, description]) => (
                       <div key={label} className="glass flex items-start gap-3 rounded-2xl p-3.5">
-                        <Icon size={16} className="mt-0.5 shrink-0 text-forest-600 dark:text-forest-300" />
+                        <Icon size={16} className="mt-0.5 shrink-0 text-forest-700 dark:text-forest-300" />
                         <div>
                           <div className="text-xs font-bold">{label}</div>
-                          <div className="mt-0.5 text-[0.68rem] leading-relaxed opacity-55">{description}</div>
+                          <div className="mt-0.5 text-[0.68rem] leading-relaxed text-ink-muted">{description}</div>
                         </div>
                       </div>
                     ))}
@@ -712,7 +712,7 @@ export default function Upload() {
                     <AlertTriangle size={32} className="text-flame-500" />
                   </div>
                   <h2 className="font-display text-2xl font-extrabold">Ingestion failed</h2>
-                  <p className="mt-2 max-w-sm text-sm opacity-60">{job.error}</p>
+                  <p className="mt-2 max-w-sm text-sm text-ink-muted">{job.error}</p>
                   <Button variant="secondary" className="mt-7" onClick={reset}>Try again</Button>
                 </div>
               ) : job?.status === 'cancelled' ? (
@@ -721,7 +721,7 @@ export default function Upload() {
                     <Ban size={32} className="text-gold-500" />
                   </div>
                   <h2 className="font-display text-2xl font-extrabold">Upload cancelled</h2>
-                  <p className="mt-2 max-w-sm text-sm opacity-60">
+                  <p className="mt-2 max-w-sm text-sm text-ink-muted">
                     The manuscript was not indexed. Its staged private copy is being removed safely.
                   </p>
                   <Button variant="secondary" className="mt-7" onClick={reset}>Start a new upload</Button>

@@ -6,6 +6,7 @@ import { cn } from '../../lib/utils'
 const BURST = Array.from({ length: 12 }, (_, i) => {
   const angle = (i / 12) * Math.PI * 2
   return {
+    id: `burst-mote-${i}`,
     x: Math.cos(angle),
     y: Math.sin(angle),
     dist: i % 2 ? 52 : 66,
@@ -46,9 +47,9 @@ export function SuccessStep({ title = 'You’re in!', subtitle, onDone, delay = 
         />
 
         {/* Particle burst */}
-        {BURST.map((p, i) => (
+        {BURST.map((p) => (
           <motion.span
-            key={i}
+            key={p.id}
             aria-hidden="true"
             initial={{ x: 0, y: 0, scale: 0, opacity: 0.9 }}
             animate={{ x: p.x * p.dist, y: p.y * p.dist, scale: 1, opacity: 0 }}
@@ -104,7 +105,7 @@ export function SuccessStep({ title = 'You’re in!', subtitle, onDone, delay = 
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.45, duration: 0.5, ease: [0.2, 0, 0, 1] }}
-          className="mt-2 text-sm opacity-60"
+          className="mt-2 text-sm text-ink-muted"
         >
           {subtitle}
         </motion.p>

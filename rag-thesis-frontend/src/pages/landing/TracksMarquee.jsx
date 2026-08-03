@@ -36,7 +36,7 @@ export function TracksMarquee() {
 
   return (
     <section id="tracks" className="relative scroll-mt-24 overflow-hidden py-16">
-      <p className="mb-8 text-center text-xs font-bold uppercase tracking-[0.2em] opacity-45">
+      <p className="mb-8 text-center text-xs font-bold uppercase tracking-[0.2em] text-ink-faint">
         Spanning every CCSICT research track
       </p>
       <MarqueeRow items={items} render={(track) => <TrackChip track={track} />} />

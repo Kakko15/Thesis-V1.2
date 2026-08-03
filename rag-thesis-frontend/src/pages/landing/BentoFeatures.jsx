@@ -9,7 +9,7 @@ import { SectionHeading } from './SectionHeading'
 import { cn } from '../../lib/utils'
 
 const citationChip =
-  'rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-xs font-semibold text-gold-600 dark:text-gold-300'
+  'rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-xs font-semibold text-gold-text dark:text-gold-300'
 
 /** Bento grid — the five paper-mandated guarantees, each with a live mini-visual. */
 export function BentoFeatures() {
@@ -32,7 +32,7 @@ export function BentoFeatures() {
                 <h3 className="font-display text-2xl font-extrabold">
                   Semantic search that understands intent
                 </h3>
-                <p className="mt-2 max-w-xl text-sm leading-relaxed opacity-65">
+                <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">
                   No more rigid keyword catalogs. Ask "what local studies used CNNs for crop
                   disease detection?" and get a synthesized answer that cites the exact CCSICT
                   theses — methodologies, scopes, and findings included.
@@ -64,7 +64,7 @@ export function BentoFeatures() {
               <GlassCard hover className="relative h-full overflow-hidden p-8">
                 <ShieldCheck size={26} className="mb-4 text-flame-500" />
                 <h3 className="font-display text-xl font-extrabold">85% similarity alert</h3>
-                <p className="mt-2 text-sm leading-relaxed opacity-65">
+                <p className="mt-2 text-sm leading-relaxed text-ink-muted">
                   Potentially overlapping topics are flagged with the measured similarity and a
                   summary of matched work. The result supports adviser review; it does not replace it.
                 </p>
@@ -81,7 +81,7 @@ export function BentoFeatures() {
               <GlassCard hover className="h-full overflow-hidden p-8">
                 <Quote size={26} className="mb-4 text-gold-400" />
                 <h3 className="font-display text-xl font-extrabold">Traceable citations, always</h3>
-                <p className="mt-2 text-sm leading-relaxed opacity-65">
+                <p className="mt-2 text-sm leading-relaxed text-ink-muted">
                   Responses include archived source metadata — title, authors, track, and year —
                   so readers can inspect the evidence instead of trusting the model blindly.
                 </p>
@@ -122,7 +122,7 @@ export function BentoFeatures() {
                   />
                 </div>
                 <h3 className="font-display text-xl font-extrabold">Indirect by design</h3>
-                <p className="mt-2 text-sm leading-relaxed opacity-65">
+                <p className="mt-2 text-sm leading-relaxed text-ink-muted">
                   Full manuscripts are never viewable or downloadable. Knowledge flows through
                   AI-mediated synthesis only — protecting every author's intellectual property.
                 </p>
@@ -141,7 +141,7 @@ export function BentoFeatures() {
                 <div className="relative">
                   <BrainCircuit size={26} className="mb-4 text-forest-500 dark:text-forest-300" />
                   <h3 className="font-display text-xl font-extrabold">Closed-domain honesty</h3>
-                  <p className="mt-2 text-sm leading-relaxed opacity-65">
+                  <p className="mt-2 text-sm leading-relaxed text-ink-muted">
                     IskAI is constrained to retrieved archive context and instructed to
                     decline unsupported questions. Citations and review make remaining errors visible.
                   </p>
@@ -150,7 +150,7 @@ export function BentoFeatures() {
                     <span className="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-forest-900/15 dark:bg-white/10">
                       <span className="absolute left-1 h-4 w-4 rounded-full bg-white shadow dark:bg-ivory-200" />
                     </span>
-                    <span className="flex items-center gap-1.5 text-xs font-semibold opacity-60">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-ink-muted">
                       <Globe size={13} />
                       <span className="line-through">Internet access</span>
                     </span>

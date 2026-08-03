@@ -8,16 +8,19 @@ import { Reveal } from '../../components/ui/Motion'
 import { ProgressRing } from '../../components/ui/ProgressRing'
 import { SectionHeading } from './SectionHeading'
 import { cn } from '../../lib/utils'
+import { slotKeys } from '../../lib/keys'
 import { usePreferences } from '../../context/PreferencesContext'
+
+const CHUNK_BARS = slotKeys(18, 'chunk-bar')
 
 /* ---- Per-step mini-visuals ---------------------------------------- */
 
 function ChunkViz() {
   return (
     <div aria-hidden="true" className="flex max-w-sm flex-wrap gap-1.5">
-      {Array.from({ length: 18 }).map((_, i) => (
+      {CHUNK_BARS.map((slotId, i) => (
         <span
-          key={i}
+          key={slotId}
           className={cn(
             'animate-pulse-glow h-2.5 rounded-full',
             i % 5 === 0 ? 'w-10 bg-gold-400/70' : 'w-7 bg-forest-500/35',
@@ -52,7 +55,7 @@ function RetrieveViz() {
 }
 
 function SynthViz() {
-  const chip = 'rounded-md bg-gold-400/25 px-1.5 py-0.5 font-mono text-[0.6rem] font-semibold text-gold-600 dark:text-gold-300'
+  const chip = 'rounded-md bg-gold-400/25 px-1.5 py-0.5 font-mono text-[0.6rem] font-semibold text-gold-text dark:text-gold-300'
   return (
     <div aria-hidden="true" className="max-w-sm space-y-2">
       <div className="shimmer h-2.5 w-full rounded-full bg-forest-500/15" />
@@ -141,7 +144,7 @@ function StepPanel({ step, index, scrollYProgress }) {
           <step.icon size={24} className="text-gold-300" />
         </div>
         <h3 className="font-display text-2xl font-extrabold">{step.title}</h3>
-        <p className="mt-3 max-w-md text-sm leading-relaxed opacity-65">{step.text}</p>
+        <p className="mt-3 max-w-md text-sm leading-relaxed text-ink-muted">{step.text}</p>
         <div className="mt-7">
           <Visual />
         </div>
@@ -199,7 +202,7 @@ function PinnedPipeline() {
                       )}
                     >
                       <span className="font-display block font-bold">{step.title}</span>
-                      <span className="mt-0.5 hidden text-xs opacity-60 xl:block">{step.tag}</span>
+                      <span className="mt-0.5 hidden text-xs text-ink-muted xl:block">{step.tag}</span>
                     </span>
                   </li>
                 ))}
@@ -239,7 +242,7 @@ function StackedPipeline() {
                 <step.icon size={24} className="text-gold-300" />
               </div>
               <h3 className="font-display text-lg font-bold">{step.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed opacity-65">{step.text}</p>
+              <p className="mt-2 text-sm leading-relaxed text-ink-muted">{step.text}</p>
               <div className="mt-5">
                 <Visual />
               </div>

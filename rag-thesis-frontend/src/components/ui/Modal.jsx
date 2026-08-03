@@ -53,7 +53,7 @@ export function Modal({ open, onClose, title, description, children, className, 
                 <Dialog.Title className={cn('font-display pr-8 text-xl font-bold tracking-tight', !title && 'sr-only')}>
                   {title || 'Dialog'}
                 </Dialog.Title>
-                <Dialog.Description className={cn('mt-1 text-sm opacity-70', !description && 'sr-only')}>
+                <Dialog.Description className={cn('mt-1 text-sm text-ink-muted', !description && 'sr-only')}>
                   {description || 'Dialog content'}
                 </Dialog.Description>
                 <div className={cn((title || description) && 'mt-5')}>{children}</div>

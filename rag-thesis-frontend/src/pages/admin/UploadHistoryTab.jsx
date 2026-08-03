@@ -8,6 +8,7 @@ import { GlassCard } from '../../components/ui/GlassCard'
 import { Badge } from '../../components/ui/Badge'
 import { Input, Select } from '../../components/ui/Input'
 import { cn, formatDate } from '../../lib/utils'
+import { TableScroller } from '../../components/ui/TableScroller'
 
 function PipelineNode({ icon: Icon, label, active, delay }) {
   return (
@@ -23,7 +24,7 @@ function PipelineNode({ icon: Icon, label, active, delay }) {
       )}>
         <Icon size={24} />
       </div>
-      <div className="w-24 text-center text-xs font-semibold opacity-80">{label}</div>
+      <div className="w-24 text-center text-xs font-semibold text-ink-muted">{label}</div>
     </motion.div>
   )
 }
@@ -73,7 +74,7 @@ export default function UploadHistoryTab() {
       <GlassCard className="p-8">
         <div className="mb-8 text-center">
           <h3 className="font-display text-lg font-bold">RAG Ingestion Pipeline</h3>
-          <p className="mt-1 text-xs opacity-55">How manuscripts are processed into the AI vector archive</p>
+          <p className="mt-1 text-xs text-ink-muted">How manuscripts are processed into the AI vector archive</p>
         </div>
         <div className="flex flex-wrap items-start justify-center gap-2 md:gap-4 lg:flex-nowrap">
           <PipelineNode icon={FileText} label="PDF Upload & Validation" active delay={0.1} />
@@ -119,11 +120,11 @@ export default function UploadHistoryTab() {
 
       <GlassCard className="overflow-hidden">
         <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10">
-          <div className="text-sm font-bold uppercase tracking-wider opacity-70">Archived Theses</div>
+          <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">Archived Theses</div>
         </div>
-        <div className="overflow-x-auto">
+        <TableScroller label="Archived theses">
           <table className="w-full text-left text-sm">
-            <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider opacity-60 dark:bg-white/5">
+            <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
               <tr>
                 <th className="px-6 py-3">Title & Authors</th>
                 <th className="px-6 py-3">Track</th>
@@ -136,28 +137,28 @@ export default function UploadHistoryTab() {
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
               {isLoading ? (
-                <tr><td colSpan={7} className="px-6 py-8 text-center opacity-50">Loading history...</td></tr>
+                <tr><td colSpan={7} className="px-6 py-8 text-center text-ink-faint">Loading history...</td></tr>
               ) : filteredPapers.length === 0 ? (
-                <tr><td colSpan={7} className="px-6 py-8 text-center opacity-50">No matching theses found.</td></tr>
+                <tr><td colSpan={7} className="px-6 py-8 text-center text-ink-faint">No matching theses found.</td></tr>
               ) : (
                 filteredPapers.map(p => (
                   <tr key={p.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
                     <td className="px-6 py-4 max-w-md">
                       <div className="font-bold line-clamp-1">{p.title}</div>
-                      <div className="text-xs opacity-60 line-clamp-1 mt-0.5">{p.authors || 'Unknown'}</div>
+                      <div className="text-xs text-ink-muted line-clamp-1 mt-0.5">{p.authors || 'Unknown'}</div>
                     </td>
                     <td className="px-6 py-4"><Badge tone="forest">{p.track}</Badge></td>
                     <td className="px-6 py-4"><Badge tone="neutral">{p.department}</Badge></td>
                     <td className="px-6 py-4">{p.year}</td>
-                    <td className="px-6 py-4 text-xs font-semibold opacity-80">{p.uploader_name || 'Unknown'}</td>
-                    <td className="px-6 py-4 font-mono text-xs opacity-70">{p.chunk_count}</td>
-                    <td className="px-6 py-4 text-xs opacity-70">{formatDate(p.created_at)}</td>
+                    <td className="px-6 py-4 text-xs font-semibold text-ink-muted">{p.uploader_name || 'Unknown'}</td>
+                    <td className="px-6 py-4 font-mono text-xs text-ink-muted">{p.chunk_count}</td>
+                    <td className="px-6 py-4 text-xs text-ink-muted">{formatDate(p.created_at)}</td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
       </GlassCard>
     </div>
   )

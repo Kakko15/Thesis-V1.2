@@ -171,7 +171,11 @@ test('guest RAG answer stays grounded and survives a hard route refresh', async 
   })
 
   await page.goto('/chat')
-  await expect(page.getByText(/Guest Researcher mode/)).toBeVisible()
+  // The banner splits the label from its caveats across two spans, so assert
+  // both halves: that guest mode is announced, and that it says history is not
+  // kept. Matching one sentence would let either half regress unnoticed.
+  await expect(page.getByText(/Guest Researcher/)).toBeVisible()
+  await expect(page.getByText(/chats aren.t saved/)).toBeVisible()
   const composer = page.getByPlaceholder(/Ask IskAI about CCSICT thesis research/)
   await composer.fill('What methodology does the archived thesis use?')
   await page.getByRole('button', { name: 'Send' }).click()
@@ -184,7 +188,8 @@ test('guest RAG answer stays grounded and survives a hard route refresh', async 
 
   await page.reload()
   await expect(page).toHaveURL(/\/chat$/)
-  await expect(page.getByText(/Guest Researcher mode/)).toBeVisible()
+  await expect(page.getByText(/Guest Researcher/)).toBeVisible()
+  await expect(page.getByText(/chats aren.t saved/)).toBeVisible()
   await expect(page.getByPlaceholder(/Ask IskAI about CCSICT thesis research/)).toBeVisible()
   expect(unexpected).toEqual([])
 })

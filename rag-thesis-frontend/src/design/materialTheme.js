@@ -1,4 +1,5 @@
 import { argbFromHex, hexFromArgb, themeFromSourceColor } from '@material/material-color-utilities'
+import { SURFACE_TONES, TEXT_TONES, textToneKey } from './tokens.js'
 
 export const MATERIAL_SEEDS = Object.freeze({
   isu: '#046A38',
@@ -28,12 +29,9 @@ export function materialSemanticTokens({ palette = 'isu', dark = false, highCont
   const gold = scheme(GOLD_SEED, dark)
   const flame = scheme(FLAME_SEED, dark)
   // themeFromSourceColor returns the legacy Scheme contract, which does not
-  // expose the newer surfaceContainer* roles. Material 3 defines those roles
-  // as neutral-palette tones, so derive them explicitly instead of allowing an
-  // undefined role to be silently converted into opaque black.
-  const surfaceTones = dark
-    ? { surface: 6, low: 10, container: 12, high: 17 }
-    : { surface: 98, low: 96, container: 94, high: 92 }
+  // expose the newer surfaceContainer* roles, so they are derived explicitly
+  // instead of letting an undefined role convert silently into opaque black.
+  const surfaceTones = SURFACE_TONES[dark ? 'dark' : 'light']
   const surfaces = Object.fromEntries(
     Object.entries(surfaceTones).map(([role, tone]) => [
       role,
@@ -42,6 +40,7 @@ export function materialSemanticTokens({ palette = 'isu', dark = false, highCont
   )
   const onSurface = highContrast ? (dark ? '#FFFFFF' : '#000000') : color(primary.onSurface)
   const outline = highContrast ? (dark ? '#FFFFFF' : '#000000') : color(primary.outlineVariant)
+  const textTones = TEXT_TONES[textToneKey({ dark, highContrast })]
   return {
     '--background': color(primary.background),
     '--foreground': onSurface,
@@ -61,6 +60,9 @@ export function materialSemanticTokens({ palette = 'isu', dark = false, highCont
     '--tertiary-foreground': color(primary.onTertiary),
     '--muted': surfaces.container,
     '--muted-foreground': color(primary.onSurfaceVariant),
+    '--text-primary': onSurface,
+    '--text-secondary': color(neutral.tone(textTones.secondary), 'secondary text'),
+    '--text-tertiary': color(neutral.tone(textTones.tertiary), 'tertiary text'),
     '--accent': color(primary.secondaryContainer),
     '--accent-foreground': color(primary.onSecondaryContainer),
     '--destructive': color(flame.primary),

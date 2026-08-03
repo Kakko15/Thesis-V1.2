@@ -14,7 +14,7 @@ export function StepHeader({ icon: Icon, title, subtitle, onBack, backLabel = 'B
           transition={{ duration: 0.4, ease: EASE }}
           type="button"
           onClick={onBack}
-          className="group mb-5 inline-flex items-center gap-1.5 text-xs font-semibold opacity-50 transition-opacity hover:opacity-100"
+          className="group mb-5 inline-flex items-center gap-1.5 text-xs font-semibold text-ink-faint transition-colors hover:text-ink"
         >
           <ArrowLeft size={13} className="transition-transform duration-300 group-hover:-translate-x-0.5" />
           {backLabel}
@@ -50,7 +50,7 @@ export function StepHeader({ icon: Icon, title, subtitle, onBack, backLabel = 'B
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.18, ease: EASE }}
-              className="mt-1 text-sm leading-relaxed opacity-60"
+              className="mt-1 text-sm leading-relaxed text-ink-muted"
             >
               {subtitle}
             </motion.p>

@@ -52,7 +52,7 @@ export function LandingNav() {
             <div className="font-display text-sm font-extrabold tracking-tight sm:text-base">
               ISU Thesis <span className="text-gradient-gold">AI</span> Library
             </div>
-            <div className="hidden text-[0.6rem] font-semibold uppercase tracking-[0.16em] opacity-55 sm:block">
+            <div className="hidden text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-ink-muted sm:block">
               Isabela State University · CCSICT
             </div>
           </div>
@@ -63,7 +63,7 @@ export function LandingNav() {
             <a
               key={a.href}
               href={a.href}
-              className="rounded-xl px-3 py-1.5 text-sm font-semibold opacity-65 transition hover:bg-forest-900/8 hover:opacity-100 dark:hover:bg-white/8"
+              className="rounded-xl px-3 py-1.5 text-sm font-semibold text-ink-muted transition hover:bg-forest-900/8 hover:text-ink dark:hover:bg-white/8"
             >
               {a.label}
             </a>

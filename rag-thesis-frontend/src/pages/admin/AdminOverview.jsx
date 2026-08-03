@@ -14,12 +14,15 @@ import { apiErrorMessage, getAnalyticsOverview, getRecentActivity, listUsers, up
 import { useAuth } from '../../context/AuthContext'
 import { GlassCard } from '../../components/ui/GlassCard'
 import { Skeleton } from '../../components/ui/Skeleton'
+import { slotKeys } from '../../lib/keys'
 import { RoleBadge } from '../../components/ui/Badge'
 import { Select } from '../../components/ui/Input'
 import { AnimatedCounter, staggerContainer, staggerItem } from '../../components/ui/Motion'
 import { timeAgo } from '../../lib/utils'
 
 const CHART_COLORS = ['#046a38', '#f2a900', '#10b96c', '#d22630', '#059656']
+const STAT_SKELETONS = slotKeys(4, 'overview-stat')
+const USER_SKELETONS = slotKeys(4, 'overview-user')
 
 const ACTION_LABELS = {
   chat_query: { label: 'AI query', icon: MessageSquareText, tone: 'text-forest-500' },
@@ -45,7 +48,7 @@ function StatCard({ icon: Icon, label, value }) {
       <GlassCard hover className="p-5">
         <Icon size={18} className="mb-2.5 text-gold-400" />
         <div className="font-display text-2xl font-extrabold"><AnimatedCounter value={value} /></div>
-        <div className="mt-0.5 text-[0.68rem] font-semibold uppercase tracking-wider opacity-55">{label}</div>
+        <div className="mt-0.5 text-[0.68rem] font-semibold uppercase tracking-wider text-ink-muted">{label}</div>
       </GlassCard>
     </motion.div>
   )
@@ -100,7 +103,7 @@ export default function AdminOverview() {
           {/* Stat grid */}
       {isLoading ? (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-28" />)}
+          {STAT_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-28" />)}
         </div>
       ) : (
         <motion.div variants={staggerContainer} initial="hidden" animate="show" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -114,11 +117,11 @@ export default function AdminOverview() {
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-2">
         <GlassCard className="p-6">
-          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-50">
+          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
             <BarChart3 size={13} /> Theses per track
           </div>
           {trackData.length === 0 ? (
-            <p className="py-14 text-center text-sm opacity-45">No data yet</p>
+            <p className="py-14 text-center text-sm text-ink-faint">No data yet</p>
           ) : (
             <ResponsiveContainer width="100%" height={240}>
               <PieChart>
@@ -126,8 +129,8 @@ export default function AdminOverview() {
                   data={trackData} dataKey="value" nameKey="name"
                   innerRadius={58} outerRadius={92} paddingAngle={4} strokeWidth={0}
                 >
-                  {trackData.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                  {trackData.map((entry, i) => (
+                    <Cell key={entry.name} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip content={<ChartTooltip />} />
@@ -136,7 +139,7 @@ export default function AdminOverview() {
           )}
           <div className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1.5">
             {trackData.map((t, i) => (
-              <div key={t.name} className="flex items-center gap-1.5 text-xs opacity-70">
+              <div key={t.name} className="flex items-center gap-1.5 text-xs text-ink-muted">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
                 {t.name} ({t.value})
               </div>
@@ -145,11 +148,11 @@ export default function AdminOverview() {
         </GlassCard>
 
         <GlassCard className="p-6">
-          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-50">
+          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
             <BarChart3 size={13} /> Theses per year
           </div>
           {yearData.length === 0 ? (
-            <p className="py-14 text-center text-sm opacity-45">No data yet</p>
+            <p className="py-14 text-center text-sm text-ink-faint">No data yet</p>
           ) : (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={yearData} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
@@ -169,7 +172,7 @@ export default function AdminOverview() {
           <ShieldCheck size={18} className="mt-0.5 shrink-0 text-gold-500" />
           <div>
             <div className="font-semibold">Ragas comparison pending faculty validation</div>
-            <p className="mt-1 text-sm leading-relaxed opacity-60">
+            <p className="mt-1 text-sm leading-relaxed text-ink-muted">
               No baseline-versus-RAG scores are displayed until the Golden Dataset is completed,
               faculty-validated, and evaluated. This prevents placeholder values from being mistaken
               for measured thesis findings.
@@ -182,28 +185,28 @@ export default function AdminOverview() {
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Usage summary */}
         <GlassCard className="p-6">
-          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-50">
+          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
             <ShieldCheck size={13} /> Novelty scanning
           </div>
           <div className="space-y-4">
             <div className="flex items-baseline justify-between">
-              <span className="text-sm opacity-65">Total scans</span>
+              <span className="text-sm text-ink-muted">Total scans</span>
               <span className="font-display text-xl font-extrabold">{overview?.usage?.novelty_scans ?? 0}</span>
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-sm opacity-65">Avg duplication</span>
-              <span className="font-display text-xl font-extrabold text-gold-500 dark:text-gold-300">
+              <span className="text-sm text-ink-muted">Avg duplication</span>
+              <span className="font-display text-xl font-extrabold text-gold-text dark:text-gold-300">
                 {overview?.usage?.avg_duplication_percentage ?? 0}%
               </span>
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-sm opacity-65">Flagged (â‰¥50%)</span>
+              <span className="text-sm text-ink-muted">Flagged (â‰¥50%)</span>
               <span className="font-display text-xl font-extrabold text-flame-500">
                 {overview?.usage?.flagged_scans ?? 0}
               </span>
             </div>
             <div className="flex items-baseline justify-between border-t border-forest-900/10 pt-4 dark:border-white/10">
-              <span className="text-sm opacity-65">Chat sessions</span>
+              <span className="text-sm text-ink-muted">Chat sessions</span>
               <span className="font-display text-xl font-extrabold">{overview?.usage?.chat_sessions ?? 0}</span>
             </div>
           </div>
@@ -211,11 +214,11 @@ export default function AdminOverview() {
 
         {/* Recent activity */}
         <GlassCard className="p-6">
-          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-50">
+          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
             <Activity size={13} /> Recent activity
           </div>
           <div className="max-h-80 space-y-2.5 overflow-y-auto pr-1">
-            {activity.length === 0 && <p className="py-8 text-center text-sm opacity-45">No activity recorded yet</p>}
+            {activity.length === 0 && <p className="py-8 text-center text-sm text-ink-faint">No activity recorded yet</p>}
             {activity.map((a) => {
               const meta = ACTION_LABELS[a.action] || { label: a.action, icon: Activity, tone: 'opacity-60' }
               return (
@@ -225,11 +228,11 @@ export default function AdminOverview() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{meta.label}</div>
-                    <div className="truncate text-[0.65rem] opacity-45">
+                    <div className="truncate text-[0.65rem] text-ink-faint">
                       {typeof a.detail === 'object' ? JSON.stringify(a.detail) : (a.detail?.title || a.detail?.filename || a.detail?.target_email || a.detail || '')}
                     </div>
                   </div>
-                  <span className="shrink-0 text-[0.65rem] opacity-40">{timeAgo(a.created_at)}</span>
+                  <span className="shrink-0 text-[0.65rem] text-ink-faint">{timeAgo(a.created_at)}</span>
                 </div>
               )
             })}
@@ -238,11 +241,11 @@ export default function AdminOverview() {
 
         {/* User management */}
         <GlassCard className="p-6">
-          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-50">
+          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
             <UserCog size={13} /> User roles
           </div>
           <div className="max-h-80 space-y-2.5 overflow-y-auto pr-1">
-            {loadingUsers && [...Array(4)].map((_, i) => <Skeleton key={i} className="h-14" />)}
+            {loadingUsers && USER_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-14" />)}
             {users.map((u) => (
               <div key={u.id} className="glass flex items-center gap-3 rounded-2xl p-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800 text-xs font-bold text-white">

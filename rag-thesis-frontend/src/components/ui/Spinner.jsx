@@ -3,7 +3,7 @@ import { cn } from '../../lib/utils'
 export function Spinner({ size = 24, className }) {
   return (
     <svg
-      className={cn('animate-spin text-forest-600 dark:text-gold-300', className)}
+      className={cn('animate-spin text-forest-700 dark:text-gold-300', className)}
       width={size}
       height={size}
       viewBox="0 0 24 24"

@@ -100,7 +100,7 @@ export function VerifyEmailStep({ email, onBack }) {
           </Button>
         </Rise>
 
-        <Rise className="mt-5 text-center text-xs opacity-60">
+        <Rise className="mt-5 text-center text-xs text-ink-muted">
           Nothing arrived?{' '}
           {cooldown > 0 ? (
             <span className="font-semibold tabular-nums">Resend in {cooldown}s</span>
@@ -108,7 +108,7 @@ export function VerifyEmailStep({ email, onBack }) {
             <UnderlineLink
               onClick={resend}
               disabled={resending}
-              className="text-forest-600 disabled:opacity-50 dark:text-gold-300"
+              className="text-forest-700 disabled:opacity-50 dark:text-gold-300"
             >
               {resending ? 'Sending…' : 'Resend email'}
             </UnderlineLink>

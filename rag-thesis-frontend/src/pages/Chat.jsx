@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -6,12 +6,12 @@ import ReactMarkdown from 'react-markdown'
 import { toast } from 'sonner'
 import {
   Send, Plus, MessageSquareText, Trash2, PencilLine,
-  AlertTriangle, BookMarked, History, Info, GraduationCap, ShieldCheck, Square, X,
+  AlertTriangle, BookMarked, History, Info, GraduationCap, Loader2, Square, X,
 } from 'lucide-react'
 import {
   chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getDepartments, getPublicSettings
 } from '../api'
-import { TurnstileWidget } from '../components/security/TurnstileWidget'
+import { SecurityCheck } from '../components/security/SecurityCheck'
 import { useGuestChatGate } from './chat/useGuestChatGate'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/Button'
@@ -34,11 +34,20 @@ const STARTERS = [
   'Has anyone built a recommendation system in the Data Mining track?',
 ]
 
+// Messages need an identity that survives the list being trimmed on error or
+// stop, which an array index does not: React would otherwise reuse a bubble's
+// state and entry animation for whichever message slid into that position.
+let messageSequence = 0
+const nextMessageId = () => {
+  messageSequence += 1
+  return `msg-${messageSequence}`
+}
+
 function isCancelledRequest(error) {
   return error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError'
 }
 
-function ComposerAction({ sending, hasInput, onStop }) {
+function ComposerAction({ sending, verifying, hasInput, onStop }) {
   if (sending) {
     return (
       <Button
@@ -53,10 +62,82 @@ function ComposerAction({ sending, hasInput, onStop }) {
       </Button>
     )
   }
+  if (verifying) {
+    return (
+      <Button type="button" size="icon" disabled aria-label="Waiting for the security check" className="shrink-0">
+        <Loader2 size={16} className="animate-spin" />
+      </Button>
+    )
+  }
   return (
     <Button type="submit" size="icon" disabled={!hasInput} aria-label="Send" className="shrink-0">
       <Send size={17} />
     </Button>
+  )
+}
+
+// A failed or unsupported check must not leave the composer spinning forever —
+// the gate panel explains the problem and offers a retry instead.
+function isVerifyingSend(awaiting, gateStatus) {
+  return awaiting && gateStatus !== 'error' && gateStatus !== 'unsupported'
+}
+
+/**
+ * The check gates sending, so it belongs with the composer rather than at the
+ * top of the page, and it stays silent unless it actually needs the visitor.
+ */
+function GuestGate({ gate, awaiting, onStatus }) {
+  if (!gate.armed) return null
+  return (
+    <SecurityCheck
+      action="guest_chat"
+      onToken={gate.acceptToken}
+      onStatusChange={onStatus}
+      resetKey={gate.resetKey}
+      quiet={!awaiting}
+      className="mb-3"
+      title="Confirm you're human to send"
+      description={
+        awaiting
+          ? 'Your question sends automatically as soon as this clears.'
+          : 'One check unlocks guest chat for the rest of your session.'
+      }
+    />
+  )
+}
+
+function Composer({
+  value, onChange, onSend, onFocus, placeholder, footnote,
+  sending, verifying, onStop, textareaRef, children,
+}) {
+  return (
+    <div className="border-t border-forest-900/10 p-4 dark:border-white/10">
+      {children}
+      <form
+        onSubmit={(e) => { e.preventDefault(); onSend() }}
+        className="glass flex items-end gap-2 rounded-[1.4rem] p-2"
+      >
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={onFocus}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend() }
+          }}
+          className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:opacity-45"
+        />
+        <ComposerAction
+          sending={sending}
+          verifying={verifying}
+          hasInput={Boolean(value.trim())}
+          onStop={onStop}
+        />
+      </form>
+      <p className="mt-2 text-center text-[0.65rem] text-ink-faint">{footnote}</p>
+    </div>
   )
 }
 
@@ -108,7 +189,7 @@ function SourceCard({ sources, index }) {
         {citationIds.map((citationId) => (
           <div
             key={citationId}
-            className="flex h-7 min-w-7 items-center justify-center rounded-lg bg-gold-400/20 px-1.5 font-mono text-xs font-bold text-gold-600 dark:text-gold-300"
+            className="flex h-7 min-w-7 items-center justify-center rounded-lg bg-gold-400/20 px-1.5 font-mono text-xs font-bold text-gold-text dark:text-gold-300"
           >
             {citationId}
           </div>
@@ -116,7 +197,7 @@ function SourceCard({ sources, index }) {
       </div>
       <div className="min-w-0">
         <div className="text-sm font-semibold leading-snug">{source.title}</div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs opacity-60">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
           {source.authors && <span>{source.authors}</span>}
           {source.year && <span>· {source.year}</span>}
         </div>
@@ -131,7 +212,7 @@ function SourceCard({ sources, index }) {
               const pageLabel = pageLabelFor(item)
               return (
                 <div key={`${item.chunk_id}-${citationId}`} className="flex flex-wrap items-center gap-1.5 text-[0.68rem]">
-                  <span className="font-mono font-bold text-gold-600 dark:text-gold-300">[{citationId}]</span>
+                  <span className="font-mono font-bold text-gold-text dark:text-gold-300">[{citationId}]</span>
                   {Number.isInteger(item.chunk_index) && <span>Chunk {item.chunk_index + 1}</span>}
                   {pageLabel && <Badge tone="neutral">{pageLabel}</Badge>}
                   {item.section && <span className="opacity-60">{item.section}</span>}
@@ -144,7 +225,7 @@ function SourceCard({ sources, index }) {
           </div>
         )}
         {locationPending && (
-          <div className="mt-1.5 text-[0.65rem] italic opacity-45">
+          <div className="mt-1.5 text-[0.65rem] italic text-ink-faint">
             Some evidence locations are pending citation backfill.
           </div>
         )}
@@ -178,19 +259,19 @@ function DuplicationBanner({ alert }) {
         </p>
         <div className="glass rounded-xl p-3">
           <div className="font-semibold">{alert.matched_paper?.title}</div>
-          <div className="mt-0.5 text-xs opacity-60">
+          <div className="mt-0.5 text-xs text-ink-muted">
             {alert.matched_paper?.authors}
             {alert.matched_paper?.year ? ` · ${alert.matched_paper.year}` : ''}
             {alert.matched_paper?.track ? ` · ${alert.matched_paper.track}` : ''}
           </div>
         </div>
         {alert.summary && (
-          <p className="text-xs leading-relaxed opacity-70">
+          <p className="text-xs leading-relaxed text-ink-muted">
             <span className="font-semibold">About the matched study: </span>
             {alert.summary}
           </p>
         )}
-        <p className="text-xs italic opacity-55">
+        <p className="text-xs italic text-ink-muted">
           Consider building upon this work rather than duplicating it — discuss with your faculty adviser.
         </p>
       </div>
@@ -243,7 +324,7 @@ function AiBubble({ message, animate }) {
             <ReactMarkdown>{message.answer}</ReactMarkdown>
           </div>
           {message.no_relevant_thesis && (
-            <div className="mt-3 flex items-center gap-2 rounded-xl bg-gold-400/10 px-3 py-2 text-xs font-medium text-gold-600 dark:text-gold-300">
+            <div className="mt-3 flex items-center gap-2 rounded-xl bg-gold-400/10 px-3 py-2 text-xs font-medium text-gold-text dark:text-gold-300">
               <Info size={13} className="shrink-0" />
               Search completed · no qualifying archive evidence.
             </div>
@@ -251,7 +332,7 @@ function AiBubble({ message, animate }) {
         </div>
         {message.sources?.length > 0 && (
           <div className="mt-3 space-y-2">
-            <div className="flex items-center gap-1.5 px-1 text-xs font-bold uppercase tracking-wider opacity-50">
+            <div className="flex items-center gap-1.5 px-1 text-xs font-bold uppercase tracking-wider text-ink-faint">
               <BookMarked size={12} /> Evidence sources
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -291,7 +372,7 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between px-1 pb-3">
-        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider opacity-50">
+        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-ink-faint">
           <History size={13} /> Conversations
         </div>
         <Button variant="ghost" size="icon-sm" onClick={onNew} aria-label="New conversation">
@@ -322,7 +403,7 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, 
                 <MessageSquareText size={14} className="shrink-0 opacity-50" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{s.title}</span>
-                  <span className="block text-[0.65rem] opacity-45">
+                  <span className="block text-[0.65rem] text-ink-faint">
                     {s.department || 'CCSICT'} · {timeAgo(s.created_at)}
                   </span>
                 </span>
@@ -354,26 +435,10 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, 
             <Button variant="ghost" size="sm" className="mt-2" onClick={onRetry}>Retry</Button>
           </div>
         ) : sessions.length === 0 && (
-          <p className="px-3 py-6 text-center text-xs opacity-45">
+          <p className="px-3 py-6 text-center text-xs text-ink-faint">
             No conversations yet. Ask your first question!
           </p>
         )}
-      </div>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-function GuestGatePanel({ gate }) {
-  if (!gate.active) return null
-  return (
-    <div className="border-b border-forest-900/10 bg-gold-400/8 px-5 py-3 dark:border-white/10">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gold-700 dark:text-gold-300">
-        <ShieldCheck size={13} className="shrink-0" aria-hidden="true" />
-        One quick security check unlocks guest chat for this session.
-      </div>
-      <div className="max-w-sm">
-        <TurnstileWidget action="guest_chat" onToken={gate.setToken} resetKey={gate.resetKey} />
       </div>
     </div>
   )
@@ -398,11 +463,23 @@ export default function Chat() {
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [busy, setBusy] = useState(false)
-  const guestGate = useGuestChatGate(user)
+  const [awaitingCheck, setAwaitingCheck] = useState(false)
+  const [gateStatus, setGateStatus] = useState('pending')
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
   const requestControllerRef = useRef(null)
   const pendingQuestionRef = useRef('')
+  const sendRef = useRef(null)
+  const awaitingCheckRef = useRef(false)
+  // Runs from Turnstile's own callback, so it fires the parked question the
+  // instant the token exists rather than a render later.
+  const releaseParkedSend = useCallback(() => {
+    if (!awaitingCheckRef.current) return
+    awaitingCheckRef.current = false
+    setAwaitingCheck(false)
+    sendRef.current?.()
+  }, [])
+  const guestGate = useGuestChatGate(user, { onVerified: releaseParkedSend })
   const isAwaitingAnswer = sending && messages[messages.length - 1]?.kind === 'user'
   const { data: publicSettings, isError: settingsError } = useQuery({
     queryKey: ['public-settings'],
@@ -444,8 +521,9 @@ export default function Chat() {
       const msgs = await getSessionMessages(session.id)
       const rebuilt = []
       msgs.forEach((m) => {
-        rebuilt.push({ kind: 'user', text: m.question })
+        rebuilt.push({ id: nextMessageId(), kind: 'user', text: m.question })
         rebuilt.push({
+          id: nextMessageId(),
           kind: 'ai',
           answer: m.answer,
           sources: m.sources || [],
@@ -462,6 +540,8 @@ export default function Chat() {
     requestControllerRef.current?.abort('conversation-reset')
     requestControllerRef.current = null
     pendingQuestionRef.current = ''
+    awaitingCheckRef.current = false
+    setAwaitingCheck(false)
     setSending(false)
     setSessionId(null)
     setMessages([])
@@ -473,10 +553,22 @@ export default function Chat() {
   const send = async (text) => {
     const question = (text ?? input).trim()
     if (!question || requestControllerRef.current) return
-    if (!guestGate.ensureReady()) return
+    // Guests wait on a one-time check. Park the question in the composer so it
+    // stays visible and editable; the gate fires it the moment the token lands,
+    // which is usually before the visitor notices.
+    if (!guestGate.isReady()) {
+      guestGate.arm()
+      setInput(question)
+      awaitingCheckRef.current = true
+      setAwaitingCheck(true)
+      setChatError(null)
+      return
+    }
+    awaitingCheckRef.current = false
+    setAwaitingCheck(false)
     setInput('')
     setChatError(null)
-    setMessages((m) => [...m, { kind: 'user', text: question }])
+    setMessages((m) => [...m, { id: nextMessageId(), kind: 'user', text: question }])
     setSending(true)
     const controller = new AbortController()
     requestControllerRef.current = controller
@@ -508,7 +600,7 @@ export default function Chat() {
       )
       if (controller.signal.aborted) return
       guestGate.markPassed()
-      setMessages((m) => [...m, { kind: 'ai', ...res, isNew: true }])
+      setMessages((m) => [...m, { id: nextMessageId(), kind: 'ai', ...res, isNew: true }])
       if (user && res.history_saved === false) {
         toast.warning('Answer received, but chat history was not saved', {
           description: 'Copy anything important and try again after the archive connection recovers.',
@@ -535,6 +627,12 @@ export default function Chat() {
       }
     }
   }
+
+  // Kept in a ref so `releaseParkedSend` can invoke the current closure without
+  // being rebuilt on every keystroke.
+  useEffect(() => {
+    sendRef.current = send
+  })
 
   const stopWaiting = () => {
     const controller = requestControllerRef.current
@@ -631,7 +729,7 @@ export default function Chat() {
             <Logo size={32} />
             <div className="min-w-0">
               <h1 className="font-display text-sm font-extrabold">IskAI</h1>
-              <div className="truncate text-[0.65rem] opacity-50">
+              <div className="truncate text-[0.65rem] text-ink-faint">
                 Grounded in the {effectiveDepartment} archive · citations included
               </div>
             </div>
@@ -669,12 +767,16 @@ export default function Chat() {
 
         {/* Guest banner */}
         {!user && (
-          <div className="flex items-center gap-2 bg-gold-400/12 px-5 py-2 text-xs font-medium text-gold-700 dark:text-gold-300">
-            <Info size={13} className="shrink-0" />
-            You're in Guest Researcher mode — CCSICT only, and conversations are not saved.
+          <div className="flex items-center gap-2 border-b border-gold-400/20 bg-gold-400/[0.09] px-4 py-2 text-[0.7rem] font-medium text-gold-800 dark:text-gold-200 sm:px-5">
+            <Info size={12} className="shrink-0 opacity-70" aria-hidden="true" />
+            <span className="min-w-0 truncate">
+              <span className="font-bold">Guest Researcher</span>
+              {/* The banner's gold-on-tint is 7.8:1; de-emphasising this half with
+                  opacity dragged it to 3.8:1, so the weight difference carries it. */}
+              <span className="font-normal"> · {effectiveDepartment} archive only · chats aren't saved</span>
+            </span>
           </div>
         )}
-        <GuestGatePanel gate={guestGate} />
         <ConfigurationWarning show={settingsError || (isSuperadmin && departmentsError)} />
         {chatError && (
           <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-flame-500/20 bg-flame-500/8 px-5 py-3 text-xs">
@@ -727,10 +829,10 @@ export default function Chat() {
               </div>
             </div>
           ) : (
-            messages.map((m, i) =>
+            messages.map((m) =>
               m.kind === 'user'
-                ? <UserBubble key={i} text={m.text} />
-                : <AiBubble key={i} message={m} animate={m.isNew} />,
+                ? <UserBubble key={m.id} text={m.text} />
+                : <AiBubble key={m.id} message={m} animate={m.isNew} />,
             )
           )}
           {isAwaitingAnswer && <TypingIndicator />}
@@ -738,28 +840,21 @@ export default function Chat() {
         </div>
 
         {/* Composer */}
-        <div className="border-t border-forest-900/10 p-4 dark:border-white/10">
-          <form
-            onSubmit={(e) => { e.preventDefault(); send() }}
-            className="glass flex items-end gap-2 rounded-[1.4rem] p-2"
-          >
-            <textarea
-              ref={inputRef}
-              rows={1}
-              value={input}
-              placeholder={`Ask IskAI about ${effectiveDepartment} thesis research…`}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
-              }}
-              className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:opacity-45"
-            />
-            <ComposerAction sending={sending} hasInput={Boolean(input.trim())} onStop={stopWaiting} />
-          </form>
-          <p className="mt-2 text-center text-[0.65rem] opacity-40">
-            Answers are synthesized exclusively from archived {effectiveDepartment} theses. Topics ≥85% similar to existing work are flagged for faculty review.
-          </p>
-        </div>
+        <Composer
+          value={input}
+          onChange={setInput}
+          onSend={send}
+          // Warm the check up front so the token is ready before they finish typing.
+          onFocus={guestGate.arm}
+          textareaRef={inputRef}
+          placeholder={`Ask IskAI about ${effectiveDepartment} thesis research…`}
+          sending={sending}
+          verifying={isVerifyingSend(awaitingCheck, gateStatus)}
+          onStop={stopWaiting}
+          footnote={`Answers are synthesized exclusively from archived ${effectiveDepartment} theses. Topics ≥85% similar to existing work are flagged for faculty review.`}
+        >
+          <GuestGate gate={guestGate} awaiting={awaitingCheck} onStatus={setGateStatus} />
+        </Composer>
       </GlassCard>
 
       {/* Rename modal */}

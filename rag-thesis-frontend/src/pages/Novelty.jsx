@@ -18,7 +18,10 @@ import { PageTransition } from '../components/ui/Motion'
 import { Skeleton } from '../components/ui/Skeleton'
 import { Select } from '../components/ui/Input'
 import { cn, normalizePercent, scanMetrics, timeAgo, verdictLabel } from '../lib/utils'
+import { contentKeys, slotKeys } from '../lib/keys'
 import { downloadNoveltyReport } from './novelty/report'
+
+const HISTORY_SKELETONS = slotKeys(4, 'novelty-history')
 
 /* ------------------------------------------------------------------ */
 function ScanDropzone({ onScan, scanning }) {
@@ -63,7 +66,7 @@ function ScanDropzone({ onScan, scanning }) {
             <ScanSearch size={26} className="text-gold-300" />
           </motion.div>
           <div className="font-display text-base font-bold">Scanning against the archive…</div>
-          <p className="mt-1 max-w-xs text-xs opacity-55">
+          <p className="mt-1 max-w-xs text-xs text-ink-muted">
             Every chunk is embedded and compared at the 85% cosine-similarity threshold. This can take a minute for long drafts.
           </p>
         </>
@@ -73,7 +76,7 @@ function ScanDropzone({ onScan, scanning }) {
             <FileSearch size={26} className="text-gold-300" />
           </div>
           <div className="font-display text-base font-bold">Drop a proposal or draft to scan</div>
-          <p className="mt-1 text-xs opacity-55">PDF or TXT · compared chunk-by-chunk against every archived thesis</p>
+          <p className="mt-1 text-xs text-ink-muted">PDF or TXT · compared chunk-by-chunk against every archived thesis</p>
         </>
       )}
       </button>
@@ -86,6 +89,9 @@ function ScanResult({ scan, onAsk }) {
   const [question, setQuestion] = useState('')
   const [chatLog, setChatLog] = useState(scan.chat_log || [])
   const [asking, setAsking] = useState(false)
+  // The server returns the whole log and trims it to the newest 20, so entries
+  // shift position. Content-derived keys follow an entry across that shift.
+  const chatLogKeys = contentKeys(chatLog.map((m) => `${m.role}|${m.content}`), 'novelty-chat')
 
   const ask = async (e) => {
     e.preventDefault()
@@ -139,30 +145,30 @@ function ScanResult({ scan, onAsk }) {
             </div>
             <div className="mt-4 grid gap-2 text-left sm:grid-cols-2">
               <div className="glass rounded-xl p-3">
-                <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-50">Highest passage similarity</div>
+                <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Highest passage similarity</div>
                 <div className="mt-1 font-display text-xl font-extrabold">{metrics.highest.toFixed(2)}%</div>
               </div>
               <div className="glass rounded-xl p-3">
-                <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-50">Matched chunk coverage</div>
+                <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Matched chunk coverage</div>
                 <div className="mt-1 font-display text-xl font-extrabold">{metrics.coverage.toFixed(2)}%</div>
               </div>
               <div className="glass rounded-xl p-3">
-                <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-50">Matched chunks / total chunks</div>
+                <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Matched chunks / total chunks</div>
                 <div className="mt-1 font-display text-xl font-extrabold">{metrics.matchedChunks} / {metrics.totalChunks}</div>
               </div>
               <div className="glass rounded-xl p-3">
-                <div className="text-[0.65rem] font-bold uppercase tracking-wider opacity-50">Advisory verdict</div>
+                <div className="text-[0.65rem] font-bold uppercase tracking-wider text-ink-faint">Advisory verdict</div>
                 <div className="mt-1 text-sm font-bold">{verdictLabel(metrics.verdict)}</div>
               </div>
             </div>
             {scan.top_matches?.length > 0 && (
               <div className="mt-4 space-y-2">
-                <div className="text-xs font-bold uppercase tracking-wider opacity-50">Top matching studies</div>
+                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Top matching studies</div>
                 {scan.top_matches.map((m) => (
                   <div key={m.id} className="glass flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-left">
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-semibold">{m.title}</div>
-                      <div className="text-xs opacity-55">
+                      <div className="text-xs text-ink-muted">
                         {m.authors}{m.year ? ` · ${m.year}` : ''}{m.track ? ` · ${m.track}` : ''}
                       </div>
                     </div>
@@ -177,7 +183,7 @@ function ScanResult({ scan, onAsk }) {
 
       {/* Deterministic verdict with optional AI explanation */}
       <GlassCard className="p-6">
-        <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-50">
+        <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
           <Sparkles size={13} /> Advisory explanation
         </div>
         <div className="prose-chat">
@@ -190,7 +196,7 @@ function ScanResult({ scan, onAsk }) {
           <Info size={17} className="mt-0.5 shrink-0 text-gold-500" />
           <div>
             <div className="text-sm font-bold">Interpretation limits</div>
-            <p className="mt-1 text-xs leading-relaxed opacity-65">
+            <p className="mt-1 text-xs leading-relaxed text-ink-muted">
               This is a similarity advisory, not a plagiarism verdict. Highest passage similarity
               and matched-chunk coverage are separate measures, and faculty review remains required.
               The downloadable report contains metadata only—never manuscript excerpts or reviewer chat.
@@ -201,17 +207,17 @@ function ScanResult({ scan, onAsk }) {
 
       {/* Follow-up chat */}
       <GlassCard className="p-6">
-        <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-wider opacity-50">
+        <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
           <MessageSquareText size={13} /> Ask about this report
         </div>
         <div className="mb-4 max-h-72 space-y-3 overflow-y-auto">
           {chatLog.length === 0 && (
-            <p className="py-4 text-center text-xs opacity-45">
+            <p className="py-4 text-center text-xs text-ink-faint">
               e.g. "Which chapter overlaps the most?" or "How can the student differentiate their study?"
             </p>
           )}
           {chatLog.map((m, i) => (
-            <div key={i} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
+            <div key={chatLogKeys[i]} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
               <div
                 className={cn(
                   'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
@@ -308,7 +314,7 @@ export default function Novelty() {
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
             Novelty <span className="text-gradient-isu">Check</span>
           </h1>
-          <p className="mt-1 text-sm opacity-55">
+          <p className="mt-1 text-sm text-ink-muted">
             Validate proposed topics against the archive at the paper-mandated 85% similarity threshold.
           </p>
         </div>
@@ -321,7 +327,7 @@ export default function Novelty() {
           ) : (
             <Badge tone="neutral">{effectiveDepartment}</Badge>
           )}
-          <div className="glass flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium opacity-70">
+          <div className="glass flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-ink-muted">
             <ShieldCheck size={13} className="text-gold-400" />
             Faculty & administrators only
           </div>
@@ -348,11 +354,11 @@ export default function Novelty() {
 
         {/* History timeline */}
         <GlassCard className="h-fit p-5">
-          <div className="mb-4 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider opacity-50">
+          <div className="mb-4 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-ink-faint">
             <History size={13} /> Scan history
           </div>
           {loadingHistory ? (
-            <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
+            <div className="space-y-2">{HISTORY_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-16" />)}</div>
           ) : historyError ? (
             <div role="alert" className="rounded-xl bg-flame-500/10 p-3 text-xs">
               <div className="flex items-center gap-2"><AlertTriangle size={14} /> Scan history is unavailable.</div>
@@ -381,13 +387,13 @@ export default function Novelty() {
                       <span
                         className={cn(
                           'shrink-0 font-display text-sm font-extrabold',
-                          metrics.coverage >= 50 ? 'text-flame-500' : metrics.coverage > 0 ? 'text-gold-500 dark:text-gold-300' : 'text-forest-600 dark:text-forest-300',
+                          metrics.coverage >= 50 ? 'text-flame-500' : metrics.coverage > 0 ? 'text-gold-text dark:text-gold-300' : 'text-forest-700 dark:text-forest-300',
                         )}
                       >
                         {metrics.coverage.toFixed(0)}%
                       </span>
                     </div>
-                    <div className="mt-1 text-[0.65rem] opacity-45">{timeAgo(scan.created_at)}</div>
+                    <div className="mt-1 text-[0.65rem] text-ink-faint">{timeAgo(scan.created_at)}</div>
                   </button>
                 )
               })}

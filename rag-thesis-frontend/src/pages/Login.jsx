@@ -288,7 +288,7 @@ export default function Login() {
             <motion.div variants={cardItem}>
               <Link
                 to="/"
-                className="group mb-8 inline-flex items-center gap-1.5 text-xs font-semibold opacity-50 transition-opacity hover:opacity-100"
+                className="group mb-8 inline-flex items-center gap-1.5 text-xs font-semibold text-ink-faint transition-colors hover:text-ink"
               >
                 <ArrowLeft size={13} className="transition-transform duration-300 group-hover:-translate-x-0.5" />
                 Back to home
@@ -315,7 +315,7 @@ export default function Login() {
                     onClick={() => setStep(m)}
                     className={cn(
                       'relative z-10 rounded-xl py-2.5 text-sm font-semibold transition-colors duration-300',
-                      effectiveStep === m ? 'text-white' : 'opacity-60 hover:opacity-100',
+                      effectiveStep === m ? 'text-white' : 'text-ink-muted hover:text-ink',
                     )}
                   >
                     {effectiveStep === m && (
@@ -365,7 +365,7 @@ export default function Login() {
               <button
                 onClick={() => navigate('/chat')}
                 className={cn(
-                  'group relative inline-flex items-center gap-2 text-sm font-semibold text-forest-600 transition-colors hover:text-forest-500 dark:text-gold-300 dark:hover:text-gold-200',
+                  'group relative inline-flex items-center gap-2 text-sm font-semibold text-forest-700 transition-colors hover:text-forest-500 dark:text-gold-300 dark:hover:text-gold-200',
                   'after:absolute after:-bottom-0.5 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-current after:transition-transform after:duration-300 hover:after:scale-x-100',
                 )}
               >

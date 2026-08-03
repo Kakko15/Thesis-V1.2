@@ -9,7 +9,7 @@ import { EASE, FieldIcon, formStagger, Rise, Shine, UnderlineLink, ValidTick, Er
 import { authOptions, friendlyAuthError, isValidEmail, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
 import { OtpInput } from '../../components/ui/OtpInput'
 import { toast } from 'sonner'
-import { TurnstileWidget } from '../../components/security/TurnstileWidget'
+import { SecurityCheck } from '../../components/security/SecurityCheck'
 import { turnstileEnabled } from '../../components/security/turnstileConfig'
 
 /** Request a password-reset OTP and verify it, then set new password. */
@@ -142,7 +142,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
               </Field>
             </Rise>
             <Rise>
-              <TurnstileWidget action="password_reset" onToken={setCaptchaToken} resetKey={captchaReset} />
+              <SecurityCheck variant="inline" action="password_reset" onToken={setCaptchaToken} resetKey={captchaReset} />
             </Rise>
             <Rise>
               <Button
@@ -195,9 +195,9 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
               </Button>
             </Rise>
             <Rise>
-              <TurnstileWidget action="password_reset_resend" onToken={setCaptchaToken} resetKey={captchaReset} />
+              <SecurityCheck variant="inline" action="password_reset_resend" onToken={setCaptchaToken} resetKey={captchaReset} />
             </Rise>
-            <Rise className="mt-5 text-center text-xs opacity-60">
+            <Rise className="mt-5 text-center text-xs text-ink-muted">
               Nothing arrived?{' '}
               {cooldown > 0 ? (
                 <span className="font-semibold tabular-nums">Resend in {cooldown}s</span>
@@ -205,7 +205,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
                 <UnderlineLink
                   onClick={send}
                   disabled={loading || (turnstileEnabled && !captchaToken)}
-                  className="text-forest-600 disabled:opacity-50 dark:text-gold-300"
+                  className="text-forest-700 disabled:opacity-50 dark:text-gold-300"
                 >
                   {loading ? 'Sending…' : 'Resend code'}
                 </UnderlineLink>

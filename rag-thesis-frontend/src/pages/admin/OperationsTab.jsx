@@ -14,13 +14,14 @@ import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { GlassCard } from '../../components/ui/GlassCard'
 import { Skeleton } from '../../components/ui/Skeleton'
+import { TableScroller } from '../../components/ui/TableScroller'
 
 function Metric({ icon: Icon, label, value, tone = 'text-forest-500' }) {
   return (
     <GlassCard className="p-5">
       <Icon size={18} className={tone} />
       <div className="mt-3 font-display text-2xl font-extrabold">{value ?? '—'}</div>
-      <div className="text-[0.68rem] font-bold uppercase tracking-wider opacity-50">{label}</div>
+      <div className="text-[0.68rem] font-bold uppercase tracking-wider text-ink-faint">{label}</div>
     </GlassCard>
   )
 }
@@ -75,7 +76,7 @@ export default function OperationsTab() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div><h2 className="font-display text-xl font-extrabold">Ingestion operations</h2><p className="text-xs opacity-55">Sanitized worker, queue, alert, and retention health.</p></div>
+        <div><h2 className="font-display text-xl font-extrabold">Ingestion operations</h2><p className="text-xs text-ink-muted">Sanitized worker, queue, alert, and retention health.</p></div>
         <Button variant="secondary" size="sm" onClick={refresh}><RefreshCw size={14} /> Refresh</Button>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -90,11 +91,11 @@ export default function OperationsTab() {
           <div className="divide-y divide-forest-900/10 dark:divide-white/10">
             {(workers.data || []).map((worker) => (
               <div key={worker.worker_id} className="flex items-center justify-between gap-4 p-4 text-xs">
-                <div><div className="font-mono font-semibold">{worker.worker_id}</div><div className="opacity-50">Last seen {localTime(worker.last_seen_at)}</div></div>
+                <div><div className="font-mono font-semibold">{worker.worker_id}</div><div className="text-ink-faint">Last seen {localTime(worker.last_seen_at)}</div></div>
                 <div className="flex gap-2"><Badge tone={worker.state === 'degraded' ? 'flame' : 'forest'}>{worker.state}</Badge><Badge tone="neutral">Scanner: {worker.scanner_status}</Badge></div>
               </div>
             ))}
-            {!workers.data?.length && <p className="p-5 text-sm opacity-55">No worker has registered yet.</p>}
+            {!workers.data?.length && <p className="p-5 text-sm text-ink-muted">No worker has registered yet.</p>}
           </div>
         </GlassCard>
         <GlassCard className="overflow-hidden">
@@ -102,20 +103,20 @@ export default function OperationsTab() {
           <div className="max-h-80 divide-y divide-forest-900/10 overflow-auto dark:divide-white/10">
             {(alerts.data || []).map((alert) => (
               <div key={alert.id} className="flex items-center justify-between gap-4 p-4 text-xs">
-                <div><div className="font-semibold">{alert.alert_type.replaceAll('_', ' ')}</div><div className="opacity-50">{localTime(alert.last_seen_at)} · {alert.occurrence_count} occurrence(s)</div></div>
+                <div><div className="font-semibold">{alert.alert_type.replaceAll('_', ' ')}</div><div className="text-ink-faint">{localTime(alert.last_seen_at)} · {alert.occurrence_count} occurrence(s)</div></div>
                 <div className="flex items-center gap-2"><Badge tone={alertTone(alert)}>{alert.status}</Badge>{alert.status === 'open' && <Button size="sm" variant="ghost" onClick={() => acknowledge(alert.id)}>Acknowledge</Button>}</div>
               </div>
             ))}
-            {!alerts.data?.length && <p className="p-5 text-sm opacity-55">No operational alerts.</p>}
+            {!alerts.data?.length && <p className="p-5 text-sm text-ink-muted">No operational alerts.</p>}
           </div>
         </GlassCard>
       </div>
       <GlassCard className="p-5">
-        <div className="flex items-start gap-3"><CheckCircle2 size={18} className="mt-0.5 text-forest-500" /><div><h3 className="font-bold">Retention dry run</h3><p className="mt-1 text-xs opacity-55">No records were deleted. The counts below are records currently eligible under the approved retention windows.</p><div className="mt-3 flex flex-wrap gap-2 text-xs"><Badge tone="neutral">Eligible job events: {report.upload_job_events ?? 0}</Badge><Badge tone="neutral">Eligible resolved alerts: {report.resolved_operational_alerts ?? 0}</Badge><Badge tone="neutral">Eligible security events: {report.security_audit_events ?? 0}</Badge></div></div></div>
+        <div className="flex items-start gap-3"><CheckCircle2 size={18} className="mt-0.5 text-forest-500" /><div><h3 className="font-bold">Retention dry run</h3><p className="mt-1 text-xs text-ink-muted">No records were deleted. The counts below are records currently eligible under the approved retention windows.</p><div className="mt-3 flex flex-wrap gap-2 text-xs"><Badge tone="neutral">Eligible job events: {report.upload_job_events ?? 0}</Badge><Badge tone="neutral">Eligible resolved alerts: {report.resolved_operational_alerts ?? 0}</Badge><Badge tone="neutral">Eligible security events: {report.security_audit_events ?? 0}</Badge></div></div></div>
       </GlassCard>
       <GlassCard className="overflow-hidden">
         <div className="border-b border-forest-900/10 p-5 dark:border-white/10"><h3 className="font-bold">Recent durable jobs</h3></div>
-        <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-forest-900/5 uppercase tracking-wider opacity-60 dark:bg-white/5"><tr><th className="px-4 py-3">Job</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Attempt</th><th className="px-4 py-3">Updated</th></tr></thead><tbody>{(jobs.data || []).map((job) => <tr key={job.id} className="border-t border-forest-900/10 dark:border-white/10"><td className="px-4 py-3 font-mono">{job.id.slice(0, 8)}</td><td className="px-4 py-3">{job.department}</td><td className="px-4 py-3"><Badge tone={job.status === 'failed' ? 'flame' : job.status === 'completed' ? 'forest' : 'neutral'}>{job.status}</Badge></td><td className="px-4 py-3">{job.attempt_count}/{job.max_attempts}</td><td className="px-4 py-3">{localTime(job.updated_at)}</td></tr>)}</tbody></table></div>
+        <TableScroller label="Recent durable jobs"><table className="w-full text-left text-xs"><thead className="bg-forest-900/5 uppercase tracking-wider text-ink-muted dark:bg-white/5"><tr><th className="px-4 py-3">Job</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Attempt</th><th className="px-4 py-3">Updated</th></tr></thead><tbody>{(jobs.data || []).map((job) => <tr key={job.id} className="border-t border-forest-900/10 dark:border-white/10"><td className="px-4 py-3 font-mono">{job.id.slice(0, 8)}</td><td className="px-4 py-3">{job.department}</td><td className="px-4 py-3"><Badge tone={job.status === 'failed' ? 'flame' : job.status === 'completed' ? 'forest' : 'neutral'}>{job.status}</Badge></td><td className="px-4 py-3">{job.attempt_count}/{job.max_attempts}</td><td className="px-4 py-3">{localTime(job.updated_at)}</td></tr>)}</tbody></table></TableScroller>
       </GlassCard>
     </div>
   )

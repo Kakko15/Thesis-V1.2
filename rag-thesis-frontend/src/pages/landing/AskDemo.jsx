@@ -7,6 +7,7 @@ import { Logo } from '../../components/ui/Logo'
 import { Reveal } from '../../components/ui/Motion'
 import { SectionHeading } from './SectionHeading'
 import { cn } from '../../lib/utils'
+import { contentKeys } from '../../lib/keys'
 import { usePreferences } from '../../context/PreferencesContext'
 
 /* Fully scripted product demo — no API calls. Phases:
@@ -15,6 +16,8 @@ import { usePreferences } from '../../context/PreferencesContext'
 const QUESTION = 'What local studies used CNNs for crop disease detection?'
 const ANSWER_WORDS =
   'Two archived studies applied convolutional neural networks to agricultural imagery [1] [2] — both within the Data Mining track. The 2023 study reached 94% accuracy detecting rice-leaf blight, while the 2021 work classified maize diseases from smartphone photos.'.split(' ')
+// The demo answer repeats common words, so keys carry an occurrence number.
+const ANSWER_WORD_KEYS = contentKeys(ANSWER_WORDS, 'answer-word')
 const SOURCES = [
   { n: 1, title: 'CNN-Based Rice Leaf Disease Detection', meta: 'Data Mining · 2023' },
   { n: 2, title: 'Maize Disease Image Classification', meta: 'Data Mining · 2021' },
@@ -111,7 +114,7 @@ export function AskDemo() {
               <span className="h-2.5 w-2.5 rounded-full bg-gold-400/70" />
               <span className="h-2.5 w-2.5 rounded-full bg-forest-500/70" />
             </div>
-            <span className="font-mono text-[0.65rem] uppercase tracking-wider opacity-50">
+            <span className="font-mono text-[0.65rem] uppercase tracking-wider text-ink-faint">
               Guest Researcher session · CCSICT archive
             </span>
             <Button variant="ghost" size="icon-sm" aria-label="Replay the demo" onClick={replay}>
@@ -155,14 +158,14 @@ export function AskDemo() {
                       {ANSWER_WORDS.map((word, i) =>
                         isCitation(word) ? (
                           <motion.span
-                            key={i}
+                            key={ANSWER_WORD_KEYS[i]}
                             variants={wordVariant}
-                            className="mx-0.5 inline-block rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-[0.7rem] font-semibold text-gold-600 dark:text-gold-300"
+                            className="mx-0.5 inline-block rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-[0.7rem] font-semibold text-gold-text dark:text-gold-300"
                           >
                             {word}
                           </motion.span>
                         ) : (
-                          <motion.span key={i} variants={wordVariant} className="inline">
+                          <motion.span key={ANSWER_WORD_KEYS[i]} variants={wordVariant} className="inline">
                             {word}{' '}
                           </motion.span>
                         ),
@@ -189,12 +192,12 @@ export function AskDemo() {
                     transition={{ delay: 0.15 + i * 0.12, type: 'spring', stiffness: 320, damping: 24 }}
                     className={cn('glass flex items-start gap-2.5 rounded-xl px-3.5 py-3')}
                   >
-                    <span className="mt-0.5 rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-[0.65rem] font-semibold text-gold-600 dark:text-gold-300">
+                    <span className="mt-0.5 rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-[0.65rem] font-semibold text-gold-text dark:text-gold-300">
                       [{source.n}]
                     </span>
                     <span>
                       <span className="block text-xs font-bold leading-snug">{source.title}</span>
-                      <span className="mt-0.5 block text-[0.65rem] opacity-55">{source.meta}</span>
+                      <span className="mt-0.5 block text-[0.65rem] text-ink-muted">{source.meta}</span>
                     </span>
                   </motion.div>
                 ))}
@@ -204,7 +207,7 @@ export function AskDemo() {
         </GlassCard>
       </Reveal>
 
-      <p className="mx-auto mt-6 max-w-md text-center text-xs leading-relaxed opacity-45">
+      <p className="mx-auto mt-6 max-w-md text-center text-xs leading-relaxed text-ink-faint">
         A scripted preview. The real thing answers from the live CCSICT archive —{' '}
         <span className="font-semibold">no account needed to try it.</span>
       </p>

@@ -163,7 +163,7 @@ export function Field({ label, hint, error, children, required }) {
     return (
       <div className="block">
         {label && (
-          <span id={labelId} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider opacity-70">
+          <span id={labelId} className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-muted">
             {label}
             {required && <span className="ml-1 text-flame-500">*</span>}
           </span>
@@ -172,7 +172,7 @@ export function Field({ label, hint, error, children, required }) {
         {error ? (
           <span id={descriptionId} className="mt-1.5 block text-xs font-medium text-flame-500">{error}</span>
         ) : hint ? (
-          <span id={descriptionId} className="mt-1.5 block text-xs opacity-50">{hint}</span>
+          <span id={descriptionId} className="mt-1.5 block text-xs text-ink-faint">{hint}</span>
         ) : null}
       </div>
     )
@@ -181,7 +181,7 @@ export function Field({ label, hint, error, children, required }) {
   return (
     <label className="block">
       {label && (
-        <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider opacity-70">
+        <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-muted">
           {label}
           {required && <span className="ml-1 text-flame-500">*</span>}
         </span>
@@ -190,7 +190,7 @@ export function Field({ label, hint, error, children, required }) {
       {error ? (
         <span className="mt-1.5 block text-xs font-medium text-flame-500">{error}</span>
       ) : hint ? (
-        <span className="mt-1.5 block text-xs opacity-50">{hint}</span>
+        <span className="mt-1.5 block text-xs text-ink-faint">{hint}</span>
       ) : null}
     </label>
   )

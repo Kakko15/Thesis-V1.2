@@ -40,7 +40,7 @@ function HealthStatus({ compact = false }) {
   const healthy = online && data.status === 'ok'
   const label = healthy ? 'Online' : online ? 'Degraded' : 'Offline'
   return (
-    <div className="flex items-center gap-2 text-xs opacity-65" aria-label={`System ${label.toLowerCase()}`}>
+    <div className="flex items-center gap-2 text-xs text-ink-muted" aria-label={`System ${label.toLowerCase()}`}>
       <span className={cn('h-2 w-2 rounded-full', healthy ? 'bg-emerald-500' : online ? 'bg-amber-400' : 'bg-red-500')} />
       {!compact && <span>{label}</span>}
     </div>
@@ -170,7 +170,7 @@ export function AppShell({ children }) {
         <button
           type="button"
           onClick={() => setCommandOpen(true)}
-          className="mb-4 flex items-center gap-3 rounded-2xl border border-[var(--border)] px-3 py-2.5 text-left text-xs opacity-70 transition-colors hover:bg-[var(--accent)] hover:opacity-100"
+          className="mb-4 flex items-center gap-3 rounded-2xl border border-[var(--border)] px-3 py-2.5 text-left text-xs text-ink-muted transition-colors hover:bg-[var(--accent)] hover:text-ink"
         >
           <Search size={15} /> Quick access <kbd className="ml-auto rounded-md bg-[var(--muted)] px-1.5 py-0.5">Ctrl K</kbd>
         </button>
@@ -207,7 +207,7 @@ export function AppShell({ children }) {
           <Logo size={30} />
           <span className="min-w-0">
             <span className="block truncate font-display text-sm font-extrabold">ISU Thesis Library</span>
-            <span className="block truncate text-[0.65rem] opacity-55">{activeItem?.label || 'Research discovery'}</span>
+            <span className="block truncate text-[0.65rem] text-ink-muted">{activeItem?.label || 'Research discovery'}</span>
           </span>
         </button>
         <div className="flex items-center gap-1">
@@ -232,7 +232,7 @@ export function AppShell({ children }) {
             </NavLink>
           )
         })}
-        <button type="button" onClick={() => setMobileOpen(true)} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-[0.64rem] font-semibold opacity-65">
+        <button type="button" onClick={() => setMobileOpen(true)} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-[0.64rem] font-semibold text-ink-muted">
           <MoreHorizontal size={18} aria-hidden="true" /><span>More</span>
         </button>
       </nav>

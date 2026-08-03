@@ -14,7 +14,7 @@ export function EmptyState({ icon: Icon, title, message, action }) {
         </div>
       )}
       <h3 className="font-display text-lg font-bold">{title}</h3>
-      {message && <p className="mt-1.5 max-w-sm text-sm opacity-60">{message}</p>}
+      {message && <p className="mt-1.5 max-w-sm text-sm text-ink-muted">{message}</p>}
       {action && <div className="mt-6">{action}</div>}
     </motion.div>
   )

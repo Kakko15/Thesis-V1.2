@@ -145,7 +145,7 @@ function MfaBody({ onClose, onChanged }) {
       <div className="py-5 text-center">
         <ShieldOff className="mx-auto text-flame-500" size={28} />
         <p role="alert" className="mt-3 text-sm font-medium">Two-factor status could not be loaded.</p>
-        <p className="mt-1 text-xs opacity-60">{error}</p>
+        <p className="mt-1 text-xs text-ink-muted">{error}</p>
         <Button className="mt-5" variant="secondary" onClick={onClose}>Close</Button>
       </div>
     )
@@ -154,7 +154,7 @@ function MfaBody({ onClose, onChanged }) {
   if (view === 'setup') {
     return (
       <div>
-        <ol className="mb-5 space-y-1.5 text-sm opacity-70">
+        <ol className="mb-5 space-y-1.5 text-sm text-ink-muted">
           <li>1. Open Google Authenticator, 1Password, or any TOTP app.</li>
           <li>2. Scan the QR code (or paste the secret).</li>
           <li>3. Enter the 6-digit code it shows.</li>
@@ -167,7 +167,7 @@ function MfaBody({ onClose, onChanged }) {
             className="h-44 w-44 shrink-0 rounded-2xl bg-white p-3 shadow-lg"
           />
           <div className="min-w-0 flex-1">
-            <div className="text-xs font-semibold uppercase tracking-wider opacity-60">
+            <div className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
               Can't scan? Enter this secret
             </div>
             <div className="glass mt-2 flex items-center gap-2 rounded-xl px-3 py-2.5">
@@ -180,7 +180,7 @@ function MfaBody({ onClose, onChanged }) {
             </div>
 
             <div className="mt-5">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wider opacity-60">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-muted">
                 Verification code
               </div>
               <OtpInput
@@ -227,7 +227,7 @@ function MfaBody({ onClose, onChanged }) {
           <div className="text-sm font-bold">
             {factor ? 'Two-factor authentication is on' : 'Two-factor authentication is off'}
           </div>
-          <div className="mt-0.5 text-xs opacity-60">
+          <div className="mt-0.5 text-xs text-ink-muted">
             {factor
               ? 'Signing in requires your password and a rotating authenticator code.'
               : 'Add an authenticator app so a stolen password alone can never open your account.'}
