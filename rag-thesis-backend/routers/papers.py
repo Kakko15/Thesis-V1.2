@@ -72,8 +72,19 @@ def list_papers(
         )
         papers = _ready_papers_query(legacy_fields, department).execute().data or []
 
-    profiles_res = sb.table('profiles').select('id,full_name,email').execute()
-    profiles = {profile['id']: profile for profile in (profiles_res.data or [])}
+    # Restrict the lookup to the uploaders actually present. This read had no
+    # filter and no limit, so every archive page load transferred the entire
+    # profiles table to the API process purely to map ids to display names —
+    # invisible at 50 theses, thousands of rows at university scale. Mirrors
+    # the pattern routers/analytics.py already uses for system logs.
+    uploader_ids = list({paper['uploaded_by'] for paper in papers if paper.get('uploaded_by')})
+    profiles = {}
+    if uploader_ids:
+        profiles_res = (
+            sb.table('profiles').select('id,full_name,email')
+            .in_('id', uploader_ids).execute()
+        )
+        profiles = {profile['id']: profile for profile in (profiles_res.data or [])}
     for paper in papers:
         uploader = profiles.get(paper.get('uploaded_by'))
         paper['uploader_name'] = (

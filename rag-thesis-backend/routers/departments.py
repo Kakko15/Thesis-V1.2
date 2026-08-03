@@ -2,12 +2,13 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from config import settings
 from dependencies.auth import require_superadmin, sb
 from models import DepartmentCreate, DepartmentOut, DepartmentUpdate
 from routers.openapi_responses import errors
+from services.rate_limiting import limiter
 
 router = APIRouter(prefix='/departments', tags=['Departments'])
 
@@ -16,10 +17,20 @@ SuperadminUser = Annotated[Any, Depends(require_superadmin)]
 
 
 @router.get('/', response_model=list[DepartmentOut])
-def list_departments():
-    """Fetch departments for server-validated filtering."""
-    result = sb.table('departments').select('*').order('created_at', desc=False).execute()
-    return result.data
+@limiter.limit(settings.rate_limit_public)
+def list_departments(request: Request):
+    """Fetch departments for server-validated filtering.
+
+    Unauthenticated like the catalog reads, so it carries the same explicit
+    limit. The response model also pins the exposed columns, replacing a
+    `select('*')` that would have published any future column by default.
+    """
+    result = (
+        sb.table('departments')
+        .select('id,name,track_label,tracks,created_at')
+        .order('created_at', desc=False).execute()
+    )
+    return result.data or []
 
 
 @router.post('/', response_model=DepartmentOut, responses=errors(400))
@@ -35,6 +46,14 @@ def create_department(body: DepartmentCreate, user: SuperadminUser):
         'tracks': body.tracks,
     }
     result = sb.table('departments').insert(insert_data).execute()
+    if not result.data:
+        # PostgREST does not always return a representation; indexing [0] blind
+        # turned that into an unhandled 500 with nothing to act on.
+        raise HTTPException(
+            status_code=502,
+            detail='The department was submitted but the database did not confirm it. '
+                   'Reload the department list before retrying.',
+        )
     return result.data[0]
 
 
@@ -74,6 +93,12 @@ def update_department(
         return existing.data[0]
 
     result = sb.table('departments').update(update_data).eq('id', department_id).execute()
+    if not result.data:
+        raise HTTPException(
+            status_code=502,
+            detail='The department update was submitted but the database did not confirm it. '
+                   'Reload the department list before retrying.',
+        )
     return result.data[0]
 
 

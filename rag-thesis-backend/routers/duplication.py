@@ -22,7 +22,9 @@ from services.chunker import split_document, validate_chunk_records
 from services.index_provenance import retrieval_provenance_params
 from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
+from services.filenames import sanitize_filename
 from services.guards import REFUSAL_MESSAGE, prohibited_reason
+from services.llm_output import coerce_text
 from services.novelty import percent, verdict_for_coverage
 from services.rate_limiting import limiter
 
@@ -53,13 +55,9 @@ def compute_duplication_percentage(matched: int, total: int) -> float:
     return (matched / total) * 100 if total > 0 else 0.0
 
 
-def _coerce(result) -> str:
-    content = result.content if hasattr(result, 'content') else str(result)
-    if isinstance(content, list):
-        return ''.join(
-            b.get('text', '') if isinstance(b, dict) else str(b) for b in content
-        )
-    return str(content)
+# Kept as a module-local name; the implementation is now shared with
+# routers/chat.py and routers/upload.py.
+_coerce = coerce_text
 
 
 def _short_excerpt(text: str, limit: int = 320) -> str:
@@ -154,6 +152,13 @@ async def scan_duplication(
         raise HTTPException(422, 'File content is not a valid PDF')
     if suffix == 'txt' and file.content_type not in {'text/plain', 'application/octet-stream'}:
         raise HTTPException(415, 'Text manuscripts must use a plain-text MIME type')
+    # The client filename is persisted to scan_history and rendered in the scan
+    # list and the admin activity log. The upload path has always sanitized it;
+    # this path stored it verbatim, so a 4,000-character name or one carrying
+    # path separators and control characters went straight into both surfaces.
+    safe_filename = sanitize_filename(
+        file.filename, default_stem='manuscript', force_suffix=suffix,
+    )
 
     try:
         document = await asyncio.to_thread(extract_document, file_bytes, file.filename)
@@ -305,7 +310,7 @@ async def scan_duplication(
 
     history_data = {
         'user_id': user.id,
-        'filename': file.filename,
+        'filename': safe_filename,
         'department': effective_department,
         'duplication_percentage': percentage,
         'highest_similarity': highest_similarity,
@@ -323,7 +328,7 @@ async def scan_duplication(
     )
 
     await asyncio.to_thread(log_activity, user.id, 'novelty_scan', {
-        'filename': file.filename,
+        'filename': safe_filename,
         'duplication_percentage': round(percentage, 2),
         'highest_similarity': highest_similarity,
         'matched_chunk_count': len(match_scores),

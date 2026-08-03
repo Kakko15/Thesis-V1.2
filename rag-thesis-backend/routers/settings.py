@@ -44,16 +44,19 @@ def get_public_settings():
 
 @router.get('/features')
 def get_features(user: CurrentUser):
-    """Fetch feature toggles for all roles."""
+    """Fetch feature toggles for all roles.
+
+    Read-only by contract. This used to INSERT the row when it was missing, so
+    any student's first page load after a fresh deployment wrote a
+    system-settings row, two concurrent first loads raced on the primary key
+    and surfaced a 500 instead of the payload, and because `src/api.js` retries
+    GETs on transient gateway errors a retried request could attempt the insert
+    twice. The row is seeded by `supabase_setup.sql`; absent simply means the
+    documented defaults apply, which is what every caller already assumes.
+    """
     res = sb.table('system_settings').select('value').eq('key', 'role_features').execute()
     if res.data:
         return res.data[0]['value']
-
-    sb.table('system_settings').insert({
-        'key': 'role_features',
-        'value': DEFAULT_FEATURES,
-        'description': 'Role-based access permissions for system features',
-    }).execute()
     return DEFAULT_FEATURES
 
 

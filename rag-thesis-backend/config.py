@@ -1,7 +1,7 @@
 from typing import Literal
 
 from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     rate_limit_upload: str = '10/minute'
     rate_limit_scan: str = '5/minute'
     rate_limit_followup: str = '20/minute'
+    # Unauthenticated read endpoints the landing page calls (public summary and
+    # the academic catalog). They sat outside every named limit, so only the
+    # global 120/minute default applied and a loop over them forced a
+    # full-table read per request — a cheap denial-of-wallet vector.
+    rate_limit_public: str = '30/minute'
     rate_limit_storage_uri: str = 'memory://'
     require_privileged_mfa: bool = False
     max_upload_mb: int = 25
@@ -98,9 +103,11 @@ class Settings(BaseSettings):
     langsmith_hide_inputs: bool = True
     langsmith_hide_outputs: bool = True
 
-    class Config:
-        env_file = '.env'
-        extra = 'ignore'
+    # Class-based `Config` is deprecated in Pydantic V2 and removed in V3.0; it
+    # emitted a PydanticDeprecatedSince20 warning on every import. Same
+    # env_file and extra behaviour, declared the supported way. No RAG
+    # parameter value changes — the frozen thesis contract above is untouched.
+    model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 
     @property
     def cors_origin_list(self) -> list[str]:

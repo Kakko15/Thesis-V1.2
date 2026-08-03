@@ -1,7 +1,8 @@
+import inspect
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from models import (
     DepartmentCreate, DepartmentUpdate, ProfileUpdate, RoleUpdate,
@@ -9,6 +10,16 @@ from models import (
 )
 from routers import analytics, departments, maintenance, papers, sessions
 from routers import settings as settings_router
+
+
+def public_request(path='/'):
+    """slowapi's wrapper needs a real Request, so rate-limited handlers cannot
+    be called with a stand-in object even after unwrapping the decorator."""
+    return Request({
+        'type': 'http', 'method': 'GET', 'path': path, 'headers': [],
+        'query_string': b'', 'client': ('127.0.0.1', 1234),
+        'server': ('test', 80), 'scheme': 'http',
+    })
 
 
 class Query:
@@ -106,7 +117,7 @@ class TestDepartmentsAndSettings:
             'scan_history': [result(count=0)], 'chat_sessions': [result(count=0)],
             'upload_jobs': [result(count=0)], 'activity_log': [result(count=0)]})
         monkeypatch.setattr(departments, 'sb', client)
-        assert departments.list_departments()[0]['name'] == 'CCSICT'
+        assert inspect.unwrap(departments.list_departments)(public_request('/departments/'))[0]['name'] == 'CCSICT'
         assert departments.create_department(body, SimpleNamespace(id='root'))['name'] == 'CAS'
         updated = departments.update_department('d', DepartmentUpdate(name='CAS2'), SimpleNamespace(id='root'))
         assert updated['name'] == 'CAS2'
@@ -253,7 +264,7 @@ class TestPapersAndAnalytics:
             'chat_sessions': [result(count=2)],
         })
         monkeypatch.setattr(analytics, 'sb', client)
-        summary = analytics.public_summary()
+        summary = inspect.unwrap(analytics.public_summary)(public_request('/analytics/summary'))
         assert summary['total_papers'] == 1 and summary['year_range']['from'] == 2024
         overview = analytics.overview(SimpleNamespace(id='admin'))
         assert overview['papers']['total_chunks'] == 3

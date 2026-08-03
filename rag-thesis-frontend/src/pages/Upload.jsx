@@ -203,8 +203,17 @@ function Dropzone({ file, onFile }) {
   )
 }
 
+// The backend reports a `store` stage while the manuscript is being staged
+// privately, which is not one of the seven worker stages below. findIndex
+// returned -1 for it, so the whole stepper rendered inert and greyed while the
+// progress bar already showed movement. Map it onto the first worker stage, and
+// treat the pre-worker statuses as active so the step reads as "starting".
+const STAGE_ALIASES = { store: 'download', '': 'download' }
+const IN_FLIGHT_STATUSES = ['staging', 'queued', 'processing', 'retry_wait']
+
 function PipelineProgress({ job }) {
-  const currentIdx = PIPELINE_STAGES.findIndex((s) => s.key === job?.stage)
+  const stageKey = STAGE_ALIASES[job?.stage ?? ''] ?? job?.stage
+  const currentIdx = PIPELINE_STAGES.findIndex((s) => s.key === stageKey)
   return (
     <div className="space-y-5">
       <div className="relative h-2.5 overflow-hidden rounded-full bg-forest-900/10 dark:bg-white/10">
@@ -217,7 +226,7 @@ function PipelineProgress({ job }) {
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-7">
         {PIPELINE_STAGES.map((stage, i) => {
           const done = job?.status === 'completed' || i < currentIdx
-          const active = i === currentIdx && ['processing', 'retry_wait'].includes(job?.status)
+          const active = i === currentIdx && IN_FLIGHT_STATUSES.includes(job?.status)
           return (
             <div key={stage.key} className="flex flex-col items-center gap-1.5 text-center">
               <div

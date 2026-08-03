@@ -3,17 +3,54 @@
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from config import settings
 from dependencies.auth import require_superadmin, sb
 from models import CatalogEntityCreate, CatalogEntityUpdate
 from routers.openapi_responses import errors
+from services.rate_limiting import limiter
 
 router = APIRouter(prefix='/catalog', tags=['Academic catalog'])
 logger = logging.getLogger(__name__)
 
 # The Supabase SDK returns an opaque user record, so Any is the honest type.
 SuperadminUser = Annotated[Any, Depends(require_superadmin)]
+
+
+_UNIQUE_VIOLATION_SQLSTATE = '23505'
+
+
+def _is_duplicate_code(error: Exception) -> bool:
+    for attribute in ('code', 'pgcode'):
+        if str(getattr(error, attribute, '') or '') == _UNIQUE_VIOLATION_SQLSTATE:
+            return True
+    details = getattr(error, 'details', None) or getattr(error, 'message', None) or str(error)
+    text = str(details).lower()
+    return _UNIQUE_VIOLATION_SQLSTATE in text or 'duplicate key value' in text
+
+
+def _inserted_row(table: str, row: dict, conflict_detail: str) -> dict:
+    """Insert one catalog row and return it, or explain why we could not.
+
+    Indexing `.execute().data[0]` directly raised for two reachable cases:
+    PostgREST does not always return a representation, and a duplicate `code`
+    surfaced as an unhandled 500 instead of telling the superadmin the code was
+    already taken.
+    """
+    try:
+        created = sb.table(table).insert(row).execute().data or []
+    except Exception as error:
+        if _is_duplicate_code(error):
+            raise HTTPException(status.HTTP_409_CONFLICT, conflict_detail) from error
+        raise
+    if not created:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            'The catalog entry was submitted but the database did not confirm it. '
+            'Reload the catalog before retrying.',
+        )
+    return created[0]
 
 
 def _legacy_catalog() -> list[dict]:
@@ -70,23 +107,30 @@ def _nested_catalog(active_only: bool = True) -> list[dict]:
     return result
 
 
+# Both catalog reads are unauthenticated so the sign-up and landing surfaces can
+# populate their pickers, and both aggregate several unbounded table reads. An
+# explicit limit keeps them off the denial-of-wallet path.
 @router.get('/departments')
-def list_catalog():
+@limiter.limit(settings.rate_limit_public)
+def list_catalog(request: Request):
     return {'contract_version': '2026-07-25', 'departments': _nested_catalog()}
 
 
 @router.get('/departments/legacy')
-def list_catalog_legacy():
+@limiter.limit(settings.rate_limit_public)
+def list_catalog_legacy(request: Request):
     return _nested_catalog()
 
 
-@router.post('/programs', status_code=status.HTTP_201_CREATED, responses=errors(422))
+@router.post('/programs', status_code=status.HTTP_201_CREATED, responses=errors(409, 422, 502))
 def create_program(body: CatalogEntityCreate, _user: SuperadminUser):
     parent = sb.table('departments').select('id').eq('id', body.parent_id).eq('active', True).execute()
     if not parent.data:
         raise HTTPException(422, 'Active parent department not found.')
     row = {'department_id': body.parent_id, 'code': body.code, 'name': body.name, 'active': True}
-    return sb.table('programs').insert(row).execute().data[0]
+    return _inserted_row(
+        'programs', row, f'Program code {body.code} is already in use.',
+    )
 
 
 @router.patch('/programs/{entity_id}', responses=errors(404, 422))
@@ -100,13 +144,15 @@ def update_program(entity_id: str, body: CatalogEntityUpdate, _user: SuperadminU
     return result[0]
 
 
-@router.post('/specializations', status_code=status.HTTP_201_CREATED, responses=errors(422))
+@router.post('/specializations', status_code=status.HTTP_201_CREATED, responses=errors(409, 422, 502))
 def create_specialization(body: CatalogEntityCreate, _user: SuperadminUser):
     parent = sb.table('programs').select('id').eq('id', body.parent_id).eq('active', True).execute()
     if not parent.data:
         raise HTTPException(422, 'Active parent program not found.')
     row = {'program_id': body.parent_id, 'code': body.code, 'name': body.name, 'active': True}
-    return sb.table('specializations').insert(row).execute().data[0]
+    return _inserted_row(
+        'specializations', row, f'Specialization code {body.code} is already in use.',
+    )
 
 
 @router.patch('/specializations/{entity_id}', responses=errors(404, 422))

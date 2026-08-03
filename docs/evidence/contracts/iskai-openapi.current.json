@@ -1254,7 +1254,7 @@
     },
     "/analytics/summary": {
       "get": {
-        "description": "Return lightweight, non-sensitive landing-page statistics.",
+        "description": "Return lightweight, non-sensitive landing-page statistics.\n\nUnauthenticated by design — the landing page calls it for every anonymous\nvisitor — so it carries an explicit rate limit. Without one, only the global\ndefault applied and a trivial loop forced a full-table read per request.",
         "operationId": "public_summary_analytics_summary_get",
         "responses": {
           "200": {
@@ -1538,8 +1538,14 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "description": "The request conflicts with the current state of the resource."
+          },
           "422": {
             "description": "The request was well formed but failed validation."
+          },
+          "502": {
+            "description": "An upstream AI service was unavailable or returned an error."
           }
         },
         "security": [
@@ -1626,8 +1632,14 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "description": "The request conflicts with the current state of the resource."
+          },
           "422": {
             "description": "The request was well formed but failed validation."
+          },
+          "502": {
+            "description": "An upstream AI service was unavailable or returned an error."
           }
         },
         "security": [
@@ -1749,7 +1761,7 @@
     },
     "/departments/": {
       "get": {
-        "description": "Fetch departments for server-validated filtering.",
+        "description": "Fetch departments for server-validated filtering.\n\nUnauthenticated like the catalog reads, so it carries the same explicit\nlimit. The response model also pins the exposed columns, replacing a\n`select('*')` that would have published any future column by default.",
         "operationId": "list_departments_departments__get",
         "responses": {
           "200": {
@@ -2831,7 +2843,7 @@
     },
     "/settings/features": {
       "get": {
-        "description": "Fetch feature toggles for all roles.",
+        "description": "Fetch feature toggles for all roles.\n\nRead-only by contract. This used to INSERT the row when it was missing, so\nany student's first page load after a fresh deployment wrote a\nsystem-settings row, two concurrent first loads raced on the primary key\nand surfaced a 500 instead of the payload, and because `src/api.js` retries\nGETs on transient gateway errors a retried request could attempt the insert\ntwice. The row is seeded by `supabase_setup.sql`; absent simply means the\ndocumented defaults apply, which is what every caller already assumes.",
         "operationId": "get_features_settings_features_get",
         "responses": {
           "200": {

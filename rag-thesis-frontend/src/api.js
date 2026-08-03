@@ -87,6 +87,24 @@ api.interceptors.request.use(async (config) => {
   return config
 })
 
+let sessionRefresh = null
+
+/**
+ * Refresh the access token once, collapsing concurrent callers.
+ *
+ * A page with several requests in flight will see several 401s from the same
+ * expired token; without this they would each fire their own refresh and race.
+ */
+function refreshSessionOnce() {
+  if (!sessionRefresh) {
+    sessionRefresh = supabase.auth.refreshSession()
+      .then(({ data, error }) => Boolean(!error && data?.session?.access_token))
+      .catch(() => false)
+      .finally(() => { sessionRefresh = null })
+  }
+  return sessionRefresh
+}
+
 // Automatically log out if the backend rejects the token (e.g., user deleted or token expired)
 api.interceptors.response.use(
   (response) => response,
@@ -104,10 +122,25 @@ api.interceptors.response.use(
       return api.request(config)
     }
 
-    if (error.response?.status === 401) {
-      // Force clear local session and reload to trigger the login screen
+    if (status === 401) {
+      // An expired access token used to hard-navigate straight to /login,
+      // discarding all React state: the open conversation, the typed-but-unsent
+      // question, an in-progress upload form. Try one silent refresh and replay
+      // the request first — the token expiring between two messages is the
+      // common case and the user should never see it.
+      if (config && !config.__authRetried && !isE2ETestMode) {
+        config.__authRetried = true
+        if (await refreshSessionOnce()) {
+          return api.request(config)
+        }
+      }
+      // Genuinely unauthenticated: clear the session and send them to sign in,
+      // remembering where they were so the trip back is possible.
       if (!isE2ETestMode) await supabase.auth.signOut()
-      window.location.href = '/login'
+      const current = `${window.location.pathname}${window.location.search}`
+      window.location.href = current && current !== '/login'
+        ? `/login?returnTo=${encodeURIComponent(current)}`
+        : '/login'
     }
     return Promise.reject(error)
   }
