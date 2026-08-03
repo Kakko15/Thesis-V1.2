@@ -14,6 +14,13 @@ RAG_ITEMS_9_16_OLD_VS_NEW.md
 THESIS_SYSTEM_CHANGE_PLAN.md
 ISU_ECHAGUE_PRODUCTION_ROADMAP.md
 
+# Dated audit notes. The improvements inventory enumerates unfixed defects with
+# file:line pointers, and this repository is public — it stays a local artifact
+# until the items it lists are closed.
+PAPER_VS_SYSTEM_COMPARISON*.md
+SYSTEM_IMPROVEMENTS_AND_BUGS*.md
+PRODUCTION_IMPROVEMENTS_RECOMMENDATIONS.md
+
 # Duplicate local source asset; the application uses the optimized public copy.
 ISU_Logo.jpg
 
