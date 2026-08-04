@@ -9,6 +9,7 @@ import { Badge } from '../../components/ui/Badge'
 import { Input, Select } from '../../components/ui/Input'
 import { cn, formatDate } from '../../lib/utils'
 import { TableScroller } from '../../components/ui/TableScroller'
+import { TableStateRow } from '../../components/ui/TableStateRow'
 
 function PipelineNode({ icon: Icon, label, active, delay }) {
   return (
@@ -31,7 +32,7 @@ function PipelineNode({ icon: Icon, label, active, delay }) {
 
 export default function UploadHistoryTab() {
   const { role, department: userDept } = useAuth()
-  const { data: papers = [], isLoading } = useQuery({
+  const { data: papers = [], isLoading, error, refetch } = useQuery({
     queryKey: ['papers', role, userDept],
     queryFn: () => listPapers(role === 'admin' ? userDept : null),
   })
@@ -136,11 +137,17 @@ export default function UploadHistoryTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
-              {isLoading ? (
-                <tr><td colSpan={7} className="px-6 py-8 text-center text-ink-faint">Loading history...</td></tr>
-              ) : filteredPapers.length === 0 ? (
-                <tr><td colSpan={7} className="px-6 py-8 text-center text-ink-faint">No matching theses found.</td></tr>
-              ) : (
+              <TableStateRow
+                colSpan={7}
+                loading={isLoading}
+                error={error}
+                empty={filteredPapers.length === 0}
+                onRetry={() => refetch()}
+                loadingLabel="Loading history..."
+                emptyLabel="No matching theses found."
+                errorLabel="Upload history could not be loaded."
+              />
+              {!isLoading && !error && (
                 filteredPapers.map(p => (
                   <tr key={p.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
                     <td className="px-6 py-4 max-w-md">

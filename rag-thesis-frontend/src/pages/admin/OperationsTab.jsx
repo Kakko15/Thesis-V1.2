@@ -15,6 +15,7 @@ import { Button } from '../../components/ui/Button'
 import { GlassCard } from '../../components/ui/GlassCard'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { TableScroller } from '../../components/ui/TableScroller'
+import { TableStateRow } from '../../components/ui/TableStateRow'
 
 function Metric({ icon: Icon, label, value, tone = 'text-forest-500' }) {
   return (
@@ -112,11 +113,27 @@ export default function OperationsTab() {
         </GlassCard>
       </div>
       <GlassCard className="p-5">
-        <div className="flex items-start gap-3"><CheckCircle2 size={18} className="mt-0.5 text-forest-500" /><div><h3 className="font-bold">Retention dry run</h3><p className="mt-1 text-xs text-ink-muted">No records were deleted. The counts below are records currently eligible under the approved retention windows.</p><div className="mt-3 flex flex-wrap gap-2 text-xs"><Badge tone="neutral">Eligible job events: {report.upload_job_events ?? 0}</Badge><Badge tone="neutral">Eligible resolved alerts: {report.resolved_operational_alerts ?? 0}</Badge><Badge tone="neutral">Eligible security events: {report.security_audit_events ?? 0}</Badge></div></div></div>
+        {/* The retention query is deliberately outside the page-level loading and
+            error gates above, because a missing retention report should not blank
+            the whole operations view. That made `?? 0` report an unreachable
+            endpoint as a measured zero — three counts of "0 eligible records"
+            that nobody had measured. State it instead. */}
+        <div className="flex items-start gap-3"><CheckCircle2 size={18} className="mt-0.5 text-forest-500" /><div><h3 className="font-bold">Retention dry run</h3><p className="mt-1 text-xs text-ink-muted">No records were deleted. The counts below are records currently eligible under the approved retention windows.</p>
+          {retention.isError ? (
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
+              <span className="flex items-center gap-2 text-ink-muted"><AlertTriangle size={14} className="shrink-0 text-flame-500" aria-hidden="true" />Retention counts are unavailable, so none are shown rather than shown as zero.</span>
+              <Button variant="secondary" size="sm" onClick={() => retention.refetch()}><RefreshCw size={13} /> Retry</Button>
+            </div>
+          ) : retention.isLoading ? (
+            <div className="mt-3"><Skeleton className="h-6 w-72" /></div>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2 text-xs"><Badge tone="neutral">Eligible job events: {report.upload_job_events ?? 0}</Badge><Badge tone="neutral">Eligible resolved alerts: {report.resolved_operational_alerts ?? 0}</Badge><Badge tone="neutral">Eligible security events: {report.security_audit_events ?? 0}</Badge></div>
+          )}
+        </div></div>
       </GlassCard>
       <GlassCard className="overflow-hidden">
         <div className="border-b border-forest-900/10 p-5 dark:border-white/10"><h3 className="font-bold">Recent durable jobs</h3></div>
-        <TableScroller label="Recent durable jobs"><table className="w-full text-left text-xs"><thead className="bg-forest-900/5 uppercase tracking-wider text-ink-muted dark:bg-white/5"><tr><th className="px-4 py-3">Job</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Attempt</th><th className="px-4 py-3">Updated</th></tr></thead><tbody>{(jobs.data || []).map((job) => <tr key={job.id} className="border-t border-forest-900/10 dark:border-white/10"><td className="px-4 py-3 font-mono">{job.id.slice(0, 8)}</td><td className="px-4 py-3">{job.department}</td><td className="px-4 py-3"><Badge tone={job.status === 'failed' ? 'flame' : job.status === 'completed' ? 'forest' : 'neutral'}>{job.status}</Badge></td><td className="px-4 py-3">{job.attempt_count}/{job.max_attempts}</td><td className="px-4 py-3">{localTime(job.updated_at)}</td></tr>)}</tbody></table></TableScroller>
+        <TableScroller label="Recent durable jobs"><table className="w-full text-left text-xs"><thead className="bg-forest-900/5 uppercase tracking-wider text-ink-muted dark:bg-white/5"><tr><th className="px-4 py-3">Job</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Attempt</th><th className="px-4 py-3">Updated</th></tr></thead><tbody><TableStateRow colSpan={5} empty={!jobs.data?.length} emptyLabel="No durable ingestion job has run yet." />{(jobs.data || []).map((job) => <tr key={job.id} className="border-t border-forest-900/10 dark:border-white/10"><td className="px-4 py-3 font-mono">{job.id.slice(0, 8)}</td><td className="px-4 py-3">{job.department}</td><td className="px-4 py-3"><Badge tone={job.status === 'failed' ? 'flame' : job.status === 'completed' ? 'forest' : 'neutral'}>{job.status}</Badge></td><td className="px-4 py-3">{job.attempt_count}/{job.max_attempts}</td><td className="px-4 py-3">{localTime(job.updated_at)}</td></tr>)}</tbody></table></TableScroller>
       </GlassCard>
     </div>
   )

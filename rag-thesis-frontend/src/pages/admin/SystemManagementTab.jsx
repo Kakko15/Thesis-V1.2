@@ -19,6 +19,7 @@ import { ConfirmDialog } from '../../components/ui/Modal'
 import { formatDate } from '../../lib/utils'
 import { avatarPublicUrl } from '../../lib/avatar'
 import { TableScroller } from '../../components/ui/TableScroller'
+import { TableStateRow } from '../../components/ui/TableStateRow'
 
 function PaginationControls({ page, setPage, total, limit }) {
   const totalPages = Math.ceil(total / limit)
@@ -37,7 +38,7 @@ function PaginationControls({ page, setPage, total, limit }) {
 function FeaturePermissionsManagement() {
   const { broadcastFeatureUpdate } = useAuth()
   const queryClient = useQueryClient()
-  const { data: features, isLoading } = useQuery({ queryKey: ['features'], queryFn: getFeaturePermissions })
+  const { data: features, isLoading, error, refetch } = useQuery({ queryKey: ['features'], queryFn: getFeaturePermissions })
 
   const handleToggle = async (role, feature) => {
     if (!features) return
@@ -77,9 +78,15 @@ function FeaturePermissionsManagement() {
             </tr>
           </thead>
           <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
-            {isLoading ? (
-              <tr><td colSpan={2} className="px-6 py-8 text-center text-ink-faint">Loading features...</td></tr>
-            ) : (
+            <TableStateRow
+              colSpan={2}
+              loading={isLoading}
+              error={error}
+              onRetry={() => refetch()}
+              loadingLabel="Loading features..."
+              errorLabel="Role permissions could not be loaded. The toggles below would show every feature as disabled, which is not what the server has stored."
+            />
+            {!isLoading && !error && (
               ['student', 'faculty'].map(role => (
                 <tr key={role} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
                   <td className="px-6 py-4 font-bold capitalize">{role}</td>
@@ -122,9 +129,53 @@ function FeaturePermissionsManagement() {
   )
 }
 
+/**
+ * Raw activity log.
+ *
+ * Not a table, so the three async states are spelled out rather than delegated
+ * to TableStateRow. An empty log pane and a failed log fetch look identical
+ * otherwise — and this is the surface an administrator opens precisely when
+ * something is already wrong, so "no logs" must not be able to mean "the log
+ * request failed".
+ */
+function SystemLogsPanel({ logs, loading, error, onRetry }) {
+  const body = () => {
+    if (error) {
+      return (
+        <div className="flex flex-col items-start gap-2">
+          <span className="text-flame-400">System logs could not be loaded.</span>
+          <Button variant="secondary" size="sm" onClick={onRetry}>Retry</Button>
+        </div>
+      )
+    }
+    if (loading) return <div className="opacity-50">Loading system logs...</div>
+    if (logs.length === 0) return <div className="opacity-50">No activity has been logged yet.</div>
+    return logs.map(log => (
+      <div key={log.id} className="border-b border-white/10 pb-2">
+        <span className="text-forest-400">[{new Date(log.created_at).toISOString()}]</span>{' '}
+        <span className="text-gold-400">{log.action}</span>{' '}
+        <span className="opacity-60">USER:{log.user?.email || log.user_id || 'system'}</span>{' '}
+        <span className="text-white/80">{JSON.stringify(log.detail)}</span>
+      </div>
+    ))
+  }
+  return (
+    <GlassCard className="p-6">
+      <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
+        <TerminalSquare size={13} /> Raw System Logs
+      </div>
+      <div className="bg-canvas-950 text-white rounded-2xl p-4 font-mono text-xs max-h-96 overflow-y-auto space-y-2">
+        {body()}
+      </div>
+    </GlassCard>
+  )
+}
+
 function DepartmentsManagement() {
   const queryClient = useQueryClient()
-  const { data: departments = [], isLoading } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
+  const {
+    data: departments = [], isLoading, error, refetch,
+  } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
   
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState({ name: '', track_label: '', tracks: '' })
@@ -202,9 +253,17 @@ function DepartmentsManagement() {
             </tr>
           </thead>
           <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
-            {isLoading ? (
-              <tr><td colSpan={4} className="px-6 py-8 text-center text-ink-faint">Loading departments...</td></tr>
-            ) : (
+            <TableStateRow
+              colSpan={4}
+              loading={isLoading}
+              error={error}
+              empty={departments.length === 0}
+              onRetry={() => refetch()}
+              loadingLabel="Loading departments..."
+              emptyLabel="No departments have been created yet."
+              errorLabel="Departments could not be loaded."
+            />
+            {!isLoading && !error && (
               <>
                 {paginated.map(d => (
                   <tr key={d.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
@@ -290,7 +349,9 @@ export default function SystemManagementTab() {
   const [confirmation, setConfirmation] = useState(null)
   const [confirming, setConfirming] = useState(false)
   
-  const { data: users = [], isLoading: loadingUsers } = useQuery({
+  const {
+    data: users = [], isLoading: loadingUsers, error: usersError, refetch: refetchUsers,
+  } = useQuery({
     queryKey: ['users'],
     queryFn: listUsers,
   })
@@ -307,12 +368,16 @@ export default function SystemManagementTab() {
   })
   const paginatedUsers = filteredUsers.slice((userPage - 1) * 5, userPage * 5)
   
-  const { data: logs = [], isLoading: loadingLogs } = useQuery({
+  const {
+    data: logs = [], isLoading: loadingLogs, error: logsError, refetch: refetchLogs,
+  } = useQuery({
     queryKey: ['system-logs'],
     queryFn: () => getSystemLogs(200),
   })
 
-  const { data: papers = [], isLoading: loadingPapers } = useQuery({
+  const {
+    data: papers = [], isLoading: loadingPapers, error: papersError, refetch: refetchPapers,
+  } = useQuery({
     queryKey: ['papers', 'all'],
     queryFn: () => listPapers(null),
   })
@@ -451,11 +516,17 @@ export default function SystemManagementTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
-              {loadingUsers ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-ink-faint">Loading users...</td></tr>
-              ) : filteredUsers.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-ink-faint">No users found.</td></tr>
-              ) : (
+              <TableStateRow
+                colSpan={6}
+                loading={loadingUsers}
+                error={usersError}
+                empty={filteredUsers.length === 0}
+                onRetry={() => refetchUsers()}
+                loadingLabel="Loading users..."
+                emptyLabel="No users found."
+                errorLabel="The user directory could not be loaded."
+              />
+              {!loadingUsers && !usersError && filteredUsers.length > 0 && (
                 // Declarative table-cell variants are intentionally colocated for editing consistency.
                 // eslint-disable-next-line complexity
                 paginatedUsers.map(u => (
@@ -582,23 +653,12 @@ export default function SystemManagementTab() {
         <PaginationControls page={userPage} setPage={setUserPage} total={filteredUsers.length} limit={5} />
       </GlassCard>
 
-      <GlassCard className="p-6">
-        <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
-          <TerminalSquare size={13} /> Raw System Logs
-        </div>
-        <div className="bg-canvas-950 text-white rounded-2xl p-4 font-mono text-xs max-h-96 overflow-y-auto space-y-2">
-          {loadingLogs ? <div className="opacity-50">Loading system logs...</div> : (
-            logs.map(log => (
-              <div key={log.id} className="border-b border-white/10 pb-2">
-                <span className="text-forest-400">[{new Date(log.created_at).toISOString()}]</span>{' '}
-                <span className="text-gold-400">{log.action}</span>{' '}
-                <span className="opacity-60">USER:{log.user?.email || log.user_id || 'system'}</span>{' '}
-                <span className="text-white/80">{JSON.stringify(log.detail)}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </GlassCard>
+      <SystemLogsPanel
+        logs={logs}
+        loading={loadingLogs}
+        error={logsError}
+        onRetry={() => refetchLogs()}
+      />
 
       {myRole === 'superadmin' && (
         <>
@@ -638,11 +698,17 @@ export default function SystemManagementTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
-              {loadingPapers ? (
-                <tr><td colSpan={2} className="px-6 py-8 text-center text-ink-faint">Loading database papers...</td></tr>
-              ) : filteredPapers.length === 0 ? (
-                <tr><td colSpan={2} className="px-6 py-8 text-center text-ink-faint">No papers found.</td></tr>
-              ) : (
+              <TableStateRow
+                colSpan={2}
+                loading={loadingPapers}
+                error={papersError}
+                empty={filteredPapers.length === 0}
+                onRetry={() => refetchPapers()}
+                loadingLabel="Loading database papers..."
+                emptyLabel="No papers found."
+                errorLabel="The paper index could not be loaded."
+              />
+              {!loadingPapers && !papersError && filteredPapers.length > 0 && (
                 paginatedPapers.map(p => (
                   <tr key={p.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
                     <td className="px-6 py-4 max-w-sm">

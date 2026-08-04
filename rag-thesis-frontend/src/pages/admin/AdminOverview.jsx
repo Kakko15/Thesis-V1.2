@@ -16,6 +16,7 @@ import { GlassCard } from '../../components/ui/GlassCard'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { slotKeys } from '../../lib/keys'
 import { RoleBadge } from '../../components/ui/Badge'
+import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Input'
 import { AnimatedCounter, staggerContainer, staggerItem } from '../../components/ui/Motion'
 import { timeAgo } from '../../lib/utils'
@@ -61,18 +62,32 @@ export default function AdminOverview() {
   const queryClient = useQueryClient()
   const [changing, setChanging] = useState(null)
 
-  const { data: overview, isLoading, isError: overviewError } = useQuery({
+  const {
+    data: overview, isLoading, isError: overviewError, refetch: refetchOverview,
+  } = useQuery({
     queryKey: ['analytics-overview'],
     queryFn: getAnalyticsOverview,
   })
-  const { data: activity = [], isError: activityError } = useQuery({
+  const {
+    data: activity = [], isError: activityError, refetch: refetchActivity,
+  } = useQuery({
     queryKey: ['analytics-activity'],
     queryFn: () => getRecentActivity(20),
   })
-  const { data: users = [], isLoading: loadingUsers, isError: usersError } = useQuery({
+  const {
+    data: users = [], isLoading: loadingUsers, isError: usersError, refetch: refetchUsers,
+  } = useQuery({
     queryKey: ['users'],
     queryFn: listUsers,
   })
+
+  // Retry only what actually failed, so a working panel is not thrown away to
+  // recover a broken one.
+  const retryFailed = () => {
+    if (overviewError) refetchOverview()
+    if (activityError) refetchActivity()
+    if (usersError) refetchUsers()
+  }
 
   const trackData = Object.entries(overview?.papers?.per_track || {}).map(([name, value]) => ({ name, value }))
   const yearData = Object.entries(overview?.papers?.per_year || {}).map(([name, value]) => ({ name, value }))
@@ -94,9 +109,12 @@ export default function AdminOverview() {
   return (
     <>
       {(overviewError || activityError || usersError) && (
-        <GlassCard className="flex items-center gap-3 border border-flame-500/25 p-4 text-sm">
-          <AlertTriangle size={17} className="shrink-0 text-flame-500" />
-          Some administration data could not be loaded. No missing values are being treated as measured zeros.
+        <GlassCard className="flex flex-wrap items-center gap-3 border border-flame-500/25 p-4 text-sm">
+          <AlertTriangle size={17} className="shrink-0 text-flame-500" aria-hidden="true" />
+          <span className="flex-1">
+            Some administration data could not be loaded. No missing values are being treated as measured zeros.
+          </span>
+          <Button variant="secondary" size="sm" onClick={retryFailed}>Retry</Button>
         </GlassCard>
       )}
         <div className="space-y-6">
