@@ -18,6 +18,7 @@ from dependencies.auth import require_upload_access
 from main import app
 from models import ChatRequest
 from routers import chat, upload
+from services import chat_notices
 
 
 def run(coro):
@@ -69,7 +70,7 @@ def _fake_llm(replies):
 @pytest.fixture(autouse=True)
 def reset_capacity_state():
     yield
-    chat._CAPACITY_STATE['limited_until'] = 0.0
+    chat_notices.reset_capacity_limit()
 
 
 # ---------------------------------------------------------------------------

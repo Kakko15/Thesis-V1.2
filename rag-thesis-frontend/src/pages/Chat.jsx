@@ -600,7 +600,11 @@ export default function Chat() {
       )
       if (controller.signal.aborted) return
       guestGate.markPassed()
-      setMessages((m) => [...m, { id: nextMessageId(), kind: 'ai', ...res, isNew: true }])
+      // `kind` is this list's own 'user' | 'ai' role and must outlive the spread.
+      // The API has its own `kind` concept now (chat_messages.kind, B14), so a
+      // response field of that name would otherwise overwrite the role and
+      // break every render that branches on it.
+      setMessages((m) => [...m, { id: nextMessageId(), ...res, kind: 'ai', isNew: true }])
       if (user && res.history_saved === false) {
         toast.warning('Answer received, but chat history was not saved', {
           description: 'Copy anything important and try again after the archive connection recovers.',
