@@ -62,6 +62,27 @@ copy .env.example .env                          # then fill in the values
 python -m uvicorn main:app --reload --port 8000
 ```
 
+**Two dependency files, on purpose.** `requirements.txt` is the human-readable
+statement of intent — direct dependencies only, and the file the paper's version
+tables are generated from. Local development installs from it, as above.
+
+`requirements.lock` is what CI and the container install, with
+`pip install --require-hashes`: the same direct pins plus every transitive
+dependency, each carrying the SHA-256 hashes of its distributions, so a
+substituted package fails the build instead of shipping. It is resolved for
+`linux/cpython-3.14` and will not install on Windows, because `tesserocr` ships
+manylinux-only wheels.
+
+After changing `requirements.txt`, regenerate the lock in the same commit:
+
+```bash
+uv pip compile requirements.txt --generate-hashes \
+  --python-platform x86_64-unknown-linux-gnu --python-version 3.14 \
+  --output-file requirements.lock
+```
+
+`tests/test_dependency_lock.py` fails if the two ever disagree.
+
 In a second terminal, start the durable ingestion worker. Uploads remain queued
 until this process is running, and API restarts do not lose accepted jobs.
 

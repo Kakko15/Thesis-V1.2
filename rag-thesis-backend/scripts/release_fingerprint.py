@@ -34,6 +34,9 @@ def git_commit() -> str | None:
 def build_manifest() -> dict:
     inputs = [
         ROOT / 'rag-thesis-backend' / 'requirements.txt',
+        # The lock is what actually gets installed, transitive dependencies
+        # included, so the fingerprint would otherwise miss a transitive change.
+        ROOT / 'rag-thesis-backend' / 'requirements.lock',
         ROOT / 'rag-thesis-backend' / 'config.py',
         ROOT / 'rag-thesis-backend' / 'routers' / 'chat.py',
         ROOT / 'rag-thesis-frontend' / 'package-lock.json',
