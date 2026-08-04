@@ -83,8 +83,14 @@ jobs:
       - name: ESLint (Maintainability)
         run: npm run lint
 
-      - name: Frontend unit tests (Functional Suitability)
-        run: npm test
+      - name: Frontend unit tests with coverage (Functional Suitability)
+        run: npm run test:coverage
+
+      - name: Upload frontend coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: rag-thesis-frontend/coverage/lcov.info
 
       - name: Production build
         run: npm run build
@@ -131,7 +137,10 @@ jobs:
   sonarqube:
     name: SonarQube (Reliability)
     runs-on: ubuntu-latest
-    needs: backend
+    # Both coverage reports are inputs to the scan. Without the frontend one the
+    # React sources analyse as 0% covered, which is what held the
+    # whole-repository figure at 36.3%.
+    needs: [backend, frontend]
     steps:
       - name: Checkout (full history for accurate blame data)
         uses: actions/checkout@v4
@@ -156,6 +165,13 @@ jobs:
         with:
           name: backend-coverage
           path: rag-thesis-backend
+
+      - name: Download frontend coverage
+        if: steps.sonar.outputs.enabled == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: rag-thesis-frontend/coverage
 
       - name: SonarQube scan
         if: steps.sonar.outputs.enabled == 'true'

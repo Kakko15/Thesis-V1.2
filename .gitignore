@@ -35,6 +35,7 @@ ISU_Logo.jpg
 
 # Local test and analysis artifacts
 coverage.json
+rag-thesis-frontend/coverage/
 tmp/
 *-trivy.txt
 .pnpm-store/
