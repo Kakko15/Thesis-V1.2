@@ -13,6 +13,20 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+# The complete current column sets for the two operational tables, replacing
+# `select('*')` reads that would have published any future column by default.
+# `ALERT_FIELDS` is shared with the superadmin `/maintenance/alerts` listing so
+# the internal fallback read and the client-facing read cannot drift apart.
+ALERT_FIELDS = (
+    'id,dedupe_key,alert_type,severity,status,safe_details,occurrence_count,'
+    'first_seen_at,last_seen_at,last_notified_at,acknowledged_at,acknowledged_by,'
+    'resolved_at,created_at,updated_at'
+)
+WORKER_FIELDS = (
+    'worker_id,state,current_job_id,scanner_status,version,started_at,'
+    'last_seen_at,stopped_at'
+)
+
 
 def _timestamp(value) -> datetime:
     """Parse provider timestamps consistently; malformed values fail stale."""
@@ -88,7 +102,7 @@ def upsert_alert(client, dedupe_key: str, alert_type: str, severity: str,
             raise
         # Backward-compatible path used before the additive migration is deployed.
     existing = (
-        client.table('operational_alerts').select('*')
+        client.table('operational_alerts').select(ALERT_FIELDS)
         .eq('dedupe_key', dedupe_key).limit(1).execute().data or []
     )
     now = datetime.now(timezone.utc).isoformat()

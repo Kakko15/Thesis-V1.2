@@ -13,6 +13,13 @@ router = APIRouter(prefix='/sessions', tags=['sessions'])
 # The Supabase SDK returns an opaque user record, so Any is the honest type.
 CurrentUser = Annotated[Any, Depends(get_current_user)]
 
+# Both listings previously used `select('*')`, which publishes whatever columns
+# the table happens to have — so any future column would reach the client by
+# default. These lists are the complete current column set, so today's payloads
+# are unchanged; adding a column now requires a deliberate edit here.
+_SESSION_FIELDS = 'id,user_id,title,department,created_at'
+_MESSAGE_FIELDS = 'id,session_id,question,answer,sources,duplication_alert,created_at'
+
 
 def _owned_session_or_404(session_id: str, user_id: str):
     existing = (
@@ -30,7 +37,7 @@ def _owned_session_or_404(session_id: str, user_id: str):
 def list_sessions(user: CurrentUser):
     res = (
         sb.table('chat_sessions')
-        .select('*')
+        .select(_SESSION_FIELDS)
         .eq('user_id', user.id)
         .order('created_at', desc=True)
         .execute()
@@ -70,7 +77,7 @@ def get_session_messages(session_id: str, user: CurrentUser):
     _owned_session_or_404(session_id, user.id)
     res = (
         sb.table('chat_messages')
-        .select('*')
+        .select(_MESSAGE_FIELDS)
         .eq('session_id', session_id)
         .order('created_at', desc=False)
         .execute()

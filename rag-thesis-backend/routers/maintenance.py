@@ -12,7 +12,13 @@ from dependencies.auth import require_superadmin, sb
 from config import settings
 from routers.openapi_responses import errors
 from services.activity import log_activity
-from services.operations import evaluate_operations, record_security_event, retention_report
+from services.operations import (
+    ALERT_FIELDS,
+    WORKER_FIELDS,
+    evaluate_operations,
+    record_security_event,
+    retention_report,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +55,7 @@ def list_workers(user: SuperadminUser):
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     try:
         rows = (
-            sb.table('ingestion_workers').select('*').gte('last_seen_at', cutoff)
+            sb.table('ingestion_workers').select(WORKER_FIELDS).gte('last_seen_at', cutoff)
             .order('last_seen_at', desc=True).limit(100).execute().data or []
         )
     except Exception as error:
@@ -79,7 +85,7 @@ def list_upload_jobs(user: SuperadminUser, limit: int = 100):
 def list_operational_alerts(user: SuperadminUser, limit: int = 100):
     try:
         rows = (
-            sb.table('operational_alerts').select('*').order('last_seen_at', desc=True)
+            sb.table('operational_alerts').select(ALERT_FIELDS).order('last_seen_at', desc=True)
             .limit(max(1, min(limit, 250))).execute().data or []
         )
     except Exception as error:

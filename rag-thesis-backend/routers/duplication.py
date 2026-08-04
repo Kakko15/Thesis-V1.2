@@ -348,7 +348,14 @@ def duplication_chat(
     request: Request,
     user: NoveltyUser,
 ):
-    scan_res = sb.table('scan_history').select('*').eq('id', req.scan_id).eq('user_id', user.id).execute()
+    # Only these four are read below, and the row never reaches the client, so
+    # this both pins the columns and stops pulling the unused report payloads
+    # (top_matches, verdict tiers, chunk counts) on every follow-up question.
+    scan_res = (
+        sb.table('scan_history')
+        .select('id,chat_log,matched_chunks,verdict_summary')
+        .eq('id', req.scan_id).eq('user_id', user.id).execute()
+    )
     if not scan_res.data:
         raise HTTPException(404, 'Scan not found')
 
