@@ -13,7 +13,10 @@ param(
   [string]$BackupRoot = (Join-Path $HOME 'Documents\ISU-Thesis-Backups'),
   # 0 keeps every backup. A positive value prunes to the newest N backup
   # folders AFTER a successful run; failed runs never trigger pruning.
-  [int]$KeepLast = 0
+  [int]$KeepLast = 0,
+  # Skip telling the operations monitor about this run. For rehearsals and
+  # restore drills, which should not reset the staleness clock on real backups.
+  [switch]$SkipRecording
 )
 $ErrorActionPreference = 'Stop'
 
@@ -36,6 +39,20 @@ try {
   $manifest = Join-Path (Join-Path $BackupRoot $stamp) 'sha256-manifest.json'
   if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
     throw 'Backup finished without a sha256 manifest; treating the run as failed.'
+  }
+
+  # Tell the operations monitor this run happened, so a task that silently stops
+  # firing raises a `backup_stale` alert instead of looking healthy (§8.1).
+  # Best-effort by design: a recording failure must not fail a backup that
+  # already succeeded on disk, so it warns and the staleness alert eventually
+  # catches it anyway.
+  if (-not $SkipRecording) {
+    try {
+      & (Join-Path $PSScriptRoot 'record_backup_run.ps1') `
+        -BackupDirectory (Join-Path $BackupRoot $stamp) -BackupId $stamp
+    } catch {
+      Write-Warning "Backup succeeded but could not be recorded: $($_.Exception.Message)"
+    }
   }
 
   if ($KeepLast -gt 0) {

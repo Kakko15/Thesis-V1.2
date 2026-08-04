@@ -70,6 +70,16 @@ class Settings(BaseSettings):
     operations_queue_age_seconds: int = Field(default=300, ge=60, le=86400)
     operations_queue_depth_threshold: int = Field(default=10, ge=1, le=10000)
     operations_cleanup_age_seconds: int = Field(default=600, ge=60, le=86400)
+    # Declared disaster-recovery targets (§8.1). The RPO doubles as the staleness
+    # threshold: when the newest recorded backup is older than this, the
+    # operations monitor raises a `backup_stale` alert. 0 disables the check, so a
+    # deployment whose backups are handled elsewhere is not permanently alerting.
+    # Deliberately not enforced at startup — backups run on a separate machine,
+    # and the API refusing to boot over them would be the wrong coupling.
+    backup_rpo_hours: int = Field(default=0, ge=0, le=8760)
+    # Recorded rather than enforced: the target a restore drill is measured
+    # against. Nothing in the API can verify it; the drill log is the evidence.
+    backup_rto_hours: int = Field(default=4, ge=1, le=8760)
     operations_alert_webhook_url: str = ''
     operations_alert_webhook_secret: str = ''
     operations_alert_timeout_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
