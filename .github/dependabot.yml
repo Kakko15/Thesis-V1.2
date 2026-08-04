@@ -31,3 +31,26 @@ updates:
     groups:
       ci-actions:
         patterns: ["*"]
+
+  # Both Dockerfiles pin their base images by digest, which trades silent
+  # breakage for silent staleness unless something keeps the digests moving.
+  # This is that something. It matters most for the backend: Chainguard's free
+  # tier retains only the newest build, so an un-updated digest eventually stops
+  # resolving altogether.
+  - package-ecosystem: docker
+    directory: /rag-thesis-backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      backend-base-images:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /rag-thesis-frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-base-images:
+        patterns: ["*"]
