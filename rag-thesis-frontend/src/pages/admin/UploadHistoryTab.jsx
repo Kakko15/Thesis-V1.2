@@ -74,7 +74,9 @@ export default function UploadHistoryTab() {
     <div className="space-y-6">
       <GlassCard className="p-8">
         <div className="mb-8 text-center">
-          <h3 className="font-display text-lg font-bold">RAG Ingestion Pipeline</h3>
+          {/* h2: the only heading between the admin page h1 and this one is the
+              tab label, so h3 skipped a level. */}
+          <h2 className="font-display text-lg font-bold">RAG Ingestion Pipeline</h2>
           <p className="mt-1 text-xs text-ink-muted">How manuscripts are processed into the AI vector archive</p>
         </div>
         <div className="flex flex-wrap items-start justify-center gap-2 md:gap-4 lg:flex-nowrap">

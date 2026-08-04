@@ -64,7 +64,9 @@ function QuickAction({ icon: Icon, title, text, onClick, tone = 'forest' }) {
         </div>
         <ArrowRight size={17} className="opacity-30 transition-all duration-300 group-hover:translate-x-1 group-hover:opacity-80" />
       </div>
-      <h3 className="font-display mt-4 text-base font-bold">{title}</h3>
+      {/* h2: the action cards are the first headings under the page h1, and the
+          "Recently indexed" section below is already an h2. */}
+      <h2 className="font-display mt-4 text-base font-bold">{title}</h2>
       <p className="mt-1 text-xs leading-relaxed text-ink-muted">{text}</p>
     </GlassCard>
   )
@@ -107,7 +109,7 @@ function SecurityCard() {
             {enabled ? '2FA on' : '2FA off'}
           </span>
         </div>
-        <h3 className="font-display mt-4 text-base font-bold">Account security</h3>
+        <h2 className="font-display mt-4 text-base font-bold">Account security</h2>
         <p className="mt-1 text-xs leading-relaxed text-ink-muted">
           {enabled
             ? 'Sign-ins require your authenticator code. Manage or disable it here.'

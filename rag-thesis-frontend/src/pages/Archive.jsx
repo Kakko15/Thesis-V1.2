@@ -50,19 +50,18 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
   const screening = scanMetrics(paper.duplication_scan)
   return (
     <motion.div variants={staggerItem} layout>
+      {/* R9: this card used to be role="button" with tabIndex={0} while
+          containing a real delete <button>. Assistive technology announced a
+          button nested inside a button, and the inner control was hard to reach
+          predictably. The card is now a plain surface; the title button below is
+          the keyboard and AT path, and the delete button is its sibling rather
+          than its descendant. The onClick here survives only as a mouse
+          convenience for the wider hit area — it exposes no role, so nothing is
+          announced twice. */}
       <GlassCard
         hover
-        role="button"
-        tabIndex={0}
-        aria-label={`View metadata for ${paper.title}`}
-        className="group flex h-full cursor-pointer flex-col p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400"
+        className="group flex h-full cursor-pointer flex-col p-5"
         onClick={() => onOpen(paper)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            onOpen(paper)
-          }
-        }}
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-md">
@@ -70,17 +69,28 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           </div>
           {isAdmin && (
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onDelete(paper) }}
-              aria-label="Delete paper"
-              className="rounded-lg p-1.5 text-flame-500 opacity-0 transition-opacity hover:bg-flame-500/10 group-hover:opacity-70 hover:!opacity-100 focus:opacity-100"
+              aria-label={`Delete ${paper.title}`}
+              className="rounded-lg p-1.5 text-flame-500 opacity-0 transition-opacity hover:bg-flame-500/10 group-hover:opacity-70 hover:!opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-flame-500"
             >
               <Trash2 size={15} />
             </button>
           )}
         </div>
-        <h3 className="font-display mt-3.5 line-clamp-2 text-sm font-bold leading-snug">
-          {paper.title}
-        </h3>
+        {/* h2: the card titles are the first headings under the page h1. */}
+        <h2 className="font-display mt-3.5 text-sm font-bold leading-snug">
+          {/* The visible title is contained in the accessible name, so the
+              longer label satisfies WCAG 2.5.3 Label in Name. */}
+          <button
+            type="button"
+            aria-label={`View metadata for ${paper.title}`}
+            onClick={(event) => { event.stopPropagation(); onOpen(paper) }}
+            className="line-clamp-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400"
+          >
+            {paper.title}
+          </button>
+        </h2>
         <p className="mt-1.5 line-clamp-1 text-xs text-ink-muted">
           {paper.authors || 'Unknown authors'}
         </p>
