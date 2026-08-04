@@ -13,6 +13,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "test": "node --test",
+    "test:coverage": "node -e \"require('fs').mkdirSync('coverage',{recursive:true})\" && node --test --experimental-test-coverage --test-coverage-exclude=\"**/*.test.js\" --test-coverage-lines=85 --test-coverage-functions=85 --test-coverage-branches=80 --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout",
     "test:e2e": "node e2e/run-playwright.mjs",
     "test:e2e:install": "playwright install chromium",
     "preview": "vite preview",
