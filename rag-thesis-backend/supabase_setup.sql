@@ -1630,6 +1630,19 @@ begin
   if v_job.status = 'completed' and v_job.paper_id is not null then
     return v_job.paper_id;
   end if;
+  -- A cancellation requested while the worker was mid-pipeline must not be
+  -- overwritten by a successful commit. This guard was present in
+  -- migrations/20260724_operations_security.sql but missing here, so a project
+  -- built from this file alone -- or one where this file was re-run over an
+  -- already-migrated database -- silently lost it.
+  -- A cancellation requested while the worker was mid-pipeline must not be
+  -- overwritten by a successful commit. This guard was present in
+  -- migrations/20260724_operations_security.sql but missing here, so a project
+  -- built from this file alone -- or one where this file was re-run over an
+  -- already-migrated database -- silently lost it.
+  if v_job.cancel_requested_at is not null then
+    raise exception 'Upload cancellation was requested';
+  end if;
   if v_job.status <> 'processing' or v_job.lease_owner is distinct from p_worker_id
       or v_job.lease_expires_at < now() then
     raise exception 'Upload worker lease is no longer valid';
