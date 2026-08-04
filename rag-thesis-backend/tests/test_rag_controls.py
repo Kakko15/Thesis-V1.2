@@ -297,14 +297,27 @@ class TestServerConfiguration:
                 app_environment='production',
                 rate_limit_storage_uri='redis://127.0.0.1:6379/0',
             )
+        # S2: a production deployment must also declare a global guest ceiling,
+        # otherwise a distributed script with valid challenges can drain the
+        # shared Gemini quota for every signed-in user too.
+        with pytest.raises(ValidationError, match='guest token budget'):
+            Settings(
+                **self.BASE,
+                app_environment='production',
+                rate_limit_storage_uri='redis://127.0.0.1:6379/0',
+                require_privileged_mfa=True,
+                malware_scan_mode='clamav',
+            )
         configured = Settings(
             **self.BASE,
             app_environment='production',
             rate_limit_storage_uri='redis://127.0.0.1:6379/0',
             require_privileged_mfa=True,
             malware_scan_mode='clamav',
+            guest_daily_token_budget=2_000_000,
         )
         assert configured.rate_limit_storage_uri.startswith('redis://')
+        assert configured.guest_daily_token_budget == 2_000_000
 
 
 class _DepartmentQuery:

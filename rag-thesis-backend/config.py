@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     # full-table read per request — a cheap denial-of-wallet vector.
     rate_limit_public: str = '30/minute'
     rate_limit_storage_uri: str = 'memory://'
+    # Global ceiling on a day's total guest research spend, in tokens measured by
+    # the documented tokenizer proxy. The per-guest and per-IP limits bound how
+    # fast one caller can ask; nothing bounded the aggregate, so a distributed
+    # script with valid Turnstile challenges could drain the shared Gemini quota
+    # and take chat down for signed-in users too. 0 = unlimited, which keeps
+    # development, the tests, and the frozen evaluation pipeline unchanged;
+    # production must set a real number (see validate_production_services).
+    guest_daily_token_budget: int = Field(default=0, ge=0)
     require_privileged_mfa: bool = False
     max_upload_mb: int = 25
     max_pdf_pages: int = Field(default=500, ge=1, le=2000)
@@ -141,6 +149,8 @@ class Settings(BaseSettings):
             raise ValueError('Production requires MFA for privileged accounts')
         if self.app_environment == 'production' and self.malware_scan_mode != 'clamav':
             raise ValueError('Production requires ClamAV malware scanning')
+        if self.app_environment == 'production' and self.guest_daily_token_budget <= 0:
+            raise ValueError('Production requires a global daily guest token budget')
         webhook_values = bool(self.operations_alert_webhook_url), bool(
             self.operations_alert_webhook_secret
         )

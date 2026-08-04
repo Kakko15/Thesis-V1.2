@@ -588,12 +588,32 @@ create table if not exists public.chat_messages (
   answer text not null,
   sources jsonb default '[]'::jsonb,
   duplication_alert jsonb,
+  -- B14: 'notice' marks a stored system message (capacity apology, guard
+  -- refusal, guest-allowance notice, no-relevant-thesis) rather than research
+  -- output. Notices stay in the user's transcript but are never replayed to the
+  -- model as conversational context.
+  kind text not null default 'answer',
   created_at timestamptz not null default now()
 );
 
 alter table public.chat_messages add column if not exists duplication_alert jsonb;
+alter table public.chat_messages add column if not exists kind text not null default 'answer';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'chat_messages_kind_check'
+  ) then
+    alter table public.chat_messages
+      add constraint chat_messages_kind_check check (kind in ('answer', 'notice'));
+  end if;
+end $$;
 
 create index if not exists chat_messages_session_idx on public.chat_messages (session_id, created_at);
+-- The history loader reads only real answers, so index exactly that.
+create index if not exists chat_messages_session_answer_idx
+  on public.chat_messages (session_id, created_at desc)
+  where kind = 'answer';
 
 create or replace function public.save_chat_exchange(
   p_user_id uuid,
@@ -603,7 +623,8 @@ create or replace function public.save_chat_exchange(
   p_answer text,
   p_sources jsonb,
   p_duplication_alert jsonb,
-  p_department text
+  p_department text,
+  p_kind text default 'answer'
 )
 returns uuid
 language plpgsql
@@ -613,6 +634,10 @@ as $$
 declare
   v_session_id uuid := p_session_id;
 begin
+  if p_kind is null or p_kind not in ('answer', 'notice') then
+    raise exception 'Unsupported chat message kind: %', p_kind;
+  end if;
+
   if v_session_id is null then
     insert into public.chat_sessions (user_id, title, department)
     values (p_user_id, left(p_title, 120), p_department)
@@ -627,21 +652,28 @@ begin
   end if;
 
   insert into public.chat_messages (
-    session_id, question, answer, sources, duplication_alert
+    session_id, question, answer, sources, duplication_alert, kind
   ) values (
     v_session_id, p_question, p_answer,
-    coalesce(p_sources, '[]'::jsonb), p_duplication_alert
+    coalesce(p_sources, '[]'::jsonb), p_duplication_alert, p_kind
   );
   return v_session_id;
 end;
 $$;
 
 revoke all on function public.save_chat_exchange(
-  uuid, uuid, text, text, text, jsonb, jsonb, text
+  uuid, uuid, text, text, text, jsonb, jsonb, text, text
 ) from public, anon, authenticated;
 grant execute on function public.save_chat_exchange(
-  uuid, uuid, text, text, text, jsonb, jsonb, text
+  uuid, uuid, text, text, text, jsonb, jsonb, text, text
 ) to service_role;
+
+-- The 8-argument signature is a distinct function in PostgreSQL, not an overload
+-- the 9-argument version replaces. Drop it so no caller can reach the old body
+-- and write an unmarked notice.
+drop function if exists public.save_chat_exchange(
+  uuid, uuid, text, text, text, jsonb, jsonb, text
+);
 
 
 -- ============================================================================

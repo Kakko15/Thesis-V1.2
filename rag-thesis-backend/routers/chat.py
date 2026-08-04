@@ -13,7 +13,6 @@ Enforces:
 import asyncio
 import logging
 import re
-import time
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -32,6 +31,14 @@ from services.citations import (
     validate_citations,
 )
 from services.embedder import embed_text
+from services import chat_notices, guest_budget
+from services.chat_notices import (
+    CAPACITY_MESSAGE,
+    capacity_limit_is_active as _capacity_limit_is_active,
+    is_capacity_error as _is_capacity_error,
+    is_stored_non_answer as _is_stored_non_answer,
+    mark_capacity_limited as _mark_capacity_limited,
+)
 from services.guards import (
     REFUSAL_MESSAGE,
     fallback_standalone_question,
@@ -79,7 +86,6 @@ _IDENTITY_QUESTIONS = {
 _GREETING_ADDRESSEES = {
     'dear', 'friend', 'my friend', 'iskai', 'dear iskai',
 }
-_CAPACITY_STATE = {'limited_until': 0.0}
 
 
 def _normalize_short_query(question: str) -> str:
@@ -232,51 +238,28 @@ def _grounded_retrieval_fallback(sources: list[dict], department: str | None = N
     )
 
 
-def _is_capacity_error(error: Exception) -> bool:
-    message = str(error).lower()
-    return any(marker in message for marker in (
-        '429', 'resource_exhausted', 'quota exceeded', 'rate limit', 'too many requests',
-    ))
-
-
-CAPACITY_MESSAGE = (
-    'IskAI has reached the research AI service usage limit, so your question could not '
-    'be processed right now. Please try again later.'
-)
-# Stored exchanges whose answer is one of these are system notices, not research
-# findings. They carry no sources, so replaying them as conversational context
-# gives the model an apology to build on and leaves a follow-up with nothing to
-# anchor to. Recognized on load and excluded from the prompt.
-_NON_ANSWER_MARKERS = (
-    CAPACITY_MESSAGE,
-    REFUSAL_MESSAGE,
-    'No relevant thesis was found in the',
-)
-
-
-def _is_stored_non_answer(answer: str) -> bool:
-    normalized = re.sub(r'\s+', ' ', answer or '').strip()
-    if not normalized:
-        return False
-    return any(normalized.startswith(marker[:60]) for marker in _NON_ANSWER_MARKERS)
+def _notice_response(message: str, session_id: str | None = None) -> ChatResponse:
+    """A response the system produced about itself: never any sources."""
+    return ChatResponse(answer=message, sources=[], session_id=session_id)
 
 
 def _capacity_response(session_id: str | None = None) -> ChatResponse:
-    return ChatResponse(
-        answer=CAPACITY_MESSAGE,
-        sources=[],
-        session_id=session_id,
-    )
+    return _notice_response(CAPACITY_MESSAGE, session_id)
 
 
-def _capacity_limit_is_active() -> bool:
-    return time.monotonic() < _CAPACITY_STATE['limited_until']
+def _guest_budget_response(session_id: str | None = None) -> ChatResponse:
+    return _notice_response(guest_budget.GUEST_BUDGET_MESSAGE, session_id)
 
 
-def _mark_capacity_limited() -> None:
-    _CAPACITY_STATE['limited_until'] = (
-        time.monotonic() + settings.gemini_capacity_cooldown_seconds
-    )
+def _charge_guest_generation(*texts: str) -> guest_budget.BudgetDecision:
+    """Estimate and book one guest generation in a single worker-thread hop.
+
+    Both halves are synchronous and CPU- or network-bound (tokenizing the prompt,
+    then an increment against the shared store), so they belong off the event
+    loop together rather than as two separate awaits.
+    """
+    return guest_budget.charge(guest_budget.estimate_charge(*texts))
+
 
 def get_rag_prompt(department: str | None = None) -> ChatPromptTemplate:
     dept_name = department if department else "Isabela State University"
@@ -365,8 +348,11 @@ Specific question: {question}"""),
 
 def get_no_relevant_message(department: str | None = None) -> str:
     dept_name = department if department else "Isabela State University"
+    # The prefix lives in chat_notices so the notice classifier and this message
+    # cannot drift apart; a reworded message would otherwise stop being
+    # recognized as a notice.
     return (
-        f'No relevant thesis was found in the {dept_name} archive for that query. '
+        f'{chat_notices.NO_RELEVANT_PREFIX} {dept_name} archive for that query. '
         'Try rephrasing with different technical terms, or ask about another topic.'
     )
 
@@ -381,9 +367,13 @@ def _load_chat_history(session_id: str, user_id: str) -> list[dict]:
         .eq('id', session_id).eq('user_id', user_id).execute()
     if not owner.data:
         raise HTTPException(status_code=404, detail='Session not found')
+    # B14: only real answers become conversational context. Filtered in SQL so a
+    # session whose recent history is mostly notices still returns five usable
+    # exchanges instead of five rows that are then discarded in Python.
     past = sb.table('chat_messages') \
         .select('question, answer, sources') \
         .eq('session_id', session_id) \
+        .eq('kind', chat_notices.KIND_ANSWER) \
         .order('created_at', desc=True) \
         .limit(5) \
         .execute()
@@ -419,6 +409,10 @@ def _persist_chat_exchange(req: ChatRequest, response: ChatResponse, user, depar
         'p_sources': response.sources,
         'p_duplication_alert': alert,
         'p_department': department,
+        # B14: classified here, at the source, rather than by matching the stored
+        # text later. The user still sees the notice in their transcript; the
+        # history loader and the model never do.
+        'p_kind': chat_notices.response_kind(response),
     }).execute()
     return str(result.data)
 
@@ -678,6 +672,16 @@ async def _chat_impl(
         })
         return ChatResponse(answer=REFUSAL_MESSAGE, sources=[], session_id=req.session_id)
 
+    # S2: turn an out-of-allowance guest away before the first paid call rather
+    # than after. Everything below this point can reach Gemini — the follow-up
+    # rewrite, the retrieval embedding, then generation itself.
+    if not user and await asyncio.to_thread(guest_budget.is_exhausted):
+        background_tasks.add_task(log_activity, None, 'chat_query_budget_exhausted', {
+            'question_length': len(req.question),
+            'stage': 'pre_retrieval',
+        })
+        return _guest_budget_response(req.session_id)
+
     # Authenticated history is loaded only after ownership verification. Guest
     # history is ephemeral, user-question-only context supplied by this open UI.
     history_messages: list[dict] = []
@@ -849,6 +853,26 @@ async def _chat_impl(
             session_id=req.session_id,
             no_relevant_thesis=True,
         )
+
+    # S2: book this generation's worst-case cost against the shared daily guest
+    # allowance. Charged before the call, because a ceiling that bills afterwards
+    # cannot refuse the request that breaches it.
+    if not user:
+        budget_decision = await asyncio.to_thread(
+            _charge_guest_generation,
+            context, req.question, effective_question, chat_history_str,
+        )
+        if not budget_decision.allowed:
+            logger.warning(
+                'Guest daily token allowance exhausted: %d/%d tokens booked',
+                budget_decision.spent, budget_decision.budget,
+            )
+            background_tasks.add_task(log_activity, None, 'chat_query_budget_exhausted', {
+                'question_length': len(req.question),
+                'stage': 'pre_generation',
+                'charged': budget_decision.charged,
+            })
+            return _guest_budget_response(req.session_id)
 
     # 4. Generation phase
     try:

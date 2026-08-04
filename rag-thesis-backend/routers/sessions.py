@@ -18,7 +18,10 @@ CurrentUser = Annotated[Any, Depends(get_current_user)]
 # default. These lists are the complete current column set, so today's payloads
 # are unchanged; adding a column now requires a deliberate edit here.
 _SESSION_FIELDS = 'id,user_id,title,department,created_at'
-_MESSAGE_FIELDS = 'id,session_id,question,answer,sources,duplication_alert,created_at'
+# `kind` is included deliberately (B14): the transcript keeps showing system
+# notices, so the client needs to know which rows are notices rather than
+# research answers.
+_MESSAGE_FIELDS = 'id,session_id,question,answer,sources,duplication_alert,kind,created_at'
 
 
 def _owned_session_or_404(session_id: str, user_id: str):
