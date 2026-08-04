@@ -30,6 +30,11 @@ export default defineConfig([
     rules: {
       // Mark identifiers referenced from JSX as used
       'react/jsx-uses-vars': 'error',
+      // core `no-undef` does not inspect JSX element names, so a component used
+      // as <Missing /> without an import is a runtime ReferenceError that both
+      // the linter and the production build accept. This rule is the only thing
+      // that catches it.
+      'react/jsx-no-undef': 'error',
       // Correctness
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_' }],
       'no-var': 'error',
