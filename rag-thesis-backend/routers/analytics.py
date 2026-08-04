@@ -26,6 +26,16 @@ router = APIRouter(prefix='/analytics', tags=['analytics'])
 CurrentUser = Annotated[Any, Depends(get_current_user)]
 AdminUser = Annotated[Any, Depends(require_admin)]
 
+# The audit-log and user-management listings previously used `select('*')`, which
+# publishes whatever columns the table happens to have — so a future column would
+# reach an administrator's browser by default. These are the complete current
+# column sets, so today's payloads are byte-identical; adding a column now
+# requires a deliberate edit here.
+_ACTIVITY_FIELDS = 'id,user_id,action,department,detail,created_at'
+_PROFILE_FIELDS = (
+    'id,email,full_name,avatar_url,role,department,status,created_at,updated_at'
+)
+
 
 def _admin_scope(user) -> tuple[str, str | None]:
     result = sb.table('profiles').select('role,department').eq('id', user.id).limit(1).execute()
@@ -160,7 +170,7 @@ def recent_activity(user: AdminUser, limit: int = 25):
     """Return recent audit activity for authorized administrators."""
     limit = max(1, min(limit, 100))
     role, department = _admin_scope(user)
-    query = sb.table('activity_log').select('*')
+    query = sb.table('activity_log').select(_ACTIVITY_FIELDS)
     if role != 'superadmin':
         query = query.eq('department', department)
     result = query.order('created_at', desc=True).limit(limit).execute()
@@ -174,7 +184,7 @@ def recent_activity(user: AdminUser, limit: int = 25):
 @router.get('/users')
 def list_users(user: AdminUser):
     """List department users for admins or all users for superadmins."""
-    query = sb.table('profiles').select('*').order('created_at', desc=True)
+    query = sb.table('profiles').select(_PROFILE_FIELDS).order('created_at', desc=True)
 
     profile_result = sb.table('profiles').select('role,department').eq('id', user.id).execute()
     current_profile = profile_result.data[0] if profile_result.data else {}
@@ -328,7 +338,7 @@ def get_system_logs(user: AdminUser, limit: int = 200):
     current_result = sb.table('profiles').select('role,department').eq('id', user.id).execute()
     current_profile = current_result.data[0] if current_result.data else {}
 
-    logs_query = sb.table('activity_log').select('*')
+    logs_query = sb.table('activity_log').select(_ACTIVITY_FIELDS)
     if current_profile.get('role') != 'superadmin':
         logs_query = logs_query.eq('department', current_profile.get('department'))
     logs_result = logs_query.order('created_at', desc=True).limit(limit).execute()

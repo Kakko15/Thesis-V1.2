@@ -64,7 +64,13 @@ def update_department(
     user: SuperadminUser,
 ):
     """Update a department."""
-    existing = sb.table('departments').select('*').eq('id', department_id).execute()
+    # Returned directly at the no-op branch below, so this pins the response
+    # columns rather than publishing whatever the table happens to have.
+    existing = (
+        sb.table('departments')
+        .select('id,name,track_label,tracks,created_at')
+        .eq('id', department_id).execute()
+    )
     if not existing.data:
         raise HTTPException(status_code=404, detail='Department not found')
 
@@ -105,7 +111,8 @@ def update_department(
 @router.delete('/{department_id}', responses=errors(404, 409))
 def delete_department(department_id: str, user: SuperadminUser):
     """Delete a department."""
-    existing = sb.table('departments').select('*').eq('id', department_id).execute()
+    # Only the name is read, and nothing here reaches the client.
+    existing = sb.table('departments').select('name').eq('id', department_id).execute()
     if not existing.data:
         raise HTTPException(status_code=404, detail='Department not found')
 

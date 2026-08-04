@@ -54,7 +54,14 @@ def _inserted_row(table: str, row: dict, conflict_detail: str) -> dict:
 
 
 def _legacy_catalog() -> list[dict]:
-    rows = sb.table('departments').select('*').order('created_at', desc=False).execute().data or []
+    # `select('*')` here fed straight into `{**row, ...}` below, so any future
+    # departments column would have been published to this unauthenticated
+    # catalog read. This is the complete current set, so the payload is unchanged.
+    rows = (
+        sb.table('departments')
+        .select('id,name,track_label,tracks,created_at')
+        .order('created_at', desc=False).execute().data or []
+    )
     result = []
     for row in rows:
         name = str(row.get('name') or '').strip()

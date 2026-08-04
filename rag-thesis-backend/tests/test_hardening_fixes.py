@@ -582,3 +582,137 @@ class TestYearValidationUsesUtc:
         with pytest.raises(HTTPException) as caught:
             upload._validate_metadata('A valid thesis title', '', str(current + 2), '')
         assert caught.value.status_code == 422
+
+
+class TestExplicitFieldListsInHotPaths:
+    """R4 — select('*') published whatever columns the table happened to have.
+
+    Two independent guards. The first stops the pattern from creeping back into
+    any production module; the second proves every column the replacements name
+    actually exists in the schema, because a typo there is invisible until
+    PostgREST rejects the query in production.
+    """
+
+    PRODUCTION_DIRECTORIES = ('routers', 'services', 'dependencies', 'workers')
+
+    def _production_sources(self):
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        for directory in self.PRODUCTION_DIRECTORIES:
+            for path in sorted((root / directory).glob('*.py')):
+                yield path, path.read_text(encoding='utf-8')
+        for name in ('main.py', 'config.py', 'models.py'):
+            path = root / name
+            yield path, path.read_text(encoding='utf-8')
+
+    @staticmethod
+    def _select_star_offenders(source: str, label: str) -> list[str]:
+        import ast
+
+        offenders = []
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Call):
+                continue
+            function = node.func
+            if not isinstance(function, ast.Attribute) or function.attr != 'select':
+                continue
+            for argument in node.args:
+                if isinstance(argument, ast.Constant) and argument.value == '*':
+                    offenders.append(f'{label}:{node.lineno}')
+        return offenders
+
+    def test_the_detector_itself_finds_a_planted_wildcard(self):
+        """Guard the guard: a detector that never fires would pass silently."""
+        planted = "sb.table('profiles').select('*').execute()"
+        assert self._select_star_offenders(planted, 'planted') == ['planted:1']
+        clean = "sb.table('profiles').select('id,email').execute()"
+        assert self._select_star_offenders(clean, 'clean') == []
+
+    def test_no_production_module_selects_every_column(self):
+        offenders = []
+        for path, source in self._production_sources():
+            offenders.extend(self._select_star_offenders(source, path.name))
+        assert not offenders, (
+            'select(\'*\') returns future columns to clients by default; name the '
+            f'columns explicitly at {offenders}'
+        )
+
+    def _declared_columns(self):
+        """Map every table to the columns the SQL in this repo declares for it."""
+        import pathlib
+        import re
+        from collections import defaultdict
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        sql_paths = [root / 'supabase_setup.sql', *sorted((root / 'migrations').glob('*.sql'))]
+        sql = '\n'.join(path.read_text(encoding='utf-8') for path in sql_paths)
+
+        skip_prefixes = (
+            'constraint', 'primary', 'unique', 'check', 'foreign', 'exclude', ')', '--',
+        )
+        columns = defaultdict(set)
+        create_pattern = re.compile(
+            r'create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?(\w+)\s*\((.*?)\n\s*\);',
+            re.IGNORECASE | re.DOTALL,
+        )
+        for table, body in create_pattern.findall(sql):
+            for line in body.splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.lower().startswith(skip_prefixes):
+                    continue
+                columns[table].add(stripped.split()[0].strip('"'))
+        alter_pattern = re.compile(
+            r'alter\s+table\s+(?:public\.)?(\w+)\s+add\s+column\s+(?:if\s+not\s+exists\s+)?(\w+)',
+            re.IGNORECASE,
+        )
+        for table, column in alter_pattern.findall(sql):
+            columns[table].add(column)
+        return columns
+
+    def test_the_declared_column_map_is_actually_populated(self):
+        """Guard the guard: a broken SQL parse would make the next test vacuous."""
+        declared = self._declared_columns()
+        assert {'profiles', 'activity_log', 'chat_messages'} <= set(declared)
+        assert {'id', 'question', 'answer', 'sources'} <= declared['chat_messages']
+
+    def test_every_pinned_column_exists_in_the_schema(self):
+        from routers import analytics as analytics_module
+        from routers import sessions as sessions_module
+        from services import operations as operations_module
+
+        pinned = {
+            'profiles': analytics_module._PROFILE_FIELDS,
+            'activity_log': analytics_module._ACTIVITY_FIELDS,
+            'chat_sessions': sessions_module._SESSION_FIELDS,
+            'chat_messages': sessions_module._MESSAGE_FIELDS,
+            'operational_alerts': operations_module.ALERT_FIELDS,
+            'ingestion_workers': operations_module.WORKER_FIELDS,
+        }
+        declared = self._declared_columns()
+        for table, field_list in pinned.items():
+            requested = {name.strip() for name in field_list.split(',') if name.strip()}
+            assert requested, f'{table} field list is empty'
+            unknown = requested - declared[table]
+            assert not unknown, f'{table} pins columns that no migration declares: {sorted(unknown)}'
+
+    def test_the_pinned_lists_cover_the_whole_table_today(self):
+        """These are client-facing listings, so pinning must not silently drop a
+        column the frontend already reads. Equality now; a future column is an
+        explicit decision rather than an automatic disclosure."""
+        from routers import analytics as analytics_module
+        from routers import sessions as sessions_module
+        from services import operations as operations_module
+
+        declared = self._declared_columns()
+        for table, field_list in (
+            ('profiles', analytics_module._PROFILE_FIELDS),
+            ('activity_log', analytics_module._ACTIVITY_FIELDS),
+            ('chat_sessions', sessions_module._SESSION_FIELDS),
+            ('chat_messages', sessions_module._MESSAGE_FIELDS),
+            ('operational_alerts', operations_module.ALERT_FIELDS),
+            ('ingestion_workers', operations_module.WORKER_FIELDS),
+        ):
+            requested = {name.strip() for name in field_list.split(',') if name.strip()}
+            assert requested == declared[table], (
+                f'{table}: pinned={sorted(requested)} declared={sorted(declared[table])}'
+            )
