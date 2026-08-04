@@ -95,6 +95,11 @@ jobs:
       - name: Production build
         run: npm run build
 
+      # Guards the eager payload every visitor downloads, and that the WebGL and
+      # charting chunks stay behind their lazy imports.
+      - name: Bundle-size budget
+        run: npm run bundle:budget
+
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 

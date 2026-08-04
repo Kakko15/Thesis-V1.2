@@ -1,13 +1,9 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
-  PieChart, Pie, Cell, CartesianGrid,
-} from 'recharts'
 import { toast } from 'sonner'
 import {
-  Activity, AlertTriangle, BarChart3, BookMarked, Layers,
+  Activity, AlertTriangle, BookMarked, Layers,
   MessageSquareText, ShieldCheck, UserCog, Users,
 } from 'lucide-react'
 import { apiErrorMessage, getAnalyticsOverview, getRecentActivity, listUsers, updateUserRole } from '../../api'
@@ -21,9 +17,11 @@ import { Select } from '../../components/ui/Input'
 import { AnimatedCounter, staggerContainer, staggerItem } from '../../components/ui/Motion'
 import { timeAgo } from '../../lib/utils'
 
-const CHART_COLORS = ['#046a38', '#f2a900', '#10b96c', '#d22630', '#059656']
+const OverviewCharts = lazy(() => import('./OverviewCharts'))
+const CHART_PANEL_HEIGHT = 'h-[21rem]'
 const STAT_SKELETONS = slotKeys(4, 'overview-stat')
 const USER_SKELETONS = slotKeys(4, 'overview-user')
+const CHART_SKELETONS = slotKeys(2, 'overview-chart')
 
 const ACTION_LABELS = {
   chat_query: { label: 'AI query', icon: MessageSquareText, tone: 'text-forest-500' },
@@ -132,57 +130,16 @@ export default function AdminOverview() {
         </motion.div>
       )}
 
-      {/* Charts */}
+      {/* Charts. Recharts is ~109 kB gzipped and lives in its own chunk, so the
+          statistics above paint without waiting for a charting library. The
+          fallback reserves the panels' height to avoid a layout shift. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <GlassCard className="p-6">
-          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
-            <BarChart3 size={13} /> Theses per track
-          </div>
-          {trackData.length === 0 ? (
-            <p className="py-14 text-center text-sm text-ink-faint">No data yet</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie
-                  data={trackData} dataKey="value" nameKey="name"
-                  innerRadius={58} outerRadius={92} paddingAngle={4} strokeWidth={0}
-                >
-                  {trackData.map((entry, i) => (
-                    <Cell key={entry.name} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip content={<ChartTooltip />} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-          <div className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1.5">
-            {trackData.map((t, i) => (
-              <div key={t.name} className="flex items-center gap-1.5 text-xs text-ink-muted">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                {t.name} ({t.value})
-              </div>
-            ))}
-          </div>
-        </GlassCard>
-
-        <GlassCard className="p-6">
-          <div className="mb-5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
-            <BarChart3 size={13} /> Theses per year
-          </div>
-          {yearData.length === 0 ? (
-            <p className="py-14 text-center text-sm text-ink-faint">No data yet</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={yearData} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.12} vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(4,106,56,0.06)' }} />
-                <Bar dataKey="value" fill="#046a38" radius={[8, 8, 0, 0]} maxBarSize={42} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </GlassCard>
+        <Suspense fallback={CHART_SKELETONS.map((slotId) => (
+          <Skeleton key={slotId} className={CHART_PANEL_HEIGHT} />
+        ))}
+        >
+          <OverviewCharts trackData={trackData} yearData={yearData} />
+        </Suspense>
       </div>
 
       <GlassCard className="border border-gold-400/25 p-6">

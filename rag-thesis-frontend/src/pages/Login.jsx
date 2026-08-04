@@ -6,7 +6,7 @@ import {
 import { ArrowLeft, LogIn, Sparkles, UserPlus } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import { usePreferences } from '../context/PreferencesContext'
+import { useSceneCapability } from '../components/three/useSceneCapability'
 import { Aurora } from '../components/ui/Aurora'
 import { Logo } from '../components/ui/Logo'
 import { cn } from '../lib/utils'
@@ -71,32 +71,14 @@ const cardItem = {
   show: { opacity: 1, y: 0, transition: { duration: 0.55, ease: EASE } },
 }
 
-/* Mount the 3D constellation only where it earns its keep: desktop viewports,
-   WebGL available, reduced motion off. */
+/* Mount the 3D constellation only where it earns its keep. The rule is shared
+   with the landing hero via useSceneCapability, which also weighs Data Saver,
+   device memory, and pointer coarseness -- none of which the previous
+   desktop-width check considered. This surface has no scene on narrow
+   viewports at all, so it keeps the 1024px threshold and, unlike the hero, lets
+   page visibility gate the mount directly. */
 function useAuthScene() {
-  const { reducedMotion, effects } = usePreferences()
-  const [webgl] = useState(() => {
-    try {
-      const canvas = document.createElement('canvas')
-      return !!(canvas.getContext('webgl2') || canvas.getContext('webgl'))
-    } catch {
-      return false
-    }
-  })
-  const [desktop, setDesktop] = useState(() => window.matchMedia('(min-width: 1024px)').matches)
-  const [pageVisible, setPageVisible] = useState(() => document.visibilityState === 'visible')
-  useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)')
-    const onChange = (e) => setDesktop(e.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
-  useEffect(() => {
-    const onVisibilityChange = () => setPageVisible(document.visibilityState === 'visible')
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-  }, [])
-  return !reducedMotion && effects !== 'low' && webgl && desktop && pageVisible
+  return useSceneCapability({ wideViewportQuery: '(min-width: 1024px)' }).allowed
 }
 
 export default function Login() {
