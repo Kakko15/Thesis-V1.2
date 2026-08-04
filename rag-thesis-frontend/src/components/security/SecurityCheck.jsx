@@ -9,7 +9,13 @@ const EASE = [0.2, 0, 0, 1]
 
 // Statuses that mean the visitor is blocked and therefore always deserve chrome,
 // even for `quiet` callers that stay silent through a clean pass.
-const BLOCKING = new Set(['interactive', 'expired', 'error', 'unsupported'])
+const BLOCKING = new Set(['interactive', 'expired', 'error', 'unsupported', 'unavailable'])
+
+// A challenge that never answers is the one failure Turnstile does not report.
+// Its script can load, `render()` can run, and if the challenge subresource is
+// unreachable no `error-callback` fires — leaving `pending` forever. Without a
+// deadline that spinner is indefinite and every gated form stays dead.
+const PENDING_DEADLINE_MS = 12000
 
 const PRESENTATION = {
   pending: { icon: Loader2, tone: 'neutral', spin: true, headline: 'Checking your browser' },
@@ -18,6 +24,9 @@ const PRESENTATION = {
   expired: { icon: RefreshCw, tone: 'gold', spin: true, headline: 'Check expired' },
   error: { icon: ShieldAlert, tone: 'flame', retry: true, headline: 'Could not verify' },
   unsupported: { icon: ShieldAlert, tone: 'flame', headline: 'Security check unavailable' },
+  unavailable: {
+    icon: ShieldAlert, tone: 'flame', retry: true, headline: 'Security check did not respond',
+  },
 }
 
 const TONE_TEXT = {
@@ -49,6 +58,8 @@ function bodyFor(status, description) {
       return 'Check your connection, then try again.'
     case 'unsupported':
       return 'Try another browser, or allow challenges.cloudflare.com.'
+    case 'unavailable':
+      return 'You can continue — your sign-in is still verified by the server.'
     default:
       return description
   }
@@ -137,6 +148,15 @@ export function SecurityCheck({
     setStatus(next)
     onStatusChangeRef.current?.(next)
   }, [])
+
+  // Give `pending` a deadline. Turnstile reports error, expiry, and unsupported
+  // browsers itself; a challenge that simply never answers is the gap, and it is
+  // the one that leaves gated forms permanently disabled.
+  useEffect(() => {
+    if (!turnstileEnabled || status !== 'pending') return undefined
+    const timer = window.setTimeout(() => handleStatus('unavailable'), PENDING_DEADLINE_MS)
+    return () => window.clearTimeout(timer)
+  }, [status, handleStatus, retryNonce])
 
   if (!turnstileEnabled) return null
 

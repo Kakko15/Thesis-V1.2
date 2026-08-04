@@ -10,7 +10,7 @@ import { authOptions, friendlyAuthError, isValidEmail, maskEmail, retryAfterSeco
 import { OtpInput } from '../../components/ui/OtpInput'
 import { toast } from 'sonner'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
-import { turnstileEnabled } from '../../components/security/turnstileConfig'
+import { useSecurityGate } from '../../components/security/useSecurityGate'
 
 /** Request a password-reset OTP and verify it, then set new password. */
 export function ForgotPasswordStep({ email, setEmail, onBack }) {
@@ -28,7 +28,8 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
   const [updating, setUpdating] = useState(false)
   
   const [cooldown, setCooldown] = useResendTimer(0)
-  const [captchaToken, setCaptchaToken] = useState(null)
+  // Gated submission that fails open when Turnstile itself is unreachable.
+  const captcha = useSecurityGate()
   const [captchaReset, setCaptchaReset] = useState(0)
 
   const send = async (e) => {
@@ -42,7 +43,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
     try {
       const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), authOptions({
         redirectTo: `${window.location.origin}/login`,
-      }, captchaToken))
+      }, captcha.token))
       if (err) throw err
       setSent(true)
       setCooldown(60)
@@ -52,7 +53,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
       if (wait) setCooldown(wait)
     } finally {
       setLoading(false)
-      setCaptchaToken(null)
+      captcha.onToken(null)
       setCaptchaReset((value) => value + 1)
     }
   }
@@ -142,7 +143,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
               </Field>
             </Rise>
             <Rise>
-              <SecurityCheck variant="inline" action="password_reset" onToken={setCaptchaToken} resetKey={captchaReset} />
+              <SecurityCheck variant="inline" action="password_reset" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
             </Rise>
             <Rise>
               <Button
@@ -195,7 +196,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
               </Button>
             </Rise>
             <Rise>
-              <SecurityCheck variant="inline" action="password_reset_resend" onToken={setCaptchaToken} resetKey={captchaReset} />
+              <SecurityCheck variant="inline" action="password_reset_resend" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
             </Rise>
             <Rise className="mt-5 text-center text-xs text-ink-muted">
               Nothing arrived?{' '}
@@ -204,7 +205,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
               ) : (
                 <UnderlineLink
                   onClick={send}
-                  disabled={loading || (turnstileEnabled && !captchaToken)}
+                  disabled={loading || (captcha.blocked)}
                   className="text-forest-700 disabled:opacity-50 dark:text-gold-300"
                 >
                   {loading ? 'Sending…' : 'Resend code'}
@@ -247,7 +248,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
                 type="submit"
                 size="lg"
                 loading={loading}
-                disabled={turnstileEnabled && !captchaToken}
+                disabled={captcha.blocked}
                 className="group relative w-full overflow-hidden"
               >
                 <Shine />
