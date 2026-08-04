@@ -37,14 +37,14 @@ Every item carries three labels:
 
 **Every P0 defect in §2.1 is closed, and every Phase A *code* defect is now closed outright.** 🎉 The three P0 items that gated public exposure — event-loop blocking, the accessibility gate, and unenforced signup domains — are fixed and verified. B14, the last Phase A item still carrying an open half on 2026-08-03, was closed on 2026-08-04 via the `kind` column rather than by skipping persistence.
 
-**Closed in the 2026-08-04 pass:** B14 (structural half), R4, R7, S2, §3.5 async-state parity, and three newly found defects (**N12–N14**) — one of which, N12, was a hole in the lint gate itself that let a missing component import reach runtime.
+**Closed in the 2026-08-04 pass:** B14 (structural half), R4, R7, R9, S2, §3.5 async-state parity, §3.6 frontend performance (#15), the last 25 advisory axe findings, and three newly found defects (**N12–N14**) — one of which, N12, was a hole in the lint gate itself that let a missing component import reach runtime. A `cryptography` advisory published mid-pass (CVE-2026-69247) was also closed; see §2.5.
 
-**Still open in Phase A, by scope rather than by neglect:** #15 (the 890 kB three.js chunk), #19 (supply-chain hardening / S3), #20 (scheduled backups), R5 and R9, and item 7 — load-testing the real `/chat` path, which needs a disposable Supabase project rather than more code.
+**Still open in Phase A, by scope rather than by neglect:** #19 (supply-chain hardening / S3), #20 (scheduled backups), R5 (a privacy-review and retention question, not code), and item 7 — load-testing the real `/chat` path, which needs a disposable Supabase project rather than more code.
 
 | Group | ✅ Fixed | 🟡 Partial | ❌/🧊 Open | Notes |
 |---|---|---|---|---|
 | **§2.1 Confirmed defects (B1–B20)** | **16** | 1 | 3 | All 3 open are post-defense by design: B10 and B20 are Phase B, B8 is 🧊 frozen-pipeline. The remaining partial is B9 (Phase A half done, Phase B pagination open) |
-| **§2.2 Correctness risks (R1–R10)** | **6** | 1 | 3 | R1–R4, R6 and R7 closed; R8 improved; R5/R9/R10 open |
+| **§2.2 Correctness risks (R1–R10)** | **7** | 1 | 2 | R1–R4, R6, R7 and R9 closed; R8 improved; R5 and R10 open |
 | **§2.3 Security gaps (S1–S6)** | 2 | 0 | 4 | S1 and S2 closed; the rest are policy or external, including the remaining P0 **S6** |
 | **§2.4 Documentation defects (D1–D6)** | **6** | 0 | 0 | All closed 📄 |
 | **§2.6 Newly discovered (N1–N14)** | **14** | 0 | 0 | Found by audits run *during* remediation, not present in the original report |
@@ -59,9 +59,10 @@ Counts above are generated from the status marks in this document, not maintaine
 | Pylint | 10.00/10 | **10.00/10** (exit 0) |
 | ESLint | 0 errors, 0 warnings | **0 errors, 0 warnings** |
 | Frontend unit tests | 29 | **44** 📈 |
-| Frontend coverage | ❌ not reported (counted as 0%) | **✅ 91.12% lines / 83.25% branches**, gated at 85/80 📈 |
+| Frontend coverage | ❌ not reported (counted as 0%) | **✅ 92.71% lines / 86.23% branches**, gated at 85/80 📈 |
 | Playwright (all specs) | ❌ 10 failing | **✅ 21 passed** |
-| axe WCAG 2.2 AA | ❌ 55 blocking | **✅ 0 blocking** (25 advisory open) |
+| axe WCAG 2.2 AA | ❌ 55 blocking | **✅ 0 blocking, 0 advisory** 🎉 |
+| Frontend eager payload | not measured | **303.4 kB gzipped**, gated at 330 kB 📈 |
 | `npm audit --omit=dev` | 0 vulnerabilities | **0 vulnerabilities** |
 | `pip check` | passing | **passing** |
 | OpenAPI drift gate | passing | **passing** (contract regenerated deliberately) |
@@ -101,7 +102,7 @@ One correction to the 2026-08-03 wording: "nothing in code" was true of *availab
 | 12 | Gemini paid tier with a token budget breaker | Free-tier quota is the single biggest availability and data-governance constraint | P0 | S–M | B | §4.6 | ❌ Phase B | 
 | 13 | Batch the per-chunk duplication RPC loop | Hundreds of serial round trips per manuscript, on both the ingestion and scan paths | P1 | M | B | §2.1 B8, §4.5 | 🧊 Frozen | 
 | 14 | Make the accessibility gate deterministic | Some contrast findings are sampled mid-animation, so the count is not currently trustworthy | P1 | S | A | §2.1 B7, §3.2 | ✅ Fixed | 
-| 15 | Fix the 890 kB three.js chunk | One route's decorative 3D is 237 kB gzipped — punishing on campus mobile data | P1 | M | A | §3.6 | ❌ Open | 
+| 15 | Fix the 890 kB three.js chunk | One route's decorative 3D is 237 kB gzipped — punishing on campus mobile data | P1 | M | A | §3.6 | ✅ Fixed | 
 | 16 | Repair the broken evidence links and stale docs | `iso25010_evidence.md` points a panelist at a file that does not exist | P1 | S | A | §2.4 | ✅ Fixed | 
 | 17 | Re-fingerprint the Objective 2 evaluation artifact | The retained smoke result records settings the current build no longer uses | P1 | S | A | §2.4 D3 | ✅ Fixed | 
 | 18 | Hybrid retrieval and reranking | The largest available answer-quality gain; the paper's own literature review argues for it | P1 | L | B | §7.1 | 🧊 Frozen | 
@@ -508,7 +509,7 @@ Not currently failures, but each one will become one.
 | ✅ Fixed R6 | No regression test for the user-deletion path | `tests/` | **B4** is a P0 defect in a path with no test. Also uncovered: the `IndexError` in **B3** |
 | ✅ Fixed R7 | Frontend has no coverage reporting | CI | **Closed 2026-08-04.** `npm run test:coverage` runs `node --test --experimental-test-coverage` with an lcov reporter, and `sonar.javascript.lcov.reportPaths` now feeds it to SonarQube — the missing input behind the 36.3% whole-repository figure. Measured **91.12% lines / 83.25% branches / 94.74% functions** across 10 source modules. Made a real gate, not just a report: thresholds of 85/80/85 mirroring the backend's `--cov-fail-under`, verified by exit code (exit 1 at a 99% threshold, exit 0 at 85%). CI uploads the report and the SonarQube job now depends on the frontend job so the artifact exists |
 | 🟡 Improved R8 | Weakest-covered backend modules | coverage run | `services/embedder.py` 63.16%, `services/observability.py` 63.64%, `services/cleanup.py` 66.67%, `services/catalog.py` 73.68%, `workers/ingestion_worker.py` 80.11%, `services/ingestion.py` 78.18%. The worker and ingestion service are the two least-covered *and* the hardest to debug in production |
-| ❌ Open R9 | Nested interactive controls in the archive grid | `src/pages/Archive.jsx:53-79` | A `GlassCard` with `role="button"` and `tabIndex={0}` contains a real `<button>` for delete. Screen readers announce a button inside a button; the inner control is hard to reach predictably. Restructure so the card is a link/heading and the delete button is a sibling |
+| ✅ Fixed R9 | Nested interactive controls in the archive grid | `src/pages/Archive.jsx:53-79` | **Closed 2026-08-04.** The card no longer carries `role="button"` or `tabIndex`. Its heading now contains a real `<button>` that is the keyboard and AT path, and the delete button is that button's sibling rather than its descendant, so nothing is announced as a button inside a button. The card's `onClick` survives only as a mouse convenience for the wider hit area — it exposes no role, so it is not announced at all. The delete control gained a per-row accessible name (`Delete {title}` instead of five identical "Delete paper" buttons) and a visible focus ring; the title button's longer label still contains the visible text, satisfying WCAG 2.5.3 Label in Name |
 | ❌ Monitor R10 | `chunk_size_tokens` measured with a proxy tokenizer | `services/chunker.py:1-9` | Correct and honestly documented, but if Google ever publishes a Gemini tokenizer this should be revisited under a new `chunking_version` |
 
 ### 2.3 Security gaps
@@ -653,7 +654,7 @@ Today `html[data-contrast="high"]` only raises `--glass-opacity` and thickens fo
 | **Filipino localization** | An i18n scaffold plus Filipino strings. Matters for university-wide adoption beyond CCSICT | P3 | M | C |
 | **Command palette discoverability** | The palette exists (`CommandPalette.jsx`) but nothing advertises it. Add a visible hint and keyboard-shortcut help | P3 | S | B |
 
-### 3.6 Frontend performance — P1 · M · Phase A
+### 3.6 Frontend performance — ✅ **DONE 2026-08-04** · P1 · M · Phase A
 
 The production build is clean (3,855 modules, sub-second) but the chunk profile has two outliers:
 
@@ -665,6 +666,22 @@ The production build is clean (3,855 modules, sub-second) but the chunk profile 
 The 3D scenes are decorative — `Hero.jsx` and `Login.jsx` already switch them off under reduced-motion or low-effects. On a campus 3G connection 237 kB gzipped of decorative WebGL is a multi-second penalty before first meaningful paint.
 
 > **Fix:** load the 3D bundle only after first paint *and* only when the device passes a capability check (not coarse-pointer, not `prefers-reduced-motion`, not `saveData`, sufficient `deviceMemory`), with a static hero image as the default. Import Recharts components individually or swap to a lighter charting library for the admin dashboard. Add a bundle-size budget to CI so this cannot regress silently.
+
+**Resolved 2026-08-04.**
+
+*Recharts.* Split into its own lazy chunk (`OverviewCharts`). `AdminOverview` went from **381.91 kB / 109.29 kB gzipped to 8.95 kB / 3.01 kB** — the admin landing page now paints its statistics without waiting for a charting library. The panel heights are mirrored in the parent's Suspense fallback rather than imported, because a static import of *any* binding from the lazy module would pull the chunk back into the parent's.
+
+*Three.js.* Not shrunk — gated. Shrinking it would mean rewriting the scenes, whereas the real problem was **who downloads it**. The two surfaces had each re-implemented the decision with different rules; both now share one policy in `components/three/sceneCapability.js`, which adds the three signals neither checked:
+
+- **Data Saver** (`navigator.connection.saveData`) — the exact campus-mobile-data case this entry cites
+- **Device memory** below 4 GB
+- **Logical cores** below 4, and **coarse pointer**, which a 768 px tablet previously passed
+
+The policy separates *hard constraints* (no WebGL, reduced motion, Data Saver, low memory, low CPU) from *soft preferences* (coarse pointer, narrow viewport). An explicit `effects: 'full'` opt-in overrides the soft ones but never the hard ones — in particular Data Saver stays authoritative, because it is the browser relaying an instruction to spend less data, which outranks a decorative preference set once in a settings panel. Unknown readings never block: Safari and Firefox expose neither `deviceMemory` nor `hardwareConcurrency`, and absent must not read as low. 42 unit tests, `sceneCapability.js` at 100% coverage.
+
+**Deviation from the recommendation, deliberately.** No static hero image was added. `Aurora` is a pure-CSS gradient backdrop that already renders on both surfaces and costs nothing to fetch, so the design already degrades gracefully. Wiring in the (currently unreferenced) 45 kB `src/assets/hero.png` would have *added* 45 kB to precisely the constrained devices this item exists to help.
+
+*Budget.* `npm run bundle:budget` runs in CI after the build and checks three things: the total gzipped **eager payload** — the entry chunk plus everything the built `index.html` preloads, which is the browser's own definition of "needed before first interaction" rather than a guess — against 330 kB (currently **303.4 kB**); per-chunk caps on the two heavy lazy chunks; and that neither of those chunks appears in the eager set. The third check is the one that actually catches an accidental static import, since the size checks alone would still pass. Verified by exit code in both directions: exit 1 when the eager budget is lowered below the current figure, and exit 1 when an eagerly-loaded chunk is asserted to be lazy.
 
 ---
 
