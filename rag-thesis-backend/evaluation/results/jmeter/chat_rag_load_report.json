@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-04T10:47:54.869318+00:00",
+  "corpus": "synthetic-10-thesis-80-chunk",
+  "provider_tier": "gemini-free",
+  "classification": {
+    "capacity_notice_below_ms": 100,
+    "answer_at_or_above_ms": 2000,
+    "basis": "A companion run captured response bodies and confirmed every sub-second HTTP 200 carried the capacity notice. Genuine answers in the same session took 5.1-26.2 s."
+  },
+  "caveat": "Measured on a synthetic corpus against the free provider tier. The answered share reflects provider rate limits, not application capacity; application-only throughput is measured separately by jmeter/provider_independent_load.jmx. Not a substitute for a run against the approved corpus on a paid tier.",
+  "profiles": {
+    "2_users": {
+      "samples": 6,
+      "response_codes": {
+        "200": 4,
+        "502": 2
+      },
+      "bands": {
+        "answer": 2,
+        "capacity_notice": 1,
+        "ambiguous_fast": 1,
+        "failure": 2
+      },
+      "band_share_percent": {
+        "answer": 33.3,
+        "capacity_notice": 16.7,
+        "ambiguous_fast": 16.7,
+        "failure": 33.3
+      },
+      "answered_share_percent": 33.3,
+      "answer_latency_ms": {
+        "n": 2,
+        "min": 9547,
+        "median": 14459.5,
+        "p95": 18880.75,
+        "max": 19372
+      },
+      "capacity_notice_latency_ms": {
+        "n": 1,
+        "max": 3
+      }
+    },
+    "5_users": {
+      "samples": 15,
+      "response_codes": {
+        "200": 15
+      },
+      "bands": {
+        "answer": 7,
+        "capacity_notice": 6,
+        "ambiguous_fast": 2,
+        "failure": 0
+      },
+      "band_share_percent": {
+        "answer": 46.7,
+        "capacity_notice": 40.0,
+        "ambiguous_fast": 13.3,
+        "failure": 0.0
+      },
+      "answered_share_percent": 46.7,
+      "answer_latency_ms": {
+        "n": 7,
+        "min": 5090,
+        "median": 8071.0,
+        "p95": 14133.9,
+        "max": 14928
+      },
+      "capacity_notice_latency_ms": {
+        "n": 6,
+        "max": 5
+      }
+    },
+    "10_users": {
+      "samples": 30,
+      "response_codes": {
+        "200": 30
+      },
+      "bands": {
+        "answer": 0,
+        "capacity_notice": 29,
+        "ambiguous_fast": 1,
+        "failure": 0
+      },
+      "band_share_percent": {
+        "answer": 0.0,
+        "capacity_notice": 96.7,
+        "ambiguous_fast": 3.3,
+        "failure": 0.0
+      },
+      "answered_share_percent": 0.0,
+      "answer_latency_ms": {
+        "n": 0,
+        "min": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      },
+      "capacity_notice_latency_ms": {
+        "n": 29,
+        "max": 31
+      }
+    },
+    "20_users": {
+      "samples": 60,
+      "response_codes": {
+        "200": 60
+      },
+      "bands": {
+        "answer": 0,
+        "capacity_notice": 60,
+        "ambiguous_fast": 0,
+        "failure": 0
+      },
+      "band_share_percent": {
+        "answer": 0.0,
+        "capacity_notice": 100.0,
+        "ambiguous_fast": 0.0,
+        "failure": 0.0
+      },
+      "answered_share_percent": 0.0,
+      "answer_latency_ms": {
+        "n": 0,
+        "min": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      },
+      "capacity_notice_latency_ms": {
+        "n": 60,
+        "max": 28
+      }
+    }
+  },
+  "source_files": [
+    "evaluation\\results\\jmeter\\chat-2.jtl",
+    "evaluation\\results\\jmeter\\chat-5.jtl",
+    "evaluation\\results\\jmeter\\chat-10.jtl",
+    "evaluation\\results\\jmeter\\chat-20.jtl"
+  ]
+}

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testResults version="1.2">
+<httpSample t="1509" it="0" lt="1506" ct="18" ts="1785840407781" s="true" lb="POST /chat" rc="200" rm="OK" tn="Concurrent guest researchers 1-1" dt="text" by="544" sby="278" ng="3" na="3">
+  <responseData class="java.lang.String">{&quot;answer&quot;:&quot;IskAI has reached the research AI service usage limit, so your question could not be processed right now. Please try again later.&quot;,&quot;sources&quot;:[],&quot;duplication_alert&quot;:null,&quot;session_id&quot;:null,&quot;no_relevant_thesis&quot;:false,&quot;history_saved&quot;:false}</responseData>
+  <java.net.URL>http://127.0.0.1:8010/chat</java.net.URL>
+</httpSample>
+<httpSample t="1231" it="0" lt="1228" ct="1" ts="1785840408059" s="true" lb="POST /chat" rc="200" rm="OK" tn="Concurrent guest researchers 1-2" dt="text" by="544" sby="278" ng="3" na="3">
+  <responseData class="java.lang.String">{&quot;answer&quot;:&quot;IskAI has reached the research AI service usage limit, so your question could not be processed right now. Please try again later.&quot;,&quot;sources&quot;:[],&quot;duplication_alert&quot;:null,&quot;session_id&quot;:null,&quot;no_relevant_thesis&quot;:false,&quot;history_saved&quot;:false}</responseData>
+  <java.net.URL>http://127.0.0.1:8010/chat</java.net.URL>
+</httpSample>
+<httpSample t="1059" it="0" lt="1059" ct="1" ts="1785840408387" s="true" lb="POST /chat" rc="200" rm="OK" tn="Concurrent guest researchers 1-3" dt="text" by="544" sby="278" ng="1" na="1">
+  <responseData class="java.lang.String">{&quot;answer&quot;:&quot;IskAI has reached the research AI service usage limit, so your question could not be processed right now. Please try again later.&quot;,&quot;sources&quot;:[],&quot;duplication_alert&quot;:null,&quot;session_id&quot;:null,&quot;no_relevant_thesis&quot;:false,&quot;history_saved&quot;:false}</responseData>
+  <java.net.URL>http://127.0.0.1:8010/chat</java.net.URL>
+</httpSample>
+
+</testResults>

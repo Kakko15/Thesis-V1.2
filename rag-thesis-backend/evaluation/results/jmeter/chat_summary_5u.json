@@ -1,0 +1,43 @@
+{
+  "overall": {
+    "samples": 15,
+    "average_ms": 4355.4,
+    "median_ms": 634.0,
+    "p95_ms": 13075.1,
+    "p99_ms": 14557.42,
+    "throughput_per_second": 0.68,
+    "error_rate_percent": 0.0,
+    "response_codes": {
+      "200": 15
+    },
+    "max_concurrent_threads": 5,
+    "measured_run_count": 1
+  },
+  "endpoints": {
+    "POST /chat": {
+      "samples": 15,
+      "average_ms": 4355.4,
+      "median_ms": 634.0,
+      "p95_ms": 13075.1,
+      "p99_ms": 14557.42,
+      "throughput_per_second": 0.68,
+      "error_rate_percent": 0.0,
+      "response_codes": {
+        "200": 15
+      },
+      "max_concurrent_threads": 5,
+      "measured_run_count": 1
+    }
+  },
+  "generated_at": "2026-08-04T10:46:05.505603+00:00",
+  "profile": "chat-rag-5users-synthetic-corpus",
+  "iterations": 1,
+  "configuration": {
+    "users": 5,
+    "loops": 3,
+    "ramp_seconds": 15
+  },
+  "source_files": [
+    "evaluation\\results\\jmeter\\chat-5.jtl"
+  ]
+}
