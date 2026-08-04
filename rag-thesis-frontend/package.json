@@ -17,6 +17,7 @@
     "test:e2e": "node e2e/run-playwright.mjs",
     "test:e2e:install": "playwright install chromium",
     "preview": "vite preview",
+    "bundle:budget": "node scripts/check-bundle-budget.mjs",
     "security:headers": "node scripts/validate-security-headers.mjs"
   },
   "dependencies": {

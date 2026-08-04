@@ -7,10 +7,12 @@ import {
 import { Aurora } from '../../components/ui/Aurora'
 import { Button } from '../../components/ui/Button'
 import { Magnetic, TypewriterText } from '../../components/ui/Motion'
-import { usePreferences } from '../../context/PreferencesContext'
+import { BLOCK_REASONS } from '../../components/three/sceneCapability'
+import { useSceneCapability } from '../../components/three/useSceneCapability'
 import { useIdleReady } from '../../hooks/useIdleReady'
 
 const HeroScene = lazy(() => import('../../components/three/HeroScene'))
+const PAGE_HIDDEN_REASON = BLOCK_REASONS.PAGE_HIDDEN
 
 const ASK_PHRASES = [
   'What local studies used CNNs for crop disease detection?',
@@ -32,24 +34,22 @@ const enter = (delay) => ({
 })
 
 /**
- * Gates the 3D scene. `show` mounts it once (reduced motion off + WebGL
- * available) and keeps it mounted — unmounting on scroll would force a GL
- * context loss (console noise, re-init cost). `active` pauses the render
- * loop instead while the hero is far off-screen.
+ * Gates the 3D scene. `show` mounts it once and keeps it mounted — unmounting on
+ * scroll would force a GL context loss (console noise, re-init cost). `active`
+ * pauses the render loop instead while the hero is far off-screen.
+ *
+ * The capability decision itself now lives in useSceneCapability, shared with
+ * Login and covering Data Saver, device memory, and pointer coarseness — none of
+ * which the rule here used to check, so a Data Saver user on a 768px tablet
+ * still downloaded 237 kB gzipped of decorative WebGL.
+ *
+ * Page visibility is deliberately not part of `show`: unmounting a hidden tab's
+ * scene would drop its GL context, so visibility pauses the loop via `active`.
  */
 function useHeroScene(heroRef) {
-  const { reducedMotion, effects } = usePreferences()
-  const [webgl] = useState(() => {
-    try {
-      const canvas = document.createElement('canvas')
-      return !!(canvas.getContext('webgl2') || canvas.getContext('webgl'))
-    } catch {
-      return false
-    }
-  })
+  const capability = useSceneCapability({ wideViewportQuery: '(min-width: 768px)' })
   const [near, setNear] = useState(true)
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== 'hidden')
-  const [largeViewport, setLargeViewport] = useState(() => window.matchMedia('(min-width: 768px)').matches)
 
   useEffect(() => {
     const el = heroRef.current
@@ -67,15 +67,8 @@ function useHeroScene(heroRef) {
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }, [])
 
-  useEffect(() => {
-    const media = window.matchMedia('(min-width: 768px)')
-    const onChange = (event) => setLargeViewport(event.matches)
-    media.addEventListener('change', onChange)
-    return () => media.removeEventListener('change', onChange)
-  }, [])
-
   return {
-    show: !reducedMotion && effects !== 'low' && webgl && (largeViewport || effects === 'full'),
+    show: capability.allowed || capability.reason === PAGE_HIDDEN_REASON,
     active: near && pageVisible,
   }
 }
