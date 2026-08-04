@@ -3,8 +3,8 @@
 | Control | Value |
 |---|---|
 | Purpose | Everything required to take the ISU Centralized AI-Powered Thesis Library (IskAI) from its current defense-ready state to a real-world university production web application with best-in-class UI/UX |
-| System audited | Working tree at commit `9228da2` plus the uncommitted frontend accessibility work. **Updated 2026-08-03 after remediation** — see §0 for current status |
-| Audit date | **2026-08-03** |
+| System audited | Working tree at commit `9228da2` plus the uncommitted frontend accessibility work. **Updated 2026-08-03 and again 2026-08-04 after remediation** — see §0 for current status |
+| Audit date | **2026-08-03** (original) · **2026-08-04** (second remediation pass) |
 | Companion | `PAPER_VS_SYSTEM_COMPARISON_2026-08-03.md` — the paper-vs-system comparison and the required paper revisions |
 | Grounding | Every item cites the file and line, the command output, or the dated artifact that justifies it. Defects that could not be reproduced today are listed separately in §2.5 rather than asserted as facts |
 
@@ -33,17 +33,21 @@ Every item carries three labels:
 
 ---
 
-## 0. Status as of 2026-08-03 (post-remediation) 🚦
+## 0. Status as of 2026-08-04 (second remediation pass) 🚦
 
-**Every P0 defect in §2.1 is closed, and every Phase A defect is either closed or has its harmful half closed.** 🎉 The three P0 items that gated public exposure — event-loop blocking, the accessibility gate, and unenforced signup domains — are fixed and verified. The only Phase A item not fully closed is **B14**, deliberately: see its entry.
+**Every P0 defect in §2.1 is closed, and every Phase A *code* defect is now closed outright.** 🎉 The three P0 items that gated public exposure — event-loop blocking, the accessibility gate, and unenforced signup domains — are fixed and verified. B14, the last Phase A item still carrying an open half on 2026-08-03, was closed on 2026-08-04 via the `kind` column rather than by skipping persistence.
+
+**Closed in the 2026-08-04 pass:** B14 (structural half), R4, R7, S2, §3.5 async-state parity, and three newly found defects (**N12–N14**) — one of which, N12, was a hole in the lint gate itself that let a missing component import reach runtime.
+
+**Still open in Phase A, by scope rather than by neglect:** #15 (the 890 kB three.js chunk), #19 (supply-chain hardening / S3), #20 (scheduled backups), R5 and R9, and item 7 — load-testing the real `/chat` path, which needs a disposable Supabase project rather than more code.
 
 | Group | ✅ Fixed | 🟡 Partial | ❌/🧊 Open | Notes |
 |---|---|---|---|---|
-| **§2.1 Confirmed defects (B1–B20)** | **15** | 2 | 3 | All 3 open are post-defense by design: B10 and B20 are Phase B, B8 is 🧊 frozen-pipeline. The 2 partials are B9 (Phase A half done, Phase B pagination open) and B14 |
-| **§2.2 Correctness risks (R1–R10)** | 4 | 2 | 4 | R1–R3 and R6 closed; R4 and R8 improved; R5/R7/R9/R10 open |
-| **§2.3 Security gaps (S1–S6)** | 1 | 0 | 5 | S1 (the P0) closed; the rest are policy or external, including the remaining P0 **S6** |
+| **§2.1 Confirmed defects (B1–B20)** | **16** | 1 | 3 | All 3 open are post-defense by design: B10 and B20 are Phase B, B8 is 🧊 frozen-pipeline. The remaining partial is B9 (Phase A half done, Phase B pagination open) |
+| **§2.2 Correctness risks (R1–R10)** | **6** | 1 | 3 | R1–R4, R6 and R7 closed; R8 improved; R5/R9/R10 open |
+| **§2.3 Security gaps (S1–S6)** | 2 | 0 | 4 | S1 and S2 closed; the rest are policy or external, including the remaining P0 **S6** |
 | **§2.4 Documentation defects (D1–D6)** | **6** | 0 | 0 | All closed 📄 |
-| **§2.6 Newly discovered (N1–N11)** | **11** | 0 | 0 | Found by audits run *during* remediation, not present in the original report |
+| **§2.6 Newly discovered (N1–N14)** | **14** | 0 | 0 | Found by audits run *during* remediation, not present in the original report |
 
 Counts above are generated from the status marks in this document, not maintained by hand.
 
@@ -51,14 +55,21 @@ Counts above are generated from the status marks in this document, not maintaine
 
 | Gate | Before | After |
 |---|---|---|
-| PyTest | 430 passed / 90.87% | **539 passed, 3 skipped / 91.28%** 📈 |
-| Pylint | 10.00/10 | **10.00/10** |
+| PyTest | 430 passed / 90.87% | **586 passed, 3 skipped / 91.45%** 📈 |
+| Pylint | 10.00/10 | **10.00/10** (exit 0) |
 | ESLint | 0 errors, 0 warnings | **0 errors, 0 warnings** |
 | Frontend unit tests | 29 | **44** 📈 |
+| Frontend coverage | ❌ not reported (counted as 0%) | **✅ 91.12% lines / 83.25% branches**, gated at 85/80 📈 |
 | Playwright (all specs) | ❌ 10 failing | **✅ 21 passed** |
 | axe WCAG 2.2 AA | ❌ 55 blocking | **✅ 0 blocking** (25 advisory open) |
 | `npm audit --omit=dev` | 0 vulnerabilities | **0 vulnerabilities** |
+| `pip check` | passing | **passing** |
 | OpenAPI drift gate | passing | **passing** (contract regenerated deliberately) |
+
+Every figure above was read from the command's **exit code**, not from its printed
+summary. Pylint is the reason that distinction is written down: it does not lower
+its 10.00/10 score for refactor-category messages, so a green score sat above a
+red exit status for two commits on `main`.
 
 ### The frozen pipeline was not touched 🧊
 
@@ -67,6 +78,8 @@ No fix altered chunking, retrieval parameters, prompts, or models. Verified conc
 ### What still blocks production 🚧
 
 Nothing in code. The remaining P0 is **S6 — Data Privacy Act operationalization** (legal/institutional), and the Phase B scaling work (§4.1 multi-process, §4.6 paid tier) before real load. Item 7 of §1 — load-testing the real `/chat` path — was gated on B1 and is now **unblocked**.
+
+One correction to the 2026-08-03 wording: "nothing in code" was true of *availability*, but the cost ceiling was not in place. **S2** is now closed, so a determined script with valid Turnstile challenges can no longer drain the shared Gemini quota. Production configuration must declare the budget — the config validator will not start without it.
 
 ---
 
@@ -381,11 +394,19 @@ Two problems. First, `str.lstrip('json')` strips *any* leading run of the charac
 
 ---
 
-#### [🟡 **PARTIALLY FIXED**] B14 — Capacity and error responses are saved as chat history · **P2 · S · Phase A**
+#### [✅ **FIXED & VERIFIED**] B14 — Capacity and error responses are saved as chat history · **P2 · S · Phase A**
 
 > **🟡 Partially resolved 2026-08-03 — the harmful half.** Stored system notices (capacity apology, refusal, no-relevant-thesis) are now recognized by `_is_stored_non_answer()` and excluded when history is loaded, so they can no longer be replayed to the model as conversational context or leave a follow-up with nothing to anchor to. The capacity message has a single definition (`CAPACITY_MESSAGE`) shared by the responder and the filter.
 >
-> **Deliberately still open:** they are still *persisted*. Skipping persistence would leave `history_saved === false`, which `src/pages/Chat.jsx` renders as "Answer received, but chat history was not saved" — trading this defect for a misleading warning. Closing it properly needs the `kind` column this entry suggests plus the matching frontend change. Left open rather than done badly.
+> **✅ Closed 2026-08-04 — the structural half**, via the `kind` column this entry recommended rather than by skipping persistence. Migration `20260804_chat_message_kind.sql` adds `chat_messages.kind` (`'answer' | 'notice'`, check-constrained), backfills every pre-existing notice row from the four known message prefixes, extends `save_chat_exchange` with `p_kind`, and drops the 8-argument signature so no caller can reach the old body and write an unmarked notice. A rollback migration ships alongside it.
+>
+> `services/chat_notices.response_kind()` classifies at the source — structurally where a structural signal exists (`no_relevant_thesis` is already a field), by exact equality against module constants otherwise, so a genuine answer that merely *mentions* a usage limit is not misfiled. `_load_chat_history` filters `kind = 'answer'` in SQL **before** the five-row limit, so a session whose recent turns were mostly notices now returns five usable exchanges instead of five rows that get discarded in Python. A partial index covers exactly that query.
+>
+> **The chosen trade-off:** notices are still persisted and still shown in the user's own transcript, because the conversation did happen and dropping the question they asked would be a worse outcome than showing them why it could not be answered. What changed is that a notice is no longer *model context* and no longer *counts as an answer*. Skipping persistence outright was rejected for the reason recorded above — it would leave `history_saved === false` and surface a misleading "history was not saved" warning.
+>
+> `_is_stored_non_answer()` is retained as defence in depth, not dead code: it still covers rows written by an older build and any row whose stored text is a notice while its `kind` says otherwise. 25 regression tests in `tests/test_chat_notices.py`, including a check that the SQL backfill matches every notice string the application can actually produce.
+>
+> Analytics needed no change — every notice path returns before the `chat_query` activity event is logged, so notices were never counted as queries. Verified rather than assumed.
 
 **Where:** `routers/chat.py:591-608`.
 
@@ -482,10 +503,10 @@ Not currently failures, but each one will become one.
 | ✅ Fixed R1 | Naive local time in year validation | `routers/upload.py:145` | `datetime.now().year` uses the server's local timezone; every other timestamp in the codebase is timezone-aware UTC. A New Year's Eve upload can be rejected or accepted inconsistently. Use `datetime.now(timezone.utc)` |
 | ✅ Fixed R2 | Silent exception swallow | `routers/upload.py:380-381` | A bare `except Exception: pass` around the `last_event_at` lookup hides genuine database problems with no log line at all |
 | ✅ Fixed R3 | Dead code in the log filter | `routers/analytics.py:314-320` | `logs` is already limited by `.limit(limit)`, so the `if len(filtered_logs) >= limit: break` guard can never fire. Harmless, but it implies a filter that does not exist |
-| 🟡 Partial R4 | `select('*')` in hot paths | `routers/sessions.py:33`, `routers/analytics.py:141, 155, 297`, `routers/maintenance.py:52, 82`, `routers/catalog.py:20` | Returns whatever columns exist, so a future column is exposed to clients by default. Prefer explicit field lists, as `routers/papers.py:47-51` already does |
+| ✅ Fixed R4 | `select('*')` in hot paths | `routers/sessions.py`, `routers/analytics.py`, `routers/maintenance.py`, `routers/catalog.py`, `routers/departments.py`, `routers/duplication.py`, `services/operations.py` | **Closed 2026-08-04.** The audit listed 7 sites; a fresh sweep found **13**, including three the original pass missed (`departments.py` ×2, `duplication.py`, `services/operations.py`). Client-facing listings now pin the *complete current* column set, so today's payloads are byte-identical and only a future column requires a deliberate edit; server-internal reads were narrowed to the columns actually used, which also stops the duplication follow-up from pulling the unused report payloads on every question. `ALERT_FIELDS`/`WORKER_FIELDS` are shared between the internal fallback read and the client-facing listing so the two cannot drift. Guarded by an AST sweep over every production module — with a planted-wildcard test proving the detector fires — plus a check that every pinned column is declared by the schema or a migration |
 | ❌ Open R5 | Novelty-scan excerpts stored at rest | `routers/duplication.py:253` | `scan_history.matched_chunks` persists up to five 320-character excerpts of archived manuscripts. Correctly excluded from every API response (`_public_scan`, and the explicit field list in `get_history`), but it is archived text at rest and should be named in the privacy review and covered by retention |
 | ✅ Fixed R6 | No regression test for the user-deletion path | `tests/` | **B4** is a P0 defect in a path with no test. Also uncovered: the `IndexError` in **B3** |
-| ❌ Open R7 | Frontend has no coverage reporting | CI | Backend coverage is 91.28%; the frontend contributes 0% to the whole-repository figure, which is why SonarQube reports 36.3% overall. Add `node --test --experimental-test-coverage` |
+| ✅ Fixed R7 | Frontend has no coverage reporting | CI | **Closed 2026-08-04.** `npm run test:coverage` runs `node --test --experimental-test-coverage` with an lcov reporter, and `sonar.javascript.lcov.reportPaths` now feeds it to SonarQube — the missing input behind the 36.3% whole-repository figure. Measured **91.12% lines / 83.25% branches / 94.74% functions** across 10 source modules. Made a real gate, not just a report: thresholds of 85/80/85 mirroring the backend's `--cov-fail-under`, verified by exit code (exit 1 at a 99% threshold, exit 0 at 85%). CI uploads the report and the SonarQube job now depends on the frontend job so the artifact exists |
 | 🟡 Improved R8 | Weakest-covered backend modules | coverage run | `services/embedder.py` 63.16%, `services/observability.py` 63.64%, `services/cleanup.py` 66.67%, `services/catalog.py` 73.68%, `workers/ingestion_worker.py` 80.11%, `services/ingestion.py` 78.18%. The worker and ingestion service are the two least-covered *and* the hardest to debug in production |
 | ❌ Open R9 | Nested interactive controls in the archive grid | `src/pages/Archive.jsx:53-79` | A `GlassCard` with `role="button"` and `tabIndex={0}` contains a real `<button>` for delete. Screen readers announce a button inside a button; the inner control is hard to reach predictably. Restructure so the card is a link/heading and the delete button is a sibling |
 | ❌ Monitor R10 | `chunk_size_tokens` measured with a proxy tokenizer | `services/chunker.py:1-9` | Correct and honestly documented, but if Google ever publishes a Gemini tokenizer this should be revisited under a new `chunking_version` |
@@ -497,7 +518,7 @@ These are policy gaps rather than code bugs, but they gate public exposure.
 | Status & # | Gap | Where | Priority |
 |---|---|---|---|
 | ✅ Fixed S1 | **No institutional email domain enforcement.** `handle_new_user` sets department `CCSICT` and status `approved` for any email address whatsoever. `@isu.edu.ph` appears only as UI placeholder text; `src/pages/auth/authUtils.js` accepts any valid address | `supabase_setup.sql:43-65` | **P0** |
-| ❌ Open S2 | Guest chat has no global spend ceiling. Per-guest (30/min) and per-IP (300/min) limits exist, and Turnstile is available but off by default. Nothing caps *total* daily guest token spend | `config.py:40-41, 73` | P1 |
+| ✅ Fixed S2 | Guest chat has no global spend ceiling. Per-guest (30/min) and per-IP (300/min) limits exist, and Turnstile is available but off by default. Nothing caps *total* daily guest token spend | `config.py:40-41, 73` | P1 |
 | ❌ Open S3 | Transitive Python dependencies are not hash-locked and base images are pinned by tag, not digest. No SBOM, no image signing | `requirements.txt`, `Dockerfile` | P1 |
 | ❌ Open S4 | Secrets are loaded from `.env` files on the host; rotation is documented but manual | `docs/SECRET_ROTATION.md` | P1 |
 | ❌ Open S5 | No independent penetration test has been performed | — | P1 |
@@ -514,6 +535,28 @@ These are policy gaps rather than code bugs, but they gate public exposure.
 | ✅ Fixed D5 | The ISO evidence still records the React Router npm-audit finding as "Blocked upstream." `npm audit --omit=dev` today reports **0 vulnerabilities** — the gate is closed and should be marked as such | `evaluation/iso25010_evidence.md:24` |
 | ✅ Fixed D6 | Commands in the evidence file reference `.venv312`, while CI and the container target Python 3.14.6 and the working venv is `.venv3146` | `evaluation/iso25010_evidence.md:73-85` |
 
+**S2 — closed 2026-08-04.** `services/guest_budget.py` counts tokens against a
+UTC-day key in the same `limits` storage that already backs rate limiting, so
+replicas share one budget instead of each enforcing its own. Three design points
+worth recording:
+
+- **The charge is an upper bound, booked before generation.** Measured prompt
+  input (via the documented `cl100k_base` proxy) plus `gemini_max_output_tokens`.
+  A ceiling that bills after the fact cannot refuse the request that breaches it.
+- **Enforced twice.** A read-only `is_exhausted()` check runs before the first
+  paid call, so an out-of-allowance guest never reaches the follow-up rewrite or
+  the retrieval embedding; the charge itself lands immediately before generation,
+  when the real context size is known.
+- **Fails open, and cannot lock out tomorrow.** An unreachable counter logs and
+  allows — the per-guest and per-IP limits still apply — and refused attempts,
+  which do still increment, expire with the day's key.
+
+Default 0 = unlimited, so development, the test suite, and the frozen evaluation
+pipeline are unchanged; `validate_production_services` refuses to start a
+production deployment without a real number, matching the existing
+Redis/MFA/ClamAV pattern. The notice invites the user to sign in rather than
+reusing the capacity apology. 17 regression tests in `tests/test_guest_budget.py`.
+
 ### 2.5 Reported but not reproducible here
 
 Listed for completeness and explicitly **not** asserted as defects.
@@ -529,7 +572,9 @@ Listed for completeness and explicitly **not** asserted as defects.
 
 Found by audits run while fixing §2.1 — a reproduction matrix for the refusal guard, a
 percentage-rendering trace, an AST sweep of every async function, and a deprecation
-sweep at import time. All eleven are fixed and covered by regression tests.
+sweep at import time. N12–N14 came out of the 2026-08-04 batch: an async-state parity
+audit of the admin surfaces, and one defect found by making it. All fourteen are fixed
+and covered by regression tests.
 
 | Status & # | Defect | Where | Why it mattered |
 |---|---|---|---|
@@ -544,6 +589,9 @@ sweep at import time. All eleven are fixed and covered by regression tests.
 | ✅ N9 | **`config.py` used a class-based Pydantic `Config`**, deprecated in Pydantic V2 and **removed in V3.0**, emitting `PydanticDeprecatedSince20` on every single import | `config.py:7` | The same defect class as B6 (deprecated API scheduled for removal) in a place the audit did not look. Migrated to `SettingsConfigDict` and proven value-for-value identical across all 62 resolved settings, with the frozen RAG contract asserted exact |
 | ✅ N10 | **Two blocking Supabase round trips on every chat request**, in the file B1 cites as the correct example | `routers/chat.py:594, 628` | Found by the AST sweep, not by reading. See the B1 note |
 | ✅ N11 | **A PDF file handle leaked** whenever `get_text()` raised during metadata extraction — the original `doc.close()` was unreachable on that path | `routers/upload.py:484-492` | Fixed incidentally by extracting `_title_page_texts()` with `try/finally` while making the handler non-blocking |
+| ✅ N12 | **The lint gate could not see a missing component import.** Core `no-undef` does not inspect JSX element names, and `react/jsx-no-undef` was not enabled — only `react/jsx-uses-vars` was. A component used as `<Missing />` without an import passes ESLint *and* the production build, then throws a `ReferenceError` at runtime | `eslint.config.js:30-32` | Found by making the mistake: the retry button added to `AdminOverview.jsx` used `Button` without importing it, and ESLint reported nothing. The whole admin error banner would have crashed the page at exactly the moment it was needed — when data had already failed to load. Rule enabled, verified against a planted `<TotallyMissingComponent />` (exit 1), and the existing codebase is clean under it |
+| ✅ N13 | **A failed retention fetch was rendered as three measured zeros.** `OperationsTab` deliberately excludes the retention query from its page-level loading and error gates, then read `report.upload_job_events ?? 0` — so an unreachable endpoint displayed "Eligible job events: 0" | `src/pages/admin/OperationsTab.jsx:115` | The same defect class the sibling `AdminOverview` banner explicitly promises against: *"No missing values are being treated as measured zeros."* This one was. A superadmin could conclude retention had nothing to collect when the report had simply failed. Now states that the counts are unavailable, with a retry |
+| ✅ N14 | **Latent role collision in the chat message list.** `setMessages` spread the API response *after* setting `kind: 'ai'`, so any response field named `kind` would silently overwrite the list's own `'user' \| 'ai'` role and break every render that branches on it | `src/pages/Chat.jsx:603` | Harmless until B14 introduced a `kind` concept to the API in the same request cycle — exactly the kind of near-miss that becomes a bug one commit later. Spread order inverted so the local role always wins |
 
 ## 3. UI/UX excellence programme
 
@@ -599,7 +647,7 @@ Today `html[data-contrast="high"]` only raises `--glass-opacity` and thickens fo
 | **Email notifications** | Approval/rejection and upload-complete mail through Supabase Auth SMTP. Today a pending faculty member must keep re-opening the app to discover they were approved | P1 | S | B |
 | **Bulk upload** | Multi-file queue UI over the existing durable job API — the backend already handles queued jobs safely. Digitizing 50 theses one file at a time is the current reality | P2 | M | B |
 | **Onboarding** | A short first-run walkthrough of chat, citations, the duplication alert, and the novelty scanner. Adoption is the difference between a thesis artifact and a used system | P3 | S | B |
-| **Empty, error, and loading states** | Already good in chat and archive; audit the admin tabs and novelty for parity — every async surface needs all three, plus a retry affordance | P2 | S | A |
+| **Empty, error, and loading states** ✅ | **Closed 2026-08-04.** Audited every async surface. Novelty was already at parity with chat and archive; the admin tabs were not. `SystemManagementTab`'s five queries (features, departments, users, logs, papers) and `UploadHistoryTab`'s listing destructured `isLoading` only — **no error state at all** — so a failed fetch rendered as "No users found." / "No papers found.", indistinguishable from a genuinely empty result and with nothing to retry. Fixed with one shared `TableStateRow` component (error outranks empty, since a failed fetch usually also looks empty) rather than seven ad-hoc copies, plus an inline treatment for the logs pane, which is not a table. Also: a retry affordance on the `AdminOverview` banner that refetches only what failed, an empty state for the durable-jobs table, and **N13** | P2 | S | A |
 | **Filipino localization** | An i18n scaffold plus Filipino strings. Matters for university-wide adoption beyond CCSICT | P3 | M | C |
 | **Command palette discoverability** | The palette exists (`CommandPalette.jsx`) but nothing advertises it. Add a visible hint and keyboard-shortcut help | P3 | S | B |
 
@@ -670,8 +718,8 @@ LangSmith tracing is implemented privacy-safely but is off by default and the fr
 ### 6.1 Enforce the institutional email domain — P0 · S · Phase A
 See **S1**. Enforce server-side in `handle_new_user()` (`supabase_setup.sql:43-65`): reject non-`@isu.edu.ph` signups, or admit them as `pending` for manual approval. Guest mode already covers legitimate outsiders. Mirror the rule client-side with a friendly message, and keep a superadmin path for panelists and librarians without ISU addresses. *(This was deliberately deferred in July; it is restated because it remains the single largest gap between the current build and a public university service.)*
 
-### 6.2 Guest-chat spend ceiling — P1 · S · Phase A
-Turnstile is implemented and config-gated (`services/turnstile.py`) — enable it in production with `TURNSTILE_SECRET_KEY` and `VITE_TURNSTILE_SITE_KEY`. Add the missing piece: a global daily guest token budget in Redis, so a determined script cannot exhaust the quota even with valid challenges. Move the verified-guest cache to Redis at the same time (**B10**).
+### 6.2 Guest-chat spend ceiling — ✅ **DONE** · P1 · S · Phase A
+Turnstile is implemented and config-gated (`services/turnstile.py`) — enable it in production with `TURNSTILE_SECRET_KEY` and `VITE_TURNSTILE_SITE_KEY`. ~~Add the missing piece: a global daily guest token budget in Redis, so a determined script cannot exhaust the quota even with valid challenges.~~ **Closed 2026-08-04** — see **S2** in §2.3. It reuses the `limits` storage that already backs rate limiting, so it inherits Redis in production without waiting on **B10**. Moving the verified-guest cache to Redis remains part of B10 (Phase B).
 
 ### 6.3 Supply-chain hardening — P1 · M · Phase A
 Generate `requirements.lock` with `pip-compile --generate-hashes` and install with `--require-hashes`; pin `FROM` images by digest; add SBOM generation (syft) and image signing (cosign) to the container jobs; enable security-only Dependabot PRs. CI already runs pip-audit, `npm audit`, Trivy, and Gitleaks, so this closes the remaining reproducibility gap.
