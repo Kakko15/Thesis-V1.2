@@ -215,6 +215,53 @@ def _notify_due(alert: dict) -> bool:
     return previous < datetime.now(timezone.utc) - timedelta(minutes=15)
 
 
+def newest_backup(client) -> dict | None:
+    """The most recently recorded successful backup, or None.
+
+    Tolerant of a missing table on purpose: the operations monitor must keep
+    reporting worker and queue health on a deployment that has not applied the
+    backup-runs migration yet. A hard failure here would take the whole
+    operational view down over a feature that is off by default.
+    """
+    try:
+        rows = (
+            client.table('backup_runs')
+            .select('backup_id,completed_at,artifact_count,total_bytes')
+            .order('completed_at', desc=True).limit(1).execute().data or []
+        )
+    except Exception as error:
+        logger.warning('Backup run lookup failed (%s)', type(error).__name__)
+        return None
+    return rows[0] if rows else None
+
+
+def _backup_condition(client, now: datetime):
+    """Staleness of the newest recorded backup, against the declared RPO.
+
+    Returns None when the check is disabled, so the caller adds no condition and
+    resolves no alert -- an operator who has deliberately left BACKUP_RPO_HOURS
+    at 0 should not see a `backup_stale` alert appear and then clear.
+    """
+    if settings.backup_rpo_hours <= 0:
+        return None
+    latest = newest_backup(client)
+    if latest is None:
+        # No backup has ever been recorded. That is the most severe form of the
+        # same condition, not a reason to stay quiet.
+        return True, 'backup_stale', 'critical', {
+            'recorded_backups': 0,
+            'rpo_hours': settings.backup_rpo_hours,
+        }
+    completed = _timestamp(latest.get('completed_at'))
+    age_hours = max(0.0, (now - completed).total_seconds() / 3600)
+    return age_hours > settings.backup_rpo_hours, 'backup_stale', 'critical', {
+        'age_hours': round(age_hours, 1),
+        'rpo_hours': settings.backup_rpo_hours,
+        'rto_hours': settings.backup_rto_hours,
+        'backup_id': str(latest.get('backup_id') or ''),
+    }
+
+
 def evaluate_operations(client) -> dict:
     """Evaluate sanitized queue/worker health and maintain deduplicated alerts."""
     now = datetime.now(timezone.utc)
@@ -295,6 +342,11 @@ def evaluate_operations(client) -> dict:
             {'affected_workers': len(scanner_unavailable)},
         ),
     }
+    # A nightly task that silently stopped firing used to look exactly like a
+    # healthy system from here (§8.1). Only added when a real RPO is configured.
+    backup_condition = _backup_condition(client, now)
+    if backup_condition is not None:
+        conditions['backup_stale'] = backup_condition
     for key, (active, alert_type, severity, details) in conditions.items():
         if active:
             alert = upsert_alert(client, key, alert_type, severity, details)
@@ -310,6 +362,8 @@ def evaluate_operations(client) -> dict:
         'pending_cleanups': len(cleanup_pending),
         'failed_jobs': len(exhausted),
         'scanner_unavailable': len(scanner_unavailable),
+        'backup_monitored': settings.backup_rpo_hours > 0,
+        'backup_stale': bool(backup_condition and backup_condition[0]),
         'status': 'healthy' if healthy_workers and not scanner_unavailable else 'degraded',
     }
 
