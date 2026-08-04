@@ -39,13 +39,15 @@ Every item carries three labels:
 
 **Closed in the 2026-08-04 pass:** B14 (structural half), R4, R7, R9, S2, §3.5 async-state parity, §3.6 frontend performance (#15), the last 25 advisory axe findings, and three newly found defects (**N12–N14**) — one of which, N12, was a hole in the lint gate itself that let a missing component import reach runtime. A `cryptography` advisory published mid-pass (CVE-2026-69247) was also closed; see §2.5.
 
-**Still open in Phase A, by scope rather than by neglect:** #19 (supply-chain hardening / S3), #20 (scheduled backups), R5 (a privacy-review and retention question, not code), and item 7 — load-testing the real `/chat` path, which needs a disposable Supabase project rather than more code.
+**Also closed 2026-08-04 — the code halves of #19 and #20.** Both are now 🟡 rather than ✅, and the reasons are recorded rather than glossed: **#19** is missing only cosign image signing, which would be theatre while nothing publishes these images to a registry (see §6.3 and §9.2); **#20**'s remaining steps all require the backup machine, a credential, or a human decision, and are listed in order in `docs/BACKUP_RESTORE_DRILL.md`.
+
+**Still open in Phase A:** R5 (a privacy-review and retention question, not code), and item 7 — load-testing the real `/chat` path, which needs a disposable Supabase project rather than more code.
 
 | Group | ✅ Fixed | 🟡 Partial | ❌/🧊 Open | Notes |
 |---|---|---|---|---|
 | **§2.1 Confirmed defects (B1–B20)** | **16** | 1 | 3 | All 3 open are post-defense by design: B10 and B20 are Phase B, B8 is 🧊 frozen-pipeline. The remaining partial is B9 (Phase A half done, Phase B pagination open) |
 | **§2.2 Correctness risks (R1–R10)** | **7** | 1 | 2 | R1–R4, R6, R7 and R9 closed; R8 improved; R5 and R10 open |
-| **§2.3 Security gaps (S1–S6)** | 2 | 0 | 4 | S1 and S2 closed; the rest are policy or external, including the remaining P0 **S6** |
+| **§2.3 Security gaps (S1–S6)** | 2 | 1 | 3 | S1 and S2 closed; **S3** mostly closed (image signing waits on a registry — §9.2); the rest are policy or external, including the remaining P0 **S6** |
 | **§2.4 Documentation defects (D1–D6)** | **6** | 0 | 0 | All closed 📄 |
 | **§2.6 Newly discovered (N1–N14)** | **14** | 0 | 0 | Found by audits run *during* remediation, not present in the original report |
 
@@ -55,7 +57,7 @@ Counts above are generated from the status marks in this document, not maintaine
 
 | Gate | Before | After |
 |---|---|---|
-| PyTest | 430 passed / 90.87% | **586 passed, 3 skipped / 91.45%** 📈 |
+| PyTest | 430 passed / 90.87% | **631 passed, 3 skipped / 91.53%** 📈 |
 | Pylint | 10.00/10 | **10.00/10** (exit 0) |
 | ESLint | 0 errors, 0 warnings | **0 errors, 0 warnings** |
 | Frontend unit tests | 29 | **44** 📈 |
@@ -65,6 +67,9 @@ Counts above are generated from the status marks in this document, not maintaine
 | Frontend eager payload | not measured | **303.4 kB gzipped**, gated at 330 kB 📈 |
 | `npm audit --omit=dev` | 0 vulnerabilities | **0 vulnerabilities** |
 | `pip check` | passing | **passing** |
+| Python dependency lock | ❌ direct pins only | **✅ 94 packages / 2,242 hashes**, installed with `--require-hashes` |
+| Base-image pinning | ❌ by tag (one moving) | **✅ all four `FROM` lines by digest** |
+| SBOM | ❌ none | **✅ SPDX-JSON per image, per commit** |
 | OpenAPI drift gate | passing | **passing** (contract regenerated deliberately) |
 
 Every figure above was read from the command's **exit code**, not from its printed
@@ -106,8 +111,8 @@ One correction to the 2026-08-03 wording: "nothing in code" was true of *availab
 | 16 | Repair the broken evidence links and stale docs | `iso25010_evidence.md` points a panelist at a file that does not exist | P1 | S | A | §2.4 | ✅ Fixed | 
 | 17 | Re-fingerprint the Objective 2 evaluation artifact | The retained smoke result records settings the current build no longer uses | P1 | S | A | §2.4 D3 | ✅ Fixed | 
 | 18 | Hybrid retrieval and reranking | The largest available answer-quality gain; the paper's own literature review argues for it | P1 | L | B | §7.1 | 🧊 Frozen | 
-| 19 | Supply-chain hardening (hash-locked deps, digest-pinned images, SBOM) | Direct dependencies are pinned; transitive ones are not | P1 | M | A | §6.3 | ❌ Open | 
-| 20 | Scheduled backups with a measured RTO/RPO | Excellent backup tooling exists but runs only when someone remembers | P1 | S | A | §8.1 | ❌ Open | 
+| 19 | Supply-chain hardening (hash-locked deps, digest-pinned images, SBOM) | Direct dependencies are pinned; transitive ones are not | P1 | M | A | §6.3 | 🟡 Partial | 
+| 20 | Scheduled backups with a measured RTO/RPO | Excellent backup tooling exists but runs only when someone remembers | P1 | S | A | §8.1 | 🟡 Partial | 
 
 ---
 
@@ -520,7 +525,7 @@ These are policy gaps rather than code bugs, but they gate public exposure.
 |---|---|---|---|
 | ✅ Fixed S1 | **No institutional email domain enforcement.** `handle_new_user` sets department `CCSICT` and status `approved` for any email address whatsoever. `@isu.edu.ph` appears only as UI placeholder text; `src/pages/auth/authUtils.js` accepts any valid address | `supabase_setup.sql:43-65` | **P0** |
 | ✅ Fixed S2 | Guest chat has no global spend ceiling. Per-guest (30/min) and per-IP (300/min) limits exist, and Turnstile is available but off by default. Nothing caps *total* daily guest token spend | `config.py:40-41, 73` | P1 |
-| ❌ Open S3 | Transitive Python dependencies are not hash-locked and base images are pinned by tag, not digest. No SBOM, no image signing | `requirements.txt`, `Dockerfile` | P1 |
+| 🟡 Partial S3 | Transitive Python dependencies are not hash-locked and base images are pinned by tag, not digest. No SBOM, no image signing | `requirements.txt`, `Dockerfile` | P1 |
 | ❌ Open S4 | Secrets are loaded from `.env` files on the host; rotation is documented but manual | `docs/SECRET_ROTATION.md` | P1 |
 | ❌ Open S5 | No independent penetration test has been performed | — | P1 |
 | ❌ Open S6 | Data Privacy Act operationalization incomplete: NPC registration not addressed, no user-facing privacy notice page, retention enforcement intentionally disabled pending approval | `config.py:63`, governance protocol | **P0 (legal)** |
@@ -740,8 +745,22 @@ See **S1**. Enforce server-side in `handle_new_user()` (`supabase_setup.sql:43-6
 ### 6.2 Guest-chat spend ceiling — ✅ **DONE** · P1 · S · Phase A
 Turnstile is implemented and config-gated (`services/turnstile.py`) — enable it in production with `TURNSTILE_SECRET_KEY` and `VITE_TURNSTILE_SITE_KEY`. ~~Add the missing piece: a global daily guest token budget in Redis, so a determined script cannot exhaust the quota even with valid challenges.~~ **Closed 2026-08-04** — see **S2** in §2.3. It reuses the `limits` storage that already backs rate limiting, so it inherits Redis in production without waiting on **B10**. Moving the verified-guest cache to Redis remains part of B10 (Phase B).
 
-### 6.3 Supply-chain hardening — P1 · M · Phase A
+### 6.3 Supply-chain hardening — 🟡 **MOSTLY DONE 2026-08-04** · P1 · M · Phase A
 Generate `requirements.lock` with `pip-compile --generate-hashes` and install with `--require-hashes`; pin `FROM` images by digest; add SBOM generation (syft) and image signing (cosign) to the container jobs; enable security-only Dependabot PRs. CI already runs pip-audit, `npm audit`, Trivy, and Gitleaks, so this closes the remaining reproducibility gap.
+
+**Done 2026-08-04.**
+
+*Hash-locked dependencies.* `requirements.lock` pins **94 packages** — the 26 direct pins plus every transitive dependency — with **2,242** SHA-256 hashes. Both the container and CI install with `pip install --require-hashes`, so a substituted or tampered distribution fails the build instead of shipping. `requirements.txt` stays the human-readable statement of intent and the source for the paper's version tables.
+
+Resolved with `uv` rather than `pip-compile`, for a specific reason: `pip-compile` cannot resolve cross-platform, and this repository is developed on Windows while the container is Linux. `tesserocr` ships manylinux-only wheels, so a Windows-resolved lock would have omitted them and the container build would have failed on a missing hash. `uv pip compile --python-platform x86_64-unknown-linux-gnu --python-version 3.14` targets the deployment platform explicitly, and a `--require-hashes` dry-run against that platform passes locally (exit 0). `pip-audit` now audits the lock with `--no-deps`, so **transitive** advisories are covered — the `cryptography` CVE earlier the same day was a direct dependency and would have been caught either way, but a transitive one would not have been.
+
+*Digest-pinned base images.* All four `FROM` lines across both Dockerfiles carry a `@sha256:` digest, with the tag kept alongside for readability. The backend's was the live hazard: `chainguard/python:latest-dev` is a moving tag, and the Dockerfile asserts the interpreter is *exactly* 3.14.6, so a Chainguard rebuild would have broken the build on an unrelated commit. The pinned digests were verified to predate — and therefore to be — the images CI had already built successfully against that assertion. The assertion is deliberately left exact rather than relaxed to a range, because the paper's tables record 3.14.6; re-pinning the digest is the moment to confirm the number and the tables together.
+
+*SBOM.* `anchore/sbom-action` emits an SPDX-JSON SBOM per image in the container job and uploads it as a per-commit artifact. This is the artifact that answers "was this build affected?" when the next advisory lands; the `cryptography` CVE had to be diagnosed without one.
+
+*Dependabot.* The `docker` ecosystem is now configured for both Dockerfiles. Digest pinning without it would trade silent breakage for silent staleness, and Chainguard's free tier retains only the newest build — so an un-updated digest eventually stops resolving with `manifest unknown`. That is a loud failure rather than a silent one, which is the intended trade.
+
+**Deliberately not done: cosign image signing.** Nothing publishes these images to a registry — CI builds, scans, and discards them. A signature no verifier ever checks is theatre, and it would let this entry read as closed when the guarantee is absent. Signing belongs with §9.2, when a staging registry exists and a deployment can verify a digest before promoting it. **S3 therefore stays 🟡, not ✅.**
 
 ### 6.4 Secrets management — P1 · S–M · Phase B
 Move from `.env` files to the hosting platform's secret store or Docker `secrets:`. Scope a separate service-role key per process where Supabase allows. Record rotation events in the existing `security_audit_events` table.
@@ -783,8 +802,20 @@ The provenance system (`paper_index_versions`, fingerprint checks, staged activa
 
 ## 8. Data lifecycle and disaster recovery
 
-### 8.1 Scheduled backups with measured RTO/RPO — P1 · S · Phase A
+### 8.1 Scheduled backups with measured RTO/RPO — 🟡 **CODE DONE 2026-08-04, OPERATOR STEPS REMAIN** · P1 · S · Phase A
 `scripts/backup_system.ps1`, `scripts/scheduled_backup.ps1`, `scripts/register_backup_task.ps1`, and `scripts/check_backup_freshness.ps1` all exist and are documented in the operations runbook. What remains is operational: create the passphrase file, register the nightly task on the backup machine, alert on staleness through §5.1, and run the restore drill quarterly — recording measured RTO and RPO against declared targets (24 h RPO / 4 h RTO is a reasonable pilot commitment).
+
+**Staleness alerting — done 2026-08-04.** This was the one genuinely code-shaped item in the list above, and it closed a real blind spot: `check_backup_freshness.ps1` can only answer "did last night's backup run?" while standing on the backup machine. From the API's point of view, a nightly task that had silently stopped firing — expired account password, machine left off, full disk — looked *identical* to a healthy system.
+
+- Migration `20260804_backup_runs.sql` adds a `backup_runs` table and a `record_backup_run` RPC. RLS on, no insert grant: recording goes through the checked RPC, which refuses a run reporting zero artifacts, because recording an empty backup would silence the alert for nothing. Rollback ships alongside.
+- `scripts/record_backup_run.ps1` reports each successful run. It refuses to record a backup with no manifest or no artifacts, and sends **no paths, hostnames, or file names** — a stamp, a count, a size, a manifest digest, and a 16-character hashed machine fingerprint, matching how `ingestion_workers` treats worker ids.
+- `scheduled_backup.ps1` calls it after the manifest check. Recording is **best-effort**: a recording failure warns rather than failing a backup that already succeeded on disk. `-SkipRecording` exists so a rehearsal does not reset the staleness clock.
+- `evaluate_operations` raises **`backup_stale`** (critical) when the newest recorded backup exceeds the RPO, or when none has ever been recorded — the most severe form of the same condition, not a reason to stay quiet. It clears itself when a fresh backup lands, and rides the existing signed webhook path.
+- `BACKUP_RPO_HOURS` (default **0** = unmonitored) doubles as the threshold; `BACKUP_RTO_HOURS` (default 4) is recorded, since nothing in the API can verify a restore time. The default is off so a deployment that has not registered the task yet is not permanently alerting. Deliberately **not** enforced at startup: backups run on a separate machine, and the API refusing to boot over them would be the wrong coupling.
+- A missing `backup_runs` table is tolerated rather than fatal, so a deployment that has not applied the migration still gets worker and queue health.
+- 35 regression tests in `tests/test_backup_monitoring.py`, including that the alert payload leaks no filesystem paths.
+
+**Still the operator's, and deliberately not automated** — each needs the backup machine, a credential, or a human decision: create the DPAPI passphrase file, register the nightly task (needs the Windows account password), seed the first record, set `BACKUP_RPO_HOURS=24`, run the first restore drill, and confirm the alert fires. `docs/BACKUP_RESTORE_DRILL.md` is the ordered checklist and the log where measured RTO/RPO are recorded; it currently states plainly that no drill has been run.
 
 ### 8.2 Supabase PITR and storage growth — P2 · S · Phase B/C
 On a paid Supabase tier, enable point-in-time recovery to tighten RPO to minutes, and add storage-growth metrics (papers × chunks × vectors) to the operations summary so capacity is planned rather than discovered.
