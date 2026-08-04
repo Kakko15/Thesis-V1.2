@@ -57,7 +57,7 @@ Counts above are generated from the status marks in this document, not maintaine
 
 | Gate | Before | After |
 |---|---|---|
-| PyTest | 430 passed / 90.87% | **631 passed, 3 skipped / 91.53%** 📈 |
+| PyTest | 430 passed / 90.87% | **631 passed, 3 skipped / 91.53%** 📈 (633 passed, 1 skipped when `ALLOW_DISPOSABLE_SUPABASE_TESTS=1` enables the two live disposable-project checks; CI has no `.env`, so 631/3 is the reproducible figure) |
 | Pylint | 10.00/10 | **10.00/10** (exit 0) |
 | ESLint | 0 errors, 0 warnings | **0 errors, 0 warnings** |
 | Frontend unit tests | 29 | **44** 📈 |
@@ -99,7 +99,7 @@ One correction to the 2026-08-03 wording: "nothing in code" was true of *availab
 | 4 | `delete_user` can never delete an uploader | `upload_jobs.owner_id` is `ON DELETE RESTRICT`; admins get an opaque 500 with no guidance | P0 | S | A | §2.1 B4 | ✅ Fixed | 
 | 5 | Bound every Gemini client | Two `ChatGoogleGenerativeAI` clients have no timeout, retry cap, or output cap — a hung call holds a worker indefinitely | P0 | S | A | §2.1 B5 | ✅ Fixed | 
 | 6 | Enforce the `@isu.edu.ph` signup domain server-side | Anyone with any email address can create an auto-approved student account today | P0 | S | A | §6.1 | ✅ Fixed | 
-| 7 | Load-test the real `/chat` path | Every performance number on record measured non-RAG endpoints; the core feature's capacity is unknown | P0 | M | A/B | §4.7 | 🔓 Unblocked | 
+| 7 | Load-test the real `/chat` path | Every performance number on record measured non-RAG endpoints; the core feature's capacity is unknown | P0 | M | A/B | §4.7 | 🟡 Measured on a synthetic corpus | 
 | 8 | Server-side pagination, search, and filtering for the archive | `GET /papers` ships the whole catalog **and every profile row** to build one page | P1 | M | B | §2.1 B9, §4.3 | 🟡 Partial | 
 | 9 | Multi-process API with externalized state | One uvicorn process is the entire API, and four caches live in its memory | P0 | M | B | §2.1 B10, §4.1 | ❌ Phase B | 
 | 10 | Migrate `@app.on_event` to `lifespan` | Deprecated in FastAPI 0.139.2 and scheduled for removal | P1 | S | A | §2.1 B6 | ✅ Fixed | 
@@ -710,8 +710,21 @@ See **B8**. Keep the mathematics identical so the 85% contract and the evaluatio
 ### 4.6 Gemini paid tier, quotas, and graceful degradation — P0 · S–M · Phase B
 The free tier already required a capacity circuit breaker, and the governance protocol spends considerable effort mitigating the free tier's data-use terms. For any real user base, move to the paid tier: it removes the training-data concern and raises limits. Add per-role daily token budgets in configuration and extend the existing cooldown into a tiered degradation path (queue → shorter answers via `gemini_max_output_tokens` → the existing explicit capacity message). Track spend using the token counts LangSmith already captures.
 
-### 4.7 Load-test the real RAG chat path — P0 · M · Phase A (rig) / B (with corpus)
+### 4.7 Load-test the real RAG chat path — 🟡 **RIG RUN 2026-08-04; PAID-TIER RE-RUN STILL REQUIRED** · P0 · M · Phase A (rig) / B (with corpus)
 Every performance number on record — 900/900 requests, p95 204 ms — came from `/health`, `/upload/tracks`, and `/analytics/summary`. `/chat` has never been load-tested, and the live Gemini smoke was three single-user calls against an empty corpus. A `chat_load.jmx` rig exists but has no measured run. Run 5/10/20 concurrent guest questions against a disposable project with a seeded synthetic corpus; measure p95/p99 end to end and the 429 envelope; summarize with `evaluation/summarize_jmeter.py`. **Run it after fixing B1** — otherwise it will measure the bug rather than the architecture. Re-run against the production corpus before the formal ISO evaluation so the Performance Efficiency claim actually covers the core feature.
+
+**Run 2026-08-04 — the rig has now been executed for the first time.** Full write-up and artifacts in `evaluation/iso25010_evidence.md`; classified report at `evaluation/results/jmeter/chat_rag_load_report.json`. Headlines:
+
+- **A grounded answer costs 8–15 seconds** on the free provider tier, against the sub-second impression the non-RAG endpoints gave. That alone changes what the paper can claim about Performance Efficiency.
+- **The system degrades gracefully.** At 10 and 20 concurrent users it served 60 requests in 14 s at 4.2 req/s with **zero 5xx** — every response an explicit, well-formed capacity notice. That is Fault Tolerance evidence.
+- **No application ceiling was found.** The ceiling reached was the free tier's rate limit, below five concurrent users.
+
+Two measurement traps worth recording, because either would have produced a confidently wrong number:
+
+1. **HTTP 200 does not mean "answered".** On a provider 429 the API returns 200 with a capacity notice and holds a 60-second cooldown, so later requests get that notice in 1–18 ms. A JTL of 100% HTTP 200 can describe a system that answered almost nothing, and a median across the mixture lands in the empty gap between a 2 ms notice and an 8 s answer. Confirmed by capturing response bodies rather than inferring; `evaluation/summarize_chat_load.py` now separates the bands.
+2. **The profiles are not independent.** They ran sequentially against one depleting quota, so the 2-user profile reads *worse* than the 5-user profile purely because it ran second. They must not be presented as a concurrency curve.
+
+Still required: a paid-tier re-run (§4.6) against the approved corpus, each profile given its own quota window. Also worth noting an infrastructure finding from the setup — the disposable project turned out to be several migrations behind production, including one that made **every** `papers` insert fail, so it could not have ingested anything through the real pipeline either. Schema parity between disposable and production is a prerequisite for any future evidence run, not a detail.
 
 ### 4.8 Worker fleet scale-out — P2 · S · Phase B
 The leased queue already supports N workers safely (PostgreSQL leases, heartbeats, idempotent commit), but compose runs exactly one and no document states the scaling contract. Test and document two-worker operation, with `operations_queue_depth_threshold` tuned for the fleet size. Fix **B15** first.

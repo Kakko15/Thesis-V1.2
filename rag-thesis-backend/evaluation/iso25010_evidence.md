@@ -30,6 +30,66 @@ The three skipped backend checks are two explicitly authorized disposable-Supaba
 
 > **Superseded evidence — Objective 2 smoke run.** `evaluation/results/comparison_20260728_140718.json` records `generation_contract.max_output_tokens: 500`, while `config.py` now specifies **700**. Its fingerprint therefore no longer describes this build and it must not be presented as characterizing the current system. The artifact is retained unaltered as dated evidence; it has to be re-run and re-fingerprinted before the formal evaluation. It was in any case a three-query synthetic development smoke explicitly marked `"formal_result": false`.
 
+## `/chat` RAG load profile — first measured run, 2026-08-04
+
+Every previously recorded performance figure measured `/health`, `/upload/tracks`,
+and `/analytics/summary`. `jmeter/chat_load.jmx` existed but had **never been
+executed**. It has now been run end to end. Artifacts:
+`evaluation/results/jmeter/chat-{2,5,10,20}.jtl`,
+`chat_summary_{2,5,10,20}u.json`, and the classified
+`chat_rag_load_report.json`.
+
+**Setup.** A local API bound to an isolated disposable Supabase project — never
+the application project, enforced by a URL/key/ref guard — seeded with 10
+synthetic theses (80 chunks, `token-v1` chunking, verified 768-dimensional
+provenance) by `scripts/seed_synthetic_corpus.py`. Guest `/chat`, one distinct
+`X-Guest-ID` per virtual user, three loops each, JMeter 5.6.3 on OpenJDK 25.0.3.
+
+**Why the status code is not the result.** On a provider 429 the API returns
+**HTTP 200** carrying an explicit capacity notice, and holds a 60-second cooldown
+during which every further request receives that notice immediately. A JTL of
+100% HTTP 200 can therefore describe a system that answered almost nothing. A
+companion run with response-body capture confirmed this directly: every
+sub-second 200 contained *"IskAI has reached the research AI service usage
+limit"*, returned in 1–18 ms, while genuine answers took 5.1–26.2 s.
+`evaluation/summarize_chat_load.py` separates the bands so a quoted percentile
+means one thing.
+
+| Profile | Samples | Answered | Capacity notice | Ambiguous | Failed | Answer median | Answer p95 |
+|---|---|---|---|---|---|---|---|
+| 2 users | 6 | 2 | 1 | 1 | 2 (502) | 14,460 ms | 18,881 ms |
+| 5 users | 15 | 7 | 6 | 2 | 0 | 8,071 ms | 14,134 ms |
+| 10 users | 30 | **0** | 29 | 1 | 0 | — | — |
+| 20 users | 60 | **0** | 60 | 0 | 0 | — | — |
+
+**What this does and does not establish.**
+
+- **Established:** the RAG path works end to end under concurrency — retrieval,
+  generation, citation validation, and cited sources — and a grounded answer on
+  the free provider tier costs roughly **8–15 seconds**, not the sub-second range
+  the non-RAG endpoints suggested.
+- **Established:** the system degrades *gracefully* rather than failing. At 10 and
+  20 concurrent users it served 60 requests in 14 seconds at 4.2 req/s with zero
+  5xx, every one an explicit, well-formed notice. That is Fault Tolerance
+  evidence, not Performance Efficiency evidence.
+- **Not established: any concurrency ceiling for the application.** The ceiling
+  observed here is the **free provider tier's rate limit**, reached below five
+  concurrent users. Application-only throughput remains the separately measured
+  `provider_independent_load.jmx` figure (900/900, p95 204 ms).
+- **The four profiles are not independent.** They ran sequentially against one
+  shared, depleting quota, so the 2-user profile looks *worse* than the 5-user
+  profile purely because it ran later. These numbers must not be read as a
+  concurrency curve.
+- **Corpus is synthetic.** Ten obviously-labelled synthetic records, not the
+  governed 50-thesis corpus, which remains gated on institutional approval. Any
+  use of these figures must say so.
+
+**Required before the formal evaluation:** re-run on a paid provider tier (§4.6)
+against the approved corpus, with each profile given an independent quota window.
+Until then the honest claim is that the core feature's *capacity under a
+rate-limited free tier* has been characterized, and its *application-level*
+capacity has been measured only provider-independently.
+
 ## Archived evidence snapshot - 2026-07-20
 
 - Snapshot date: 2026-07-20 (Asia/Taipei)

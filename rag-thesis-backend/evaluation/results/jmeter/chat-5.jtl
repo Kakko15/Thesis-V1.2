@@ -1,0 +1,16 @@
+timeStamp,elapsed,label,responseCode,responseMessage,threadName,dataType,success,failureMessage,bytes,sentBytes,grpThreads,allThreads,URL,Latency,IdleTime,Connect
+1785839998947,5090,POST /chat,200,OK,Concurrent guest researchers 1-1,text,true,,555,278,2,2,http://127.0.0.1:8010/chat,5085,0,30
+1785840001854,7995,POST /chat,200,OK,Concurrent guest researchers 1-2,text,true,,555,278,4,4,http://127.0.0.1:8010/chat,7995,0,1
+1785840009851,5541,POST /chat,200,OK,Concurrent guest researchers 1-2,text,true,,1823,278,5,5,http://127.0.0.1:8010/chat,5541,0,0
+1785840007849,8071,POST /chat,200,OK,Concurrent guest researchers 1-4,text,true,,1108,278,5,5,http://127.0.0.1:8010/chat,8071,0,1
+1785840015392,619,POST /chat,200,OK,Concurrent guest researchers 1-2,text,true,,544,278,5,5,http://127.0.0.1:8010/chat,619,0,0
+1785840004039,12281,POST /chat,200,OK,Concurrent guest researchers 1-1,text,true,,555,278,4,4,http://127.0.0.1:8010/chat,12281,0,0
+1785840016321,5,POST /chat,200,OK,Concurrent guest researchers 1-1,text,true,,544,278,4,4,http://127.0.0.1:8010/chat,5,0,0
+1785840015920,634,POST /chat,200,OK,Concurrent guest researchers 1-4,text,true,,544,278,3,3,http://127.0.0.1:8010/chat,634,0,0
+1785840016555,2,POST /chat,200,OK,Concurrent guest researchers 1-4,text,true,,544,278,3,3,http://127.0.0.1:8010/chat,2,0,0
+1785840004851,14928,POST /chat,200,OK,Concurrent guest researchers 1-3,text,true,,555,278,2,2,http://127.0.0.1:8010/chat,14928,0,0
+1785840019781,2,POST /chat,200,OK,Concurrent guest researchers 1-3,text,true,,544,278,2,2,http://127.0.0.1:8010/chat,2,0,0
+1785840019784,2,POST /chat,200,OK,Concurrent guest researchers 1-3,text,true,,544,278,2,2,http://127.0.0.1:8010/chat,2,0,0
+1785840010856,10152,POST /chat,200,OK,Concurrent guest researchers 1-5,text,true,,1108,278,1,1,http://127.0.0.1:8010/chat,10152,0,1
+1785840021009,5,POST /chat,200,OK,Concurrent guest researchers 1-5,text,true,,544,278,1,1,http://127.0.0.1:8010/chat,5,0,0
+1785840021014,4,POST /chat,200,OK,Concurrent guest researchers 1-5,text,true,,544,278,1,1,http://127.0.0.1:8010/chat,4,0,0
