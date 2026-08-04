@@ -11,7 +11,7 @@ import { cn, extractOwnedAvatarPath } from '../lib/utils'
 import { OtpInput } from './ui/OtpInput'
 import { authOptions, friendlyAuthError, isStrongPassword } from '../pages/auth/authUtils'
 import { SecurityCheck } from './security/SecurityCheck'
-import { turnstileEnabled } from './security/turnstileConfig'
+import { useSecurityGate } from './security/useSecurityGate'
 
 export function ProfileSettingsModal({ open, onClose }) {
   const { user, profile, avatarUrl, refreshProfile, reloadSession } = useAuth()
@@ -33,7 +33,8 @@ export function ProfileSettingsModal({ open, onClose }) {
   const [verifyingPassword, setVerifyingPassword] = useState(false)
   const [passwordCode, setPasswordCode] = useState('')
   const [shakePasswordNonce, setShakePasswordNonce] = useState(0)
-  const [captchaToken, setCaptchaToken] = useState(null)
+  // Gated submission that fails open when Turnstile itself is unreachable.
+  const captcha = useSecurityGate()
   const [captchaReset, setCaptchaReset] = useState(0)
 
   const fileInputRef = useRef(null)
@@ -116,7 +117,7 @@ export function ProfileSettingsModal({ open, onClose }) {
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(user.email, authOptions({
         redirectTo: window.location.origin,
-      }, captchaToken))
+      }, captcha.token))
       if (error) throw error
       setVerifyingPassword(true)
       toast.success('6-digit code sent to your email.')
@@ -124,7 +125,7 @@ export function ProfileSettingsModal({ open, onClose }) {
       toast.error('Password change request failed', { description: friendlyAuthError(err) })
     } finally {
       setLoading(false)
-      setCaptchaToken(null)
+      captcha.onToken(null)
       setCaptchaReset((value) => value + 1)
     }
   }
@@ -362,7 +363,7 @@ export function ProfileSettingsModal({ open, onClose }) {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <SecurityCheck variant="inline" action="password_reset" onToken={setCaptchaToken} resetKey={captchaReset} />
+                    <SecurityCheck variant="inline" action="password_reset" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
                     <div className="flex gap-2">
                       <Input
                         type="password"
@@ -371,7 +372,7 @@ export function ProfileSettingsModal({ open, onClose }) {
                         placeholder="New password (min. 8 chars)"
                         className="flex-1"
                       />
-                      <Button variant="secondary" loading={loading} onClick={handleRequestPasswordChange} disabled={!isStrongPassword(password) || (turnstileEnabled && !captchaToken)}>
+                      <Button variant="secondary" loading={loading} onClick={handleRequestPasswordChange} disabled={!isStrongPassword(password) || (captcha.blocked)}>
                         Update
                       </Button>
                     </div>

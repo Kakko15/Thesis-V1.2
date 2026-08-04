@@ -6,7 +6,7 @@ import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
 import { Input, Field, Select } from '../../components/ui/Input'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
-import { turnstileEnabled } from '../../components/security/turnstileConfig'
+import { useSecurityGate } from '../../components/security/useSecurityGate'
 import { cn } from '../../lib/utils'
 import {
   authOptions, friendlyAuthError, isStrongPassword, isValidEmail, passwordStrength,
@@ -27,7 +27,8 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
   const [errorNonce, setErrorNonce] = useState(0)
   const [loading, setLoading] = useState(false)
   const [exists, setExists] = useState(false)
-  const [captchaToken, setCaptchaToken] = useState(null)
+  // Gated submission that fails open when Turnstile itself is unreachable.
+  const captcha = useSecurityGate()
   const [captchaReset, setCaptchaReset] = useState(0)
 
   const strength = useMemo(() => passwordStrength(password), [password])
@@ -63,7 +64,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
             requested_role: role
           },
           emailRedirectTo: `${window.location.origin}/login`,
-        }, captchaToken),
+        }, captcha.token),
       })
       if (error) throw error
       if (data.session) {
@@ -76,7 +77,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       failWith({ form: friendlyAuthError(err) })
     } finally {
       setLoading(false)
-      setCaptchaToken(null)
+      captcha.onToken(null)
       setCaptchaReset((value) => value + 1)
     }
   }
@@ -240,7 +241,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       {errors.form && <ErrorAlert key={errorNonce}>{errors.form}</ErrorAlert>}
 
       <Rise>
-        <SecurityCheck variant="inline" action="signup" onToken={setCaptchaToken} resetKey={captchaReset} />
+        <SecurityCheck variant="inline" action="signup" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
       </Rise>
 
       <Rise>
@@ -248,7 +249,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
           type="submit"
           size="lg"
           loading={loading}
-          disabled={turnstileEnabled && !captchaToken}
+          disabled={captcha.blocked}
           className="group relative w-full overflow-hidden"
         >
           <Shine />

@@ -7,7 +7,7 @@ import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
-import { turnstileEnabled } from '../../components/security/turnstileConfig'
+import { useSecurityGate } from '../../components/security/useSecurityGate'
 import { authOptions, friendlyAuthError, isValidEmail } from './authUtils'
 import {
   ErrorAlert, FieldIcon, formStagger, PasswordEye, Rise, Shine, UnderlineLink, ValidTick,
@@ -27,7 +27,8 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
   const [errorNonce, setErrorNonce] = useState(0)
   const [loading, setLoading] = useState(false)
   const [otpLoading, setOtpLoading] = useState(false)
-  const [captchaToken, setCaptchaToken] = useState(null)
+  // Gated submission that fails open when Turnstile itself is unreachable.
+  const captcha = useSecurityGate()
   const [captchaReset, setCaptchaReset] = useState(0)
 
   const failWith = (next) => {
@@ -49,7 +50,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
     setLoading(true)
     try {
       const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(), password, options: authOptions({}, captchaToken),
+        email: email.trim(), password, options: authOptions({}, captcha.token),
       })
       if (error) throw error
       // Success: force a reload of the session state so AuthContext updates immediately.
@@ -64,7 +65,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
       }
     } finally {
       setLoading(false)
-      setCaptchaToken(null)
+      captcha.onToken(null)
       setCaptchaReset((value) => value + 1)
     }
   }
@@ -75,7 +76,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim(),
-        options: authOptions({ shouldCreateUser: false }, captchaToken),
+        options: authOptions({ shouldCreateUser: false }, captcha.token),
       })
       if (error) throw error
       onOtpSent?.(email.trim())
@@ -83,7 +84,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
       failWith({ form: friendlyAuthError(err) })
     } finally {
       setOtpLoading(false)
-      setCaptchaToken(null)
+      captcha.onToken(null)
       setCaptchaReset((value) => value + 1)
     }
   }
@@ -168,7 +169,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
       {errors.form && <ErrorAlert key={errorNonce}>{errors.form}</ErrorAlert>}
 
       <Rise>
-        <SecurityCheck variant="inline" action="signin" onToken={setCaptchaToken} resetKey={captchaReset} />
+        <SecurityCheck variant="inline" action="signin" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
       </Rise>
 
       <Rise>
@@ -176,7 +177,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
           type="submit"
           size="lg"
           loading={loading}
-          disabled={turnstileEnabled && !captchaToken}
+          disabled={captcha.blocked}
           className="group relative w-full overflow-hidden"
         >
           <Shine />
@@ -197,7 +198,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
           variant="secondary"
           size="lg"
           loading={otpLoading}
-          disabled={turnstileEnabled && !captchaToken}
+          disabled={captcha.blocked}
           onClick={handleOtpRequest}
           className="group relative w-full overflow-hidden"
         >

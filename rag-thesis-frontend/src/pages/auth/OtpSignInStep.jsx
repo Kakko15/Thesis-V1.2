@@ -8,7 +8,7 @@ import { StepHeader } from './StepHeader'
 import { formStagger, Rise, Shine, UnderlineLink } from './AuthFx'
 import { authOptions, friendlyAuthError, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
-import { turnstileEnabled } from '../../components/security/turnstileConfig'
+import { useSecurityGate } from '../../components/security/useSecurityGate'
 
 const getEmailLink = (email) => {
   const e = email.toLowerCase()
@@ -22,7 +22,8 @@ const getEmailLink = (email) => {
 export function OtpSignInStep({ email, onBack }) {
   const [resending, setResending] = useState(false)
   const [cooldown, setCooldown] = useResendTimer(60)
-  const [captchaToken, setCaptchaToken] = useState(null)
+  // Gated submission that fails open when Turnstile itself is unreachable.
+  const captcha = useSecurityGate()
   const [captchaReset, setCaptchaReset] = useState(0)
 
   const resend = async () => {
@@ -30,7 +31,7 @@ export function OtpSignInStep({ email, onBack }) {
     try {
       const { error: err } = await supabase.auth.signInWithOtp({
         email,
-        options: authOptions({ shouldCreateUser: false }, captchaToken),
+        options: authOptions({ shouldCreateUser: false }, captcha.token),
       })
       if (err) throw err
       toast.success('New link sent', { description: `Check ${maskEmail(email)}` })
@@ -41,7 +42,7 @@ export function OtpSignInStep({ email, onBack }) {
       if (wait) setCooldown(wait)
     } finally {
       setResending(false)
-      setCaptchaToken(null)
+      captcha.onToken(null)
       setCaptchaReset((value) => value + 1)
     }
   }
@@ -78,7 +79,8 @@ export function OtpSignInStep({ email, onBack }) {
           <SecurityCheck
             variant="inline"
             action="otp_resend"
-            onToken={setCaptchaToken}
+            onToken={captcha.onToken}
+            onStatusChange={captcha.onStatusChange}
             resetKey={captchaReset}
             className="text-center"
           />
@@ -91,8 +93,8 @@ export function OtpSignInStep({ email, onBack }) {
           ) : (
             <UnderlineLink
               onClick={resend}
-              disabled={resending || (turnstileEnabled && !captchaToken)}
-              aria-disabled={turnstileEnabled && !captchaToken}
+              disabled={resending || (captcha.blocked)}
+              aria-disabled={captcha.blocked}
               className="text-forest-700 disabled:opacity-50 dark:text-gold-300"
             >
               {resending ? 'Sending…' : 'Resend link'}
