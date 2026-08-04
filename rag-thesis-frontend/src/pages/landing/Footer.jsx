@@ -30,9 +30,11 @@ export function Footer() {
 
         {/* Explore */}
         <nav aria-label="Explore">
-          <h4 className="font-display mb-4 text-sm font-bold uppercase tracking-wider text-ink-muted">
+          {/* h3, not h4: the last heading before the footer is FinalCTA's h2, so
+              h4 skipped a level. Visual size is set by the class, not the tag. */}
+          <h3 className="font-display mb-4 text-sm font-bold uppercase tracking-wider text-ink-muted">
             Explore
-          </h4>
+          </h3>
           <ul className="space-y-2.5">
             {EXPLORE_LINKS.map((link) => (
               <li key={link.label}>
@@ -52,9 +54,9 @@ export function Footer() {
 
         {/* Institution */}
         <div>
-          <h4 className="font-display mb-4 text-sm font-bold uppercase tracking-wider text-ink-muted">
+          <h3 className="font-display mb-4 text-sm font-bold uppercase tracking-wider text-ink-muted">
             Institution
-          </h4>
+          </h3>
           <ul className="space-y-2.5 text-sm text-ink-muted">
             <li>College of Computing Studies, Information and Communication Technology</li>
             <li>Isabela State University</li>

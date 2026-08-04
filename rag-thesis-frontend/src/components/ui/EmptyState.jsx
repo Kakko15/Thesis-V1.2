@@ -13,7 +13,9 @@ export function EmptyState({ icon: Icon, title, message, action }) {
           <Icon size={28} className="text-[var(--primary)]" />
         </div>
       )}
-      <h3 className="font-display text-lg font-bold">{title}</h3>
+      {/* h2: every surface that renders an empty state does so as top-level page
+          content directly under the page h1, so h3 skipped a level. */}
+      <h2 className="font-display text-lg font-bold">{title}</h2>
       {message && <p className="mt-1.5 max-w-sm text-sm text-ink-muted">{message}</p>}
       {action && <div className="mt-6">{action}</div>}
     </motion.div>
