@@ -4,7 +4,7 @@ React and Vite client for the CCSICT thesis archive, grounded RAG chat, novelty 
 
 ## Architecture
 
-- `src/pages`: route-level screens. Routes and the three Admin tabs are lazy-loaded.
+- `src/pages`: route-level screens. Routes and all four Admin tabs are lazy-loaded.
 - `src/components`: reusable interface, layout, and optional Three.js scene components.
 - `src/context`: authentication, profile, feature-permission, and appearance state.
 - `src/pages/archive`: archive query/filter hook plus pure filtering helpers.
@@ -17,7 +17,7 @@ Decorative Three.js scenes load only after capability, preference, viewport, vis
 ## Requirements
 
 - Node.js 24.18.0 LTS (`.nvmrc`)
-- npm 11.6.2 (lockfile package manager)
+- npm 11.16.0 (the `packageManager` field in `package.json`; engines require `>=11.16.0 <12`)
 - The FastAPI backend running on `http://127.0.0.1:8000` for normal development
 
 ## Environment
@@ -37,11 +37,19 @@ VITE_API_URL=
 ```powershell
 npm.cmd install
 npm.cmd run dev
-npm.cmd test
+npm.cmd test                    # unit tests, no coverage
+npm.cmd run test:coverage       # unit tests + coverage, gated at 85/80/85 lines/branches/functions
 npm.cmd run lint
 npm.cmd run build
+npm.cmd run bundle:budget       # fails if the eager payload or a lazy chunk exceeds its cap
 npm.cmd run preview
 ```
+
+`test:coverage` and `bundle:budget` are both CI gates. `test:coverage` also emits
+`coverage/lcov.info`, which SonarQube consumes — omitting it is what previously
+reported the whole repository at 36.3% coverage. `bundle:budget` checks the
+gzipped eager payload against a cap and asserts the WebGL and charting chunks
+stay behind their lazy imports.
 
 Install and run the isolated Chromium E2E suite with:
 

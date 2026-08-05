@@ -150,6 +150,98 @@ class TestFrontendCommandsResolve:
         assert f'npm run {script}' in readme_text()
 
 
+class TestFrontendReadmeMatchesTheFrontend:
+    """Three claims in it were wrong on 2026-08-04: a transposed npm version,
+    the wrong number of lazy-loaded admin tabs, and two CI-gated scripts that
+    were not documented at all."""
+
+    @pytest.fixture(name='frontend_readme')
+    def frontend_readme_fixture(self):
+        return (ROOT / 'rag-thesis-frontend' / 'README.md').read_text(encoding='utf-8')
+
+    @pytest.fixture(name='package')
+    def package_fixture(self):
+        import json
+        return json.loads(
+            (ROOT / 'rag-thesis-frontend' / 'package.json').read_text(encoding='utf-8')
+        )
+
+    def test_the_npm_version_matches_package_json(self, frontend_readme, package):
+        declared = package['packageManager'].split('@')[1]
+        assert declared in frontend_readme, (
+            f'package.json pins npm {declared}; the frontend README does not say so'
+        )
+
+    def test_the_admin_tab_count_matches_the_router(self, frontend_readme):
+        admin = (ROOT / 'rag-thesis-frontend' / 'src' / 'pages' / 'Admin.jsx').read_text(
+            encoding='utf-8')
+        tabs = re.findall(r"lazy\(\(\) => import\('\./admin/", admin)
+        words = {3: 'three', 4: 'four', 5: 'five'}
+        assert len(tabs) in words, f'unexpected admin tab count: {len(tabs)}'
+        assert f'{words[len(tabs)]} Admin tabs' in frontend_readme, (
+            f'Admin.jsx lazy-loads {len(tabs)} tabs; the README says otherwise'
+        )
+
+    @pytest.mark.parametrize('script', ['test:coverage', 'bundle:budget'])
+    def test_ci_gated_scripts_are_documented(self, frontend_readme, package, script):
+        assert script in package['scripts']
+        assert script in frontend_readme, (
+            f'{script} is a CI gate but the frontend README does not mention it'
+        )
+
+
+class TestJmeterReadmeIsRunnable:
+    """Its documented command did not work on Windows, and it pointed `/chat`
+    runs at a summarizer that conflates capacity notices with real answers."""
+
+    @pytest.fixture(name='jmeter_readme')
+    def jmeter_readme_fixture(self):
+        return (BACKEND / 'jmeter' / 'README.md').read_text(encoding='utf-8')
+
+    def test_it_invokes_the_jar_not_the_batch_launcher(self, jmeter_readme):
+        assert 'ApacheJMeter.jar' in jmeter_readme
+        assert not re.search(r'^\s*jmeter -n -t', jmeter_readme, re.M), (
+            'jmeter.bat mangles -J properties and ends with a pause; the README '
+            'must not tell a reader to use it'
+        )
+
+    def test_chat_runs_are_pointed_at_the_right_summarizer(self, jmeter_readme):
+        assert (BACKEND / 'evaluation' / 'summarize_chat_load.py').is_file()
+        marker = '## `/chat` runs need a different summarizer'
+        assert marker in jmeter_readme
+        chat_section = jmeter_readme.split(marker)[1]
+        assert 'summarize_chat_load' in chat_section
+        assert 'summarize_jmeter evaluation' not in chat_section, (
+            'a /chat run can report 100% HTTP 200 while answering almost nothing'
+        )
+
+    def test_the_superseded_plan_is_marked_as_such(self, jmeter_readme):
+        assert 'thesis_load_test.jmx' in jmeter_readme
+        assert 'superseded' in jmeter_readme
+
+
+class TestEvidenceFiguresAreNotStale:
+    """The dated revalidation table drifted twice. These assert internal
+    consistency rather than pinning numbers that legitimately change."""
+
+    @pytest.fixture(name='evidence')
+    def evidence_fixture(self):
+        return (BACKEND / 'evaluation' / 'iso25010_evidence.md').read_text(encoding='utf-8')
+
+    def test_superseded_figures_are_not_left_in_the_current_table(self, evidence):
+        current = evidence.split('## Archived evidence snapshot')[0]
+        for stale in ('539 passed', '91.28% coverage', '44/44 passed',
+                      '25 advisory `heading-order` findings remain open'):
+            assert stale not in current, (
+                f'the current revalidation table still reports {stale!r}'
+            )
+
+    def test_it_states_how_the_backend_count_was_taken(self, evidence):
+        """643 vs 645 depends on whether the live disposable-project checks ran,
+        so the table has to say which convention it used."""
+        assert 'ALLOW_DISPOSABLE_SUPABASE_TESTS' in evidence
+
+
 class TestSonarQubeVersionIsHonest:
     """The paper records 10.4; the retained evidence was produced on a different
     build. The README must not quietly assert the paper's number."""
