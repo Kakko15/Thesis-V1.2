@@ -21,7 +21,7 @@ The system is an **indirect** thesis library: users never view or download full 
 | Objective | Where it lives |
 |-----------|----------------|
 | 1 — RAG + LLM knowledge retrieval model | `services/` (document_processor, chunker, embedder, retriever) + `routers/chat.py` |
-| 2 — Baseline LLM vs RAG comparison | `evaluation/run_comparison.py` + `evaluation/golden_dataset.json` (Ragas: Faithfulness, Context Precision) |
+| 2 — Baseline LLM vs RAG comparison | `evaluation/run_comparison.py` + `evaluation/golden_dataset.json` (Ragas: **Answer Correctness** paired baseline-vs-RAG; Faithfulness and Context Precision as RAG-only diagnostics) |
 | 3 — Web-based Thesis Library System | Full stack (this repository) |
 | 4 — ISO/IEC 25010 internal quality | PyTest (`tests/`), JMeter (`jmeter/`), SonarQube (`sonar-project.properties` + CI), Pylint (`.pylintrc`), ESLint (frontend `eslint.config.js`) |
 
@@ -41,8 +41,17 @@ Key paper parameters enforced in code:
 ### 1. Supabase
 
 1. Create a Supabase project.
-2. For a fresh project, run `rag-thesis-backend/supabase_setup.sql`, then apply `20260725_normalized_academic_catalog.sql`.
-3. For an existing project, apply the numbered migrations in filename order. Validate the durable-ingestion and normalized-catalog migrations in a disposable project before production; retain the catalog rollback only until UUID classifications become authoritative.
+2. For a fresh project, run `rag-thesis-backend/supabase_setup.sql`, then apply **every** file in `rag-thesis-backend/migrations/` in filename order (skip the `.rollback.sql` files).
+
+   The base schema is not sufficient on its own. Seven tables exist only in migrations, and omitting them leaves a working-looking deployment with a broken operations console:
+
+   | Table | Introduced by |
+   |---|---|
+   | `upload_job_events`, `ingestion_workers`, `operational_alerts`, `security_audit_events` | `20260724_operations_security.sql` |
+   | `programs`, `specializations` | `20260725_normalized_academic_catalog.sql` |
+   | `backup_runs` | `20260804_backup_runs.sql` |
+
+3. For an existing project, apply the numbered migrations in filename order. **Order matters and partial replays are unsafe:** `20260718` carries a copy of `commit_paper_ingestion` that predates index provenance, so re-running it after `20260720` reverts the function and every `papers` insert then fails its foreign key. Likewise `20260717` seeds a department row without the `code` column that `20260725` later makes `NOT NULL`. Apply only the files a project is actually missing, in order. `tests/test_schema_consistency.py` guards the related drift between `supabase_setup.sql` and the migrations. Validate the durable-ingestion and normalized-catalog migrations in a disposable project before production; retain the catalog rollback only until UUID classifications become authoritative.
 4. Deploy the API and ingestion worker before accepting uploads; applying the durable-queue migration without the worker leaves accepted jobs safely queued.
 5. After signing up your first user through the app, promote them:
    ```sql
@@ -138,27 +147,65 @@ pytest --cov=routers --cov=services --cov=dependencies --cov=workers --cov=main 
 
 # Objective 4 — Maintainability
 pylint --rcfile=.pylintrc routers services dependencies workers main.py config.py models.py
-cd ../rag-thesis-frontend && npm run lint && npm test && npm run build
+cd ../rag-thesis-frontend && npm run lint && npm run test:coverage && npm run build && npm run bundle:budget
 
 # Objective 2 — Baseline vs RAG (requires: pip install -r evaluation/requirements-eval.txt)
 cd ../rag-thesis-backend
 python -m evaluation.run_comparison
 
-# Objective 4 — Performance Efficiency
-# Open jmeter/thesis_load_test.jmx in Apache JMeter 5.6+ and run against your host.
+# Objective 4 — Performance Efficiency (JMeter 5.6+, headless)
+java -jar <jmeter>/bin/ApacheJMeter.jar -n -t jmeter/provider_independent_load.jmx \
+  -l evaluation/results/jmeter/provider_run_1.jtl
 ```
+
+`jmeter/` holds four current plans. `thesis_load_test.jmx` is retained only as the
+superseded original and should not be used for new evidence.
+
+| Plan | Measures |
+|---|---|
+| `provider_independent_load.jmx` | Application throughput with no provider in the path — the figure to quote for Performance Efficiency |
+| `chat_load.jmx` | End-to-end `/chat` RAG latency and the provider rate-limit envelope |
+| `rate_limit_test.jmx` | That the configured per-caller limits actually throttle |
+| `live_gemini_smoke.jmx` | A few real single-user calls against the live provider |
+
+Summarize a run with `python -m evaluation.summarize_jmeter`. For `/chat`
+specifically use `python -m evaluation.summarize_chat_load`, which separates real
+answers from capacity notices — a `/chat` run can return 100% HTTP 200 while
+answering almost nothing, because provider exhaustion is reported as a 200
+carrying an explicit notice.
 
 ### Objective 4 — Reliability (SonarQube)
 
-Static analysis is configured in `sonar-project.properties` (repo root). Against a local SonarQube server (paper: v10.4):
+Static analysis is configured in `sonar-project.properties` (repo root).
+
+**Version note.** The paper's Table 4 records SonarQube **10.4**, but the retained
+evidence in `evaluation/iso25010_evidence.md` was produced on **Community Build
+26.7.0.124771** with **SonarScanner CLI 8.0.1.6346**. Either state the version
+actually used or re-run on 10.4 before the defense, so the table and the evidence
+agree.
 
 ```bash
-docker run -d --name sonarqube -p 9000:9000 sonarqube:10.4-community
-# create a project + token at http://localhost:9000, then generate coverage (pytest --cov, above) and run:
+docker run -d --name sonarqube -p 9000:9000 sonarqube:community
+# create a project + token at http://localhost:9000, generate both coverage
+# reports (pytest --cov and npm run test:coverage, above), then run:
 sonar-scanner -Dsonar.host.url=http://localhost:9000 -Dsonar.token=<your-token>
 ```
 
-Alternatively, add a `SONAR_TOKEN` repository secret (SonarCloud, or set the `SONAR_HOST_URL` repository variable for a reachable server) and the GitHub Actions workflow `.github/workflows/quality.yml` runs PyTest + coverage, Pylint, ESLint, the production build, and the SonarQube scan on every push to `main`. Without the secret, the scan step skips gracefully and the rest of the quality gate still runs.
+Both coverage reports matter: `sonar.python.coverage.reportPaths` and
+`sonar.javascript.lcov.reportPaths` are both configured, and omitting the
+frontend lcov is what previously reported the whole repository at 36.3%.
+
+Alternatively, add a `SONAR_TOKEN` repository secret (SonarCloud, or set the `SONAR_HOST_URL` repository variable for a reachable server). Without it the scan step skips gracefully and the rest of the gate still runs.
+
+The GitHub Actions workflow `.github/workflows/quality.yml` runs on every push to `main`:
+
+| Job | Steps |
+|---|---|
+| **Backend** | hash-verified install from `requirements.lock`, `pip check`, `pip-audit --no-deps` against the lock, PyTest with `--cov-fail-under=85`, Pylint |
+| **Frontend** | `npm audit --omit=dev`, ESLint, unit tests with coverage thresholds, production build, bundle-size budget, 21 Playwright specs including the axe accessibility matrix |
+| **Secret scan** | Gitleaks over full history |
+| **Containers** | build and Trivy-scan both images (CRITICAL/HIGH, fixed only), emit an SPDX SBOM per image |
+| **SonarQube** | consumes both coverage artifacts; skipped when `SONAR_TOKEN` is absent |
 
 LangSmith latency tracing activates with `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY`; the legacy `LANGCHAIN_*` names remain temporary fallbacks. Inputs and outputs remain hidden when the documented privacy settings are enabled.
 
