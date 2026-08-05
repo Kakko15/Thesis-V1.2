@@ -6,22 +6,28 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
-## Current local revalidation - 2026-08-03
+## Current local revalidation - 2026-08-04
 
 Measured on Windows 11 with Python 3.14.6, PyTest 9.1.1, Pylint 4.0.6, Node.js 24.18.0, npm 11.16.0, Vite 8.1.5, Playwright 1.61.1 and axe-core 4.12.1. This workstation now matches the pinned CI/container targets (Python 3.14.6, Node 24.18.0), and the active virtual environment is `.venv3146`.
+
+Every figure below was read from the command's **exit code**, not from its printed
+summary. Backend counts are the CI-reproducible ones, taken with
+`ALLOW_DISPOSABLE_SUPABASE_TESTS=0`: with the flag set, two live
+disposable-project checks also run and the totals read 677 passed / 1 skipped.
 
 | Criterion | Instrument | Observed result | Status |
 |---|---|---|---|
 | Backend dependency consistency | `pip check` in `.venv3146` | No broken requirements found | Passed |
-| Backend functional suitability | PyTest with pytest-cov and enforced `--cov-fail-under=85` | 539 passed and 3 opt-in external integration tests skipped; 91.28% coverage | Passed |
+| Backend functional suitability | PyTest with pytest-cov and enforced `--cov-fail-under=85` | 675 passed and 3 opt-in external integration tests skipped; 91.53% coverage | Passed |
 | PI-04 catalog controls | PyTest | 8/8 normalized selection, safe legacy/pre-migration translation, no-guess review, nested API, CRUD/archive, additive migration, and rollback contract tests passed | Passed locally |
 | PI-08 corpus controls | PyTest + Pylint | 15/15 manifest validation, immutable-locking, no-overwrite, and tamper-evidence tests passed; focused Pylint 10.00/10 | Passed locally |
 | Backend maintainability | Pylint | 10.00/10 | Passed |
-| Frontend unit tests | Node test runner | 44/44 passed | Passed |
+| Frontend unit tests | Node test runner | 80/80 passed | Passed |
+| Frontend coverage | Node test runner with `--experimental-test-coverage`, gated at 85/80/85 | 92.71% lines, 86.23% branches, 95.16% functions; lcov fed to SonarQube | Passed |
 | Frontend maintainability | ESLint 9.39.5 | 0 errors and 0 warnings | Passed |
 | Frontend production build | Vite 8.1.5 | 3,859 modules transformed; production build completed | Passed |
 | Critical browser journeys | Playwright 1.61.1 with Chromium | 21/21 passed (11 accessibility surfaces, 9 critical flows, 1 visual-quality matrix) | Passed |
-| Accessibility (WCAG 2.2 AA) | Playwright + axe-core 4.12.1 | 0 blocking (serious/critical) findings across 11 surfaces x 4 theme states x {1280px, 360px}; 25 advisory `heading-order` findings remain open | Passed blocking gate; advisory backlog open |
+| Accessibility (WCAG 2.2 AA) | Playwright + axe-core 4.12.1 | 0 blocking (serious/critical) **and 0 advisory** findings across 11 surfaces x 4 theme states x {1280px, 360px}. The 25 advisory `heading-order` findings recorded on 2026-08-03 were five distinct problems counted across five theme/viewport states; all are closed | Passed |
 | Frontend production dependency audit | `npm audit --omit=dev` | found 0 vulnerabilities | Passed |
 | Backend dependency vulnerability audit | pip-audit | Not re-run in this pass; requires network access to the advisory database. Last dated result (2026-07-25) was clean | Pending re-run |
 | Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771 | Not re-run in this pass; no SonarQube server was available. See the 2026-07-20 snapshot below and its recorded qualifications | Pending re-run |

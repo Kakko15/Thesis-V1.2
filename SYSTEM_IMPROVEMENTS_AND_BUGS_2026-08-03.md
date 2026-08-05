@@ -57,7 +57,7 @@ Counts above are generated from the status marks in this document, not maintaine
 
 | Gate | Before | After |
 |---|---|---|
-| PyTest | 430 passed / 90.87% | **666 passed, 3 skipped / 91.53%** 📈 (668/1 when `ALLOW_DISPOSABLE_SUPABASE_TESTS=1` enables the two live disposable-project checks; CI has no `.env`, so 666/3 is the reproducible figure) |
+| PyTest | 430 passed / 90.87% | **675 passed, 3 skipped / 91.53%** 📈 (677/1 when `ALLOW_DISPOSABLE_SUPABASE_TESTS=1` enables the two live disposable-project checks; CI has no `.env`, so 675/3 is the reproducible figure) |
 | Pylint | 10.00/10 | **10.00/10** (exit 0) |
 | ESLint | 0 errors, 0 warnings | **0 errors, 0 warnings** |
 | Frontend unit tests | 29 | **44** 📈 |
