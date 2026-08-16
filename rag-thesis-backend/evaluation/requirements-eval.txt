@@ -1,12 +1,12 @@
 # Reproducible dependencies for the Objective 2 evaluation harness.
 # Keep these outside the production image; update only with an audited rerun.
 ragas==0.4.3
-google-genai==2.13.0
+google-genai==2.18.1
 # Async evaluator client for Gemini's OpenAI-compatible endpoint (ragas'
 # native google provider is synchronous-only in 0.4.3 and cannot serve ascore).
-openai==2.49.0
-datasets==5.0.0
+openai==3.0.0
+datasets==5.0.1
 pandas==3.0.5
 scipy==1.18.0      # Shapiro-Wilk + paired t-test / Wilcoxon Signed-Rank
 # Ragas 0.4.3 imports a VertexAI compatibility module removed in 0.4.2.
-langchain-community==0.4.1
+langchain-community==0.4.2
