@@ -137,6 +137,49 @@ superadmin only). Novelty scanning is granted to faculty by default. Privileged
 roles additionally require MFA (AAL2) when `REQUIRE_PRIVILEGED_MFA` is enabled,
 which production configuration enforces.
 
+## Institutional catalog
+
+`20260819_isu_academic_catalog.sql` seeds the ISU Echague colleges and their
+degree programs as a **department → program → specialization** hierarchy.
+
+**CCSICT is the only active department.** It is the system's operating scope
+through the thesis defense, and its five programs (BSCS, BSIT, BSDSA, BSIS,
+BLIS — BLIS belongs to CCSICT, not the College of Education) were already
+seeded by the PI-04 catalog migration. The other nine colleges — SVM, CA, IOF,
+CAS, COE, CBAPA, CON, CCJE, CED — are **standby data**: seeded with their full
+program lists but `departments.active = false`.
+
+`departments.active` is the single authoritative switch, enforced in two
+independent places:
+
+- `routers/catalog.py::_nested_catalog` omits an inactive department entirely,
+  so it never reaches an archive filter, upload form, chat scope, or admin
+  picker.
+- `services/catalog.py::resolve_academic_selection` rejects an upload addressed
+  to one with `422 Unknown or archived department`.
+
+Programs and specializations under the standby colleges are seeded *active* on
+purpose, so scaling a college up after the defense is one statement rather than
+a three-table cascade:
+
+```sql
+update public.departments set active = true where code = 'CA';
+```
+
+Before activating a college whose programs carry specializations (CBAPA/BSBA,
+CED/BSED, CED/BTLED — majors are modelled as specializations, matching
+CCSICT's BSIT → WMAD/NETSEC), also widen the two places that currently hardcode
+which programs take a specialization:
+
+1. `SPECIALIZATION_REQUIRED_PROGRAMS` in `rag-thesis-backend/services/catalog.py`
+2. the `validate_academic_classification` trigger from
+   `20260725_normalized_academic_catalog.sql`
+
+Both list only `BSCS` and `BSIT` today, so a BSED thesis submitted with a major
+would otherwise be refused. `departments.title` carries the full college name
+(`name` is the short code and the foreign-key target for papers, profiles,
+chat sessions, scans, uploads, and the activity log, so it cannot hold prose).
+
 ## Thesis categories
 
 Every paper carries a `thesis_category` of `student` (undergraduate thesis) or

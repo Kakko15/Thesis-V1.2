@@ -173,6 +173,11 @@ alter table public.departments
   add column if not exists track_label text not null default 'Academic track';
 alter table public.departments
   add column if not exists tracks jsonb default '[]'::jsonb;
+-- Full college name. `name` is the short institutional code and the foreign-key
+-- target for papers, profiles, and every other scoped record, so the prose
+-- title needs its own column. Seeded per college by
+-- 20260819_isu_academic_catalog.sql.
+alter table public.departments add column if not exists title text;
 
 -- A legacy text[] default cannot be implicitly cast while changing the column
 -- type. Remove it first; the JSON default is restored after normalization.
@@ -208,8 +213,11 @@ alter table public.profiles add column if not exists avatar_url text;
 create index if not exists profiles_department_idx on public.profiles (department);
 create index if not exists profiles_role_status_idx on public.profiles (role, status);
 
-insert into public.departments (name, track_label, tracks) values (
+-- The other ISU Echague colleges are seeded, inactive, by
+-- 20260819_isu_academic_catalog.sql. CCSICT is the system's operating scope.
+insert into public.departments (name, title, track_label, tracks) values (
   'CCSICT',
+  'College of Computing Studies, Information and Communication Technology',
   'Academic track',
   '["Data Mining", "Web Development", "Network Security", "Intelligent Systems", "Information Management"]'::jsonb
 )

@@ -68,6 +68,7 @@ def _legacy_catalog() -> list[dict]:
         result.append({
             **row,
             'code': ''.join(character for character in name.upper() if character.isalnum()),
+            'title': None,
             'active': True,
             'programs': [],
         })
@@ -76,7 +77,17 @@ def _legacy_catalog() -> list[dict]:
 
 def _nested_catalog(active_only: bool = True) -> list[dict]:
     try:
-        departments = sb.table('departments').select('id,code,name,active').order('name').execute().data or []
+        try:
+            departments = sb.table('departments').select(
+                'id,code,name,title,active',
+            ).order('name').execute().data or []
+        except Exception:
+            # `title` is additive (ISU institutional catalog). A project that
+            # has PI-04 but not that migration must keep its normalized
+            # programs rather than dropping to the program-less legacy shape.
+            departments = sb.table('departments').select(
+                'id,code,name,active',
+            ).order('name').execute().data or []
         programs = sb.table('programs').select('id,department_id,code,name,active').order('code').execute().data or []
         specializations = sb.table('specializations').select(
             'id,program_id,code,name,active',
@@ -104,6 +115,7 @@ def _nested_catalog(active_only: bool = True) -> list[dict]:
     for item in departments:
         if active_only and not item.get('active'):
             continue
+        item.setdefault('title', None)
         item['programs'] = programs_by_department.get(str(item['id']), [])
         item['track_label'] = 'Program / specialization'
         item['tracks'] = [
