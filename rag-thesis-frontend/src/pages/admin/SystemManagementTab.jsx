@@ -269,7 +269,12 @@ function DepartmentsManagement() {
                 {paginated.map(d => (
                   <tr key={d.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
                     <td className="px-6 py-4">
-                      {editingId === d.id ? <Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="h-8 text-xs max-w-[120px]" /> : <div className="font-bold">{d.name}</div>}
+                      {editingId === d.id ? <Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="h-8 text-xs max-w-[120px]" /> : (
+                        <>
+                          <div className="font-bold">{d.name}</div>
+                          {d.title && <div className="mt-0.5 text-xs text-ink-muted">{d.title}</div>}
+                        </>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       {editingId === d.id ? <Input value={form.track_label} onChange={e => setForm({...form, track_label: e.target.value})} className="h-8 text-xs max-w-[150px]" /> : d.track_label}
@@ -335,6 +340,13 @@ function DepartmentsManagement() {
   )
 }
 
+/** Active department names, keeping `current` selectable even if its college
+ *  has since been archived so an editor cannot silently reassign a record. */
+function departmentOptions(departments, current) {
+  const names = departments.map((department) => department.name).filter(Boolean)
+  return current && !names.includes(current) ? [current, ...names] : names
+}
+
 export default function SystemManagementTab() {
   const { user: me, role: myRole, isSuperadmin, department: myDept } = useAuth()
   const queryClient = useQueryClient()
@@ -356,7 +368,17 @@ export default function SystemManagementTab() {
     queryKey: ['users'],
     queryFn: listUsers,
   })
-  
+
+  // The department pickers below were hardcoded to CCSICT and CAS. They now
+  // follow the server catalog, which publishes only active departments, so the
+  // other ISU colleges appear here the moment they are scaled up.
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments'],
+    queryFn: getDepartments,
+  })
+  const departmentNames = departmentOptions(departments)
+  const editableDepartments = departmentOptions(departments, editingUser?.department)
+
   const filteredUsers = users.filter(u => {
     if (deptFilter !== 'all' && u.department !== deptFilter) return false
     if (roleFilter !== 'all' && u.role !== roleFilter) return false
@@ -485,8 +507,7 @@ export default function SystemManagementTab() {
             {isSuperadmin && (
               <Select value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setUserPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by department">
                 <option value="all">All Depts</option>
-                <option value="CCSICT">CCSICT</option>
-                <option value="CAS">CAS</option>
+                {departmentNames.map((name) => <option key={name} value={name}>{name}</option>)}
               </Select>
             )}
             <Select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setUserPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by role">
@@ -601,8 +622,9 @@ export default function SystemManagementTab() {
                           className="h-8 rounded-xl px-2.5 text-xs w-[100px]"
                           aria-label={`Department for ${u.email}`}
                         >
-                          <option value="CCSICT">CCSICT</option>
-                          <option value="CAS">CAS</option>
+                          {editableDepartments.map((name) => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
                         </Select>
                       ) : (
                         <Badge tone="neutral">{u.department || 'Unassigned'}</Badge>
@@ -684,8 +706,7 @@ export default function SystemManagementTab() {
             {isSuperadmin && (
               <Select value={paperDeptFilter} onChange={e => { setPaperDeptFilter(e.target.value); setPaperPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter papers by department">
                 <option value="all">All Depts</option>
-                <option value="CCSICT">CCSICT</option>
-                <option value="CAS">CAS</option>
+                {departmentNames.map((name) => <option key={name} value={name}>{name}</option>)}
               </Select>
             )}
           </div>
