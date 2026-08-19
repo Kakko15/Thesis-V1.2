@@ -17,6 +17,7 @@ import { Input, Select } from '../../components/ui/Input'
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/Modal'
 import { formatDate } from '../../lib/utils'
+import { isFacultyThesis } from '../../lib/catalog'
 import { avatarPublicUrl } from '../../lib/avatar'
 import { TableScroller } from '../../components/ui/TableScroller'
 import { TableStateRow } from '../../components/ui/TableStateRow'
@@ -719,6 +720,7 @@ export default function SystemManagementTab() {
                       <div className="flex gap-1">
                         <Badge tone="neutral">{p.department || 'Unassigned'}</Badge>
                         <Badge tone="forest">{p.track}</Badge>
+                        {isFacultyThesis(p) && <Badge tone="gold">Faculty research</Badge>}
                       </div>
                     </td>
                   </tr>

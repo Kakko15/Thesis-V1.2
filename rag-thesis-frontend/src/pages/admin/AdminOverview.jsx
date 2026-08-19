@@ -11,7 +11,7 @@ import { useAuth } from '../../context/AuthContext'
 import { GlassCard } from '../../components/ui/GlassCard'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { slotKeys } from '../../lib/keys'
-import { RoleBadge } from '../../components/ui/Badge'
+import { Badge, RoleBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Input'
 import { AnimatedCounter, staggerContainer, staggerItem } from '../../components/ui/Motion'
@@ -128,6 +128,18 @@ export default function AdminOverview() {
           <StatCard icon={MessageSquareText} label="AI queries" value={overview?.usage?.chat_queries ?? 0} />
           <StatCard icon={Users} label="Registered users" value={overview?.users?.total ?? 0} />
         </motion.div>
+      )}
+
+      {/* Category breakdown — hidden until the thesis category migration is
+          applied, when the backend starts reporting per_category counts. */}
+      {Object.keys(overview?.papers?.per_category || {}).length > 0 && (
+        <GlassCard className="flex flex-wrap items-center gap-3 p-4">
+          <span className="text-xs font-bold uppercase tracking-wider text-ink-muted">
+            Archive by category
+          </span>
+          <Badge tone="forest">Student theses: {overview.papers.per_category.student ?? 0}</Badge>
+          <Badge tone="gold">Faculty research: {overview.papers.per_category.faculty ?? 0}</Badge>
+        </GlassCard>
       )}
 
       {/* Charts. Recharts is ~109 kB gzipped and lives in its own chunk, so the

@@ -323,9 +323,6 @@ class TestUploadKeepsTheLoopFree:
             spy.blocking('resolve_effective_department', 'CCSICT'),
         )
         monkeypatch.setattr(
-            upload, 'get_user_scope', spy.blocking('get_user_scope', {'role': 'admin'}),
-        )
-        monkeypatch.setattr(
             upload, 'resolve_academic_selection',
             spy.blocking('resolve_academic_selection', SimpleNamespace(as_payload=lambda: {
                 'department_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',

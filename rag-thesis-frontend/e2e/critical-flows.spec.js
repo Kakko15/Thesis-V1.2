@@ -183,6 +183,9 @@ test('guest RAG answer stays grounded and survives a hard route refresh', async 
   await expect(page.getByText(/retrieval-augmented generation architecture/)).toBeVisible()
   await expect(page.getByText('A Centralized AI-Powered Thesis Library')).toBeVisible()
   expect(chatPayload.department_filter).toBeNull()
+  // The default chat request carries no category scope, keeping the frozen
+  // unfiltered retrieval path in use unless a visitor opts in.
+  expect(chatPayload.thesis_category_filter).toBeNull()
   expect(chatPayload.session_id).toBeNull()
   expect(chatPayload.question).toBe('What methodology does the archived thesis use?')
 
@@ -266,6 +269,19 @@ test('authenticated archive renders legacy-safe records and filters them', async
       department: 'CCSICT',
       program_id: 'program-bscs',
       specialization_id: 'specialization-dm',
+      thesis_category: 'student',
+      duplication_scan: null,
+    }, {
+      id: 'paper-2',
+      title: 'Adaptive Irrigation Analytics for Isabela Farms',
+      authors: 'F. Adviser',
+      abstract: 'Faculty research output archived alongside student theses.',
+      year: 2025,
+      track: '',
+      department: 'CCSICT',
+      program_id: null,
+      specialization_id: null,
+      thesis_category: 'faculty',
       duplication_scan: null,
     }],
     'GET /upload/tracks': { tracks: ['Data Mining'] },
@@ -287,12 +303,20 @@ test('authenticated archive renders legacy-safe records and filters them', async
   await page.getByRole('option', { name: /BSCS/ }).click()
   await page.getByRole('combobox', { name: 'Filter by academic specialization' }).click()
   await page.getByRole('option', { name: /Data Mining/ }).click()
-  await expect(page.getByText('Showing 1 of 1 indexed thesis')).toBeVisible()
+  await expect(page.getByText('Showing 1 of 2 indexed theses')).toBeVisible()
 
   await page.getByPlaceholder(/Search titles, authors, abstracts/).fill('missing topic')
   await expect(page.getByText('No matches found')).toBeVisible()
   await page.locator('#main-content').getByRole('button', { name: 'Clear filters', exact: true }).click()
   await expect(page.getByText('A Centralized AI-Powered Thesis Library')).toBeVisible()
+
+  // The category filter separates faculty research from student theses, and
+  // the faculty card carries its gold provenance badge.
+  await page.getByRole('combobox', { name: 'Filter by thesis category' }).click()
+  await page.getByRole('option', { name: 'Faculty research' }).click()
+  await expect(page.getByText('Adaptive Irrigation Analytics for Isabela Farms')).toBeVisible()
+  await expect(page.getByText('A Centralized AI-Powered Thesis Library')).not.toBeVisible()
+  await expect(page.getByText('Showing 1 of 2 indexed theses')).toBeVisible()
   expect(unexpected).toEqual([])
 })
 
@@ -401,6 +425,8 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   await page.getByRole('option', { name: /Data Mining/ }).click()
   await page.getByRole('button', { name: 'Review' }).click()
   await expect(page.getByText('Deterministic E2E Thesis')).toBeVisible()
+  // The wizard defaults every manuscript to a student thesis.
+  await expect(page.getByText('Student thesis')).toBeVisible()
   await page.getByRole('button', { name: /Ingest into archive/ }).click()
 
   await expect(page.getByText(/Temporary service interruption/)).toBeVisible({ timeout: 5_000 })

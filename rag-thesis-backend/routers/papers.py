@@ -9,6 +9,7 @@ from dependencies.auth import get_current_user, require_admin, sb
 from models import PaperOut
 from routers.openapi_responses import errors
 from services.activity import log_activity
+from services.catalog import normalize_thesis_category
 from services.cleanup import record_storage_cleanup
 
 logger = logging.getLogger(__name__)
@@ -36,8 +37,11 @@ def list_papers(
     department: str | None = None,
     program_id: str | None = None,
     specialization_id: str | None = None,
+    thesis_category: str | None = None,
 ):
     """Return citation metadata without full text, file paths, or URLs."""
+    if thesis_category is not None:
+        thesis_category = normalize_thesis_category(thesis_category)
     profile_res = sb.table('profiles').select('role,department').eq('id', user.id).execute()
     current_profile = profile_res.data[0] if profile_res.data else {}
 
@@ -47,7 +51,7 @@ def list_papers(
     fields = (
         'id,title,authors,year,track,abstract,chunk_count,duplication_scan,'
         'created_at,uploaded_by,department,program_id,specialization_id,'
-        'legacy_track,classification_status'
+        'legacy_track,classification_status,thesis_category'
     )
     try:
         query = _ready_papers_query(fields, department)
@@ -55,12 +59,15 @@ def list_papers(
             query = query.eq('program_id', program_id)
         if specialization_id:
             query = query.eq('specialization_id', specialization_id)
+        if thesis_category:
+            query = query.eq('thesis_category', thesis_category)
         papers = query.execute().data or []
     except Exception as normalized_error:
-        if program_id or specialization_id:
+        if program_id or specialization_id or thesis_category:
             raise HTTPException(
                 503,
-                'Program filtering is unavailable until the academic catalog migration is applied.',
+                'Program and category filtering are unavailable until the academic '
+                'catalog and thesis category migrations are applied.',
             ) from normalized_error
         logger.warning(
             'Normalized paper metadata unavailable; serving legacy archive fields (%s).',

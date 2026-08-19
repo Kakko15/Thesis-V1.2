@@ -161,11 +161,13 @@ export const chatQuery = async (
   guest_source_ids = [],
   signal = undefined,
   turnstileToken = null,
+  thesis_category_filter = null,
 ) => {
   const { data } = await api.post('/chat', {
     question: query,
     session_id,
     department_filter,
+    thesis_category_filter,
     guest_history,
     guest_source_ids,
   }, {
@@ -199,9 +201,12 @@ export async function getSessionMessages(sessionId) {
 }
 
 // ---------- Papers (metadata only — indirect access model) ----------
-export const listPapers = async (department = null) => {
-  const url = department ? `/papers?department=${encodeURIComponent(department)}` : '/papers'
-  const { data } = await api.get(url)
+export const listPapers = async (department = null, thesisCategory = null) => {
+  const params = new URLSearchParams()
+  if (department) params.set('department', department)
+  if (thesisCategory) params.set('thesis_category', thesisCategory)
+  const query = params.toString()
+  const { data } = await api.get(query ? `/papers?${query}` : '/papers')
   return data
 }
 
@@ -221,7 +226,7 @@ export async function getTracks() {
 // ---------- Upload (background ingestion) ----------
 export async function uploadPaper({
   file, title, authors, year, abstract, track, department,
-  program_id, specialization_id, idempotencyKey,
+  program_id, specialization_id, thesis_category, idempotencyKey,
 }) {
   const formData = new FormData()
   formData.append('file', file)
@@ -231,6 +236,7 @@ export async function uploadPaper({
   formData.append('abstract', abstract || '')
   formData.append('track', track || '')
   formData.append('department', department || 'CCSICT')
+  formData.append('thesis_category', thesis_category || 'student')
   if (program_id) formData.append('program_id', program_id)
   if (specialization_id) formData.append('specialization_id', specialization_id)
   const { data } = await api.post('/upload/paper', formData, {

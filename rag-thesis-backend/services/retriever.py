@@ -52,6 +52,10 @@ def public_source(paper: dict, similarity: float | None = None, *, chunk: dict |
         'track': paper.get('track', ''),
         'department': paper.get('department', ''),
     }
+    # Only emitted when the caller's select included the column, so lookup
+    # paths that predate the thesis category migration never mislabel a paper.
+    if 'thesis_category' in paper:
+        source['thesis_category'] = paper.get('thesis_category') or 'student'
     if similarity is not None:
         source['similarity'] = round(similarity * 100, 2)
     if citation_id is not None:
@@ -344,17 +348,23 @@ def search_chunks(
     question: str,
     department_filter: str | None = None,
     query_embedding: list[float] | None = None,
+    thesis_category: str | None = None,
 ):
     """Return (context, sources, top_similarity) for a natural-language query."""
     q_embedding = query_embedding if query_embedding is not None else embed_text(question)
+    rpc_params = {
+        'query_embedding': q_embedding,
+        'match_count': settings.retrieval_match_count,
+        'match_threshold': settings.retrieval_threshold,
+        'p_department': department_filter,
+        **retrieval_provenance_params(),
+    }
+    # Omit the key entirely when no category scope was requested, so the
+    # unfiltered call stays identical to the frozen evaluated pipeline.
+    if thesis_category:
+        rpc_params['p_thesis_category'] = thesis_category
     result = retry_transient(
-        lambda: sb.rpc('match_chunks', {
-            'query_embedding': q_embedding,
-            'match_count': settings.retrieval_match_count,
-            'match_threshold': settings.retrieval_threshold,
-            'p_department': department_filter,
-            **retrieval_provenance_params(),
-        }).execute(),
+        lambda: sb.rpc('match_chunks', rpc_params).execute(),
         label='Supabase chunk retrieval',
         logger=logger,
     )
@@ -381,13 +391,26 @@ def search_chunks(
 
     # Fetch paper metadata for the retrieved chunks
     paper_ids = list({c['paper_id'] for c in chunks})
-    papers_res = retry_transient(
-        lambda: sb.table('papers')
-        .select('id,title,authors,year,track,department')
-        .in_('id', paper_ids).execute(),
-        label='Supabase citation metadata lookup',
-        logger=logger,
-    )
+    try:
+        papers_res = retry_transient(
+            lambda: sb.table('papers')
+            .select('id,title,authors,year,track,department,thesis_category')
+            .in_('id', paper_ids).execute(),
+            label='Supabase citation metadata lookup',
+            logger=logger,
+        )
+    except Exception as error:
+        if not _is_missing_column_error(error):
+            raise
+
+        # Compatibility until the thesis category migration is applied.
+        papers_res = retry_transient(
+            lambda: sb.table('papers')
+            .select('id,title,authors,year,track,department')
+            .in_('id', paper_ids).execute(),
+            label='Supabase legacy citation metadata lookup',
+            logger=logger,
+        )
     paper_lookup = {p['id']: p for p in (papers_res.data or [])}
 
     # Rank individual evidence chunks, assign stable citations, then reorder.
@@ -442,6 +465,7 @@ def check_topic_duplication(
     threshold: float | None = None,
     query_embedding: list[float] | None = None,
     department_filter: str | None = None,
+    thesis_category: str | None = None,
 ) -> dict | None:
     """Query-time 85% novelty guard (paper, Section 1.3 Duplication Parameter).
 
@@ -451,13 +475,18 @@ def check_topic_duplication(
     threshold = threshold if threshold is not None else settings.duplication_threshold
     try:
         q_embedding = query_embedding if query_embedding is not None else embed_text(question)
+        rpc_params = {
+            'query_embedding': q_embedding,
+            'dup_threshold': threshold,
+            'p_department': department_filter,
+            **retrieval_provenance_params(),
+        }
+        # Same conditional-key contract as search_chunks: absent scope means
+        # an unchanged call against the frozen duplication-screening path.
+        if thesis_category:
+            rpc_params['p_thesis_category'] = thesis_category
         res = retry_transient(
-            lambda: sb.rpc('check_topic_duplication', {
-                'query_embedding': q_embedding,
-                'dup_threshold': threshold,
-                'p_department': department_filter,
-                **retrieval_provenance_params(),
-            }).execute(),
+            lambda: sb.rpc('check_topic_duplication', rpc_params).execute(),
             label='Supabase duplication check',
             logger=logger,
         )

@@ -110,7 +110,7 @@ def overview(user: AdminUser):
     role, department = _admin_scope(user)
     paper_query = (
         sb.table('papers')
-        .select('id,track,year,chunk_count,created_at')
+        .select('id,track,year,chunk_count,created_at,thesis_category')
         .eq('ingestion_status', 'ready')
     )
     profile_query = sb.table('profiles').select('role')
@@ -119,7 +119,23 @@ def overview(user: AdminUser):
         paper_query = paper_query.eq('department', department)
         profile_query = profile_query.eq('department', department)
         scan_query = scan_query.eq('department', department)
-    papers = paper_query.execute().data or []
+    try:
+        papers = paper_query.execute().data or []
+        papers_per_category = Counter(
+            paper.get('thesis_category') or 'student' for paper in papers
+        )
+    except Exception:
+        # Pre-migration databases have no thesis_category column yet; the
+        # dashboard hides the breakdown while this counter stays empty.
+        legacy_query = (
+            sb.table('papers')
+            .select('id,track,year,chunk_count,created_at')
+            .eq('ingestion_status', 'ready')
+        )
+        if role != 'superadmin':
+            legacy_query = legacy_query.eq('department', department)
+        papers = legacy_query.execute().data or []
+        papers_per_category = Counter()
 
     papers_per_track = Counter(paper.get('track') or 'Uncategorized' for paper in papers)
     papers_per_year = Counter(str(paper['year']) for paper in papers if paper.get('year'))
@@ -141,6 +157,7 @@ def overview(user: AdminUser):
             'total': len(papers),
             'per_track': dict(papers_per_track.most_common()),
             'per_year': dict(sorted(papers_per_year.items())),
+            'per_category': dict(papers_per_category.most_common()),
             'total_chunks': total_chunks,
         },
         'users': {

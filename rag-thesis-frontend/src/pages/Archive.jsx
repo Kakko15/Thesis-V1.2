@@ -10,6 +10,7 @@ import { ConfirmDialog, Modal } from '../components/ui/Modal'
 import { PageTransition, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { Button } from '../components/ui/Button'
 import { formatDate, normalizePercent, scanMetrics, verdictLabel } from '../lib/utils'
+import { THESIS_CATEGORIES, isFacultyThesis, thesisCategoryLabel } from '../lib/catalog'
 import { slotKeys } from '../lib/keys'
 import { useArchiveCatalog } from './archive/useArchiveCatalog'
 
@@ -95,6 +96,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           {paper.authors || 'Unknown authors'}
         </p>
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-4">
+          {isFacultyThesis(paper) && <Badge tone="gold">Faculty research</Badge>}
           {paper.track && <Badge tone="forest">{paper.track}</Badge>}
           {paper.year && <Badge tone="neutral">{paper.year}</Badge>}
           {paper.department && <Badge tone="neutral">{paper.department}</Badge>}
@@ -244,6 +246,12 @@ export default function Archive() {
             {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
           </Select>
         )}
+        <Select value={filters.thesis_category} onChange={(e) => setFilter('thesis_category', e.target.value)} className="lg:col-span-2" aria-label="Filter by thesis category">
+          <option value="">All categories</option>
+          {THESIS_CATEGORIES.map((category) => (
+            <option key={category.value} value={category.value}>{category.label}</option>
+          ))}
+        </Select>
         <Select value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="lg:col-span-2" aria-label="Filter by year">
           <option value="">All years</option>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
@@ -276,6 +284,9 @@ export default function Archive() {
       <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.title} size="lg">
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
+            <Badge tone={isFacultyThesis(detail) ? 'gold' : 'forest'}>
+              {thesisCategoryLabel(detail?.thesis_category)}
+            </Badge>
             {detail?.track && <Badge tone="forest">{detail.track}</Badge>}
             {detail?.department && <Badge tone="neutral">{detail.department}</Badge>}
             {detail?.year && <Badge tone="gold">{detail.year}</Badge>}

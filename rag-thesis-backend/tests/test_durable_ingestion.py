@@ -343,8 +343,10 @@ class UploadClient:
         self.reserve_error = reserve_error
         self.current_status = current_status or reserve_status
         self.queries = {}
+        self.rpc_payloads = {}
 
     def rpc(self, name, payload):
+        self.rpc_payloads[name] = payload
         if name == 'reserve_upload_job':
             if self.reserve_error:
                 return Result(error=self.reserve_error)
@@ -375,7 +377,6 @@ class TestUploadApi:
     @pytest.fixture(autouse=True)
     def normalized_catalog(self, monkeypatch):
         """Keep queue tests focused; catalog ownership has dedicated PI-04 tests."""
-        monkeypatch.setattr(upload, 'get_user_scope', lambda _user_id: {'role': 'admin'})
         monkeypatch.setattr(
             upload,
             'resolve_academic_selection',
@@ -403,6 +404,87 @@ class TestUploadApi:
         assert response.idempotency_key == IDEMPOTENCY_KEY
         assert response.status == 'queued'
         assert len(client.bucket.uploaded) == 1
+
+    def test_omitted_thesis_category_lands_as_student_in_the_payload(self, monkeypatch):
+        client = UploadClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        monkeypatch.setattr(upload, 'resolve_effective_department', lambda _user, value: value)
+        endpoint = inspect.unwrap(upload.upload_paper)
+        asyncio.run(endpoint(
+            request=SimpleNamespace(), file=upload_file(), title='Durable Thesis Library',
+            authors='', year='', abstract='', track='', department='CCSICT',
+            idempotency_key=IDEMPOTENCY_KEY, user=SimpleNamespace(id=OWNER_ID),
+        ))
+        payload = client.rpc_payloads['reserve_upload_job']['p_request_payload']
+        assert payload['thesis_category'] == 'student'
+
+    def test_faculty_category_is_preserved_and_program_becomes_optional(self, monkeypatch):
+        client = UploadClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        monkeypatch.setattr(upload, 'resolve_effective_department', lambda _user, value: value)
+        captured = {}
+
+        def recording_selection(_client, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(as_payload=lambda: {
+                'department_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                'program_id': None, 'specialization_id': None,
+                'track': '', 'legacy_track': None,
+                'classification_status': 'unclassified',
+            })
+        monkeypatch.setattr(upload, 'resolve_academic_selection', recording_selection)
+        endpoint = inspect.unwrap(upload.upload_paper)
+        asyncio.run(endpoint(
+            request=SimpleNamespace(), file=upload_file(), title='Faculty Research Manuscript',
+            authors='', year='', abstract='', track='', department='CCSICT',
+            thesis_category='faculty',
+            idempotency_key=IDEMPOTENCY_KEY, user=SimpleNamespace(id=OWNER_ID),
+        ))
+        assert captured['require_program'] is False
+        payload = client.rpc_payloads['reserve_upload_job']['p_request_payload']
+        assert payload['thesis_category'] == 'faculty'
+
+    def test_student_category_requires_a_program_regardless_of_uploader_role(self, monkeypatch):
+        """Pins the intentional change: the requirement follows the manuscript,
+        so even the admin-scoped fixture upload demands a program for a
+        student-category thesis."""
+        client = UploadClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        monkeypatch.setattr(upload, 'resolve_effective_department', lambda _user, value: value)
+        captured = {}
+
+        def recording_selection(_client, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(as_payload=lambda: {
+                'department_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                'program_id': None, 'specialization_id': None,
+                'track': '', 'legacy_track': None,
+                'classification_status': 'unclassified',
+            })
+        monkeypatch.setattr(upload, 'resolve_academic_selection', recording_selection)
+        endpoint = inspect.unwrap(upload.upload_paper)
+        asyncio.run(endpoint(
+            request=SimpleNamespace(), file=upload_file(), title='Durable Thesis Library',
+            authors='', year='', abstract='', track='', department='CCSICT',
+            thesis_category='student',
+            idempotency_key=IDEMPOTENCY_KEY, user=SimpleNamespace(id=OWNER_ID),
+        ))
+        assert captured['require_program'] is True
+
+    def test_unknown_thesis_category_is_rejected_before_any_staging(self, monkeypatch):
+        client = UploadClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        monkeypatch.setattr(upload, 'resolve_effective_department', lambda _user, value: value)
+        endpoint = inspect.unwrap(upload.upload_paper)
+        with pytest.raises(HTTPException) as caught:
+            asyncio.run(endpoint(
+                request=SimpleNamespace(), file=upload_file(), title='Durable Thesis Library',
+                authors='', year='', abstract='', track='', department='CCSICT',
+                thesis_category='graduate',
+                idempotency_key=IDEMPOTENCY_KEY, user=SimpleNamespace(id=OWNER_ID),
+            ))
+        assert caught.value.status_code == 422
+        assert client.bucket.uploaded == []
 
     def test_duplicate_completed_submission_does_not_upload_again(self, monkeypatch):
         client = UploadClient(reserve_status='completed', created=False)

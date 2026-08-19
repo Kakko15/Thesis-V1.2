@@ -26,6 +26,7 @@ import { AnimatedLogo } from '../components/ui/AnimatedLogo'
 import { LogoActivityDots } from '../components/ui/LogoActivityDots'
 import { Sheet } from '../components/ui/Sheet'
 import { cn, normalizePercent, timeAgo } from '../lib/utils'
+import { THESIS_CATEGORIES } from '../lib/catalog'
 
 const STARTERS = [
   'What machine learning techniques were used in past CCSICT theses?',
@@ -455,6 +456,9 @@ export default function Chat() {
   const [messages, setMessages] = useState([]) // {kind:'user'|'ai', ...}
   const [input, setInput] = useState('')
   const [filterDepartment, setFilterDepartment] = useState('')
+  // Content scope, not a security boundary: every visitor (guests included)
+  // may narrow retrieval to student or faculty theses.
+  const [filterCategory, setFilterCategory] = useState('')
   const [sending, setSending] = useState(false)
   const [chatError, setChatError] = useState(null)
   const [sessionId, setSessionId] = useState(null)
@@ -546,6 +550,7 @@ export default function Chat() {
     setSessionId(null)
     setMessages([])
     setChatError(null)
+    setFilterCategory('')
     setSidebarOpen(false)
     inputRef.current?.focus()
   }
@@ -597,6 +602,7 @@ export default function Chat() {
         latestGuestSources,
         controller.signal,
         guestGate.tokenForRequest(),
+        filterCategory || null,
       )
       if (controller.signal.aborted) return
       guestGate.markPassed()
@@ -739,6 +745,17 @@ export default function Chat() {
             </div>
           </div>
           <div className="flex min-w-0 items-center gap-2">
+            <Select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none"
+              aria-label="Filter research by thesis category"
+            >
+              <option value="">All categories</option>
+              {THESIS_CATEGORIES.map((category) => (
+                <option key={category.value} value={category.value}>{category.label}</option>
+              ))}
+            </Select>
             {isSuperadmin ? (
               <Select
                 value={filterDepartment}
