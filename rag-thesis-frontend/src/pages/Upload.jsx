@@ -20,6 +20,7 @@ import { PageTransition } from '../components/ui/Motion'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { useAuth } from '../context/AuthContext'
 import { cn, normalizePercent, scanMetrics, verdictLabel } from '../lib/utils'
+import { THESIS_CATEGORIES, thesisCategoryLabel } from '../lib/catalog'
 import { createUploadState, emptyUploadForm, isCurrentPoll, uploadReducer } from './upload/uploadState'
 
 const STEPS = ['Manuscript', 'Metadata', 'Review']
@@ -47,8 +48,12 @@ function DepartmentLoadError({ show, onRetry }) {
 function uploadMetadataErrors(form) {
   const errors = {}
   if (form.title.trim().length < 5) errors.title = 'Enter the full thesis title'
-  if (!form.program_id) errors.program_id = 'Select the academic program'
-  if (form.requires_specialization && !form.specialization_id) {
+  // The program requirement follows the manuscript: student theses always
+  // belong to a program, faculty research may sit outside the catalog.
+  if (form.thesis_category !== 'faculty' && !form.program_id) {
+    errors.program_id = 'Select the academic program'
+  }
+  if (form.program_id && form.requires_specialization && !form.specialization_id) {
     errors.specialization_id = 'Select the program specialization'
   }
   if (!form.department) errors.department = 'Select the department'
@@ -547,12 +552,29 @@ export default function Upload() {
                   <Input value={form.year} onChange={set('year')} placeholder="2024" inputMode="numeric" maxLength={4} error={errors.year} />
                 </Field>
               </div>
+              <Field
+                label="Thesis category"
+                required
+                hint="Who authored the manuscript — not your account role"
+              >
+                <Select
+                  value={form.thesis_category}
+                  onChange={set('thesis_category')}
+                  aria-label="Select thesis category"
+                >
+                  {THESIS_CATEGORIES.map((category) => (
+                    <option key={category.value} value={category.value}>{category.label}</option>
+                  ))}
+                </Select>
+              </Field>
               <div className="grid gap-5 sm:grid-cols-2">
-                <Field 
+                <Field
                   label="Academic program"
                   error={errors.program_id}
-                  required 
-                  hint="Validated against the official CCSICT catalog"
+                  required={form.thesis_category !== 'faculty'}
+                  hint={form.thesis_category === 'faculty'
+                    ? 'Optional for faculty research'
+                    : 'Validated against the official CCSICT catalog'}
                 >
                   <Select value={form.program_id} onChange={(event) => {
                     const program = currentPrograms.find((item) => item.id === event.target.value)
@@ -639,9 +661,20 @@ export default function Upload() {
                     <div className="mt-0.5 font-medium">{form.authors || '—'}</div>
                   </div>
                   <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Category</div>
+                    <div className="mt-0.5">
+                      <Badge tone={form.thesis_category === 'faculty' ? 'gold' : 'forest'}>
+                        {thesisCategoryLabel(form.thesis_category)}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
                     <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Program / specialization</div>
                     <div className="mt-0.5 flex flex-wrap gap-1.5">
-                      <Badge tone="forest">{currentProgram?.code || 'Pending program'}</Badge>
+                      <Badge tone="forest">
+                        {currentProgram?.code
+                          || (form.thesis_category === 'faculty' ? 'Not applicable' : 'Pending program')}
+                      </Badge>
                       {currentSpecialization && <Badge tone="gold">{currentSpecialization.code}</Badge>}
                     </div>
                   </div>

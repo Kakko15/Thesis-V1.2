@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createUploadState, isCurrentPoll, uploadReducer, UPLOAD_STEPS } from './uploadState.js'
+import {
+  createUploadState, emptyUploadForm, isCurrentPoll, uploadReducer, UPLOAD_STEPS,
+} from './uploadState.js'
 
 test('upload reducer covers all upload stages and terminal outcomes', () => {
   let state = createUploadState('CCSICT')
@@ -18,6 +20,17 @@ test('upload reducer covers all upload stages and terminal outcomes', () => {
 test('reset clears transient state and restores the enforced department', () => {
   const dirty = { ...createUploadState('OLD'), file: {}, pollError: 'offline', step: 3 }
   assert.deepEqual(uploadReducer(dirty, { type: 'reset', department: 'CCSICT' }), createUploadState('CCSICT'))
+})
+
+test('a fresh form is a student thesis until the uploader says otherwise', () => {
+  assert.equal(emptyUploadForm().thesis_category, 'student')
+  const state = uploadReducer(
+    createUploadState('CCSICT'),
+    { type: 'set-field', key: 'thesis_category', value: 'faculty' },
+  )
+  assert.equal(state.form.thesis_category, 'faculty')
+  const reset = uploadReducer(state, { type: 'reset', department: 'CCSICT' })
+  assert.equal(reset.form.thesis_category, 'student')
 })
 
 test('stale polling responses are rejected after reset, replacement, or unmount', () => {

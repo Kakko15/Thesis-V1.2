@@ -16,6 +16,27 @@ test('archive filtering is legacy-safe and supports combined filters', () => {
   assert.deepEqual(filterArchivePapers(papers, { superadmin: true, department: 'OTHER' }), [])
 })
 
+test('archive filtering by thesis category treats legacy papers as student work', () => {
+  const catalogued = [
+    { id: 'legacy', department: 'CCSICT' },
+    { id: 'student', department: 'CCSICT', thesis_category: 'student' },
+    { id: 'faculty', department: 'CCSICT', thesis_category: 'faculty' },
+  ]
+  assert.deepEqual(
+    filterArchivePapers(catalogued, { thesis_category: 'faculty' }).map((paper) => paper.id),
+    ['faculty'],
+  )
+  // Pre-migration rows carry no field and are undergraduate work by definition.
+  assert.deepEqual(
+    filterArchivePapers(catalogued, { thesis_category: 'student' }).map((paper) => paper.id),
+    ['legacy', 'student'],
+  )
+  assert.deepEqual(
+    filterArchivePapers(catalogued, { thesis_category: '' }).map((paper) => paper.id),
+    ['legacy', 'student', 'faculty'],
+  )
+})
+
 test('archive filtering supports normalized program and specialization IDs', () => {
   const papers = [
     { id: 'one', department: 'CCSICT', program_id: 'bscs', specialization_id: 'dm' },

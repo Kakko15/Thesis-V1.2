@@ -364,7 +364,7 @@ class TestChatImplBranches:
         monkeypatch.setattr(chat, 'is_ambiguous_followup', lambda *_: True)
         captured = {}
 
-        async def retrieve(question, _dept, referenced_paper_id, is_overview):
+        async def retrieve(question, _dept, referenced_paper_id, is_overview, _category=None):
             captured['question'] = question
             captured['paper_id'] = referenced_paper_id
             captured['overview'] = is_overview

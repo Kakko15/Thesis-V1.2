@@ -8,6 +8,7 @@ import { GlassCard } from '../../components/ui/GlassCard'
 import { Badge } from '../../components/ui/Badge'
 import { Input, Select } from '../../components/ui/Input'
 import { cn, formatDate } from '../../lib/utils'
+import { THESIS_CATEGORIES, isFacultyThesis, thesisCategoryLabel } from '../../lib/catalog'
 import { TableScroller } from '../../components/ui/TableScroller'
 import { TableStateRow } from '../../components/ui/TableStateRow'
 
@@ -41,6 +42,7 @@ export default function UploadHistoryTab() {
   const [trackFilter, setTrackFilter] = useState('')
   const [yearFilter, setYearFilter] = useState('')
   const [deptFilter, setDeptFilter] = useState(role === 'admin' ? userDept : '')
+  const [categoryFilter, setCategoryFilter] = useState('')
 
   const { data: tracks = [] } = useQuery({ queryKey: ['tracks'], queryFn: getTracks })
   const { data: departments = [] } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
@@ -66,9 +68,11 @@ export default function UploadHistoryTab() {
       const matchTrack = !trackFilter || p.track === trackFilter
       const matchYear = !yearFilter || String(p.year) === yearFilter
       const matchDepartment = !deptFilter || p.department === deptFilter
-      return matchQ && matchTrack && matchYear && matchDepartment
+      const matchCategory = !categoryFilter
+        || (p.thesis_category || 'student') === categoryFilter
+      return matchQ && matchTrack && matchYear && matchDepartment && matchCategory
     })
-  }, [papers, query, trackFilter, yearFilter, deptFilter])
+  }, [papers, query, trackFilter, yearFilter, deptFilter, categoryFilter])
 
   return (
     <div className="space-y-6">
@@ -115,6 +119,12 @@ export default function UploadHistoryTab() {
             {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
           </Select>
         )}
+        <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="sm:w-44" aria-label="Filter by thesis category">
+          <option value="">All categories</option>
+          {THESIS_CATEGORIES.map((category) => (
+            <option key={category.value} value={category.value}>{category.label}</option>
+          ))}
+        </Select>
         <Select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} className="sm:w-36" aria-label="Filter by year">
           <option value="">All years</option>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
@@ -130,6 +140,7 @@ export default function UploadHistoryTab() {
             <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
               <tr>
                 <th className="px-6 py-3">Title & Authors</th>
+                <th className="px-6 py-3">Category</th>
                 <th className="px-6 py-3">Track</th>
                 <th className="px-6 py-3">Dept</th>
                 <th className="px-6 py-3">Year</th>
@@ -140,7 +151,7 @@ export default function UploadHistoryTab() {
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
               <TableStateRow
-                colSpan={7}
+                colSpan={8}
                 loading={isLoading}
                 error={error}
                 empty={filteredPapers.length === 0}
@@ -155,6 +166,11 @@ export default function UploadHistoryTab() {
                     <td className="px-6 py-4 max-w-md">
                       <div className="font-bold line-clamp-1">{p.title}</div>
                       <div className="text-xs text-ink-muted line-clamp-1 mt-0.5">{p.authors || 'Unknown'}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <Badge tone={isFacultyThesis(p) ? 'gold' : 'forest'}>
+                        {thesisCategoryLabel(p.thesis_category)}
+                      </Badge>
                     </td>
                     <td className="px-6 py-4"><Badge tone="forest">{p.track}</Badge></td>
                     <td className="px-6 py-4"><Badge tone="neutral">{p.department}</Badge></td>

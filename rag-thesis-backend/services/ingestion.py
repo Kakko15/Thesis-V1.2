@@ -155,6 +155,10 @@ def process_ingestion_job(client, job: dict, worker_id: str,
         'specialization_id': payload.get('specialization_id'),
         'legacy_track': payload.get('legacy_track'),
         'classification_status': payload.get('classification_status') or 'unclassified',
+        # Inert in commit_paper_ingestion's insert list; the hydrate trigger
+        # reading upload_jobs.request_payload is authoritative. Kept here for
+        # symmetry so the committed payload documents the full paper row.
+        'thesis_category': payload.get('thesis_category') or 'student',
         'filename': filename,
         'storage_path': source_path,
         'chunk_count': len(chunks),

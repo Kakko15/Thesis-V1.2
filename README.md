@@ -137,6 +137,35 @@ superadmin only). Novelty scanning is granted to faculty by default. Privileged
 roles additionally require MFA (AAL2) when `REQUIRE_PRIVILEGED_MFA` is enabled,
 which production configuration enforces.
 
+## Thesis categories
+
+Every paper carries a `thesis_category` of `student` (undergraduate thesis) or
+`faculty` (faculty research), introduced by
+`migrations/20260819_thesis_category.sql`. The category classifies the
+**manuscript**, not the uploader — it is deliberately unrelated to the
+`faculty` value in `profiles.role`, since an administrator may archive a
+faculty-authored manuscript and vice versa. Everything indexed before the
+migration backfills to `student`, which keeps the locked PI-08 evaluation
+corpus undergraduate-only by definition.
+
+- **Upload** — the wizard's metadata step selects the category (default
+  `student`). A student-category thesis requires a validated academic program
+  for **every** uploader role; a faculty-category thesis may omit the
+  program/specialization entirely, since faculty research can sit outside the
+  undergraduate catalog.
+- **Browse** — `GET /papers` accepts an optional `thesis_category` query
+  parameter; the Archive, upload history, and system management surfaces
+  filter and badge by category.
+- **Retrieval** — `match_chunks` and `check_topic_duplication` accept an
+  optional trailing `p_thesis_category` parameter that defaults to `null`, and
+  the application omits the key entirely unless a chat visitor picks a
+  category scope, so every pre-existing call — including ingest-time
+  duplication screening and `/duplication/scan`, which stay deliberately
+  cross-category — resolves to the frozen evaluated pipeline unchanged.
+- **Idempotency note** — replaying an upload with the same `Idempotency-Key`
+  and file but a different category returns the original job; the first
+  submission's category wins.
+
 ## Evaluation and testing
 
 ```bash

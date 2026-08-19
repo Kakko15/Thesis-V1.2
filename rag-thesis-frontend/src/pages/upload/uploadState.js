@@ -4,6 +4,7 @@ export function emptyUploadForm(department = 'CCSICT') {
   return {
     title: '', authors: '', year: '', abstract: '', track: '', department,
     program_id: '', specialization_id: '', requires_specialization: false,
+    thesis_category: 'student',
   }
 }
 

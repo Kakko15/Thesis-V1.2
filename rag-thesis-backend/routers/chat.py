@@ -533,9 +533,12 @@ async def _retrieve_evidence(
     department: str,
     referenced_paper_id: str | None,
     is_overview_followup: bool,
+    thesis_category: str | None = None,
 ):
     """Run the current-evidence retrieval path under one traceable boundary."""
     if referenced_paper_id:
+        # A directly referenced paper is already an explicit scope; the
+        # category filter only narrows semantic search.
         result = await asyncio.to_thread(
             get_paper_overview_context,
             referenced_paper_id,
@@ -562,10 +565,11 @@ async def _retrieve_evidence(
                 None,
                 query_embedding,
                 department,
+                thesis_category,
             )
 
     result, alert = await asyncio.gather(
-        asyncio.to_thread(search_chunks, question, department, query_embedding),
+        asyncio.to_thread(search_chunks, question, department, query_embedding, thesis_category),
         check_duplication(),
     )
     return result, alert
@@ -809,6 +813,7 @@ async def _chat_impl(
                 effective_department,
                 referenced_paper_id,
                 is_overview_followup,
+                req.thesis_category_filter,
             )
         context, sources, _top_similarity = retrieval_result
         if evaluation_trace is not None:

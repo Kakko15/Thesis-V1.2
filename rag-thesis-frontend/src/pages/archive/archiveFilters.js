@@ -14,8 +14,12 @@ export function filterArchivePapers(papers = [], filters = {}) {
       || paper.specialization_id === filters.specialization_id
     const matchesYear = !filters.year || String(paper.year) === String(filters.year)
     const matchesDepartment = !filters.superadmin || !filters.department || paper.department === filters.department
+    // Papers indexed before the category migration carry no field and are
+    // undergraduate work by definition, so they read as 'student'.
+    const matchesCategory = !filters.thesis_category
+      || (paper.thesis_category || 'student') === filters.thesis_category
     return matchesQuery && matchesTrack && matchesProgram
-      && matchesSpecialization && matchesYear && matchesDepartment
+      && matchesSpecialization && matchesYear && matchesDepartment && matchesCategory
   })
 }
 

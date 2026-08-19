@@ -12,6 +12,19 @@ LEGACY_CLASSIFICATIONS = {
 AMBIGUOUS_LEGACY_TRACKS = {'Intelligent Systems', 'Information Management'}
 SPECIALIZATION_REQUIRED_PROGRAMS = {'BSCS', 'BSIT'}
 
+# Authorship provenance of a manuscript. Deliberately unrelated to
+# profiles.role, which also has a 'faculty' value: the category classifies
+# the thesis, not whoever uploaded it.
+THESIS_CATEGORIES = frozenset({'student', 'faculty'})
+
+
+def normalize_thesis_category(value: str | None) -> str:
+    """Return the canonical category, defaulting absent input to 'student'."""
+    category = (value or 'student').strip().lower()
+    if category not in THESIS_CATEGORIES:
+        raise HTTPException(422, "thesis_category must be 'student' or 'faculty'.")
+    return category
+
 
 @dataclass(frozen=True)
 class AcademicSelection:

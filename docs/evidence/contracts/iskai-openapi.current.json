@@ -90,6 +90,11 @@
             ],
             "title": "Specialization Id"
           },
+          "thesis_category": {
+            "default": "student",
+            "title": "Thesis Category",
+            "type": "string"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -224,6 +229,18 @@
               }
             ],
             "title": "Session Id"
+          },
+          "thesis_category_filter": {
+            "anyOf": [
+              {
+                "pattern": "^(student|faculty)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Category Filter"
           }
         },
         "required": [
@@ -580,6 +597,11 @@
               }
             ],
             "title": "Specialization Id"
+          },
+          "thesis_category": {
+            "default": "student",
+            "title": "Thesis Category",
+            "type": "string"
           },
           "title": {
             "title": "Title",
@@ -2508,6 +2530,22 @@
                 }
               ],
               "title": "Specialization Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "thesis_category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Thesis Category"
             }
           }
         ],

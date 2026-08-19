@@ -10,6 +10,7 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
   const queryClient = useQueryClient()
   const [filters, setFilters] = useState({
     query: '', track: '', program_id: '', specialization_id: '', year: '', department: '',
+    thesis_category: '',
   })
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [detail, setDetail] = useState(null)
@@ -50,6 +51,7 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
   })
   const clearFilters = () => setFilters({
     query: '', track: '', program_id: '', specialization_id: '', year: '', department: '',
+    thesis_category: '',
   })
   const submitDelete = async () => {
     if (!deleteTarget?.id) return

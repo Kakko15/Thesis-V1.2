@@ -222,7 +222,11 @@ class TestEarlierMigrationsCannotOverwriteLaterOnes:
         assert set(redefined) == {
             'activate_paper_index', 'check_topic_duplication', 'claim_upload_cleanup',
             'claim_upload_job', 'commit_paper_ingestion', 'commit_upload_ingestion',
-            'expire_upload_jobs', 'handle_new_user', 'match_chunks',
+            'expire_upload_jobs', 'handle_new_user',
+            # 20260725 defined it; 20260819 appends the thesis_category
+            # hydration line. Applying in filename order keeps 20260819
+            # authoritative.
+            'hydrate_paper_academic_classification', 'match_chunks',
             'prune_inactive_indexes', 'save_chat_exchange', 'schedule_upload_retry',
             'upsert_operational_alert',
         }, (

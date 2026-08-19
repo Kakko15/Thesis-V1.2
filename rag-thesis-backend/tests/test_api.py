@@ -90,6 +90,7 @@ class TestValidation:
             'question': 'Which archived studies used clustering?',
             'session_id': None,
             'department_filter': None,
+            'thesis_category_filter': None,
             'guest_history': [],
             'guest_source_ids': [],
         }

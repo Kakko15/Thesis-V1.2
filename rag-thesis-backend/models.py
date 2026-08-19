@@ -20,6 +20,9 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=4000)
     session_id: Optional[str] = Field(None, max_length=64)
     department_filter: Optional[str] = Field(None, min_length=1, max_length=100)
+    # Optional content scope, not a security boundary: any client (guests
+    # included) may narrow retrieval to student or faculty theses.
+    thesis_category_filter: Optional[str] = Field(None, pattern='^(student|faculty)$')
     # Ephemeral guest context contains user questions only. It is never stored
     # or treated as thesis evidence, and authenticated clients cannot use it.
     guest_history: list[
@@ -82,6 +85,9 @@ class PaperOut(BaseModel):
     specialization_id: Optional[str] = None
     legacy_track: Optional[str] = None
     classification_status: str = 'classified'
+    # Defaulted so rows served through the pre-migration legacy-fields
+    # fallback still validate.
+    thesis_category: str = 'student'
 
 
 class UploadAccepted(BaseModel):

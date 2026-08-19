@@ -80,6 +80,8 @@ Every selected paper needs one completed row in the controlled candidate registe
 
 Automated regular-expression redaction is only a first pass. It cannot certify narrative disclosures, faces in images, signatures, health/financial data, free-text participant details, confidential partner data, or contextual re-identification. Human review is mandatory.
 
+**Thesis category restriction.** The evaluation corpus is `thesis_category = 'student'` only. The archive also accepts faculty-authored manuscripts (`thesis_category = 'faculty'`, migration `20260819_thesis_category.sql`), but they are ineligible for this corpus: every paper indexed before that migration backfills to `student`, and no faculty-category paper may be added to the evaluation department's archive during an evaluation window without a new corpus ID under the §5 change-control procedure.
+
 ## 5. Sampling and change control
 
 1. The thesis adviser approves inclusion/exclusion criteria before titles are selected.

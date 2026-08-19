@@ -256,16 +256,27 @@ alter table public.papers add column if not exists department text not null defa
 alter table public.papers add column if not exists active_index_version uuid default gen_random_uuid();
 alter table public.papers add column if not exists ingestion_status text not null default 'ready';
 alter table public.papers add column if not exists redaction_stats jsonb not null default '{}'::jsonb;
+-- Authorship provenance of the manuscript: 'student' (undergraduate thesis)
+-- or 'faculty'. Classifies the paper, not the uploader -- profiles.role also
+-- has a 'faculty' value and the two are deliberately unrelated. Existing rows
+-- backfill to 'student' (the pre-2026-08 corpus is exclusively undergraduate
+-- work per proposal Section 1.3).
+alter table public.papers add column if not exists thesis_category text not null default 'student';
 update public.papers set active_index_version = gen_random_uuid() where active_index_version is null;
 alter table public.papers alter column active_index_version set not null;
 alter table public.papers alter column active_index_version set default gen_random_uuid();
 alter table public.papers drop constraint if exists papers_ingestion_status_check;
 alter table public.papers add constraint papers_ingestion_status_check
   check (ingestion_status in ('processing', 'ready', 'failed', 'deletion_pending'));
+alter table public.papers drop constraint if exists papers_thesis_category_check;
+alter table public.papers add constraint papers_thesis_category_check
+  check (thesis_category in ('student', 'faculty'));
 
 create index if not exists papers_track_idx on public.papers (track);
 create index if not exists papers_year_idx on public.papers (year);
 create index if not exists papers_department_idx on public.papers (department);
+create index if not exists papers_thesis_category_idx
+  on public.papers (department, thesis_category) where ingestion_status = 'ready';
 
 
 -- ============================================================================
@@ -835,7 +846,8 @@ create or replace function public.match_chunks(
   match_threshold double precision,
   p_department text,
   p_embedding_model text,
-  p_embedding_dimensions integer
+  p_embedding_dimensions integer,
+  p_thesis_category text default null
 )
 returns table (
   id bigint,
@@ -873,17 +885,18 @@ begin
     and piv.provenance_status in ('verified', 'legacy_assumed')
     and 1 - (c.embedding <=> query_embedding) >= match_threshold
     and (p_department is null or p.department = p_department)
+    and (p_thesis_category is null or p.thesis_category = p_thesis_category)
   order by c.embedding <=> query_embedding
   limit match_count;
 end;
 $$;
 
 revoke all on function public.match_chunks(
-  vector(768), integer, double precision, text, text, integer
+  vector(768), integer, double precision, text, text, integer, text
 )
   from public, anon, authenticated;
 grant execute on function public.match_chunks(
-  vector(768), integer, double precision, text, text, integer
+  vector(768), integer, double precision, text, text, integer, text
 )
   to service_role;
 
@@ -903,7 +916,8 @@ create or replace function public.check_topic_duplication(
   dup_threshold double precision,
   p_department text,
   p_embedding_model text,
-  p_embedding_dimensions integer
+  p_embedding_dimensions integer,
+  p_thesis_category text default null
 )
 returns table (
   chunk_id bigint,
@@ -951,17 +965,18 @@ begin
     and piv.provenance_status in ('verified', 'legacy_assumed')
     and 1 - (c.embedding <=> query_embedding) >= dup_threshold
     and (p_department is null or p.department = p_department)
+    and (p_thesis_category is null or p.thesis_category = p_thesis_category)
   order by c.embedding <=> query_embedding
   limit 1;
 end;
 $$;
 
 revoke all on function public.check_topic_duplication(
-  vector(768), double precision, text, text, integer
+  vector(768), double precision, text, text, integer, text
 )
   from public, anon, authenticated;
 grant execute on function public.check_topic_duplication(
-  vector(768), double precision, text, text, integer
+  vector(768), double precision, text, text, integer, text
 )
   to service_role;
 
@@ -1307,7 +1322,10 @@ alter table public.upload_jobs
   add column if not exists completed_at timestamptz,
   add column if not exists expires_at timestamptz,
   add column if not exists failure_category text,
-  add column if not exists cleanup_status text not null default 'not_required';
+  add column if not exists cleanup_status text not null default 'not_required',
+  -- Forward-compat mirror of papers.thesis_category; request_payload remains
+  -- the authoritative carrier that the hydrate trigger reads.
+  add column if not exists thesis_category text not null default 'student';
 
 update public.upload_jobs
 set idempotency_key = id
@@ -1331,6 +1349,11 @@ alter table public.upload_jobs
 alter table public.upload_jobs drop constraint if exists upload_jobs_attempt_count_check;
 alter table public.upload_jobs
   add constraint upload_jobs_attempt_count_check check (attempt_count >= 0);
+
+alter table public.upload_jobs drop constraint if exists upload_jobs_thesis_category_check;
+alter table public.upload_jobs
+  add constraint upload_jobs_thesis_category_check
+  check (thesis_category in ('student', 'faculty'));
 
 alter table public.upload_jobs drop constraint if exists upload_jobs_max_attempts_check;
 alter table public.upload_jobs

@@ -106,8 +106,9 @@ permission matrix, not a frontend setting.
 
 ### 3.4 Thesis archive
 
-**Show:** filters by program and specialization, the duplication badge on a
-flagged paper, then open one card.
+**Show:** filters by program, specialization, and thesis category (student
+versus faculty research — faculty papers carry a gold badge), the duplication
+badge on a flagged paper, then open one card.
 
 **Say the indirect-access model out loud** — it is a privacy design decision a
 panel will respect:
@@ -129,7 +130,11 @@ auto-rejects a topic. A human adviser decides.
 
 ### 3.6 Upload / ingestion (admin)
 
-**Show:** the three-step stepper, drop a PDF, watch the stages advance.
+**Show:** the three-step stepper, drop a PDF, watch the stages advance. The
+metadata step now labels each manuscript as a **student thesis** or **faculty
+research** — the category classifies the manuscript, not the uploader's role,
+and a faculty manuscript may omit the academic program since faculty research
+can sit outside the undergraduate catalog.
 
 **Say:** this is a **durable queue**, not a synchronous upload. The API stages the
 file and returns; a separate worker process claims a lease, and the commit is

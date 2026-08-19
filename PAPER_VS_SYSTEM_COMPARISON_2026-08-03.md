@@ -322,6 +322,10 @@ This is the actionable edit list. Each item names the section to change and what
 
 16. **Consider one paragraph acknowledging the production extensions.** A short subsection in §3.3 noting that the delivered system includes production-grade security, reliability, and operations capabilities beyond the experimental scope prevents the panel from reading the extra surface area as scope creep, and demonstrates engineering maturity.
 
+### Addendum (2026-08-19) — thesis category scope change
+
+17. **§1.3 Corpus Restrictions, §3.1.3, and §3.2.1 — widen the corpus statement to cover faculty theses.** At the department's request the system now categorizes every archived manuscript as a **student** (undergraduate) or **faculty** thesis (`papers.thesis_category`, migration `20260819_thesis_category.sql`). The delimitation *"strictly limited to undergraduate theses"* must be revised to state that the archive holds CCSICT student **and faculty** manuscripts, each labeled by category and filterable in browse, chat retrieval, and analytics. The **evaluation corpus for Objective 2 remains exactly the 50 undergraduate theses** selected under the PI-08 protocol — faculty-category papers are excluded from the locked corpus by definition, since every paper indexed before the migration backfills to `student` and the retrieval filter is opt-in with an unchanged default path. §3.2.1 needs one added sentence noting the category label and the student-only evaluation restriction, not a numerical change. Clarify also that the thesis category classifies the **manuscript**, not the user: the `faculty` **role** in the actor model (revision 9) is deliberately unrelated to the `faculty` **category**.
+
 ---
 
 ## Appendix A — commands executed for this report (2026-08-03)

@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Reque
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from config import settings
-from dependencies.auth import get_user_scope, require_upload_access, resolve_effective_department, sb
+from dependencies.auth import require_upload_access, resolve_effective_department, sb
 from models import (
     CCSICT_TRACKS,
     UploadAccepted,
@@ -35,7 +35,7 @@ from models import (
 )
 from routers.openapi_responses import errors
 from services.cleanup import record_storage_cleanup
-from services.catalog import resolve_academic_selection
+from services.catalog import normalize_thesis_category, resolve_academic_selection
 from services.filenames import sanitize_filename
 from services.llm_output import coerce_text, strip_code_fence
 from services.rate_limiting import limiter
@@ -253,6 +253,7 @@ async def upload_paper(
     department: Annotated[str | None, Form()] = None,
     program_id: Annotated[str | None, Form()] = None,
     specialization_id: Annotated[str | None, Form()] = None,
+    thesis_category: Annotated[str, Form()] = 'student',
     idempotency_key: Annotated[str | None, Header(alias='Idempotency-Key')] = None,
 ):
     # Every blocking call below is offloaded with asyncio.to_thread, matching
@@ -262,7 +263,10 @@ async def upload_paper(
     # including /health and the readiness probe — for the whole submission.
     department = await asyncio.to_thread(resolve_effective_department, user, department)
     _validate_metadata(title, authors, year, abstract)
-    scope = await asyncio.to_thread(get_user_scope, user.id)
+    category = normalize_thesis_category(thesis_category)
+    # The program requirement follows the manuscript, not the uploader:
+    # a student thesis always belongs to an academic program, while faculty
+    # research may sit outside the undergraduate catalog entirely.
     classification = await asyncio.to_thread(
         resolve_academic_selection,
         sb,
@@ -270,7 +274,7 @@ async def upload_paper(
         program_id=program_id,
         specialization_id=specialization_id,
         legacy_track=track,
-        require_program=scope['role'] == 'student',
+        require_program=category == 'student',
     )
 
     file_bytes = await _read_limited_upload(file)
@@ -291,6 +295,7 @@ async def upload_paper(
         'year': year,
         'abstract': abstract,
         **classification.as_payload(),
+        'thesis_category': category,
         'department': department,
         'uploader_id': user.id,
     }
