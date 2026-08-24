@@ -126,8 +126,14 @@ def _nested_catalog(active_only: bool = True) -> list[dict]:
     return result
 
 
-def active_track_names() -> list[str]:
-    """Every distinct track label the live catalog can currently produce.
+def active_track_names(department: str | None = None) -> list[str]:
+    """Distinct track labels the live catalog can currently produce.
+
+    Scoped to one department by name when given. That scoping is not cosmetic:
+    a live check found `CAS` active alongside `CCSICT`, so the unscoped union
+    published College of Arts and Sciences program codes (ABCOM, BSBIO, BSMATH…)
+    to the public landing marquee of a CCSICT thesis library. `departments.active`
+    is a deployment switch, not a statement about whose archive this is.
 
     `models.CCSICT_TRACKS` is the pre-catalog vocabulary and no longer matches
     what `services.catalog.resolve_academic_selection` actually stamps into
@@ -143,8 +149,9 @@ def active_track_names() -> list[str]:
     """
     return list(dict.fromkeys(
         track
-        for department in _nested_catalog()
-        for track in (department.get('tracks') or [])
+        for entry in _nested_catalog()
+        if department is None or entry.get('name') == department
+        for track in (entry.get('tracks') or [])
     ))
 
 
