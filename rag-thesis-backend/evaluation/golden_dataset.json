@@ -1,5 +1,5 @@
 {
-  "description": "Golden Dataset for Objective 2 (thesis paper, Section 3.2.1). Forty standardized academic queries spanning the five CCSICT tracks plus cross-track and negative-control items. Every ground_truth answer must be derived directly from the archived CCSICT thesis corpus and validated by a panel of three CCSICT faculty members before serving as the absolute mathematical benchmark for the Ragas evaluation.",
+  "description": "Golden Dataset for Objective 2 (thesis paper, Section 3.2.1). Forty standardized academic queries spanning the CCSICT academic catalog -- the Data Mining, Web and Mobile Application Development, and Network and Security specializations, and the BSDSA, BSIS and BLIS programs, which carry no specialization and are therefore identified by program code (services/catalog.py::resolve_academic_selection) -- plus cross-track and negative-control items. Every ground_truth answer must be derived directly from the archived CCSICT thesis corpus and validated by a panel of three CCSICT faculty members before serving as the absolute mathematical benchmark for the Ragas evaluation.",
   "validated_by_faculty_panel": false,
   "validation": {
     "workflow": [
@@ -34,7 +34,7 @@
     },
     {
       "id": 3,
-      "category": "Web Development",
+      "category": "Web and Mobile Application Development",
       "query_type": "synthesis",
       "question": "What web development frameworks were most commonly adopted in CCSICT capstone systems?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -42,7 +42,7 @@
     },
     {
       "id": 4,
-      "category": "Network Security",
+      "category": "Network and Security",
       "query_type": "synthesis",
       "question": "Summarize prior CCSICT research on network intrusion detection systems.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -50,7 +50,7 @@
     },
     {
       "id": 5,
-      "category": "Intelligent Systems",
+      "category": "BSDSA",
       "query_type": "factual_lookup",
       "question": "Have any CCSICT theses evaluated OCR accuracy for digitizing printed documents?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -58,7 +58,7 @@
     },
     {
       "id": 6,
-      "category": "Intelligent Systems",
+      "category": "BSDSA",
       "query_type": "factual_lookup",
       "question": "What recommendation systems have been developed in previous CCSICT undergraduate studies?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -74,7 +74,7 @@
     },
     {
       "id": 8,
-      "category": "Intelligent Systems",
+      "category": "Web and Mobile Application Development",
       "query_type": "factual_lookup",
       "question": "What mobile applications targeting agriculture were built by CCSICT students?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -138,7 +138,7 @@
     },
     {
       "id": 16,
-      "category": "Web Development",
+      "category": "Web and Mobile Application Development",
       "query_type": "factual_lookup",
       "question": "What enrollment, registration, or student information systems have been developed as CCSICT theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -146,7 +146,7 @@
     },
     {
       "id": 17,
-      "category": "Web Development",
+      "category": "Web and Mobile Application Development",
       "query_type": "factual_lookup",
       "question": "Which CCSICT theses built document tracking or records management systems for university offices?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -154,7 +154,7 @@
     },
     {
       "id": 18,
-      "category": "Web Development",
+      "category": "Web and Mobile Application Development",
       "query_type": "methodology",
       "question": "What software development life cycle models (e.g. Agile, waterfall, iterative) were adopted in CCSICT web development theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -162,7 +162,7 @@
     },
     {
       "id": 19,
-      "category": "Web Development",
+      "category": "Web and Mobile Application Development",
       "query_type": "synthesis",
       "question": "Summarize CCSICT theses that developed e-commerce or online marketplace platforms for local products.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -170,7 +170,7 @@
     },
     {
       "id": 20,
-      "category": "Web Development",
+      "category": "Web and Mobile Application Development",
       "query_type": "methodology",
       "question": "How did CCSICT web development theses evaluate the usability or acceptability of their systems?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -178,7 +178,7 @@
     },
     {
       "id": 21,
-      "category": "Web Development",
+      "category": "Web and Mobile Application Development",
       "query_type": "factual_lookup",
       "question": "Which CCSICT theses developed scheduling, queuing, or appointment systems, and for what offices or services?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -186,7 +186,7 @@
     },
     {
       "id": 22,
-      "category": "Network Security",
+      "category": "Network and Security",
       "query_type": "factual_lookup",
       "question": "What CCSICT theses assessed Wi-Fi or local area network security within a university campus?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -194,7 +194,7 @@
     },
     {
       "id": 23,
-      "category": "Network Security",
+      "category": "Network and Security",
       "query_type": "methodology",
       "question": "Which penetration testing or vulnerability assessment tools were used in CCSICT Network Security theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -202,7 +202,7 @@
     },
     {
       "id": 24,
-      "category": "Network Security",
+      "category": "Network and Security",
       "query_type": "synthesis",
       "question": "Summarize CCSICT research on phishing detection or social engineering awareness among students.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -210,7 +210,7 @@
     },
     {
       "id": 25,
-      "category": "Network Security",
+      "category": "Network and Security",
       "query_type": "factual_lookup",
       "question": "Have any CCSICT theses implemented network monitoring or bandwidth management systems, and what technologies did they use?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -218,7 +218,7 @@
     },
     {
       "id": 26,
-      "category": "Network Security",
+      "category": "Network and Security",
       "query_type": "methodology",
       "question": "What encryption or authentication schemes were proposed or evaluated in CCSICT Network Security theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -226,7 +226,7 @@
     },
     {
       "id": 27,
-      "category": "Intelligent Systems",
+      "category": "BSDSA",
       "query_type": "factual_lookup",
       "question": "Which CCSICT theses used image processing or computer vision for plant disease or pest detection?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -234,7 +234,7 @@
     },
     {
       "id": 28,
-      "category": "Intelligent Systems",
+      "category": "BSDSA",
       "query_type": "factual_lookup",
       "question": "What chatbot or virtual assistant systems have been developed in CCSICT theses, and what domains did they serve?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -242,15 +242,15 @@
     },
     {
       "id": 29,
-      "category": "Intelligent Systems",
+      "category": "BSDSA",
       "query_type": "methodology",
-      "question": "Which neural network architectures or deep learning frameworks were used in CCSICT Intelligent Systems theses?",
+      "question": "Which neural network architectures or deep learning frameworks were used in CCSICT Data Science and Analytics (BSDSA) theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 30,
-      "category": "Intelligent Systems",
+      "category": "BSDSA",
       "query_type": "synthesis",
       "question": "Summarize CCSICT research on IoT-based monitoring systems, including the sensors and microcontrollers used.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -258,7 +258,7 @@
     },
     {
       "id": 31,
-      "category": "Information Management",
+      "category": "BSIS",
       "query_type": "factual_lookup",
       "question": "What inventory or supply management systems were developed as CCSICT theses, and for which organizations?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -266,7 +266,7 @@
     },
     {
       "id": 32,
-      "category": "Information Management",
+      "category": "BLIS",
       "query_type": "factual_lookup",
       "question": "Which CCSICT theses digitized or automated library services, and what features did they implement?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -274,15 +274,15 @@
     },
     {
       "id": 33,
-      "category": "Information Management",
+      "category": "BSIS",
       "query_type": "methodology",
-      "question": "What database management systems and schema design approaches were used in CCSICT Information Management theses?",
+      "question": "What database management systems and schema design approaches were used in CCSICT Information Systems (BSIS) theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
       "source_thesis": "REPLACE: exact thesis title, authors, and year."
     },
     {
       "id": 34,
-      "category": "Information Management",
+      "category": "BSIS",
       "query_type": "synthesis",
       "question": "Summarize CCSICT theses that implemented attendance monitoring using QR codes, RFID, or biometrics.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
@@ -290,7 +290,7 @@
     },
     {
       "id": 35,
-      "category": "Information Management",
+      "category": "BSIS",
       "query_type": "factual_lookup",
       "question": "Have any CCSICT theses addressed data privacy or Republic Act 10173 compliance in their system designs?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
