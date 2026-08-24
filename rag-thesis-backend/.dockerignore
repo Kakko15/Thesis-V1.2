@@ -7,6 +7,13 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .pytest-*/
+# The suite also leaves `tmp-pytest-*` working directories behind, and some are
+# created read-only. They are invisible in CI because the runner checks out a
+# clean tree, but locally `docker build` fails outright on them with
+# "Access is denied" while loading the build context — so the one place you
+# would reproduce a CI container-scan failure is the one place the build breaks.
+tmp-*/
+tmp/
 .pylint-cache-*/
 .ruff_cache/
 .coverage

@@ -3,18 +3,28 @@
 # on an unrelated commit with nothing in this repository having changed. The tag
 # is kept alongside for readability; the digest is what resolves.
 #
-# Digest resolved 2026-08-04 and corresponds to the image CI already built
-# successfully against the 3.14.6 assertion. Dependabot's docker ecosystem keeps
-# it current — see .github/dependabot.yml. Chainguard's free tier retains only
-# the newest build, so a stale digest eventually fails to pull with
+# Digest resolved 2026-08-25 and verified locally: the image builds and Trivy
+# reports 0 CRITICAL/HIGH with --ignore-unfixed. Dependabot's docker ecosystem
+# keeps it current — see .github/dependabot.yml. Chainguard's free tier retains
+# only the newest build, so a stale digest eventually fails to pull with
 # "manifest unknown"; that is a loud, obvious failure, which is the point.
-FROM cgr.dev/chainguard/python:latest-dev@sha256:a024538d3fc47b6c7bdd9d8afe539e2e3a6811dad14bee4d32293be5f29e6734 AS build
+#
+# The previous pin (2026-08-02/03 builds) went 21 days stale and shipped
+# openssl 3.6.3-r3, which carries CVE-2026-14456 — a HIGH, fix-available DoS in
+# OpenSSL's QUIC server. Nothing here serves QUIC, so exposure was nil, but the
+# CI container scan is fix-available-only and failed on it for eight
+# consecutive runs. Re-pinning to a build carrying 3.6.3-r5 clears it.
+FROM cgr.dev/chainguard/python:latest-dev@sha256:14acabef9a759e7d07bf647afec92bc28cbe0f89c978fe426411c85035121c14 AS build
 
 USER root
-# Deliberately exact, not a range: the paper's version tables record Python
-# 3.14.6, so a silent patch bump would make them wrong. Re-pinning the digest
-# above is the moment to confirm this number and the tables together.
-RUN python -c "import sys; assert sys.version_info[:3] == (3, 14, 6), sys.version"
+# Deliberately exact, not a range: the paper's version tables record this
+# number, so a silent patch bump would make them wrong. Re-pinning the digest
+# above is the moment to confirm this number and the tables together — and it
+# worked: the 2026-08-25 re-pin moved the interpreter 3.14.6 -> 3.14.7 and this
+# assertion caught it, rather than letting the tables drift silently.
+# Keep .github/workflows/quality.yml, README.md, and the paper's Tables 1-4 in
+# step with whatever this line says.
+RUN python -c "import sys; assert sys.version_info[:3] == (3, 14, 7), sys.version"
 
 WORKDIR /app
 RUN python -m venv /opt/venv
@@ -49,7 +59,7 @@ COPY scripts/gemini_release_smoke.py ./scripts/
 RUN chown -R 65532:65532 /app /opt/venv /opt/tiktoken-cache
 
 # Runtime stage, pinned by digest for the same reason as the build stage above.
-FROM cgr.dev/chainguard/python:latest@sha256:5128c3823542cfb27fd83c42ef9ee3bbbf3fdd0eb9190802e5fc119974c5f776
+FROM cgr.dev/chainguard/python:latest@sha256:d812438658b47b73cb4c089f4cca09bca1ba50f6cd1843133864ee074d9ec49b
 
 WORKDIR /app
 ENV PATH="/opt/venv/bin:$PATH" \
