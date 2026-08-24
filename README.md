@@ -60,7 +60,7 @@ Key paper parameters enforced in code:
 
 ### 2. Backend
 
-Use Python 3.14.6, matching CI and the production container. Dependencies are exact-pinned and validated with `pip check`, `pip-audit`, PyTest, and Pylint.
+Use Python 3.14.7, matching CI and the production container. Dependencies are exact-pinned and validated with `pip check`, `pip-audit`, PyTest, and Pylint.
 
 ```bash
 cd rag-thesis-backend

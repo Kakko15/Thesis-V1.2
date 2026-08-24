@@ -93,7 +93,7 @@ Load-bearing but absent from the paper (🔷): Tailwind CSS 4.3.3, `react-router
 | python-multipart | v0.0.24 | **0.0.32** | ⚠️ newer |
 | python-dotenv | v1.2.2 | **1.2.2** | ✅ exact match |
 
-Absent from the paper (🔷): `uvicorn[standard]` 0.51.0, pydantic-settings 2.14.2, tiktoken 0.13.0, langchain-core 1.5.1, langchain-text-splitters 1.1.2, langsmith 0.10.10, pymupdf 1.28.0, tesserocr 2.10.0 + tessdata.eng 1.0.0, Pillow 12.3.0, slowapi 0.1.10, redis 8.0.1, cryptography 49.0.0, PyJWT 2.13.0, httpx 0.28.1, msgpack 1.2.1, setuptools 83.0.0, pytest-cov 7.1.0. **Python 3.14.6** is pinned by CI and the container; the paper never states a Python version.
+Absent from the paper (🔷): `uvicorn[standard]` 0.51.0, pydantic-settings 2.14.2, tiktoken 0.13.0, langchain-core 1.5.1, langchain-text-splitters 1.1.2, langsmith 0.10.10, pymupdf 1.28.0, tesserocr 2.10.0 + tessdata.eng 1.0.0, Pillow 12.3.0, slowapi 0.1.10, redis 8.0.1, cryptography 49.0.0, PyJWT 2.13.0, httpx 0.28.1, msgpack 1.2.1, setuptools 83.0.0, pytest-cov 7.1.0. **Python 3.14.7** is pinned by CI and the container (3.14.6 until 2026-08-25, when re-pinning the Chainguard base to clear CVE-2026-14456 moved the interpreter one patch level — see revision 3 below); the paper never states a Python version.
 
 ### 4.3 AI and RAG orchestration (paper Table 3)
 
@@ -287,7 +287,7 @@ This is the actionable edit list. Each item names the section to change and what
 
    Also correct "LangChain's document loaders" — the system extracts with PyMuPDF directly rather than through a LangChain document loader.
 
-3. **Tables 1–4 — regenerate from the lockfiles.** React 19.2.8, Vite 8.1.5, FastAPI 0.139.2, Pydantic 2.13.4, python-multipart 0.0.32, python-dotenv 1.2.2, supabase 2.31.0, langchain-google-genai 4.3.1, PyTest 9.1.1, Pylint 4.0.6, ESLint 9.39.5, JMeter 5.6.3. Add **Python 3.14.6** and **Node.js 24.18.0**, and add the load-bearing dependencies the tables omit: tiktoken, langchain-core, langchain-text-splitters, tesserocr + tessdata.eng, Pillow, slowapi, redis, cryptography, PyJWT, httpx, langsmith, uvicorn, pydantic-settings, Tailwind CSS, react-router, TanStack Query, axios, Framer Motion.
+3. **Tables 1–4 — regenerate from the lockfiles.** React 19.2.8, Vite 8.1.5, FastAPI 0.139.2, Pydantic 2.13.4, python-multipart 0.0.32, python-dotenv 1.2.2, supabase 2.31.0, langchain-google-genai 4.3.1, PyTest 9.1.1, Pylint 4.0.6, ESLint 9.39.5, JMeter 5.6.3. Add **Python 3.14.7** and **Node.js 24.18.0**, and add the load-bearing dependencies the tables omit: tiktoken, langchain-core, langchain-text-splitters, tesserocr + tessdata.eng, Pillow, slowapi, redis, cryptography, PyJWT, httpx, langsmith, uvicorn, pydantic-settings, Tailwind CSS, react-router, TanStack Query, axios, Framer Motion.
 
 4. **§3.2.4 / Table 4 — correct the SonarQube version.** The retained Reliability evidence was produced on SonarQube Community Build 26.7.0.124771 with SonarScanner CLI 8.0.1.6346, not 10.4. Either state the version actually used, or re-run on 10.4 before the defense so the table stays true.
 
@@ -321,6 +321,29 @@ This is the actionable edit list. Each item names the section to change and what
 15. **Add a limitation on citation validation.** State that citation validation proves marker validity and coverage — that every substantive claim carries a valid in-range citation — but does not prove semantic entailment between a claim and its cited evidence. Faculty verification remains part of the process. Stating this yourself is far stronger than having a panelist find it.
 
 16. **Consider one paragraph acknowledging the production extensions.** A short subsection in §3.3 noting that the delivered system includes production-grade security, reliability, and operations capabilities beyond the experimental scope prevents the panel from reading the extra surface area as scope creep, and demonstrates engineering maturity.
+
+### Addendum (2026-08-25) — Python patch level moved to 3.14.7
+
+18. **Tables 1–4 — record Python 3.14.7, not 3.14.6.** Revision 3 above was
+    written when the container and CI both ran 3.14.6. On 2026-08-25 the
+    backend's Chainguard base images were re-pinned to clear
+    **CVE-2026-14456** (a HIGH, fix-available OpenSSL DoS in the QUIC server;
+    `libcrypto3`/`libssl3` 3.6.3-r3 → 3.6.3-r5). Chainguard's free tier retains
+    only its newest build, so there is no patched 3.14.6 image to pin — the
+    re-pin necessarily carried the interpreter to **3.14.7**.
+
+    The Dockerfile's exact-version assertion caught the move rather than letting
+    it pass silently, which is precisely what that assertion exists for.
+    `.github/workflows/quality.yml` and `README.md` were updated in the same
+    commit, so CI, the container, and the documentation agree.
+
+    Nothing else changed: `requirements.lock` is resolved against Python 3.14
+    (minor), so the pinned dependency set and its hashes are unaffected, and no
+    chunking, retrieval, prompt, or model value was touched. **This is a
+    documentation correction to the version tables only, not an Objective 2
+    re-baselining event.** Dated measurements elsewhere in this report that read
+    "Python 3.14.6" are point-in-time records of runs that genuinely used it and
+    are deliberately left unaltered.
 
 ### Addendum (2026-08-19) — thesis category scope change
 
