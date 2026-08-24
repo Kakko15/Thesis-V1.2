@@ -36,28 +36,58 @@ def filter_cited_sources(answer: str, sources: list[dict]) -> list[dict]:
     return [indexed[citation_id] for citation_id in sorted(wanted) if citation_id in indexed]
 
 
+_UNIT_SEPARATOR = re.compile(r'\n\s*\n|\n(?=\s*[-*]\s+|\s*\d+[.)]\s+)')
+_LIST_MARKER = re.compile(r'^\s*(?:[-*]|\d+[.)])\s+')
+_BOLD_OBJECTIVE_LABEL = re.compile(
+    r'\*\*(?:general objective|specific objectives?|objectives? of the study)\*\*:?',
+    re.IGNORECASE,
+)
+
+
+def _is_substantive(text: str) -> bool:
+    """Whether a segment asserts a research claim that must carry a citation."""
+    if not text or text.startswith('#'):
+        return False
+    plain = _LIST_MARKER.sub('', text)
+    # Standalone bold labels such as ``**General Objective**`` organize a
+    # cited answer but do not assert research facts themselves.
+    if _BOLD_OBJECTIVE_LABEL.fullmatch(plain):
+        return False
+    # Short colon-ended lines immediately introducing a cited list are
+    # headings/lead-ins, not standalone research claims.
+    if plain.endswith(':') and len(plain) <= 120 and '\n' not in plain:
+        return False
+    return len(re.sub(r'\s+', ' ', plain)) >= 10
+
+
+def _substantive_spans(answer: str) -> list[tuple[int, int, str]]:
+    """Locate each substantive unit as ``(start, end, text)`` within ``answer``.
+
+    Positions, not just text, because two identical paragraphs or list items
+    are two distinct units that both need a citation. The repair below used to
+    patch by string match, so on a repeated unit ``str.replace`` found the
+    already-patched first occurrence again: unit one ended up with a doubled
+    marker and unit two stayed uncited. Validation then failed and an otherwise
+    grounded answer was discarded for the generic fallback.
+    """
+    text = answer or ''
+    spans: list[tuple[int, int, str]] = []
+    cursor = 0
+    separators = [
+        (match.start(), match.end()) for match in _UNIT_SEPARATOR.finditer(text)
+    ]
+    for segment_end, next_start in [*separators, (len(text), len(text))]:
+        raw = text[cursor:segment_end]
+        stripped = raw.strip()
+        if _is_substantive(stripped):
+            lead = len(raw) - len(raw.lstrip())
+            spans.append((cursor + lead, cursor + lead + len(stripped), stripped))
+        cursor = next_start
+    return spans
+
+
 def _substantive_units(answer: str) -> list[str]:
-    units = []
-    for raw in re.split(r'\n\s*\n|\n(?=\s*[-*]\s+|\s*\d+[.)]\s+)', answer or ''):
-        text = raw.strip()
-        if not text or text.startswith('#'):
-            continue
-        plain = re.sub(r'^\s*(?:[-*]|\d+[.)])\s+', '', text)
-        # Standalone bold labels such as ``**General Objective**`` organize a
-        # cited answer but do not assert research facts themselves.
-        if re.fullmatch(
-            r'\*\*(?:general objective|specific objectives?|objectives? of the study)\*\*:?',
-            plain,
-            flags=re.IGNORECASE,
-        ):
-            continue
-        # Short colon-ended lines immediately introducing a cited list are
-        # headings/lead-ins, not standalone research claims.
-        if plain.endswith(':') and len(plain) <= 120 and '\n' not in plain:
-            continue
-        if len(re.sub(r'\s+', ' ', plain)) >= 10:
-            units.append(text)
-    return units
+    return [text for _start, _end, text in _substantive_spans(answer)]
 
 
 def enforce_citation_coverage(answer: str, sources: list[dict]) -> str:
@@ -79,11 +109,10 @@ def enforce_citation_coverage(answer: str, sources: list[dict]) -> str:
         lambda match: match.group(0) if int(match.group(1)) in allowed else f'[{fallback}]',
         repaired,
     )
-    for unit in _substantive_units(repaired):
-        unit_ids = cited_ids(unit)
-        if not unit_ids:
-            replacement = f'{unit.rstrip()} [{fallback}]'
-            repaired = repaired.replace(unit, replacement, 1)
+    # Patch back-to-front so each insertion leaves the earlier offsets valid.
+    for _start, end, unit in reversed(_substantive_spans(repaired)):
+        if not cited_ids(unit):
+            repaired = f'{repaired[:end]} [{fallback}]{repaired[end:]}'
     return repaired
 
 

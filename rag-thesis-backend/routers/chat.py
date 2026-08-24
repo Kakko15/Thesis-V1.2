@@ -107,10 +107,10 @@ def _is_simple_conversation(question: str) -> bool:
 
 
 def _conversation_response() -> str:
-    return (
-        "Hello! I'm IskAI, the research assistant for the ISU Thesis AI Library. "
-        'Ask me about archived thesis topics, methodologies, findings, or related literature.'
-    )
+    # Defined in chat_notices so the notice classifier and this message cannot
+    # drift apart; a reworded greeting would otherwise stop being recognized as
+    # a notice and start being replayed to the model as conversational context.
+    return chat_notices.CONVERSATION_MESSAGE
 
 
 def _extract_author_name(question: str) -> str | None:
@@ -231,8 +231,12 @@ def _grounded_retrieval_fallback(sources: list[dict], department: str | None = N
         closest.append(
             f'“{source.get("title", "Untitled thesis")}”{location_text} [{citation_id}]'
         )
+    # Prefixed with the shared constant so response_kind() stores this as a
+    # notice. It keeps its citations and its source cards -- retrieval did
+    # succeed -- but it is the system talking about itself, so it must never be
+    # replayed to the model as prior conversational context.
     return (
-        'I could not verify a direct answer from the retrieved thesis text. '
+        f'{chat_notices.GROUNDED_FALLBACK_PREFIX} from the retrieved thesis text. '
         f'The closest archived studies are {"; ".join(closest)}. '
         'Try asking about one of these titles.'
     )

@@ -43,14 +43,35 @@ CAPACITY_MESSAGE = (
 
 NO_RELEVANT_PREFIX = 'No relevant thesis was found in the'
 
+# The greeting/identity reply. Lives here rather than in routers/chat.py for the
+# same reason NO_RELEVANT_PREFIX does: it is a system message about the system,
+# so the classifier and the text it classifies must not be able to drift apart.
+# It was previously stored as an answer, which meant the history loader replayed
+# "AI: Hello! I'm IskAI..." to the model as conversational context on the next
+# turn -- exactly what B14 exists to prevent.
+CONVERSATION_MESSAGE = (
+    "Hello! I'm IskAI, the research assistant for the ISU Thesis AI Library. "
+    'Ask me about archived thesis topics, methodologies, findings, or related literature.'
+)
+
+# Opening of the grounded retrieval fallback, which reports that no direct
+# answer could be verified and then points at the closest archived studies. It
+# carries citations, so it is deliberately NOT flagged `no_relevant_thesis`:
+# retrieval did succeed and the sources are real. It is still a system message
+# about the system, so it must not become model context either. Matched by
+# prefix because the study list is interpolated after it.
+GROUNDED_FALLBACK_PREFIX = 'I could not verify a direct answer'
+
 # Every response text the system persists that is a notice rather than research
-# output. The no-relevant message interpolates a department name, so it is
-# matched by prefix; the others are exact constants.
+# output. The no-relevant, greeting, and grounded-fallback texts interpolate or
+# extend, so they are matched by prefix; the others are exact constants.
 NOTICE_MARKERS = (
     CAPACITY_MESSAGE,
     REFUSAL_MESSAGE,
     GUEST_BUDGET_MESSAGE,
     NO_RELEVANT_PREFIX,
+    CONVERSATION_MESSAGE,
+    GROUNDED_FALLBACK_PREFIX,
 )
 
 _CAPACITY_STATE = {'limited_until': 0.0}
@@ -108,8 +129,10 @@ def response_kind(response) -> str:
     if getattr(response, 'no_relevant_thesis', False):
         return KIND_NOTICE
     answer = getattr(response, 'answer', '') or ''
-    if answer in (CAPACITY_MESSAGE, REFUSAL_MESSAGE, GUEST_BUDGET_MESSAGE):
+    if answer in (
+        CAPACITY_MESSAGE, REFUSAL_MESSAGE, GUEST_BUDGET_MESSAGE, CONVERSATION_MESSAGE,
+    ):
         return KIND_NOTICE
-    if answer.startswith(NO_RELEVANT_PREFIX):
+    if answer.startswith((NO_RELEVANT_PREFIX, GROUNDED_FALLBACK_PREFIX)):
         return KIND_NOTICE
     return KIND_ANSWER
