@@ -104,13 +104,28 @@ page and the methodological framing in 2.1.8, both correct as written.
 
 ## Still open - needs you
 
-1. **Figure 8** is an embedded image still showing a synchronous upload path. Section 3.3
-   now states the real durable-ingestion flow in text; the diagram needs redrawing.
-2. **`pgvector v0.7.0`** in Table 3 is unverified - Supabase-managed and not recorded in
+1. **Figures 1 and 8 must be redrawn.** All eight figures are embedded PNGs, so no
+   text-level pass could reach them; they were extracted and read on 2026-08-25.
+   Six are clean. The two that are not:
+
+   - **Figure 1** (2.1.1) still labels the embedding step `text-embedding-004` and the
+     generation step "Gemini 1.5 Flash".
+   - **Figure 8** (3.3) labels the Response Generator `gemini-1.5-flash`, the Embedding
+     Model `text-embedding-004`, the RAG Pipeline "LangChain & langchain-community"
+     (not a dependency of this project at all), shows a retired "Researcher" actor with
+     no superadmin, and still draws the synchronous upload path.
+
+   Both state model names the corrected text now contradicts. Regenerate them from
+   whatever tool produced them; `python -c "import zipfile; ..."` can extract the
+   current PNGs from the docx if the sources are lost.
+
+2. **Figures 3, 4 and 5 carry internal titles** reading "Figure 1.1", "Figure 1.2" and
+   "Figure 1.3" while the paper captions them Figure 3, 4 and 5. Cosmetic.
+3. **`pgvector v0.7.0`** in Table 3 is unverified - Supabase-managed and not recorded in
    the repository. Confirm in the dashboard.
-3. **Row order in Table 2.** `Python v3.14.7` was appended and sits after `python-dotenv`.
+4. **Row order in Table 2.** `Python v3.14.7` was appended and sits after `python-dotenv`.
    One drag in Word.
-4. **Chapter 4 does not exist yet**, so the reporting-discipline revision applies when you
+5. **Chapter 4 does not exist yet**, so the reporting-discipline revision applies when you
    write it.
 
 Not verifiable from the repository, left as written: the Gemini API no-training

@@ -305,7 +305,38 @@ The single threshold is enforced at **three** points, all reading `settings.dupl
 | **Embedding Layer** | PyMuPDF and Tesseract → `RecursiveCharacterTextSplitter` with the tiktoken proxy → `gemini-embedding-2` at 768 dimensions. **Paper corrected** | ✅ |
 | **Data Storage Layer** | `chunks.embedding vector(768)` with an HNSW cosine index and service-role-only `match_chunks` / `check_topic_duplication` RPCs; a private `pdfs` bucket; plus tables for profiles, departments/programs/specializations, chat sessions and messages, scan history, upload jobs and events, ingestion workers, operational alerts, storage cleanup queue, security audit events, and paper index versions — all RLS deny-by-default | ✅ 🔷 |
 
-⚠️ **Figure 8 itself is still wrong.** It is an embedded image showing a synchronous upload path. §3.3 of the paper now describes the real four-stage durable ingestion flow and the cross-cutting security controls **in text**, but the diagram must be redrawn by the authors. This is the only revision from the previous report that could not be applied.
+### ⚠️ The figures were never audited until 2026-08-25 — two are stale
+
+All eight figures are embedded PNGs, so no text-level correction pass could ever
+reach them. They were extracted and read on 2026-08-25. Six are clean; **two
+still assert models the system stopped using**, and both are more wrong than the
+"Figure 8 needs the ingestion worker" note that had stood in for them.
+
+| Figure | Section | Verdict |
+|---|---|---|
+| **1** | §2.1.1 | ⚠️ **Stale.** "Embedding Model — `text-embedding-004` converts to vectors" and "LLM Prompt — Query + Context fed to **Gemini 1.5 Flash**" |
+| 2 | §2.1.2 | ✅ Clean — conceptual; all five inline citations resolve to the reference list |
+| 3–6 | §2.2 | ✅ Clean — generic IPO models, no tool or model names |
+| 7 | §3.2.2 | ✅ Clean — SDLC phases only |
+| **8** | §3.3 | ⚠️ **Stale on four counts** (below) |
+
+**Figure 8** carries every error the text has already been corrected for:
+
+1. Response Generator labelled **`gemini-1.5-flash`** — the text now says `gemini-3.6-flash`
+2. Embedding Model labelled **`text-embedding-004`** — the text now says `gemini-embedding-2`
+3. RAG Pipeline labelled **`LangChain & langchain-community`** — `langchain-community` is not in `requirements.lock` at all
+4. A **"Researcher"** actor — retired by revision 9, realized as the Guest Researcher; **superadmin** is absent
+
+...plus the synchronous upload path already noted. §3.3 describes the real
+four-stage durable ingestion flow in text, but the diagram contradicts it.
+
+**Figures 3, 4 and 5 additionally carry internal titles** reading "Figure 1.1",
+"Figure 1.2" and "Figure 1.3" while the paper captions them Figure 3, 4 and 5.
+Cosmetic, but a panelist reading the figure and the caption together sees it.
+
+None of this is fixable here — they are raster images and must be redrawn by the
+authors. Figures 1 and 8 are the priority: they state the wrong model names on
+the page, which is exactly the class of error the whole correction pass was for.
 
 ---
 
@@ -331,7 +362,7 @@ Post-defense features (SSE streaming, hybrid retrieval and reranking, PWA) remai
 | Faculty-validated Golden Dataset ground truths (three-member panel) | §3.2.1 | Faculty panel availability |
 | Ragas baseline-vs-RAG comparison with the §3.2.5 statistics | §3.2.1, §3.2.4-5 | The faculty-validated dataset |
 | Formal ISO/IEC 25010 evaluation on a locked release, including a JMeter rerun against the real corpus | §3.2.4 | Locked corpus and release |
-| Figure 8 redrawn to show durable ingestion | §3.3 | Authors — the figure is an image |
+| **Figures 1 and 8 redrawn** — both still name `gemini-1.5-flash` and `text-embedding-004`; Figure 8 also shows `langchain-community`, a retired "Researcher" actor, and a synchronous upload path | §2.1.1, §3.3 | Authors — they are raster images |
 | Production deployment rehearsal and public HTTPS validation | implied | Hosting decision |
 | Physical hardbound → searchable-PDF conversion | §1.3, §3.1.3, §3.2.3 | An operational scanning workflow outside the application |
 
