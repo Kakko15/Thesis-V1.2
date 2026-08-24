@@ -3202,7 +3202,7 @@
     },
     "/upload/tracks": {
       "get": {
-        "description": "CCSICT academic tracks for the upload form and archive filters.",
+        "description": "Academic tracks for the archive filters and the public landing marquee.\n\nDerived from the live catalog rather than the frozen `CCSICT_TRACKS`\nconstant. That constant is the pre-catalog vocabulary; the normalized\ncatalog stamps `papers.track` with a specialization name or a program code,\nso four of its five values matched no paper. The stale list was rendered on\nthe public landing page (`TracksMarquee`), in the superadmin archive filter,\nand in the admin upload-history filter.\n\nUnauthenticated, like the catalog reads it now depends on, so it carries the\nsame explicit public limit — otherwise only the global default applied to an\nendpoint that performs three table reads.\n\nThe constant survives as the fallback for a catalog outage, which keeps the\nlanding page populated rather than blank.",
         "operationId": "list_tracks_upload_tracks_get",
         "responses": {
           "200": {

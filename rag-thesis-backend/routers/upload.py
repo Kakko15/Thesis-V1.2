@@ -33,6 +33,7 @@ from models import (
     UploadCancelResponse,
     UploadJobStatus,
 )
+from routers.catalog import active_track_names
 from routers.openapi_responses import errors
 from services.cleanup import record_storage_cleanup
 from services.catalog import normalize_thesis_category, resolve_academic_selection
@@ -516,9 +517,33 @@ def cancel_upload_job(
 
 
 @router.get('/tracks')
-def list_tracks():
-    """CCSICT academic tracks for the upload form and archive filters."""
-    return {'tracks': CCSICT_TRACKS}
+@limiter.limit(settings.rate_limit_public)
+def list_tracks(request: Request):
+    """Academic tracks for the archive filters and the public landing marquee.
+
+    Derived from the live catalog rather than the frozen `CCSICT_TRACKS`
+    constant. That constant is the pre-catalog vocabulary; the normalized
+    catalog stamps `papers.track` with a specialization name or a program code,
+    so four of its five values matched no paper. The stale list was rendered on
+    the public landing page (`TracksMarquee`), in the superadmin archive filter,
+    and in the admin upload-history filter.
+
+    Unauthenticated, like the catalog reads it now depends on, so it carries the
+    same explicit public limit — otherwise only the global default applied to an
+    endpoint that performs three table reads.
+
+    The constant survives as the fallback for a catalog outage, which keeps the
+    landing page populated rather than blank.
+    """
+    try:
+        tracks = active_track_names()
+    except Exception as error:
+        logger.warning(
+            'Live track vocabulary unavailable; serving the legacy constant (%s).',
+            type(error).__name__,
+        )
+        return {'tracks': CCSICT_TRACKS}
+    return {'tracks': tracks or CCSICT_TRACKS}
 
 
 @router.post('/extract-metadata', responses=errors(400, 413, 415, 422))

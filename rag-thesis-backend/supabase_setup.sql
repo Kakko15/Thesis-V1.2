@@ -1349,10 +1349,26 @@ alter table public.upload_jobs
   add constraint upload_jobs_owner_id_fkey
   foreign key (owner_id) references auth.users(id) on delete set null;
 
+-- Cooperative-cancellation columns. These are also added by
+-- 20260724_operations_security.sql, but commit_upload_ingestion below reads
+-- v_job.cancel_requested_at and PL/pgSQL resolves record fields at first
+-- execution, not at CREATE FUNCTION. Without them here, a project built from
+-- this file alone creates the function cleanly, passes the contract check at
+-- the end of this script, and then fails its FIRST upload at the commit stage
+-- with `record "v_job" has no field "cancel_requested_at"` — after the whole
+-- extract/chunk/embed/screen cost has already been paid.
+-- Column list kept identical to 20260724_operations_security.sql so the two
+-- sources cannot drift (tests/test_schema_consistency.py guards this).
+alter table public.upload_jobs
+  add column if not exists cancel_requested_at timestamptz,
+  add column if not exists cancel_requested_by uuid,
+  add column if not exists cancel_reason text,
+  add column if not exists cancelled_at timestamptz;
+
 alter table public.upload_jobs drop constraint if exists upload_jobs_status_check;
 alter table public.upload_jobs
   add constraint upload_jobs_status_check
-  check (status in ('staging', 'queued', 'processing', 'retry_wait', 'completed', 'failed'));
+  check (status in ('staging', 'queued', 'processing', 'retry_wait', 'completed', 'failed', 'cancelled'));
 
 alter table public.upload_jobs drop constraint if exists upload_jobs_attempt_count_check;
 alter table public.upload_jobs
@@ -1662,15 +1678,8 @@ begin
     return v_job.paper_id;
   end if;
   -- A cancellation requested while the worker was mid-pipeline must not be
-  -- overwritten by a successful commit. This guard was present in
-  -- migrations/20260724_operations_security.sql but missing here, so a project
-  -- built from this file alone -- or one where this file was re-run over an
-  -- already-migrated database -- silently lost it.
-  -- A cancellation requested while the worker was mid-pipeline must not be
-  -- overwritten by a successful commit. This guard was present in
-  -- migrations/20260724_operations_security.sql but missing here, so a project
-  -- built from this file alone -- or one where this file was re-run over an
-  -- already-migrated database -- silently lost it.
+  -- overwritten by a successful commit. The columns this reads are created
+  -- above in this same file, so the guard works on a base-schema-only project.
   if v_job.cancel_requested_at is not null then
     raise exception 'Upload cancellation was requested';
   end if;
