@@ -536,7 +536,11 @@ def list_tracks(request: Request):
     landing page populated rather than blank.
     """
     try:
-        tracks = active_track_names()
+        # Scoped to the evaluation department. Unscoped, this unions every
+        # ACTIVE department — and a live check found CAS active alongside
+        # CCSICT, which put College of Arts and Sciences program codes on the
+        # public landing marquee of a CCSICT thesis library.
+        tracks = active_track_names(settings.thesis_evaluation_department)
     except Exception as error:
         logger.warning(
             'Live track vocabulary unavailable; serving the legacy constant (%s).',
