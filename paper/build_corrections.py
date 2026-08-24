@@ -154,6 +154,86 @@ PROSE2 = [
 ]
 
 
+# --- P1-3: dependencies the tables omit ----------------------------------
+# Anchors must be unique to one table: "pgvector" and "Apache JMeter" also
+# appear in Table 6, so Tables 3 and 4 are anchored on values written above.
+TABLE_ROWS = [
+    ('JavaScript (JSX)', 'Table 1 frontend', [
+        ('Node.js', 'v24.18.0', 'Will provide the JavaScript runtime for the build toolchain, the development server, and the automated test runner.'),
+        ('Tailwind CSS', 'v4.3.3', 'Will supply the utility-first styling layer applied consistently across all interface views.'),
+        ('React Router', 'v8.3.0', 'Will handle client-side routing between the landing, archive, chat, and administrative views.'),
+        ('TanStack Query', 'v5.101.4', 'Will manage server state, caching, and background refetching for API-backed views.'),
+        ('Axios', 'v1.18.1', 'Will serve as the HTTP client for all requests from the frontend to the FastAPI backend.'),
+        ('Framer Motion', 'v12.42.2', 'Will provide the animation and transition primitives used by the interface components.'),
+    ]),
+    ('python-dotenv', 'Table 2 backend', [
+        ('Python', 'v3.14.7', 'Will serve as the backend runtime, pinned to an exact patch level and asserted at container build time.'),
+        ('pydantic-settings', 'v2.14.2', 'Will load and validate server configuration from environment variables at startup.'),
+        ('Uvicorn', 'v0.51.0', 'Will run the ASGI server hosting the FastAPI application.'),
+        ('SlowAPI', 'v0.1.10', 'Will enforce per-route and default rate limits that protect the API from abuse and runaway cost.'),
+        ('Redis', 'v8.0.1', 'Will provide the shared store backing rate limiting and short-lived operational state.'),
+        ('cryptography', 'v50.0.0', 'Will supply the cryptographic primitives used for token and secret handling.'),
+        ('PyJWT', 'v2.13.0', 'Will encode and verify the JSON Web Tokens used for authenticated sessions.'),
+        ('HTTPX', 'v0.28.1', 'Will perform outbound HTTP calls to Supabase and the Gemini API.'),
+    ]),
+    ('models/gemini-embedding-2 (768 dimensions)', 'Table 3 AI/RAG', [
+        ('Gemini 3.5 Flash Lite', 'gemini-3.5-flash-lite', 'Will handle bounded verdict and metadata-extraction work that does not require the primary generation model.'),
+        ('langchain-core', 'v1.5.1', 'Will provide the Runnable and prompt abstractions that compose the retrieval-to-generation chain.'),
+        ('langchain-text-splitters', 'v1.1.2', 'Will supply the RecursiveCharacterTextSplitter used to chunk extracted manuscript text.'),
+        ('tiktoken', 'v0.13.0', 'Will provide the cl100k_base tokenizer used as a fixed proxy for measuring chunk sizes.'),
+        ('PyMuPDF', 'v1.28.0', 'Will extract text and layout information directly from uploaded PDF manuscripts.'),
+        ('tesserocr', 'v2.10.0', 'Will bind the Tesseract OCR engine for image-based scanned pages.'),
+        ('Pillow', 'v12.3.0', 'Will handle page image preparation on the OCR path.'),
+        ('LangSmith', 'v0.10.10', 'Will trace and log pipeline latency and token consumption during evaluation runs.'),
+    ]),
+    ('Community Build 26.7.0.124771', 'Table 4 testing', [
+        ('Node.js test runner', 'v24.18.0 (node --test)', "Will execute the frontend unit test suite using the runtime's built-in test runner."),
+        ('Playwright', 'v1.61.1', 'Will drive end-to-end browser tests across the critical user journeys of the interface.'),
+        ('axe-core for Playwright', 'v4.12.1', 'Will perform automated accessibility checks within the end-to-end suite.'),
+        ('SonarScanner CLI', 'v8.0.1.6346', 'Will submit the analysis to the SonarQube server that produces the retained Reliability evidence.'),
+    ]),
+]
+
+
+# --- final additions: fingerprint, citation limit, production surround ---
+PROSE3 = [
+    # P1-1  the model set is frozen for the evaluation
+    ('retrieve highly similar vector embeddings from the Supabase database before '
+     'synthesizing a response.',
+     'retrieve highly similar vector embeddings from the Supabase database before '
+     'synthesizing a response. The effective model set, comprising the chat, verdict, and '
+     'embedding models together with the generation and retrieval parameters, will be '
+     'frozen in a signed release fingerprint for the duration of the evaluation, so that '
+     'every reported result is attributable to one exact configuration.',
+     1, 'P1-1 release fingerprint'),
+    # P3-15 what citation validation does and does not prove
+    ('produce highly traceable, accurate in-line citations.',
+     'produce highly traceable, accurate in-line citations. Citation validation will prove '
+     'marker validity and coverage, meaning that every substantive claim in an answer '
+     'carries a valid, in-range citation, but it does not establish semantic entailment '
+     'between a claim and the passage it cites; faculty verification therefore remains part '
+     'of the process.',
+     1, 'P3-15 citation limitation'),
+    # P3-16 / P2-11  production surround. Figure 8 itself is an embedded image and
+    # still shows a synchronous upload path; this states the real one in text.
+    ('As illustrated in Figure 8, the system architecture will be structured into four '
+     'primary interactive layers: the User Interface Layer, the Application Layer, the '
+     'Embedding Layer, and the Data Storage Layer.',
+     'As illustrated in Figure 8, the system architecture will be structured into four '
+     'primary interactive layers: the User Interface Layer, the Application Layer, the '
+     'Embedding Layer, and the Data Storage Layer. Figure 8 depicts the experimental '
+     'retrieval pipeline; the delivered platform surrounds that pipeline with '
+     'production-grade controls which fall outside the experimental scope but are necessary '
+     'for institutional deployment. Ingestion in particular runs asynchronously rather than '
+     'synchronously: an upload is validated and staged privately, enqueued as a durable '
+     'leased job, and processed by a separate worker that downloads, scans for malware, '
+     'extracts, chunks, embeds, and screens the manuscript before an atomic commit. '
+     'Authentication with row-level security, multi-factor administrative access, rate '
+     'limiting, and malware scanning apply as cross-cutting controls across all four layers.',
+     1, 'P3-16 production surround'),
+]
+
+
 def build(verbose=True):
     xml = D.read_xml(SRC)
     for old, new, label in CELLS:
@@ -163,9 +243,12 @@ def build(verbose=True):
     xml = D.replace_cell_nth(xml, 'text-embedding-004',
                              'models/gemini-embedding-2 (768 dimensions)', 0, 'T3 embed id')
     if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding 2')
-    for old, new, n, label in PROSE + PROSE2:
+    for old, new, n, label in PROSE + PROSE2 + PROSE3:
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')
+    for anchor, label, rows in TABLE_ROWS:
+        xml, ncells = D.append_table_rows(xml, anchor, rows, label=label)
+        if verbose: print(f'  rows   {label:18s} +{len(rows)} rows x {ncells} cells')
     return xml
 
 
