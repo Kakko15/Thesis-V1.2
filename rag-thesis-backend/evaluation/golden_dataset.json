@@ -13,6 +13,15 @@
       { "name": "", "position": "", "date_validated": "" },
       { "name": "", "position": "", "date_validated": "" },
       { "name": "", "position": "", "date_validated": "" }
+    ],
+    "instrument_revisions": [
+      {
+        "date": "2026-08-25",
+        "commit": "13f10c6",
+        "change": "Query categories relabelled to the ISU Echague academic catalog. Ids 29 and 33 additionally had their QUESTION TEXT reworded: both named a retired track grouping (Intelligent Systems, Information Management) that services/catalog.py::AMBIGUOUS_LEGACY_TRACKS retires and the catalog never defined, so they asked about a category the system has no concept of. They now name the BSDSA and BSIS programs respectively.",
+        "affected_ids": [29, 33],
+        "rationale": "Recorded here, not only in version control, because a reworded question changes what the instrument asks. Panel members drafting ground_truth answers must be able to see that these two differ from the pre-2026-08-25 dataset. No ground_truth had been drafted at the time of the change; all forty were still REPLACE placeholders, so no validated work was invalidated."
+      }
     ]
   },
   "queries": [
