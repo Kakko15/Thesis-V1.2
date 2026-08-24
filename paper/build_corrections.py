@@ -306,6 +306,26 @@ PROSE4 = [
 ]
 
 
+# --- Track vocabulary, resolved 2026-08-25 -------------------------------
+# The academic catalog is authoritative. CCSICT has five programs but only
+# three specializations: services/catalog.py:110 falls back to the program
+# CODE when a program takes no specialization, and SPECIALIZATION_REQUIRED_
+# PROGRAMS = {BSCS, BSIT} means those two can never be a track themselves.
+# The legal papers.track values are therefore three specialization names plus
+# three bare program codes. Phrasing mirrors golden_dataset.json, whose
+# categories were realigned in commit 13f10c6, so the paper and the dataset
+# cannot contradict each other.
+PROSE5 = [
+    ('ensuring representation across various academic tracks such as Data Mining, '
+     'Web Development, and Network Security.',
+     'ensuring representation across the CCSICT academic catalog: the Data Mining, '
+     'Web and Mobile Application Development, and Network and Security specializations, '
+     'together with the BSDSA, BSIS and BLIS programs, which carry no specialization and '
+     'are therefore identified by program code.',
+     1, 'Track vocabulary 3.2.1'),
+]
+
+
 def build(verbose=True):
     xml = D.read_xml(SRC)
     for old, new, label in CELLS:
@@ -315,7 +335,7 @@ def build(verbose=True):
     xml = D.replace_cell_nth(xml, 'text-embedding-004',
                              'models/gemini-embedding-2 (768 dimensions)', 0, 'T3 embed id')
     if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding 2')
-    for old, new, n, label in PROSE + PROSE2 + PROSE3 + PROSE4:
+    for old, new, n, label in PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5:
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')
     for anchor, label, rows in TABLE_ROWS:

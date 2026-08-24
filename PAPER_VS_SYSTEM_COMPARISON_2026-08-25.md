@@ -31,7 +31,7 @@ The system remains a faithful and in most places substantially stronger implemen
 2. **A defect audit ran and eight findings were fixed** (`BUG_AUDIT_2026-08-24.md`). Nine remain open and triaged post-defense. No fix touched the frozen evaluated pipeline.
 3. **The institutional catalog was seeded and then scoped.** All nine ISU Echague colleges exist as data, but **CCSICT is the only active department**. CAS was deactivated on 2026-08-25 and left on standby with its eight programs intact, so re-enabling it is a single statement.
 4. **Manuscripts are now categorized** as `student` or `faculty` work (`papers.thesis_category`).
-5. **⚠️ A new deviation the previous report could not have seen.** Seeding the normalized catalog renamed two of the five track names the paper and the Golden Dataset use, and left two others unmapped. See §6 — this is the one open item that needs an authorial decision rather than a code or wording fix.
+5. **A deviation the previous report could not have seen, found and closed the same day.** Seeding the normalized catalog renamed two of the five track names the paper and the Golden Dataset use, and left two others unmapped. The department ruled the catalog authoritative; §3.2.1 and `golden_dataset.json` were both realigned to it (`13f10c6`) before any ground truth was drafted. See §6.
 6. **The backend container scan was cleared** (CVE-2026-14456), which carried the interpreter to Python 3.14.7 in CI and the container.
 
 **Verified today** (Appendix A, every gate judged by exit code): PyTest **711 passed / 3 skipped, 91.49% coverage** against an 85% gate · Pylint **10.00/10** · ESLint **0 errors, 0 warnings** · frontend unit tests **85/85** across 7 suites · Vite production build **3,865 modules, clean** · `npm audit --omit=dev` **0 vulnerabilities**. CI on `733e186`: **6/6 green** — PyTest+Pylint, ESLint+build, secret scan, both container scans, SonarQube Reliability.
@@ -160,9 +160,11 @@ QA tooling still beyond the paper (🔷): pytest-cov with an enforced 85% gate, 
 
 ---
 
-## 6. ⚠️ Track vocabulary — a deviation introduced after the previous report
+## 6. ✅ Track vocabulary — deviation found and resolved, 2026-08-25
 
-This did not exist on 2026-08-03 and is the one finding here that cannot be closed by editing wording alone.
+This did not exist on 2026-08-03. It was found during the full paper sweep and
+**resolved the same day**: the department ruled that the academic catalog is
+authoritative, and both the paper and the Golden Dataset were realigned to it.
 
 `models.py:6` still defines the five original tracks:
 
@@ -187,7 +189,36 @@ The normalized catalog seeded in `migrations/20260725_normalized_academic_catalo
 1. Paper §3.2.1 illustrates track coverage with "Data Mining, Web Development, and Network Security". Two of those three names no longer match what the system stores or displays.
 2. More seriously for Objective 2, the Golden Dataset categorizes **7 queries as Intelligent Systems and 5 as Information Management — 12 of 40, or 30% of the dataset** — under tracks the catalog does not have. This should be settled before the faculty panel writes ground truths against those items.
 
-**Left unresolved deliberately.** Either the catalog seed is missing two specializations the department actually offers, or the department consolidated and both the paper and the Golden Dataset should follow. That is a question about program structure, not a typo, and choosing wrong would misstate the sampling claim in §3.2.1.
+**Resolution.** The catalog is authoritative — CCSICT has five programs and only
+three specializations. `services/catalog.py:110` falls back to the program **code**
+when a program takes no specialization, and `SPECIALIZATION_REQUIRED_PROGRAMS =
+{'BSCS', 'BSIT'}` (line 13) means those two programs can never be a track
+themselves. The complete set of legal `papers.track` values is therefore three
+specialization names plus three bare program codes:
+
+```
+Data Mining | Web and Mobile Application Development | Network and Security
+BSDSA | BSIS | BLIS
+```
+
+The mix of names and codes is by design, not an inconsistency.
+
+**What was changed.** `golden_dataset.json` categories were realigned in commit
+`13f10c6`: the two renames applied straight across, *Intelligent Systems* became
+`BSDSA` (6) and `WMAD` (1), *Information Management* became `BSIS` (4) and `BLIS`
+(1). Two questions (ids 29 and 33) embedded the retired grouping in their own
+text and were reworded rather than merely relabelled. Paper §3.2.1 was rewritten
+to name the catalog vocabulary, mirroring the dataset's own description string so
+the two cannot drift apart.
+
+**Why this was safe.** `run_comparison.py` never reads `category` — it is a
+coverage label for the faculty panel, not a filter. All 40 ground truths remain
+placeholders, `validated_by_faculty_panel` is still `false`, and the evaluated
+pipeline was never in scope. `run_comparison.py:364` records
+`golden_dataset_sha256` into every result, so that hash moved; the only result on
+file is the 2026-07-28 dev smoke marked `formal_result: false`, so nothing real
+was invalidated. Settling this **before** three faculty members draft 40 ground
+truths avoided invalidating twelve of them afterwards.
 
 ---
 
@@ -301,7 +332,6 @@ Post-defense features (SSE streaming, hybrid retrieval and reranking, PWA) remai
 | Ragas baseline-vs-RAG comparison with the §3.2.5 statistics | §3.2.1, §3.2.4-5 | The faculty-validated dataset |
 | Formal ISO/IEC 25010 evaluation on a locked release, including a JMeter rerun against the real corpus | §3.2.4 | Locked corpus and release |
 | Figure 8 redrawn to show durable ingestion | §3.3 | Authors — the figure is an image |
-| Track vocabulary reconciliation | §3.2.1 and the Golden Dataset | Departmental decision — §6 |
 | Production deployment rehearsal and public HTTPS validation | implied | Hosting decision |
 | Physical hardbound → searchable-PDF conversion | §1.3, §3.1.3, §3.2.3 | An operational scanning workflow outside the application |
 
@@ -341,7 +371,9 @@ The previous report's §11 was an actionable edit list. It has been executed. Th
 | 11 | Redraw Figure 8 with the durable ingestion worker | The figure is an embedded image. §3.3 now states the real flow in text; the diagram itself needs the authors |
 | 13 | Chapter 4 reporting discipline | Chapter 4 does not exist yet — the paper is Chapters 1–3 plus References |
 | — | `pgvector v0.7.0` in Table 3 | Supabase-managed and not recorded anywhere in the repository; left untouched rather than guessed. Confirm in the Supabase dashboard |
-| — | Track vocabulary | §6 — needs a departmental decision, not a wording fix |
+
+**Resolved after the sweep.** The track vocabulary in §3.2.1 (§6) was realigned to
+the academic catalog on 2026-08-25, alongside the Golden Dataset in `13f10c6`.
 
 **Two presentational notes.** `Python v3.14.7` was appended to Table 2 and therefore sits after `python-dotenv`; reading order would be better with the runtime first, which is one drag in Word. And the paper remains in future tense throughout, deliberately: it is a proposal, and the corrections changed the facts without changing the voice.
 
