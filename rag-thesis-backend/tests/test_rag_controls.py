@@ -239,6 +239,43 @@ class TestCitationValidation:
         valid, errors = validate_citations(repaired, self.SOURCES)
         assert valid and errors == []
 
+    def test_repeated_identical_units_are_each_cited_once(self):
+        """Two byte-identical units are two units, and both need a citation.
+
+        The repair used to patch by string match, so `str.replace` found the
+        already-patched first occurrence again: unit one got `[1] [1]` and unit
+        two stayed uncited. Validation then failed and routers/chat.py discarded
+        a grounded answer for the generic fallback.
+        """
+        answer = '- Accuracy improved significantly\n- Accuracy improved significantly'
+        repaired = enforce_citation_coverage(answer, self.SOURCES)
+        assert repaired == (
+            '- Accuracy improved significantly [1]\n- Accuracy improved significantly [1]'
+        )
+        valid, errors = validate_citations(repaired, self.SOURCES)
+        assert valid and errors == []
+
+    def test_repeated_identical_paragraphs_are_each_cited_once(self):
+        answer = 'The system achieved high accuracy.\n\nThe system achieved high accuracy.'
+        repaired = enforce_citation_coverage(answer, self.SOURCES)
+        assert repaired == (
+            'The system achieved high accuracy. [1]\n\nThe system achieved high accuracy. [1]'
+        )
+        valid, errors = validate_citations(repaired, self.SOURCES)
+        assert valid and errors == []
+
+    def test_a_unit_containing_another_is_patched_in_either_order(self):
+        """Order-independence: the old string match happened to work when the
+        shorter unit came first and silently mis-patched when it came second."""
+        for answer in (
+            '- The model was evaluated\n- The model was evaluated on campus data',
+            '- The model was evaluated on campus data\n- The model was evaluated',
+        ):
+            repaired = enforce_citation_coverage(answer, self.SOURCES)
+            valid, errors = validate_citations(repaired, self.SOURCES)
+            assert valid and errors == [], (answer, repaired, errors)
+            assert repaired.count('[1]') == 2, repaired
+
 
 class TestServerConfiguration:
     BASE = {

@@ -32,6 +32,10 @@ ROLLBACK = (
     / 'migrations' / '20260804_chat_message_kind.rollback.sql'
 )
 SCHEMA = pathlib.Path(__file__).resolve().parent.parent / 'supabase_setup.sql'
+NOTICE_BACKFILL = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / 'migrations' / '20260825_notice_kind_greeting_and_fallback.sql'
+)
 
 
 class TestNoticesAreClassifiedAtTheSource:
@@ -78,6 +82,29 @@ class TestNoticesAreClassifiedAtTheSource:
             sources=[{'id': 'p1'}],
         )
         assert chat_notices.response_kind(response) == chat_notices.KIND_ANSWER
+
+    def test_the_greeting_is_a_notice_not_an_answer(self):
+        """The greeting answers without retrieval or generation and has no
+        sources. Stored as an answer, the history loader replayed
+        "AI: Hello! I'm IskAI..." to the model as context on the next turn."""
+        from routers.chat import _conversation_response
+
+        response = ChatResponse(answer=_conversation_response(), sources=[])
+        assert chat_notices.response_kind(response) == chat_notices.KIND_NOTICE
+
+    def test_the_grounded_fallback_is_a_notice_but_keeps_its_sources(self):
+        """It reports that no direct answer could be verified, then points at
+        the closest archived studies. Reclassified so it stops becoming model
+        context — not flagged no_relevant_thesis, because retrieval did succeed
+        and stripping the sources would remove the only thing it offers."""
+        from routers.chat import _grounded_retrieval_fallback
+
+        sources = [{'id': 'p1', 'title': 'A Study', 'citation_id': 1}]
+        answer = _grounded_retrieval_fallback(sources, 'CCSICT')
+        response = ChatResponse(answer=answer, sources=sources)
+        assert chat_notices.response_kind(response) == chat_notices.KIND_NOTICE
+        assert response.no_relevant_thesis is False
+        assert response.sources == sources
 
     def test_the_classifier_covers_every_declared_marker(self):
         """Guard against a marker being added to NOTICE_MARKERS but not to
@@ -208,16 +235,23 @@ class TestTheMigrationMatchesTheApplication:
         return MIGRATION.read_text(encoding='utf-8')
 
     def test_the_backfill_matches_every_notice_the_code_can_produce(self, migration_sql):
-        for marker in (
-            chat_notices.CAPACITY_MESSAGE,
-            REFUSAL_MESSAGE,
-            GUEST_BUDGET_MESSAGE,
-            chat_notices.NO_RELEVANT_PREFIX,
-        ):
-            # SQL doubles embedded single quotes and wraps long prefixes, so
-            # compare on a quote-free, whitespace-collapsed leading fragment.
-            fragment = re.sub(r'\s+', ' ', marker).split("'")[0][:48]
-            normalized_sql = re.sub(r'\s+', ' ', migration_sql)
+        """Iterates NOTICE_MARKERS rather than a hard-coded list.
+
+        The previous version named four markers explicitly, so when the greeting
+        and the grounded-retrieval fallback were added to NOTICE_MARKERS this
+        test kept passing while their pre-existing rows stayed `kind = 'answer'`
+        in the database. Driving the loop from the constant means a new notice
+        cannot be added without either extending a backfill or failing here.
+        """
+        # The backfill is spread over two additive migrations; a marker only has
+        # to appear in one of them.
+        normalized_sql = re.sub(
+            r'\s+', ' ', migration_sql + '\n' + NOTICE_BACKFILL.read_text(encoding='utf-8'),
+        )
+        for marker in chat_notices.NOTICE_MARKERS:
+            # SQL doubles embedded single quotes, so double them here too rather
+            # than truncating the fragment at the first apostrophe.
+            fragment = re.sub(r'\s+', ' ', marker)[:48].replace("'", "''")
             assert fragment in normalized_sql, marker
 
     def test_the_backfill_only_relabels_rows_it_has_not_already_seen(self, migration_sql):
