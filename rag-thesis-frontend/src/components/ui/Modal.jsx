@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as AlertDialog from '@radix-ui/react-alert-dialog'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -5,7 +6,40 @@ import { X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Button } from './Button'
 
+// Radix dismisses a layer when its internal "pointer started inside" flags say
+// the interaction began outside. Those flags are set through React capture-phase
+// handlers (onPointerDownCapture / onFocusCapture) that never fire reliably in
+// this stack (React portal into <body> + framer-motion asChild + forceMount),
+// so Radix misclassifies clicks on in-dialog controls as outside interactions
+// and instantly closes the dialog. Conversely, its Escape/overlay dismissal has
+// also proven flaky once the dialog re-renders after a state change.
+//
+// Dismissal is therefore handled deterministically here: Radix's native
+// outside-interaction dismissal is disabled via onInteractOutside, while closing
+// happens through the overlay's own click handler and an explicit Escape
+// listener. Focus trapping, scroll locking and aria wiring stay with Radix.
+// Stable identity with no per-instance state: this closes over nothing and is
+// the same function for every dialog, so a module constant gives the stable
+// reference a ref was being used for — without reading `.current` during render,
+// which `react-hooks/refs` correctly rejects.
+const preventInteractOutside = (event) => event.preventDefault()
+
+function useDeterministicDismiss(open, onClose, { canClose = () => true } = {}) {
+  useEffect(() => {
+    if (!open) return undefined
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape' && canClose()) onClose?.()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose, canClose])
+  return [preventInteractOutside, (event) => {
+    if (event.target === event.currentTarget && canClose()) onClose?.()
+  }]
+}
+
 export function Modal({ open, onClose, title, description, children, className, size = 'md' }) {
+  const [onInteractOutside, onOverlayClick] = useDeterministicDismiss(open, onClose)
   const sizes = {
     sm: 'max-w-sm',
     md: 'max-w-lg',
@@ -24,10 +58,11 @@ export function Modal({ open, onClose, title, description, children, className, 
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
+                onClick={onOverlayClick}
                 className="fixed inset-0 z-[80] bg-[var(--scrim)] backdrop-blur-sm"
               />
             </Dialog.Overlay>
-            <Dialog.Content asChild forceMount onOpenAutoFocus={(event) => {
+            <Dialog.Content asChild forceMount onInteractOutside={onInteractOutside} onOpenAutoFocus={(event) => {
               const autofocus = event.currentTarget.querySelector('[data-autofocus]')
               if (autofocus) {
                 event.preventDefault()
@@ -67,8 +102,10 @@ export function Modal({ open, onClose, title, description, children, className, 
 }
 
 export function ConfirmDialog({ open, onClose, onConfirm, title, message, confirmLabel = 'Confirm', danger = false, loading = false }) {
+  const canClose = () => !loading
+  const [onInteractOutside, onOverlayClick] = useDeterministicDismiss(open, onClose, { canClose })
   return (
-    <AlertDialog.Root open={open} onOpenChange={(next) => !next && !loading && onClose?.()}>
+    <AlertDialog.Root open={open} onOpenChange={(next) => !next && canClose() && onClose?.()}>
       <AnimatePresence>
         {open && (
           <AlertDialog.Portal forceMount>
@@ -77,10 +114,11 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, message, confir
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
+                onClick={onOverlayClick}
                 className="fixed inset-0 z-[90] bg-[var(--scrim)] backdrop-blur-sm"
               />
             </AlertDialog.Overlay>
-            <AlertDialog.Content asChild forceMount>
+            <AlertDialog.Content asChild forceMount onInteractOutside={onInteractOutside}>
               <motion.div
                 initial={{ opacity: 0, scale: 0.96, y: 18 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
