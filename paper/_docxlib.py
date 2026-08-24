@@ -243,3 +243,62 @@ def paragraphs_nested(xml):
     inner = [t for i, t in enumerate(out)
              if not any(t[0] <= o[0] and o[1] <= t[1] and o is not t for o in out)]
     return inner
+
+
+_TR_RE = re.compile(r'<w:tr(?: [^>]*?)?>.*?</w:tr>', re.S)
+_TC_RE = re.compile(r'<w:tc(?: [^>]*?)?>.*?</w:tc>', re.S)
+_TBL_RE = re.compile(r'<w:tbl>.*?</w:tbl>', re.S)
+
+def _set_cell_text(tc, value):
+    """Put `value` in a table cell, keeping the cell's existing run formatting."""
+    nodes = list(_T_RE.finditer(tc))
+    if not nodes:
+        return tc
+    first = nodes[0]
+    out = tc[:first.start()] + _set_t(first.group(1), first.group(2), first.group(3),
+                                      esc(value)) + tc[first.end():]
+    shift = len(out) - len(tc)
+    for m in reversed(nodes[1:]):
+        a, b = m.start() + shift, m.end() + shift
+        out = out[:a] + _set_t(m.group(1), m.group(2), m.group(3), '') + out[b:]
+    return out
+
+def append_table_rows(xml, anchor, rows, label=''):
+    """Clone the last <w:tr> of the table containing `anchor` and append `rows`.
+
+    Cloning an existing row is what keeps the new entries visually identical to
+    the ones already there: borders, shading, cell widths and fonts all come
+    from the template row, so nothing has to be restyled by hand afterwards.
+    """
+    tables = [m for m in _TBL_RE.finditer(xml)
+              if anchor in ''.join(html.unescape(t) for t in
+                                   re.findall(r'<w:t(?: [^>]*)?>(.*?)</w:t>', m.group(0), re.S))]
+    if len(tables) != 1:
+        raise AssertionError(f'{label or anchor!r}: matched {len(tables)} tables, need exactly 1')
+    tbl = tables[0]
+    trs = list(_TR_RE.finditer(tbl.group(0)))
+    if not trs:
+        raise AssertionError(f'{label or anchor!r}: no rows found')
+    # Table 4 ends with a blank spacer row; cloning it would append blank rows
+    # and silently drop the new text. Use the last row that actually has text,
+    # and insert directly after it so any trailing spacer stays at the bottom.
+    with_text = [m for m in trs
+                 if ''.join(re.findall(r'<w:t(?: [^>]*)?>(.*?)</w:t>', m.group(0), re.S)).strip()]
+    if not with_text:
+        raise AssertionError(f'{label or anchor!r}: no row with text to use as template')
+    anchor_row = with_text[-1]
+    template = anchor_row.group(0)
+    ncells = len(_TC_RE.findall(template))
+    built = []
+    for cells in rows:
+        if len(cells) != ncells:
+            raise AssertionError(
+                f'{label or anchor!r}: row {cells[0]!r} has {len(cells)} cells, table has {ncells}')
+        row, off = template, 0
+        for m, value in zip(_TC_RE.finditer(template), cells):
+            newtc = _set_cell_text(m.group(0), value)
+            row = row[:m.start() + off] + newtc + row[m.end() + off:]
+            off += len(newtc) - (m.end() - m.start())
+        built.append(row)
+    insert_at = tbl.start() + anchor_row.end()
+    return xml[:insert_at] + ''.join(built) + xml[insert_at:], ncells
