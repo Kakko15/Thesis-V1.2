@@ -234,6 +234,78 @@ PROSE3 = [
 ]
 
 
+# --- Sweep findings, 2026-08-25 ------------------------------------------
+# A full read of all 427 non-empty paragraphs found that six revisions had
+# been applied to only ONE of the sections they named, plus three inaccuracies
+# neither the 08-03 comparison nor the first correction pass had caught.
+PROSE4 = [
+    # A1/A3  rev 17 + rev 10, section 3.1.3 (only 1.3 had been updated)
+    ('The data will only include past undergraduate thesis projects from the department, '
+     'using both physical hardbound copies and digital files.',
+     'The data will include past student (undergraduate) and faculty thesis projects from '
+     'the department, each labelled by category, using both physical hardbound copies and '
+     'digital files. The evaluation corpus for Objective 2 remains exactly the fifty (50) '
+     'student manuscripts. Converting physical copies into PDF is an operational '
+     'prerequisite carried out before ingestion; the system extracts and, where necessary, '
+     'OCRs text from an uploaded PDF and does not itself perform scanning.',
+     1, 'A1/A3 3.1.3 corpus + boundary'),
+    # A2  rev 17, section 3.2.1
+    ('This approach ensures that the evaluation covers diverse technical vocabularies '
+     'relevant to the domain.',
+     'This approach ensures that the evaluation covers diverse technical vocabularies '
+     'relevant to the domain. Every archived manuscript carries a student or faculty '
+     'category label, and the Objective 2 evaluation corpus is restricted to student '
+     '(undergraduate) manuscripts.',
+     1, 'A2 3.2.1 category sentence'),
+    # A4  rev 10, section 3.2.3 Phase 1
+    ('Physical, hardbound thesis manuscripts from the CCSICT archives will be converted '
+     'into machine-readable digital formats (PDFs).',
+     'Physical, hardbound thesis manuscripts from the CCSICT archives will be converted '
+     'into machine-readable digital formats (PDFs). That conversion is an operational '
+     "prerequisite performed outside the application; the system's digitization phase "
+     'begins with an uploaded PDF.',
+     1, 'A4 Phase 1 boundary'),
+    # A5  rev 6, section 3.2.3 Phase 3
+    ('This triggers an automated warning for the AI model, ensuring that any potential '
+     'duplicates are clearly identified in the output along with their exact match percentage.',
+     'This triggers an automated warning for the AI model, ensuring that any potential '
+     'duplicates are clearly identified in the output along with their exact match '
+     'percentage. Two figures are reported: the highest passage similarity and the '
+     "matched-chunk coverage, being the percentage of the new manuscript's chunks whose "
+     'nearest archived neighbour met the threshold. Coverage drives an advisory verdict of '
+     'clear, review_suggested below 50%, or high_overlap at 50% and above, and the verdict '
+     'is advisory only — the system never automatically accepts or rejects a topic.',
+     1, 'A5 Phase 3 duplication numbers'),
+    # A6  rev 8, section 3.3
+    ('which will search the Vector Database for the most semantically relevant thesis chunks.',
+     'which will search the Vector Database for the most semantically relevant thesis '
+     'chunks, applying a minimum cosine similarity of 0.30 and returning at most five '
+     '(top-k = 5).',
+     1, 'A6 3.3 retrieval constants'),
+    # B1  the 1.5 definition still said undergraduate-only
+    ('indirect access to undergraduate thesis knowledge',
+     'indirect access to CCSICT student and faculty thesis knowledge',
+     1, 'B1 1.5 definition'),
+    # B2  analytics endpoints require an admin; only /analytics/summary is public
+    ('a cohesive platform where students and faculty can execute literature reviews, '
+     'conduct novelty scanning, and generate institutional research analytics.',
+     'a cohesive platform where students and faculty can execute literature reviews and '
+     'conduct novelty scanning, while administrators generate institutional research '
+     'analytics.',
+     1, 'B2 analytics is admin-only'),
+    # B4  the paper understated its own approval protocol, which has four gates
+    ('First, the researchers will obtain formal written approval from the CCSICT Department '
+     'Chair and the University Librarian prior to accessing and digitizing any thesis '
+     'manuscript from the college archives.',
+     'First, the researchers will obtain formal written approval from four authorities '
+     'prior to accessing and digitizing any thesis manuscript from the college archives: '
+     'the CCSICT Department Chair for academic scope, the University Librarian for corpus '
+     'custody and rights, an authorized privacy officer for the data-privacy review, and '
+     'the thesis adviser for the final methodology and corpus.',
+     1, 'B4 four approval gates'),
+]
+
+
 def build(verbose=True):
     xml = D.read_xml(SRC)
     for old, new, label in CELLS:
@@ -243,7 +315,7 @@ def build(verbose=True):
     xml = D.replace_cell_nth(xml, 'text-embedding-004',
                              'models/gemini-embedding-2 (768 dimensions)', 0, 'T3 embed id')
     if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding 2')
-    for old, new, n, label in PROSE + PROSE2 + PROSE3:
+    for old, new, n, label in PROSE + PROSE2 + PROSE3 + PROSE4:
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')
     for anchor, label, rows in TABLE_ROWS:
