@@ -134,7 +134,10 @@ function SecurityCard() {
 }
 
 export default function Dashboard() {
-  const { displayName, role, department, canArchive, canScan, isAdmin } = useAuth()
+  // canUpload, not isAdmin: upload defaults to admin but is grantable to
+  // students and faculty through the server-owned role-feature matrix, which
+  // is what require_upload_access and the sidebar nav item both honour.
+  const { displayName, role, department, canArchive, canScan, canUpload, isAdmin } = useAuth()
   const navigate = useNavigate()
   const {
     data: papers, isLoading, isError: papersError, refetch: retryPapers,
@@ -237,7 +240,7 @@ export default function Dashboard() {
               onClick={() => navigate('/novelty')}
             />
           )}
-          {isAdmin && (
+          {canUpload && (
             <QuickAction
               icon={UploadCloud}
               title="Upload thesis"

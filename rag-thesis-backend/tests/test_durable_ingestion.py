@@ -591,6 +591,20 @@ class TestSqlQueueContracts:
         assert 'upload_jobs_owner_idempotency_uidx' in sql
         assert 'revoke all on function public.claim_upload_job' in sql
         assert 'grant execute on function public.claim_upload_job' in sql
-        assert "status in ('staging', 'queued', 'processing', 'retry_wait', 'completed', 'failed')" in sql
+        # The two files legitimately describe different points in the contract's
+        # history. `20260723` introduced the queue before cooperative
+        # cancellation existed, so its status list has six values.
+        # `supabase_setup.sql` is the consolidated current schema: it also
+        # creates the cancellation columns and carries the
+        # `cancel_requested_at` guard inside `commit_upload_ingestion`, so its
+        # list must include 'cancelled' or the guard would reference a state the
+        # constraint forbids.
+        base_states = "'staging', 'queued', 'processing', 'retry_wait', 'completed', 'failed'"
+        expected_states = (
+            f"status in ({base_states}, 'cancelled')"
+            if path == 'supabase_setup.sql'
+            else f"status in ({base_states})"
+        )
+        assert expected_states in sql
         assert "cleanup_status in ('not_required', 'completed')" in sql
         assert "cleanup_status in ('not_required', 'completed', 'delegated')" not in sql

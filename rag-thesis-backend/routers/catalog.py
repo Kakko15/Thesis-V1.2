@@ -126,6 +126,28 @@ def _nested_catalog(active_only: bool = True) -> list[dict]:
     return result
 
 
+def active_track_names() -> list[str]:
+    """Every distinct track label the live catalog can currently produce.
+
+    `models.CCSICT_TRACKS` is the pre-catalog vocabulary and no longer matches
+    what `services.catalog.resolve_academic_selection` actually stamps into
+    `papers.track` — a specialization name, or a program code for the programs
+    that take no specialization. Of the five frozen names only "Data Mining"
+    still overlaps, so archive and landing surfaces built on the constant
+    offered filter options that matched no paper.
+
+    Order is preserved and duplicates dropped, so the result is stable enough to
+    render directly. On a pre-PI-04 schema `_nested_catalog` falls back to the
+    legacy shape and this returns that project's own `departments.tracks`, which
+    is the correct vocabulary for the rows it actually holds.
+    """
+    return list(dict.fromkeys(
+        track
+        for department in _nested_catalog()
+        for track in (department.get('tracks') or [])
+    ))
+
+
 # Both catalog reads are unauthenticated so the sign-up and landing surfaces can
 # populate their pickers, and both aggregate several unbounded table reads. An
 # explicit limit keeps them off the denial-of-wallet path.

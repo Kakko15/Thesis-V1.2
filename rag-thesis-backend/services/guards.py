@@ -9,7 +9,18 @@ REFUSAL_MESSAGE = (
     'academic arguments for you. Ask me what the archive contains about your topic instead.'
 )
 
-_GENERATION_VERB = r'(?:write|draft|compose|generate|create|produce|complete|make)'
+# Only content-*transformation* verbs belong here. Retrieval verbs must never be
+# added: an earlier attempt to close the gaps below by adding `give`, `provide`
+# and `outline` — together with section names like `objectives`, `abstract` and
+# `discussion` as artifacts — refused 4 of 9 legitimate retrieval questions
+# ("Give me the objectives of that 2023 IoT study", "Outline the methodology
+# used in that thesis"). Those words are this assistant's working vocabulary.
+# The four added below have no retrieval sense, and `\bwrite` cannot match
+# inside "rewrite", which is why that one has to be spelled out.
+_GENERATION_VERB = (
+    r'(?:write|draft|compose|generate|create|produce|complete|make'
+    r'|rewrite|expand|extend|formulate)'
+)
 # Artifacts this system must never author on a user's behalf.
 _ARTIFACT = (
     r'(?:thesis|chapters?|rrl|review\s+of\s+related\s+literature|methodolog(?:y|ies)|'
