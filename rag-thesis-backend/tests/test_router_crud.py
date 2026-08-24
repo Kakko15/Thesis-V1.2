@@ -34,6 +34,10 @@ class Query:
     def in_(self, *args): return self._op('in', *args)
     def order(self, *args, **kwargs): return self._op('order', *args, kwargs)
     def limit(self, *args): return self._op('limit', *args)
+    # The analytics aggregates page their reads, so the builder must accept a
+    # range. This stub serves one page and reports no count, which exercises
+    # _fetch_all's short-page fallback.
+    def range(self, *args): return self._op('range', *args)
     def single(self): return self._op('single')
     def insert(self, *args): return self._op('insert', *args)
     def update(self, *args): return self._op('update', *args)
@@ -246,6 +250,74 @@ class TestPapersAndAnalytics:
         paper_queries = [query for table, query in client.queries if table == 'papers']
         assert ('update', ({'ingestion_status': 'deletion_pending'},)) in paper_queries[1].operations
         assert not any(name == 'delete' for query in paper_queries for name, _args in query.operations)
+
+    def test_overview_aggregates_past_the_postgrest_row_cap(self, monkeypatch):
+        """Totals and distributions must survive `db-max-rows`.
+
+        PostgREST caps one response at the project's `db-max-rows` (1000 by
+        default on Supabase). Every figure here was derived with `len()` or
+        `Counter()` over a single unpaged read, so past that cap the dashboard
+        reported numbers that were quietly wrong — sitting beside `count='exact'`
+        figures that were right, with nothing distinguishing them.
+        """
+        requested_ranges = []
+
+        class PagingQuery:
+            def __init__(self, rows):
+                self.rows, self.start, self.stop = rows, 0, None
+
+            def select(self, *_args, **_kwargs): return self
+            def eq(self, *_args): return self
+            def limit(self, *_args): return self
+
+            def range(self, start, end):
+                # PostgREST honours at most db-max-rows per response, so a full
+                # page is truncated here exactly as the real server would.
+                self.start, self.stop = start, min(end + 1, start + 1000)
+                requested_ranges.append((start, end))
+                return self
+
+            def execute(self):
+                # db-max-rows applies to every response, ranged or not. Capping
+                # the unranged case too is what makes this a real regression
+                # test: an unpaged read sees 1000 of 2500 rows, exactly as it
+                # would against the live server.
+                page = (
+                    self.rows[self.start:self.stop] if self.stop
+                    else self.rows[:1000]
+                )
+                return SimpleNamespace(data=page, count=len(self.rows))
+
+        class PagingClient:
+            def __init__(self, tables): self.tables = tables
+            def table(self, name): return PagingQuery(self.tables.get(name, []))
+
+        papers = [
+            {'id': f'p{i}', 'track': 'Data Mining' if i % 2 else 'Web Development',
+             'year': 2024, 'chunk_count': 2, 'thesis_category': 'student'}
+            for i in range(2500)
+        ]
+        monkeypatch.setattr(analytics, 'sb', PagingClient({
+            'papers': papers,
+            'profiles': [{'role': 'student'} for _ in range(1200)],
+            'scan_history': [{'duplication_percentage': 60} for _ in range(1100)],
+        }))
+        monkeypatch.setattr(analytics, '_admin_scope', lambda _user: ('superadmin', None))
+
+        overview = analytics.overview(SimpleNamespace(id='root'))
+
+        # Exact totals, not a capped page length.
+        assert overview['papers']['total'] == 2500
+        assert overview['users']['total'] == 1200
+        assert overview['usage']['novelty_scans'] == 1100
+        # Distributions cover every row, not just the first page.
+        assert sum(overview['papers']['per_track'].values()) == 2500
+        assert overview['papers']['per_category'] == {'student': 2500}
+        assert overview['papers']['total_chunks'] == 5000
+        assert overview['usage']['flagged_scans'] == 1100
+        # Three contiguous pages for 2500 papers, starting where the last ended.
+        paper_ranges = requested_ranges[:3]
+        assert [start for start, _end in paper_ranges] == [0, 1000, 2000]
 
     def test_public_summary_overview_and_profile(self, monkeypatch):
         client = ScriptedClient({

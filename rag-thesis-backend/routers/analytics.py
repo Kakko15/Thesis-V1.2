@@ -60,6 +60,54 @@ def _is_reference_conflict(error: Exception) -> bool:
     return _FK_VIOLATION_SQLSTATE in text or 'foreign key constraint' in text
 
 
+# PostgREST caps a single response at the project's `db-max-rows` — 1000 by
+# default on Supabase, and configurable per project. Every figure below used to
+# be derived with `len()` or `Counter()` over one unpaged `.execute()`, so past
+# that cap the dashboard reported numbers that were simply wrong, sitting beside
+# `count='exact'` figures that were right, with nothing marking the difference.
+# Reporting a wrong number is worse than failing, so these reads are paged.
+_AGGREGATE_PAGE_SIZE = 1000
+# 50k rows at the page size above. Far beyond this archive; a backstop against a
+# runaway loop, never a silent truncation — exceeding it logs.
+_MAX_AGGREGATE_PAGES = 50
+
+
+def _fetch_all(build_query, *, label: str) -> tuple[list[dict], int]:
+    """Read every row a query matches, page by page, and its exact total.
+
+    `build_query` is a callable returning a fresh builder that already requests
+    `count='exact'`, because a page has to be a new query rather than a re-ranged
+    one. The exact count is authoritative for totals, so a total stays correct
+    even in the pathological case where the row ceiling below is reached.
+
+    Falls back to the short-page heuristic when the client does not report a
+    count, which keeps this usable against a stub or a PostgREST build that
+    omits it.
+    """
+    rows: list[dict] = []
+    total: int | None = None
+    for _page in range(_MAX_AGGREGATE_PAGES):
+        result = build_query().range(len(rows), len(rows) + _AGGREGATE_PAGE_SIZE - 1).execute()
+        chunk = result.data or []
+        if total is None:
+            total = getattr(result, 'count', None)
+        rows.extend(chunk)
+        if not chunk:
+            break
+        if total is not None:
+            if len(rows) >= total:
+                break
+        elif len(chunk) < _AGGREGATE_PAGE_SIZE:
+            break
+    else:
+        logger.warning(
+            '%s exceeded %d rows; its distribution is aggregated over a prefix '
+            '(totals remain exact)',
+            label, _MAX_AGGREGATE_PAGES * _AGGREGATE_PAGE_SIZE,
+        )
+    return rows, total if total is not None else len(rows)
+
+
 def _count(table: str, **filters) -> int:
     try:
         query = sb.table(table).select('id', count='exact')
@@ -81,19 +129,19 @@ def public_summary(request: Request):
     visitor — so it carries an explicit rate limit. Without one, only the global
     default applied and a trivial loop forced a full-table read per request.
     """
-    papers = (
-        sb.table('papers')
-        .select('id,track,year')
-        .eq('ingestion_status', 'ready')
-        .eq('department', settings.thesis_evaluation_department)
-        .execute()
-        .data
-        or []
+    papers, total_papers = _fetch_all(
+        lambda: (
+            sb.table('papers')
+            .select('id,track,year', count='exact')
+            .eq('ingestion_status', 'ready')
+            .eq('department', settings.thesis_evaluation_department)
+        ),
+        label='public summary papers',
     )
     tracks = Counter(paper.get('track') or 'Uncategorized' for paper in papers)
     years = [paper['year'] for paper in papers if paper.get('year')]
     return {
-        'total_papers': len(papers),
+        'total_papers': total_papers,
         'total_tracks': len([track for track in tracks if track != 'Uncategorized']),
         'year_range': {'from': min(years), 'to': max(years)} if years else None,
         'total_queries': _count(
@@ -108,43 +156,47 @@ def public_summary(request: Request):
 def overview(user: AdminUser):
     """Return full analytics for the admin dashboard."""
     role, department = _admin_scope(user)
-    paper_query = (
-        sb.table('papers')
-        .select('id,track,year,chunk_count,created_at,thesis_category')
-        .eq('ingestion_status', 'ready')
-    )
-    profile_query = sb.table('profiles').select('role')
-    scan_query = sb.table('scan_history').select('duplication_percentage,created_at')
-    if role != 'superadmin':
-        paper_query = paper_query.eq('department', department)
-        profile_query = profile_query.eq('department', department)
-        scan_query = scan_query.eq('department', department)
+    scope = None if role == 'superadmin' else department
+
+    def scoped(table: str, fields: str):
+        """Builder factory: each page needs a fresh query, not a re-ranged one."""
+        def build():
+            query = sb.table(table).select(fields, count='exact')
+            if table == 'papers':
+                query = query.eq('ingestion_status', 'ready')
+            return query.eq('department', scope) if scope else query
+        return build
+
     try:
-        papers = paper_query.execute().data or []
+        papers, total_papers = _fetch_all(
+            scoped('papers', 'id,track,year,chunk_count,created_at,thesis_category'),
+            label='overview papers',
+        )
         papers_per_category = Counter(
             paper.get('thesis_category') or 'student' for paper in papers
         )
     except Exception:
         # Pre-migration databases have no thesis_category column yet; the
         # dashboard hides the breakdown while this counter stays empty.
-        legacy_query = (
-            sb.table('papers')
-            .select('id,track,year,chunk_count,created_at')
-            .eq('ingestion_status', 'ready')
+        papers, total_papers = _fetch_all(
+            scoped('papers', 'id,track,year,chunk_count,created_at'),
+            label='overview papers (legacy)',
         )
-        if role != 'superadmin':
-            legacy_query = legacy_query.eq('department', department)
-        papers = legacy_query.execute().data or []
         papers_per_category = Counter()
 
     papers_per_track = Counter(paper.get('track') or 'Uncategorized' for paper in papers)
     papers_per_year = Counter(str(paper['year']) for paper in papers if paper.get('year'))
     total_chunks = sum(paper.get('chunk_count') or 0 for paper in papers)
 
-    profiles = profile_query.execute().data or []
+    profiles, total_users = _fetch_all(
+        scoped('profiles', 'role'), label='overview profiles',
+    )
     users_per_role = Counter(profile.get('role', 'student') for profile in profiles)
 
-    scans = scan_query.execute().data or []
+    scans, total_scans = _fetch_all(
+        scoped('scan_history', 'duplication_percentage,created_at'),
+        label='overview scans',
+    )
     scan_percentages = [
         scan['duplication_percentage']
         for scan in scans
@@ -154,14 +206,14 @@ def overview(user: AdminUser):
 
     return {
         'papers': {
-            'total': len(papers),
+            'total': total_papers,
             'per_track': dict(papers_per_track.most_common()),
             'per_year': dict(sorted(papers_per_year.items())),
             'per_category': dict(papers_per_category.most_common()),
             'total_chunks': total_chunks,
         },
         'users': {
-            'total': len(profiles),
+            'total': total_users,
             'per_role': dict(users_per_role),
         },
         'usage': {
@@ -175,7 +227,7 @@ def overview(user: AdminUser):
                 'chat_sessions',
                 **({} if role == 'superadmin' else {'department': department}),
             ),
-            'novelty_scans': len(scans),
+            'novelty_scans': total_scans,
             'avg_duplication_percentage': avg_duplication,
             'flagged_scans': sum(1 for percentage in scan_percentages if percentage >= 50),
         },
