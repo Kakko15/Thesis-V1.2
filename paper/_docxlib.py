@@ -36,7 +36,7 @@ def paragraphs(xml):
 
 def ptext(pxml):
     """Visible text of one paragraph."""
-    return html.unescape(''.join(re.findall(r'<w:t[^>]*>(.*?)</w:t>', pxml, re.S)))
+    return html.unescape(''.join(re.findall(r'<w:t(?: [^>]*)?>(.*?)</w:t>', pxml, re.S)))
 
 def esc(s):
     return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
@@ -58,7 +58,7 @@ def replace_text(xml, old, new, expect=None, label=''):
     for s, e, p in paragraphs(xml):
         if old not in ptext(p):
             continue
-        tnodes = list(re.finditer(r'(<w:t[^>]*>)(.*?)(</w:t>)', p, re.S))
+        tnodes = list(re.finditer(r'(<w:t(?: [^>]*)?>)(.*?)(</w:t>)', p, re.S))
         if not tnodes:
             continue
         # narrow path: some single text node contains the whole needle
@@ -100,7 +100,7 @@ def replace_cell(xml, exact_old, new, expect=1, label=''):
     for s, e, p in paragraphs(xml):
         if ptext(p).strip() != exact_old:
             continue
-        tnodes = list(re.finditer(r'(<w:t[^>]*>)(.*?)(</w:t>)', p, re.S))
+        tnodes = list(re.finditer(r'(<w:t(?: [^>]*)?>)(.*?)(</w:t>)', p, re.S))
         if not tnodes:
             continue
         first = tnodes[0]
@@ -125,7 +125,7 @@ def replace_cell_nth(xml, exact_old, new, nth, label=''):
         if seen != nth:
             seen += 1
             continue
-        tnodes = list(re.finditer(r'(<w:t[^>]*>)(.*?)(</w:t>)', p, re.S))
+        tnodes = list(re.finditer(r'(<w:t(?: [^>]*)?>)(.*?)(</w:t>)', p, re.S))
         first = tnodes[0]
         newp = p[:first.start(2)] + esc(new) + p[first.end(2):]
         shift = len(esc(new)) - (first.end(2) - first.start(2))
@@ -163,7 +163,7 @@ def replace_smart(xml, old, new, expect=1, label=''):
     return xml, hits
 
 
-_T_RE = re.compile(r'(<w:t)([^>]*)(>)(.*?)(</w:t>)', re.S)
+_T_RE = re.compile(r'(<w:t)((?: [^>]*)?)(>)(.*?)(</w:t>)', re.S)
 
 def _set_t(tag_open, attrs, gt, body):
     """Re-emit a <w:t>, forcing xml:space=preserve so edge spaces survive."""
@@ -211,3 +211,35 @@ def replace_runs(xml, old, new, expect=1, label=''):
     if total != expect:
         raise AssertionError(f'{label or old!r}: expected {expect}, matched {total}')
     return ''.join(out)
+
+
+_P_TOKEN = re.compile(r'<w:p(?: [^>]*?)?(/?)>|</w:p>')
+
+def paragraphs_nested(xml):
+    """Depth-aware <w:p> scanner returning innermost paragraphs.
+
+    The lazy regex in `paragraphs` ends an outer paragraph at the first
+    </w:p>, which is wrong wherever Word nests a <w:p> inside a text box
+    (<w:txbxContent>) or an mc:AlternateContent fallback. Five paragraphs in
+    this document sit in such regions -- including the whole of section 3.2.4 --
+    and the mis-parse made raw markup show up as if it were body text.
+
+    Emitting the innermost paragraph is what edits want: it is the smallest
+    well-formed unit that actually holds the runs.
+    """
+    stack, out = [], []
+    for m in _P_TOKEN.finditer(xml):
+        tok = m.group(0)
+        if tok.startswith('</'):
+            if stack:
+                s = stack.pop()
+                out.append((s, m.end(), xml[s:m.end()]))
+        elif m.group(1) == '/':
+            continue                     # <w:p/> - empty, nothing to edit
+        else:
+            stack.append(m.start())
+    out.sort(key=lambda t: t[0])
+    # keep only innermost: drop any span that fully contains another
+    inner = [t for i, t in enumerate(out)
+             if not any(t[0] <= o[0] and o[1] <= t[1] and o is not t for o in out)]
+    return inner
