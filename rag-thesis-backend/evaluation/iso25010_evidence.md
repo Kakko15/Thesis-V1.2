@@ -1,12 +1,42 @@
 # ISO/IEC 25010 Evidence Snapshot
 
-> **Snapshot notice:** This file records the dated evidence below and is not a live delivery-status ledger. The current defect and improvement ledger is [`SYSTEM_IMPROVEMENTS_AND_BUGS_2026-08-03.md`](../../SYSTEM_IMPROVEMENTS_AND_BUGS_2026-08-03.md), and the paper-to-system comparison is [`PAPER_VS_SYSTEM_COMPARISON_2026-08-03.md`](../../PAPER_VS_SYSTEM_COMPARISON_2026-08-03.md). Final evidence must be regenerated from the immutable release manifest (`scripts/corpus_manifest.py` and `scripts/release_fingerprint.py`).
+> **Snapshot notice:** This file records the dated evidence below and is not a live delivery-status ledger. The current defect and improvement ledger is [`SYSTEM_IMPROVEMENTS_AND_BUGS_2026-08-03.md`](../../SYSTEM_IMPROVEMENTS_AND_BUGS_2026-08-03.md), and the paper-to-system comparison is [`PAPER_VS_SYSTEM_COMPARISON_2026-08-25.md`](../../PAPER_VS_SYSTEM_COMPARISON_2026-08-25.md). Final evidence must be regenerated from the immutable release manifest (`scripts/corpus_manifest.py` and `scripts/release_fingerprint.py`).
 >
 > This notice previously pointed at `ISU_ECHAGUE_PRODUCTION_ROADMAP.md` as the authoritative ledger. That file does not exist in the repository and is listed in `.gitignore`, so anyone following the link — including a panel member — reached nothing.
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
-## Current local revalidation - 2026-08-04
+## Current local revalidation - 2026-08-25
+
+Measured on Windows 11 against commit `733e186` with PyTest 9.1.1, Pylint 4.0.6,
+Node.js 24.18.0, Vite 8.1.5 and ESLint 9.39.5. **Interpreter note:** the local
+venv is Python 3.14.6 while CI and the container assert 3.14.7
+(`.github/workflows/quality.yml:33`, `Dockerfile:27`); `requirements.lock`
+resolves against Python 3.14 at the minor level, so the pinned set is identical
+either way.
+
+Every figure below was read from the command's **exit code**, not from its
+printed summary. Backend counts are the CI-reproducible ones, taken with
+`ALLOW_DISPOSABLE_SUPABASE_TESTS=0`.
+
+| Criterion | Instrument | Observed result | Status |
+|---|---|---|---|
+| Backend dependency consistency | `pip check` in `.venv3146` | No broken requirements found | Passed |
+| Backend functional suitability | PyTest with pytest-cov and enforced `--cov-fail-under=85` | 711 passed and 3 opt-in external integration tests skipped; 91.49% coverage (3,690 statements, 314 missed) | Passed |
+| Backend maintainability | Pylint | 10.00/10 | Passed |
+| Frontend unit tests | Node test runner | 85/85 passed across 7 suites | Passed |
+| Frontend coverage | Node test runner with `--experimental-test-coverage`, gated at 85/80/85 | 92.95% lines, 86.72% branches, 95.38% functions; lcov fed to SonarQube | Passed |
+| Frontend maintainability | ESLint 9.39.5 | 0 errors and 0 warnings | Passed |
+| Frontend production build | Vite 8.1.5 | 3,865 modules transformed; production build completed | Passed |
+| Frontend production dependency audit | `npm audit --omit=dev` | found 0 vulnerabilities | Passed |
+| Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771 | Green in CI on `733e186`; not re-run locally | Passed in CI |
+| Container vulnerability scan | Trivy, `--ignore-unfixed --severity CRITICAL,HIGH` | Both images clean in CI on `733e186`. The backend finding **CVE-2026-14456** (OpenSSL DoS, `libcrypto3`/`libssl3` 3.6.3-r3) was cleared on 2026-08-25 by re-pinning the Chainguard base images, which carried the interpreter to 3.14.7 | Passed |
+
+Playwright and the axe accessibility matrix were **not** re-run locally in this
+pass. The 2026-08-04 figures below stand, and CI reports the suite green on
+`733e186`.
+
+## Local revalidation - 2026-08-04
 
 Measured on Windows 11 with Python 3.14.6, PyTest 9.1.1, Pylint 4.0.6, Node.js 24.18.0, npm 11.16.0, Vite 8.1.5, Playwright 1.61.1 and axe-core 4.12.1. This workstation now matches the pinned CI/container targets (Python 3.14.6, Node 24.18.0), and the active virtual environment is `.venv3146`.
 

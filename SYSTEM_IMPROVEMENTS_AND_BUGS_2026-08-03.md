@@ -5,7 +5,7 @@
 | Purpose | Everything required to take the ISU Centralized AI-Powered Thesis Library (IskAI) from its current defense-ready state to a real-world university production web application with best-in-class UI/UX |
 | System audited | Working tree at commit `9228da2` plus the uncommitted frontend accessibility work. **Updated 2026-08-03 and again 2026-08-04 after remediation** — see §0 for current status |
 | Audit date | **2026-08-03** (original) · **2026-08-04** (second remediation pass) |
-| Companion | `PAPER_VS_SYSTEM_COMPARISON_2026-08-03.md` — the paper-vs-system comparison and the required paper revisions |
+| Companion | `PAPER_VS_SYSTEM_COMPARISON_2026-08-25.md` — the paper-vs-system comparison and the required paper revisions |
 | Grounding | Every item cites the file and line, the command output, or the dated artifact that justifies it. Defects that could not be reproduced today are listed separately in §2.5 rather than asserted as facts |
 
 ## Hard constraint — the evaluated pipeline is frozen
@@ -894,7 +894,7 @@ These subsystems were examined closely during this audit and are genuinely stron
 🔓 **Now unblocked by `B1`:** §4.7 — load-test the real `/chat` path. This was explicitly gated on the event-loop fix so it would measure the architecture rather than the bug.
 
 **Defense preparation**
-Institutional approvals → lock the 50-thesis corpus → faculty-validated Golden Dataset → run the Ragas comparison with the Section 3.2.5 statistics → regenerate the ISO evidence from a locked release → apply the paper revisions in `PAPER_VS_SYSTEM_COMPARISON_2026-08-03.md` §11
+Institutional approvals → lock the 50-thesis corpus → faculty-validated Golden Dataset → run the Ragas comparison with the Section 3.2.5 statistics → regenerate the ISO evidence from a locked release → apply the paper revisions in `PAPER_VS_SYSTEM_COMPARISON_2026-08-25.md` §11
 
 **First post-defense quarter (Phase B)**
 §4.1 multi-process API · §4.6 Gemini paid tier · §5.1 metrics and paging · §4.3 archive pagination · §7.1 hybrid retrieval and reranking · §3.5 streaming and feedback · §9.2 staging · §6.4–6.6 secrets, WAF, penetration test · §8.3 retention

@@ -1,7 +1,7 @@
 # Defense walkthrough — what the system does, why, and what to say
 
-Written 2026-08-04. Every number here was measured or read from the code, not
-estimated. Where something is unmeasured or unfinished it says so, because the
+Written 2026-08-04, re-verified against commit `733e186` on **2026-08-25**.
+Every number here was measured or read from the code, not estimated. Where something is unmeasured or unfinished it says so, because the
 fastest way to lose a panel is to be caught overstating one claim.
 
 ---
@@ -229,22 +229,24 @@ in the repository's audit reports.
 
 | Instrument | Result |
 |---|---|
-| Backend tests (PyTest, gated ≥85%) | **643 passed, 3 skipped, 91.53% coverage** |
+| Backend tests (PyTest, gated ≥85%) | **711 passed, 3 skipped, 91.49% coverage** |
 | Backend lint (Pylint) | **10.00/10** |
-| Frontend tests | 44 passed, **92.71% lines** |
+| Frontend tests | **85 passed** across 7 suites, **92.95% lines**, 86.72% branches, 95.38% functions |
 | Frontend lint (ESLint) | **0 errors, 0 warnings** |
 | Browser journeys (Playwright) | **21 passed** |
 | Accessibility (axe, WCAG 2.2 AA) | **0 blocking, 0 advisory** across 11 surfaces × 4 themes × 2 widths |
 | Production dependency audit | 0 vulnerabilities (npm), 0 advisories (26 pinned Python packages) |
 | Dependency integrity | 94 packages hash-locked, 2,242 SHA-256 hashes, `--require-hashes` |
 | Container images | Digest-pinned; SBOM emitted per commit |
-| CI | 6 checks, all green |
+| CI | 6 checks, all green on `733e186` |
 
 If asked about defect history, the honest and impressive answer is:
 > A full audit found 20 defects. Independent passes during remediation found 17
 > more that the first audit missed. All 47 are fixed and covered by regression
-> tests. Eight items remain open, every one of them either post-defense scaling
-> work, or policy and legal work outside the code.
+> tests. A second, independent audit on 2026-08-24 found 17 further findings:
+> 8 are fixed, and 9 are triaged post-defense. Every open item is either
+> post-defense scaling work, or policy and legal work outside the code — and
+> none of them touch the frozen evaluated pipeline.
 
 ---
 

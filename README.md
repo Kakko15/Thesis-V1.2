@@ -1,6 +1,6 @@
 # ISU Centralized AI-Powered Thesis Library
 
-Operational deployment, cancellation, malware scanning, retention, encrypted backup, and disposable restore procedures are in [the operations runbook](docs/OPERATIONS_SECURITY_RUNBOOK.md). Secret rotation is covered by [the secret-rotation runbook](docs/SECRET_ROTATION.md). Institutional approvals, privacy review, and the immutable 50-thesis defense corpus are controlled by [the PI-08 governance protocol](docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md).
+Operational deployment, cancellation, malware scanning, retention, encrypted backup, and disposable restore procedures are in [the operations runbook](docs/OPERATIONS_SECURITY_RUNBOOK.md). Secret rotation is covered by [the secret-rotation runbook](docs/SECRET_ROTATION.md). Institutional approvals, privacy review, and the immutable 50-thesis defense corpus are controlled by [the PI-08 governance protocol](docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md). How the running system lines up against the thesis paper — and which paper revisions have been applied — is tracked in [the paper-vs-system comparison](PAPER_VS_SYSTEM_COMPARISON_2026-08-25.md); [the defense walkthrough](docs/DEFENSE_WALKTHROUGH.md) is the demo script.
 
 A production web application implementing the thesis *"A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"* (Barlis & Gallardo, BSCS Data Mining Track) for the College of Computing Studies, Information and Communication Technology (CCSICT), Isabela State University, Echague.
 
@@ -15,6 +15,7 @@ The system is an **indirect** thesis library: users never view or download full 
 | `rag-thesis-backend/evaluation/` | Objective 2 harness: baseline LLM vs RAG comparison scored with Ragas |
 | `rag-thesis-backend/tests/` | Objective 4 PyTest suite (Functional Suitability) |
 | `rag-thesis-backend/jmeter/` | Objective 4 Apache JMeter load-test plan (Performance Efficiency) |
+| `paper/` | The thesis proposal: the untouched 2026-08-09 original, the corrected document, and `build_corrections.py`, which regenerates the corrections from the original so they can never double-apply |
 
 ## Paper-objective mapping
 
@@ -176,7 +177,22 @@ which programs take a specialization:
    `20260725_normalized_academic_catalog.sql`
 
 Both list only `BSCS` and `BSIT` today, so a BSED thesis submitted with a major
-would otherwise be refused. `departments.title` carries the full college name
+would otherwise be refused.
+
+> **Known mismatch — the five legacy track names.** `models.CCSICT_TRACKS` still
+> lists *Data Mining, Web Development, Network Security, Intelligent Systems,
+> Information Management*, but the seeded catalog defines only three CCSICT
+> specializations and renames two of them: `WMAD` **Web and Mobile Application
+> Development** and `NETSEC` **Network and Security**. *Intelligent Systems* and
+> *Information Management* map to `needs_review`
+> (`20260725_normalized_academic_catalog.sql:80`) and are not tracks at all.
+> `active_track_names('CCSICT')` therefore returns the three specialization names
+> plus the program codes for `BSDSA`, `BSIS` and `BLIS`, and that is what
+> `papers.track` is stamped with. The constant is retained only as an outage
+> fallback. This also affects the thesis paper and the Objective 2 Golden
+> Dataset, where 12 of 40 queries are categorized under the two dropped names —
+> see §6 of
+> [the paper-vs-system comparison](PAPER_VS_SYSTEM_COMPARISON_2026-08-25.md). `departments.title` carries the full college name
 (`name` is the short code and the foreign-key target for papers, profiles,
 chat sessions, scans, uploads, and the activity log, so it cannot hold prose).
 
