@@ -1,6 +1,6 @@
 # ISU Centralized AI-Powered Thesis Library
 
-Operational deployment, cancellation, malware scanning, retention, encrypted backup, and disposable restore procedures are in [the operations runbook](docs/OPERATIONS_SECURITY_RUNBOOK.md). Secret rotation is covered by [the secret-rotation runbook](docs/SECRET_ROTATION.md). Institutional approvals, privacy review, and the immutable 50-thesis defense corpus are controlled by [the PI-08 governance protocol](docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md). How the running system lines up against the thesis paper — and which paper revisions have been applied — is tracked in [the paper-vs-system comparison](PAPER_VS_SYSTEM_COMPARISON_2026-08-25.md); [the defense walkthrough](docs/DEFENSE_WALKTHROUGH.md) is the demo script.
+Operational deployment, cancellation, malware scanning, retention, encrypted backup, and disposable restore procedures are in [the operations runbook](docs/OPERATIONS_SECURITY_RUNBOOK.md). Secret rotation is covered by [the secret-rotation runbook](docs/SECRET_ROTATION.md). Institutional approvals, privacy review, and the immutable 50-thesis defense corpus are controlled by [the PI-08 governance protocol](docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md). [The defense walkthrough](docs/DEFENSE_WALKTHROUGH.md) is the demo script.
 
 A production web application implementing the thesis *"A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"* (Barlis & Gallardo, BSCS Data Mining Track) for the College of Computing Studies, Information and Communication Technology (CCSICT), Isabela State University, Echague.
 
@@ -195,9 +195,8 @@ would otherwise be refused.
 > plus the program codes for `BSDSA`, `BSIS` and `BLIS`, and that is what
 > `papers.track` is stamped with. The constant is retained only as an outage
 > fallback. This also affects the thesis paper and the Objective 2 Golden
-> Dataset, where 12 of 40 queries are categorized under the two dropped names —
-> see §6 of
-> [the paper-vs-system comparison](PAPER_VS_SYSTEM_COMPARISON_2026-08-25.md). `departments.title` carries the full college name
+> Dataset, where 12 of 40 queries are categorized under the two dropped names.
+> `departments.title` carries the full college name
 (`name` is the short code and the foreign-key target for papers, profiles,
 chat sessions, scans, uploads, and the activity log, so it cannot hold prose).
 
