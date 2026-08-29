@@ -9,6 +9,7 @@ Enforces:
   * Retrieval-assistant-only behavior: refuses to write thesis content and
     resists prompt injection (OWASP LLM Top 10).
 """
+# pylint: disable=too-many-lines
 
 import asyncio
 import logging
@@ -159,7 +160,8 @@ def _is_archive_inventory_question(question: str, prior_questions: list[str] | N
         return False
     direct_patterns = (
         r'\bhow many\b.*\b(?:thesis|theses|papers|studies)\b',
-        r'\b(?:list|show|which|what)\b.*\b(?:thesis|theses|papers|studies)\b.*\b(?:archive|available|here|indexed|system)\b',
+        r'\b(?:list|show|which|what)\b.*\b(?:thesis|theses|papers|studies)\b.*'
+        r'\b(?:archive|available|here|indexed|system)\b',
         r'\b(?:list|show|which|what)\b.*\b(?:available|indexed|archive)\b.*\b(?:thesis|theses|papers|studies)\b',
         r'\b(?:any|are there|is there)\b.*\b(?:thesis|theses|papers|studies)\b.*\b(?:other|others|more|than)\b',
         r'\b(?:any|are there|is there)\b.*\b(?:other|others|more)\b.*\b(?:thesis|theses|papers|studies)\b',
@@ -759,7 +761,7 @@ async def _repair_multi_paper_coverage(
         'question separately for every listed thesis, using only the retrieved context. Label '
         'each thesis by title and cite its own evidence with individual markers such as [1] [2]. '
         'Do not group citation markers or invent facts. Return only the complete answer.\n\n'
-        f'Selected thesis titles:\n- ' + '\n- '.join(titles) + '\n\n'
+        'Selected thesis titles:\n- ' + '\n- '.join(titles) + '\n\n'
         f'<retrieved_context>\n{context}\n</retrieved_context>\n\n'
         f'Question: {question}\n\nIncomplete draft:\n{answer}'
     )
@@ -813,7 +815,9 @@ async def _retrieve_evidence(
             # bracketed material inside archived text is part of the thesis.
             context_parts.append(re.sub(
                 r'(?m)^\[(\d+)\]',
-                lambda match: f'[{int(match.group(1)) + offset}]',
+                lambda match, source_offset=offset: (
+                    f'[{int(match.group(1)) + source_offset}]'
+                ),
                 context,
             ))
             sources.extend(
