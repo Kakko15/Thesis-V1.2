@@ -1,5 +1,4 @@
 import { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabaseClient'
 import { getFeaturePermissions } from '../api'
 import { avatarPublicUrl } from '../lib/avatar'
@@ -20,7 +19,6 @@ function getDisplayName(profile, user) {
 }
 
 export const AuthProvider = ({ children }) => {
-  const queryClient = useQueryClient()
   const initialE2EFixture = isE2ETestMode ? readE2EAuthFixture() : null
   const [user, setUser] = useState(() => initialE2EFixture?.user ?? null)
   const [profile, setProfile] = useState(() => initialE2EFixture?.profile ?? null)
@@ -31,23 +29,32 @@ export const AuthProvider = ({ children }) => {
   // True when the account has a verified TOTP factor but this session is
   // still aal1 — i.e. the user must pass the 2FA challenge before the app.
   const [needsMfa, setNeedsMfa] = useState(() => Boolean(initialE2EFixture?.needsMfa))
+  // App-level pass for logins that proved a second step Supabase cannot
+  // express as aal2 (an emailed code). Never persisted: a fresh page load of
+  // an aal1 session re-raises the challenge.
+  const [mfaBypass, setMfaBypass] = useState(false)
 
   const checkMfa = useCallback(async (currentUser) => {
     if (!currentUser) {
       setNeedsMfa(false)
+      setMfaBypass(false)
       return false
     }
     try {
       const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
       if (error || !data) {
         setNeedsMfa(false)
+        setMfaBypass(false)
         return false
       }
       const needed = data.nextLevel === 'aal2' && data.nextLevel !== data.currentLevel
       setNeedsMfa(needed)
+      // A genuine aal2 session retires any app-level pass.
+      if (!needed) setMfaBypass(false)
       return needed
     } catch {
       setNeedsMfa(false)
+      setMfaBypass(false)
       return false
     }
   }, [])
@@ -83,8 +90,6 @@ export const AuthProvider = ({ children }) => {
 
   const syncSession = useCallback(async (session) => {
     const currentUser = session?.user ?? null
-    const identityChanged = currentUser?.id !== user?.id
-    if (identityChanged) queryClient.clear()
     await checkMfa(currentUser)
     setUser(currentUser)
     if (currentUser) {
@@ -100,7 +105,7 @@ export const AuthProvider = ({ children }) => {
       setFeatures(null)
     }
     setLoading(false)
-  }, [checkMfa, fetchProfile, loadFeatures, queryClient, user?.id])
+  }, [checkMfa, fetchProfile, loadFeatures])
 
   const reloadSession = useCallback(async () => {
     if (isE2ETestMode) {
@@ -109,6 +114,7 @@ export const AuthProvider = ({ children }) => {
       setProfile(fixture?.profile ?? null)
       setFeatures(fixture?.features ?? null)
       setNeedsMfa(Boolean(fixture?.needsMfa))
+      setMfaBypass(false)
       setProfileError(false)
       setLoading(false)
       return
@@ -168,11 +174,14 @@ export const AuthProvider = ({ children }) => {
     department,
     status,
     loading,
-    needsMfa,
+    needsMfa: needsMfa && !mfaBypass,
     profileError,
     isPending: status === 'pending',
     isRejected: status === 'rejected',
     refreshMfa: () => checkMfa(user),
+    // Mark the second step as passed for this login when it was proven in a
+    // way Supabase cannot express as aal2 (an emailed code).
+    satisfyMfa: () => setMfaBypass(true),
     refreshProfile: () => { if (user) fetchProfile(user.id) },
     reloadSession,
     isAdmin: role === 'admin' || role === 'superadmin',
@@ -189,13 +198,11 @@ export const AuthProvider = ({ children }) => {
     signOut: async () => {
       if (isE2ETestMode) {
         clearE2EAuthFixture()
-        queryClient.clear()
         setUser(null)
         setProfile(null)
         setFeatures(null)
         return
       }
-      queryClient.clear()
       await supabase.auth.signOut()
     },
     broadcastFeatureUpdate: () => {

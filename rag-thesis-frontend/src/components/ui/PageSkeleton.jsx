@@ -280,9 +280,8 @@ const VARIANTS = {
 export function PageSkeleton({ variant = 'dashboard' }) {
   const Shape = VARIANTS[variant] || GenericSkeleton
   return (
-    <div role="status" aria-label="Loading page">
-      <span className="sr-only">Loading page</span>
-      <div aria-hidden="true"><Shape /></div>
+    <div aria-hidden="true">
+      <Shape />
     </div>
   )
 }

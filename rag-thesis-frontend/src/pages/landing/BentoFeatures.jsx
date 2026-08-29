@@ -11,14 +11,14 @@ import { cn } from '../../lib/utils'
 const citationChip =
   'rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-xs font-semibold text-gold-text dark:text-gold-300'
 
-/** Bento grid — the five paper-mandated guarantees, each with a live mini-visual. */
+/** Bento grid — research-integrity controls represented with illustrative visuals. */
 export function BentoFeatures() {
   return (
     <section id="features" className="relative scroll-mt-24 px-6 py-24">
       <Aurora subtle />
       <div className="relative mx-auto max-w-6xl">
         <SectionHeading eyebrow="Built for research integrity" className="mb-14">
-          Built to be <em className="font-accent text-gradient-isu">auditable</em>
+          Built for <em className="font-accent text-gradient-isu">traceability</em>
           <span className="text-gold-400">.</span>
         </SectionHeading>
 
@@ -30,12 +30,11 @@ export function BentoFeatures() {
                 <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-forest-500/15 blur-3xl transition-all duration-700 group-hover:bg-forest-500/25" />
                 <MessageSquareText size={26} className="mb-4 text-gold-400" />
                 <h3 className="font-display text-2xl font-extrabold">
-                  Semantic search that understands intent
+                  Semantic retrieval for research questions
                 </h3>
                 <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">
-                  No more rigid keyword catalogs. Ask "what local studies used CNNs for crop
-                  disease detection?" and get a synthesized answer that cites the exact CCSICT
-                  theses — methodologies, scopes, and findings included.
+                  Ask research questions in plain language. When qualifying archive passages are
+                  found, IskAI generates a citation-marked response tied to matching thesis metadata.
                 </p>
                 <div className="glass relative mt-6 overflow-hidden rounded-2xl p-4 text-sm">
                   <div className="flex items-start gap-3">
@@ -43,10 +42,10 @@ export function BentoFeatures() {
                       <Sparkles size={14} className="text-gold-300" />
                     </div>
                     <p className="opacity-80">
-                      Two archived studies applied convolutional networks to agricultural imagery
+                      Example: retrieved archive passages are summarized with source markers
                       <span className={cn(citationChip, 'mx-1')}>[1]</span>
                       <span className={citationChip}>[2]</span>
-                      — both within the Data Mining track…
+                      for the matching studies…
                     </p>
                   </div>
                   <span
@@ -63,10 +62,10 @@ export function BentoFeatures() {
             <TiltCard>
               <GlassCard hover className="relative h-full overflow-hidden p-8">
                 <ShieldCheck size={26} className="mb-4 text-flame-500" />
-                <h3 className="font-display text-xl font-extrabold">85% similarity alert</h3>
+                <h3 className="font-display text-xl font-extrabold">Similarity alert, 85% by default</h3>
                 <p className="mt-2 text-sm leading-relaxed text-ink-muted">
-                  Potentially overlapping topics are flagged with the measured similarity and a
-                  summary of matched work. The result supports adviser review; it does not replace it.
+                  A matching archive passage can trigger an advisory alert with its measured score
+                  and matched-study metadata. Faculty review remains the final decision.
                 </p>
                 <div className="mt-5">
                   <ProgressRing value={85} size={104} strokeWidth={9} label="similarity" />
@@ -80,14 +79,14 @@ export function BentoFeatures() {
             <TiltCard>
               <GlassCard hover className="h-full overflow-hidden p-8">
                 <Quote size={26} className="mb-4 text-gold-400" />
-                <h3 className="font-display text-xl font-extrabold">Traceable citations, always</h3>
+                <h3 className="font-display text-xl font-extrabold">Traceable citation metadata</h3>
                 <p className="mt-2 text-sm leading-relaxed text-ink-muted">
-                  Responses include archived source metadata — title, authors, track, and year —
-                  so readers can inspect the evidence instead of trusting the model blindly.
+                  Evidence-backed answers show available source metadata — title, authors, track,
+                  and year — plus indexed citation locations where available.
                 </p>
                 {/* Chip fan spreads on hover */}
                 <div aria-hidden="true" className="relative mt-6 h-16">
-                  {['Title · Year', 'Authors · Track', 'Exact passage'].map((label, i) => (
+                  {['Title · Year', 'Authors · Track', 'Citation location'].map((label, i) => (
                     <span
                       key={label}
                       className={cn(
@@ -123,11 +122,11 @@ export function BentoFeatures() {
                 </div>
                 <h3 className="font-display text-xl font-extrabold">Indirect by design</h3>
                 <p className="mt-2 text-sm leading-relaxed text-ink-muted">
-                  Full manuscripts are never viewable or downloadable. Knowledge flows through
-                  AI-mediated synthesis only — protecting every author's intellectual property.
+                  Users cannot view or download full manuscripts through the application. The archive
+                  provides metadata, optional abstracts, citation locations, and research answers.
                 </p>
                 <div aria-hidden="true" className="mt-5 inline-flex items-center gap-2 rounded-full bg-forest-500/10 px-3 py-1.5 text-[0.65rem] font-bold uppercase tracking-wider text-forest-700 dark:text-forest-300">
-                  <Lock size={11} /> Sealed archive
+                  <Lock size={11} /> Protected archive access
                 </div>
               </GlassCard>
             </TiltCard>
@@ -140,22 +139,22 @@ export function BentoFeatures() {
                 <div aria-hidden="true" className="bg-grid mask-fade-b absolute inset-0 opacity-60" />
                 <div className="relative">
                   <BrainCircuit size={26} className="mb-4 text-forest-500 dark:text-forest-300" />
-                  <h3 className="font-display text-xl font-extrabold">Closed-domain honesty</h3>
+                  <h3 className="font-display text-xl font-extrabold">Archive-grounded answers</h3>
                   <p className="mt-2 text-sm leading-relaxed text-ink-muted">
-                    IskAI is constrained to retrieved archive context and instructed to
-                    decline unsupported questions. Citations and review make remaining errors visible.
+                    IskAI has no open-web search integration and is prompted to answer from retrieved
+                    archive context. When no qualifying evidence is found, it returns a clear no-result notice.
                   </p>
-                  {/* Internet toggle, permanently OFF */}
+                  {/* Research evidence comes from the indexed archive, not public-web search. */}
                   <div aria-hidden="true" className="mt-5 flex items-center gap-3">
                     <span className="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-forest-900/15 dark:bg-white/10">
                       <span className="absolute left-1 h-4 w-4 rounded-full bg-white shadow dark:bg-ivory-200" />
                     </span>
                     <span className="flex items-center gap-1.5 text-xs font-semibold text-ink-muted">
                       <Globe size={13} />
-                      <span className="line-through">Internet access</span>
+                      <span className="line-through">Open-web search</span>
                     </span>
                     <span className="ml-auto rounded-md bg-forest-500/15 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-forest-700 dark:text-forest-300">
-                      Archive only
+                      Indexed archive
                     </span>
                   </div>
                 </div>

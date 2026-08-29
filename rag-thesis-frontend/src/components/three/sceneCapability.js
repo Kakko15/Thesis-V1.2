@@ -99,11 +99,12 @@ export function readBrowserSignals(navigatorLike = globalThis.navigator) {
   }
 }
 
-/** Feature-detect WebGL without retaining the probe context. */
+/** Feature-detect WebGL with the same non-interactive attributes as the scene. */
 export function detectWebgl(documentLike = globalThis.document) {
   try {
     const canvas = documentLike.createElement('canvas')
-    return Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl'))
+    const options = { antialias: false, powerPreference: 'default' }
+    return Boolean(canvas.getContext('webgl2', options) || canvas.getContext('webgl', options))
   } catch {
     return false
   }

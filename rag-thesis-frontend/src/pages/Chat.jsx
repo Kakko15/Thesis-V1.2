@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import {
   Send, Plus, MessageSquareText, Trash2, PencilLine,
   AlertTriangle, BookMarked, History, Info, GraduationCap, Loader2, Square, X,
+  Copy, Check,
 } from 'lucide-react'
 import {
   chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getDepartments, getPublicSettings
@@ -290,7 +291,82 @@ function DuplicationBanner({ alert }) {
 /* ------------------------------------------------------------------ */
 /* Message bubbles                                                     */
 /* ------------------------------------------------------------------ */
-function UserBubble({ text }) {
+/** Google Fonts (Material Symbols) "edit" glyph as inline SVG — same technique
+    as AuthFx's GoogleIcon, so no icon webfont is shipped for this one glyph. */
+const MATERIAL_EDIT_PATH =
+  'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 ' +
+  '0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z'
+
+function MaterialEditIcon({ size = 13 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d={MATERIAL_EDIT_PATH} />
+    </svg>
+  )
+}
+
+/** Google/Gemini-style icon action: the label appears as a small dark tooltip
+    pill below the icon on hover (and on keyboard focus), with a short delay. */
+function PromptAction({ label, onClick, children }) {
+  return (
+    <span className="group/prompt-action relative">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className="flex h-7 w-7 items-center justify-center rounded-full text-ink-faint transition hover:bg-forest-900/8 hover:text-forest-700 dark:hover:bg-white/10 dark:hover:text-forest-300"
+      >
+        {children}
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute top-full left-1/2 z-20 mt-1 -translate-x-1/2 rounded-lg bg-[#20221f]/95 px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white opacity-0 shadow-lg transition-opacity duration-150 delay-300 group-hover/prompt-action:opacity-100 group-hover/prompt-action:delay-500 group-focus-within/prompt-action:opacity-100"
+      >
+        {label}
+      </span>
+    </span>
+  )
+}
+
+function UserBubble({ text, onCopy, onUpdate, copied }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(text)
+  const editRef = useRef(null)
+
+  useEffect(() => {
+    if (editing && editRef.current) {
+      // Focus at the end of the existing text — no select-all, matching
+      // Gemini's edit card where the cursor simply lands after the prompt.
+      const el = editRef.current
+      el.focus()
+      el.setSelectionRange(el.value.length, el.value.length)
+    }
+  }, [editing])
+
+  // Content-sized card: the textarea hugs its text and grows with it instead
+  // of opening a large fixed box. scrollHeight drives the row count.
+  useEffect(() => {
+    const el = editRef.current
+    if (!editing || !el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft, editing])
+
+  const startEdit = () => {
+    setDraft(text)
+    setEditing(true)
+  }
+  const cancelEdit = () => {
+    setDraft(text)
+    setEditing(false)
+  }
+  const submitEdit = () => {
+    const updated = draft.trim()
+    if (!updated) return
+    setEditing(false)
+    onUpdate(updated)
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12, scale: 0.98 }}
@@ -298,8 +374,48 @@ function UserBubble({ text }) {
       transition={{ duration: 0.35, ease: [0.2, 0, 0, 1] }}
       className="flex justify-end"
     >
-      <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-gradient-to-br from-forest-600 to-forest-800 px-5 py-3 text-sm leading-relaxed text-white shadow-lg shadow-forest-900/20 sm:max-w-[70%]">
-        {text}
+      <div className="max-w-[85%] sm:max-w-[70%]">
+        {editing ? (
+          <div className="min-w-64 rounded-[1.4rem] border border-forest-500/70 bg-forest-950/[0.03] px-4 pt-3 pb-2 sm:min-w-80 dark:bg-white/[0.03]">
+            <textarea
+              ref={editRef}
+              rows={1}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitEdit() }
+                if (e.key === 'Escape') cancelEdit()
+              }}
+              aria-label="Edit prompt text"
+              className="block max-h-40 w-full resize-none overflow-y-auto bg-transparent text-sm leading-relaxed outline-none"
+            />
+            <div className="mt-1.5 flex justify-end gap-2">
+              <Button type="button" variant="ghost" size="sm" onClick={cancelEdit}>
+                Cancel
+              </Button>
+              <Button type="button" size="sm" disabled={!draft.trim()} onClick={submitEdit}>
+                Update
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="rounded-3xl rounded-br-lg bg-gradient-to-br from-forest-600 to-forest-800 px-5 py-3 text-sm leading-relaxed text-white shadow-lg shadow-forest-900/20">
+              {text}
+            </div>
+            <div className="mt-1.5 flex justify-end gap-1">
+              <PromptAction
+                label={copied ? 'Copied' : 'Copy prompt'}
+                onClick={onCopy}
+              >
+                {copied ? <Check size={13} className="text-forest-600" /> : <Copy size={13} />}
+              </PromptAction>
+              <PromptAction label="Edit prompt" onClick={startEdit}>
+                <MaterialEditIcon />
+              </PromptAction>
+            </div>
+          </>
+        )}
       </div>
     </motion.div>
   )
@@ -331,6 +447,11 @@ function AiBubble({ message, animate }) {
           <div className="prose-chat">
             <ReactMarkdown>{message.answer}</ReactMarkdown>
           </div>
+          {message.archive_current && (
+            <div className="mt-3 flex items-center gap-1.5 text-xs font-medium text-forest-700 dark:text-forest-300">
+              <BookMarked size={12} aria-hidden="true" /> Searched the current indexed archive
+            </div>
+          )}
           {message.no_relevant_thesis && (
             <div className="mt-3 flex items-center gap-2 rounded-xl bg-gold-400/10 px-3 py-2 text-xs font-medium text-gold-text dark:text-gold-300">
               <Info size={13} className="shrink-0" />
@@ -478,6 +599,8 @@ export default function Chat() {
   const [busy, setBusy] = useState(false)
   const [awaitingCheck, setAwaitingCheck] = useState(false)
   const [gateStatus, setGateStatus] = useState('pending')
+  const [copiedMessageId, setCopiedMessageId] = useState(null)
+  const copiedMessageTimeoutRef = useRef(null)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
   const requestControllerRef = useRef(null)
@@ -524,7 +647,42 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, sending])
 
-  useEffect(() => () => requestControllerRef.current?.abort('unmount'), [])
+  useEffect(() => () => {
+    requestControllerRef.current?.abort('unmount')
+    clearTimeout(copiedMessageTimeoutRef.current)
+  }, [])
+
+  const copyPrompt = async (message) => {
+    try {
+      await navigator.clipboard.writeText(message.text)
+    } catch {
+      const helper = document.createElement('textarea')
+      helper.value = message.text
+      helper.style.position = 'fixed'
+      helper.style.opacity = '0'
+      document.body.appendChild(helper)
+      helper.select()
+      document.execCommand('copy')
+      document.body.removeChild(helper)
+    }
+    clearTimeout(copiedMessageTimeoutRef.current)
+    setCopiedMessageId(message.id)
+    copiedMessageTimeoutRef.current = setTimeout(() => setCopiedMessageId(null), 1600)
+  }
+
+  const updatePrompt = (original, updated) => {
+    const controller = requestControllerRef.current
+    const wasPending = controller && pendingQuestionRef.current === original.text
+    if (wasPending) {
+      controller.abort('edit-prompt')
+      requestControllerRef.current = null
+      pendingQuestionRef.current = ''
+      setSending(false)
+      setChatError(null)
+    }
+    if (updated === original.text && !wasPending) return
+    send(updated)
+  }
 
   const loadSession = async (session) => {
     setSessionId(session.id)
@@ -551,6 +709,8 @@ export default function Chat() {
 
   const newConversation = () => {
     requestControllerRef.current?.abort('conversation-reset')
+    clearTimeout(copiedMessageTimeoutRef.current)
+    setCopiedMessageId(null)
     requestControllerRef.current = null
     pendingQuestionRef.current = ''
     awaitingCheckRef.current = false
@@ -602,7 +762,7 @@ export default function Chat() {
           ?.sources
           .map((source) => source.id)
           .filter((id, index, ids) => id && ids.indexOf(id) === index)
-          .slice(0, 5) || []
+          .slice(0, 10) || []
       const res = await chatQuery(
         question,
         sessionId,
@@ -861,7 +1021,15 @@ export default function Chat() {
           ) : (
             messages.map((m) =>
               m.kind === 'user'
-                ? <UserBubble key={m.id} text={m.text} />
+                ? (
+                  <UserBubble
+                    key={m.id}
+                    text={m.text}
+                    copied={copiedMessageId === m.id}
+                    onCopy={() => copyPrompt(m)}
+                    onUpdate={(updated) => updatePrompt(m, updated)}
+                  />
+                )
                 : <AiBubble key={m.id} message={m} animate={m.isNew} />,
             )
           )}

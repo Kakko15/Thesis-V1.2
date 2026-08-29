@@ -35,7 +35,7 @@ Key paper parameters enforced in code:
 - **Data cleaning pipeline** — page numbers, headers/footers, TOC and bibliography stripped; chunks with >15% non-alphanumeric characters discarded; `FIGURE REDACTED FOR SEMANTIC INDEXING` placeholders injected.
 - **Indirect access model** — private storage bucket; API responses expose citation metadata only.
 - **Knowledge isolation** — the LLM answers exclusively from retrieved CCSICT context.
-- **Current stable model defaults** — `gemini-3.6-flash` for grounded chat, `gemini-3.5-flash-lite` for bounded verdict/extraction work, and `gemini-embedding-2` at 768 dimensions. Deployment overrides must be captured in the release fingerprint.
+- **Current stable model defaults** — `gemini-3.6-flash` for grounded chat, `gemini-3.5-flash-lite` for bounded verdict/extraction work, and `gemini-embedding-001` at 768 dimensions. Deployment overrides must be captured in the release fingerprint.
 
 ## Setup
 
@@ -52,9 +52,14 @@ Key paper parameters enforced in code:
    | `programs`, `specializations` | `20260725_normalized_academic_catalog.sql` |
    | `backup_runs` | `20260804_backup_runs.sql` |
 
-3. For an existing project, apply the numbered migrations in filename order. **Order matters and partial replays are unsafe:** `20260718` carries a copy of `commit_paper_ingestion` that predates index provenance, so re-running it after `20260720` reverts the function and every `papers` insert then fails its foreign key. Likewise `20260717` seeds a department row without the `code` column that `20260725` later makes `NOT NULL`. Apply only the files a project is actually missing, in order. `tests/test_schema_consistency.py` guards the related drift between `supabase_setup.sql` and the migrations. Validate the durable-ingestion and normalized-catalog migrations in a disposable project before production; retain the catalog rollback only until UUID classifications become authoritative.
+3. For an existing project, apply the numbered migrations in filename order. **Order matters and partial replays are unsafe:** `20260718` carries a copy of `commit_paper_ingestion` that predates index provenance, so re-running it after `20260720` reverts the function and every `papers` insert then fails its foreign key. Likewise `20260717` seeds a department row without the `code` column that `20260725` later makes `NOT NULL`. Apply only the files a project is actually missing, in order. `tests/test_schema_consistency.py` guards the related drift between `supabase_setup.sql` and the migrations. Apply `20260829_reindex_updates_chunk_count.sql` before a model reindex so each rebuilt active index updates its displayed vector-chunk total transactionally. Validate the durable-ingestion and normalized-catalog migrations in a disposable project before production; retain the catalog rollback only until UUID classifications become authoritative.
 4. Deploy the API and ingestion worker before accepting uploads; applying the durable-queue migration without the worker leaves accepted jobs safely queued.
-5. After signing up your first user through the app, promote them:
+5. To change embedding models, take the API and ingestion worker offline, set the same `GEMINI_EMBED_MODEL` for both, verify the target returns 768 values with `python scripts/gemini_release_smoke.py`, then reindex every ready paper before restoring traffic:
+   ```powershell
+   python -m scripts.reindex_citations --apply --all --allow-model-change
+   ```
+   Existing vectors remain as rollback versions. If the command is interrupted, resume only the same model migration with `--resume`; it rejects state produced by another index configuration.
+6. After signing up your first user through the app, promote them:
    ```sql
    update public.profiles set role = 'admin' where email = 'you@isu.edu.ph';
    ```

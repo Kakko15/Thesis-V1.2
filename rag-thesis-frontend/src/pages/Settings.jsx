@@ -1,4 +1,3 @@
-import { useRef } from 'react'
 import { useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -27,7 +26,6 @@ const DEFAULT_SECTION = SECTIONS[0].id
 
 export default function Settings() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabRefs = useRef([])
   // The active section is derived from the URL, so deep links like
   // /settings?section=security, back/forward navigation, and shared links all
   // stay in sync without any local state.
@@ -36,18 +34,6 @@ export default function Settings() {
 
   const select = (id) => {
     setSearchParams(id === DEFAULT_SECTION ? {} : { section: id }, { replace: true })
-  }
-
-  const handleTabKeyDown = (event, index) => {
-    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
-    event.preventDefault()
-    const nextIndex = event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? SECTIONS.length - 1
-        : (index + (event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1) + SECTIONS.length) % SECTIONS.length
-    select(SECTIONS[nextIndex].id)
-    tabRefs.current[nextIndex]?.focus()
   }
 
   const ActiveSection = SECTIONS.find((section) => section.id === active)?.component || ProfileSection
@@ -66,20 +52,15 @@ export default function Settings() {
       <div className="grid items-start gap-5 lg:grid-cols-[16rem_1fr]">
         {/* Section rail */}
         <GlassCard className="flex gap-1 overflow-x-auto p-2 lg:sticky lg:top-6 lg:flex-col lg:overflow-visible" role="tablist" aria-label="Settings sections">
-          {SECTIONS.map(({ id, label, description, icon: Icon }, index) => {
+          {SECTIONS.map(({ id, label, description, icon: Icon }) => {
             const selected = active === id
             return (
               <button
                 key={id}
-                id={`settings-tab-${id}`}
-                ref={(element) => { tabRefs.current[index] = element }}
                 type="button"
                 role="tab"
                 aria-selected={selected}
-                aria-controls={`settings-panel-${id}`}
-                tabIndex={selected ? 0 : -1}
                 onClick={() => select(id)}
-                onKeyDown={(event) => handleTabKeyDown(event, index)}
                 className={cn(
                   'group relative flex min-w-44 items-center gap-3 rounded-2xl px-3.5 py-2.5 text-left transition-all duration-200 lg:min-w-0',
                   selected
@@ -100,13 +81,7 @@ export default function Settings() {
         </GlassCard>
 
         {/* Active section */}
-        <div
-          id={`settings-panel-${active}`}
-          role="tabpanel"
-          aria-labelledby={`settings-tab-${active}`}
-          tabIndex={0}
-          className="min-w-0"
-        >
+        <div className="min-w-0">
           <AnimatePresence mode="wait">
             <motion.div
               key={active}

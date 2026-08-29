@@ -55,11 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def load_state(path: Path = STATE_FILE) -> dict:
     if not path.exists():
-        return {'completed': [], 'failed': {}}
+        return {'index_fingerprint': current_index_fingerprint(), 'completed': [], 'failed': {}}
     try:
         return json.loads(path.read_text(encoding='utf-8'))
     except (OSError, json.JSONDecodeError):
-        return {'completed': [], 'failed': {}}
+        return {'index_fingerprint': current_index_fingerprint(), 'completed': [], 'failed': {}}
 
 
 def save_state(state: dict, path: Path = STATE_FILE) -> None:
@@ -134,12 +134,15 @@ def dry_run_fixtures(fixture_dir: Path) -> list[dict]:
 
 def fetch_papers(client, paper_id: str | None, all_papers: bool) -> list[dict]:
     query = client.table('papers').select(
-        'id,title,authors,year,track,department,filename,storage_path,active_index_version'
+        'id,title,authors,year,track,department,filename,storage_path,active_index_version,chunk_count'
     )
     if paper_id:
         query = query.eq('id', paper_id)
     elif not all_papers:
         return []
+    else:
+        # Only ready papers have a complete, active archive index to migrate.
+        query = query.eq('ingestion_status', 'ready')
     return query.execute().data or []
 
 
@@ -163,6 +166,8 @@ def apply_paper(client, paper: dict, *, allow_model_change: bool = False) -> dic
     if active_provenance and not is_embedding_compatible(active_provenance) \
             and not allow_model_change:
         raise ValueError('Embedding model change requires --allow-model-change')
+    if active_provenance and is_embedding_compatible(active_provenance):
+        return None
 
     storage_path = paper.get('storage_path')
     if not storage_path:
@@ -259,9 +264,18 @@ def run_apply(args, client, state_path: Path = STATE_FILE) -> dict:
     if args.older_than_days < 1:
         raise ValueError('--older-than-days must be at least 1')
 
-    state = load_state(state_path) if args.resume else {'completed': [], 'failed': {}}
+    fingerprint = current_index_fingerprint()
+    state = load_state(state_path) if args.resume else {
+        'index_fingerprint': fingerprint, 'completed': [], 'failed': {},
+    }
+    if state.get('index_fingerprint') != fingerprint:
+        raise ValueError(
+            'The saved re-index state belongs to a different index configuration. '
+            'Start a new run without --resume.'
+        )
     completed = set(state.get('completed', []))
     reports = []
+    skipped = []
     for paper in fetch_papers(client, args.paper_id, args.all):
         if args.resume and paper['id'] in completed:
             continue
@@ -269,6 +283,13 @@ def run_apply(args, client, state_path: Path = STATE_FILE) -> dict:
             report = apply_paper(
                 client, paper, allow_model_change=args.allow_model_change,
             )
+            if report is None:
+                skipped.append(paper['id'])
+                state.setdefault('failed', {}).pop(paper['id'], None)
+                completed.add(paper['id'])
+                state['completed'] = sorted(completed)
+                save_state(state, state_path)
+                continue
             reports.append(report)
             completed.add(paper['id'])
             state.setdefault('failed', {}).pop(paper['id'], None)
@@ -283,7 +304,12 @@ def run_apply(args, client, state_path: Path = STATE_FILE) -> dict:
             'p_older_than_days': args.older_than_days,
         }).execute()
         pruned = result.data
-    return {'reindexed': reports, 'failed': state.get('failed', {}), 'pruned_chunks': pruned}
+    return {
+        'reindexed': reports,
+        'skipped': skipped,
+        'failed': state.get('failed', {}),
+        'pruned_chunks': pruned,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

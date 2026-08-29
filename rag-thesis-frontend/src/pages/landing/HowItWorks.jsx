@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  motion, useMotionValueEvent, useScroll, useTransform,
+  motion, useMotionValueEvent, useScroll, useSpring, useTransform,
 } from 'framer-motion'
 import { BrainCircuit, Database, ScanSearch, ShieldCheck } from 'lucide-react'
 import { GlassCard } from '../../components/ui/GlassCard'
@@ -73,35 +73,35 @@ function GuardViz() {
   return <ProgressRing value={85} size={104} strokeWidth={9} label="threshold" />
 }
 
-/* ---- Copy (verbatim from the thesis paper pipeline) ---------------- */
+/* ---- Copy aligned with the active retrieval pipeline ---------------- */
 
 const PIPELINE_STEPS = [
   {
     icon: Database,
-    title: 'Digitize and index',
+    title: 'Digitize and prepare',
     tag: '800-token chunks · 768-dim vectors',
-    text: 'CCSICT manuscripts are extracted, cleaned, and split into 800-token semantic chunks — each tagged with title, author, track, and year, then embedded into a 768-dimension vector space.',
+    text: 'CCSICT manuscripts are extracted, cleaned, and split into chunks of up to 800 tokenizer-proxy tokens, with a 100-token overlap. Each is tagged with title, author, track, and year, then embedded as a 768-dimension vector.',
     visual: ChunkViz,
   },
   {
     icon: ScanSearch,
     title: 'Retrieve by meaning',
     tag: 'Cosine similarity, not keywords',
-    text: 'Your question becomes a vector too. Cosine similarity finds the closest thesis passages by meaning — not keywords — across the entire archive, full text included.',
+    text: 'Your question becomes a vector too. Cosine similarity finds compatible indexed thesis passages in your department by meaning — not keywords — and supplies the selected passages to Gemini securely.',
     visual: RetrieveViz,
   },
   {
     icon: BrainCircuit,
     title: 'Synthesize with proof',
     tag: 'Gemini · in-line citations',
-    text: 'Gemini writes the answer strictly from the retrieved passages, citing each source in-line. If nothing relevant exists, the system says so instead of inventing an answer.',
+    text: 'Gemini is instructed to synthesize from retrieved passages, with in-line citations validated by the system. If no qualifying passage is found, the system says so instead of inventing an answer.',
     visual: SynthViz,
   },
   {
     icon: ShieldCheck,
     title: 'Flag related topics',
     tag: '85% similarity threshold',
-    text: 'Queries are compared at the configured cosine-similarity threshold. High-similarity results show the measured score and matched study for human review.',
+    text: 'Potentially related passages are flagged for human review when cosine similarity reaches 85% or higher. Results show the measured score and matched study; the flag is advisory.',
     visual: GuardViz,
   },
 ]
@@ -117,9 +117,13 @@ function StepPanel({ step, index, scrollYProgress }) {
   const clamp01 = (v) => Math.max(0, Math.min(1, v))
   // Explicit mapping (not keyframe arrays): the first panel's asymmetric
   // [1,1,1,0] keyframes made framer extrapolate past its window.
+  // Windows overlap across each boundary (start-FADE … end+FADE) so the
+  // outgoing and incoming panels cross-fade through 50% opacity — with the
+  // previous sequential windows both panels hit 0 at the boundary and the
+  // stage visibly flashed empty.
   const fades = (p) => ({
-    fadeIn: first ? 1 : clamp01((p - start) / FADE),
-    fadeOut: last ? 1 : clamp01((end - p) / FADE),
+    fadeIn: first ? 1 : clamp01((p - (start - FADE)) / (2 * FADE)),
+    fadeOut: last ? 1 : clamp01(((end + FADE) - p) / (2 * FADE)),
   })
   const opacity = useTransform(scrollYProgress, (p) => {
     const { fadeIn, fadeOut } = fades(p)
@@ -132,7 +136,10 @@ function StepPanel({ step, index, scrollYProgress }) {
   const Visual = step.visual
 
   return (
-    <motion.div style={{ opacity, y }} className="absolute inset-0">
+    <motion.div
+      style={{ opacity, y, willChange: 'transform, opacity' }}
+      className="absolute inset-0 transform-gpu"
+    >
       <GlassCard strong className="relative flex h-full flex-col justify-center overflow-hidden p-8 sm:p-10">
         <div
           aria-hidden="true"
@@ -156,11 +163,20 @@ function StepPanel({ step, index, scrollYProgress }) {
 function PinnedPipeline() {
   const ref = useRef(null)
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end end'] })
+  // Spring-smoothed progress: scroll events arrive in discrete jumps, so
+  // scrubbing raw progress looks stepped. The spring re-interpolates every
+  // animation frame. Tuned stiff and overdamped so it tracks the scroll
+  // almost 1:1 (~0.1s settle) — smooths wheel steps without feeling delayed.
+  const smoothProgress = useSpring(scrollYProgress, {
+    stiffness: 350,
+    damping: 50,
+    restDelta: 0.0001,
+  })
   const [active, setActive] = useState(0)
-  useMotionValueEvent(scrollYProgress, 'change', (p) =>
+  useMotionValueEvent(smoothProgress, 'change', (p) =>
     setActive(Math.max(0, Math.min(3, Math.floor(p * 4)))),
   )
-  const beamScale = useTransform(scrollYProgress, [0.02, 0.98], [0, 1])
+  const beamScale = useTransform(smoothProgress, [0.02, 0.98], [0, 1])
 
   return (
     <div ref={ref} className="relative h-[340vh]">
@@ -212,7 +228,7 @@ function PinnedPipeline() {
             {/* Stage — panels cross-fade as the section scrubs */}
             <div className="relative h-[26rem]">
               {PIPELINE_STEPS.map((step, i) => (
-                <StepPanel key={step.title} step={step} index={i} scrollYProgress={scrollYProgress} />
+                <StepPanel key={step.title} step={step} index={i} scrollYProgress={smoothProgress} />
               ))}
             </div>
           </div>

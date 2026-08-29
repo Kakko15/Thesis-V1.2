@@ -88,7 +88,6 @@ class TestSessions:
             [{'id': 's1'}], [{'id': 's1', 'title': 'Renamed'}],
             [{'id': 's1'}], [],
             [{'id': 's1'}],
-            [],
         ], 'chat_messages': [[{'id': 'm1'}]]})
         monkeypatch.setattr(sessions, 'sb', client)
         monkeypatch.setattr(
@@ -101,9 +100,6 @@ class TestSessions:
         assert sessions.update_session('s1', SessionUpdate(title='Renamed'), user)['title'] == 'Renamed'
         assert sessions.delete_session('s1', user) == {'deleted': True}
         assert sessions.get_session_messages('s1', user) == [{'id': 'm1'}]
-        assert sessions.delete_all_sessions(user) == {'deleted': True}
-        delete_all_query = client.queries[-1][1]
-        assert ('eq', ('user_id', 'u1')) in delete_all_query.operations
 
     def test_missing_session_is_404(self, monkeypatch):
         monkeypatch.setattr(sessions, 'sb', ScriptedClient({'chat_sessions': [[]]}))

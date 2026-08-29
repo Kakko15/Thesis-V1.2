@@ -91,7 +91,7 @@ class TestEarlyChatPaths:
             },
         ]
         monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
-        monkeypatch.setattr(chat, 'list_archive_papers', lambda *_args: (len(papers), len(papers), papers))
+        monkeypatch.setattr(chat, 'list_archive_papers', lambda *_args: (len(papers), papers))
         async def should_not_retrieve(*_args):
             raise AssertionError('inventory requests must not run vector retrieval')
         monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
@@ -104,30 +104,55 @@ class TestEarlyChatPaths:
         assert '**2 indexed theses**' in response.answer
         assert [source['id'] for source in response.sources] == ['p1', 'p2']
 
-    def test_other_papers_followup_excludes_prior_sources(self, monkeypatch):
-        captured = {}
+    def test_count_followup_lists_theses_instead_of_retrieving_prior_manuscript(self, monkeypatch):
+        papers = [
+            {'citation_id': 1, 'id': 'p1', 'title': 'Archive Study One', 'authors': 'Author One'},
+            {'citation_id': 2, 'id': 'p2', 'title': 'Archive Study Two', 'authors': 'Author Two'},
+        ]
         monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
-        monkeypatch.setattr(chat, '_ensure_session_owner', lambda *_args: None)
-        monkeypatch.setattr(chat, '_load_chat_history', lambda *_args: [{
-            'question': 'What theses are available?',
-            'answer': 'One thesis [1].',
-            'sources': [{'id': 'p1'}],
-        }])
-        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [{'id': 'p1'}])
+        monkeypatch.setattr(chat, 'list_archive_papers', lambda *_args: (len(papers), papers))
 
-        def inventory(*args):
-            captured['excluded'] = args[3]
-            return 1, 0, []
+        async def should_not_retrieve(*_args):
+            raise AssertionError('count follow-ups must list the live archive, not retrieve a manuscript')
 
-        monkeypatch.setattr(chat, 'list_archive_papers', inventory)
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
         response = run(chat._chat_impl(
-            ChatRequest(question='Are there any other theses?', session_id='s1'),
-            _NoRequest(), BackgroundTasks(), SimpleNamespace(id='u1'),
+            ChatRequest(
+                question='what are those, can you named it',
+                guest_history=['How many theses are on this thesis library system?'],
+                guest_source_ids=['p1'],
+            ),
+            _NoRequest(), BackgroundTasks(), None,
         ))
-        assert captured['excluded'] == ['p1']
-        assert response.no_relevant_thesis is True
-        assert '**1 indexed thesis**' in response.answer
-        assert 'no additional theses' in response.answer
+
+        assert 'Archive Study One' in response.answer
+        assert 'Archive Study Two' in response.answer
+        assert [source['id'] for source in response.sources] == ['p1', 'p2']
+
+    def test_count_confirmation_rechecks_live_total_without_manuscript_retrieval(self, monkeypatch):
+        papers = [
+            {'citation_id': 1, 'id': 'p1', 'title': 'Archive Study One', 'authors': 'Author One'},
+            {'citation_id': 2, 'id': 'p2', 'title': 'Archive Study Two', 'authors': 'Author Two'},
+        ]
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, 'list_archive_papers', lambda *_args: (len(papers), papers))
+
+        async def should_not_retrieve(*_args):
+            raise AssertionError('count confirmations must read live metadata, not a manuscript')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(
+                question='only two for now?',
+                guest_history=['How many theses are on this thesis library system?'],
+                guest_source_ids=['p1', 'p2'],
+            ),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert '**2 indexed theses**' in response.answer
+        assert 'Archive Study One' not in response.answer
+        assert response.sources == []
 
 
 class TestRetrievalAndGenerationFlow:
@@ -156,6 +181,38 @@ class TestRetrievalAndGenerationFlow:
         ))
         assert response.answer.endswith('[1].')
         assert [source['id'] for source in response.sources] == ['p1']
+        assert response.archive_current is True
+
+    def test_repeated_question_uses_newly_available_current_evidence(self, monkeypatch):
+        calls = 0
+
+        async def retrieve(*_args):
+            nonlocal calls
+            calls += 1
+            paper_id = 'p1' if calls == 1 else 'p2'
+            title = 'Earlier Thesis' if calls == 1 else 'Newly Indexed Thesis'
+            return ('[1] Current evidence', [{
+                'citation_id': 1, 'id': paper_id, 'chunk_id': calls, 'title': title,
+            }], 0.9), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='The current evidence supports this finding [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        first = run(chat._chat_impl(
+            ChatRequest(question='What systems support campus safety?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        second = run(chat._chat_impl(
+            ChatRequest(question='What systems support campus safety?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert calls == 2
+        assert first.sources[0]['id'] == 'p1'
+        assert second.sources[0]['id'] == 'p2'
+        assert second.archive_current is True
 
     def test_invalid_answer_repairs_once(self, monkeypatch):
         sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'}]
@@ -218,6 +275,206 @@ class TestRetrievalAndGenerationFlow:
         ))
         assert response.no_relevant_thesis and response.sources == []
 
+    def test_numbered_guest_followup_retrieves_the_selected_thesis(self, monkeypatch):
+        references = [
+            {'id': 'p1', 'title': 'First Thesis', 'authors': 'Author One'},
+            {'id': 'p2', 'title': 'Second Thesis', 'authors': 'Author Two'},
+        ]
+        captured = {}
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: references)
+
+        async def retrieve(question, _department, paper_id, is_overview, _category=None):
+            captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
+            return ('[1] Second thesis evidence', [{
+                'citation_id': 1, 'id': 'p2', 'chunk_id': 1, 'title': 'Second Thesis',
+            }], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='Second Thesis evaluates a verified system [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(question='tell me about number 2', guest_source_ids=['p1', 'p2']),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert captured['paper_id'] == 'p2'
+        assert captured['is_overview'] is True
+        assert 'Second Thesis' in captured['question']
+        assert response.sources[0]['id'] == 'p2'
+
+    def test_plural_guest_followup_retrieves_and_cites_both_presented_theses(self, monkeypatch):
+        references = [
+            {'id': 'p1', 'title': 'First Thesis', 'authors': 'Author One'},
+            {'id': 'p2', 'title': 'Second Thesis', 'authors': 'Author Two'},
+        ]
+        captured = {}
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: references)
+
+        async def retrieve(question, _department, paper_id, is_overview, _category=None):
+            captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
+            return ('[1] First objective\n[2] Second objective', [
+                {'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'First Thesis'},
+                {'citation_id': 2, 'id': 'p2', 'chunk_id': 2, 'title': 'Second Thesis'},
+            ], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content=(
+                'First Thesis has objective A [1].\n\nSecond Thesis has objective B [2].'
+            )), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(
+                question='what are their general objectives?',
+                guest_source_ids=['p1', 'p2'],
+            ),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert captured['paper_id'] == ['p1', 'p2']
+        assert captured['is_overview'] is False
+        assert [source['id'] for source in response.sources] == ['p1', 'p2']
+
+    def test_plural_answer_is_repaired_when_generation_uses_only_the_first_thesis(self, monkeypatch):
+        references = [
+            {'id': 'p1', 'title': 'First Thesis'},
+            {'id': 'p2', 'title': 'Second Thesis'},
+        ]
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: references)
+
+        async def retrieve(*_args):
+            return ('[1] First evidence\n[2] Second evidence', [
+                {'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'First Thesis'},
+                {'citation_id': 2, 'id': 'p2', 'chunk_id': 2, 'title': 'Second Thesis'},
+            ], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='Only First Thesis was answered [1].'), None
+
+        async def repair(*_args):
+            return 'First Thesis has one program [1].\n\nSecond Thesis has another program [2].'
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        monkeypatch.setattr(chat, '_repair_multi_paper_coverage', repair)
+        response = run(chat._chat_impl(
+            ChatRequest(
+                question='those two theses, what course and program are they for?',
+                guest_source_ids=['p1', 'p2'],
+            ),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert [source['id'] for source in response.sources] == ['p1', 'p2']
+        assert 'Second Thesis' in response.answer
+
+    def test_explicit_title_overrides_the_latest_remembered_thesis(self, monkeypatch):
+        title = 'Real-Time Autonomous Pedestrian Safety and Hazard Detection Using YOLOv11'
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [{
+            'id': 'p1', 'title': 'A Centralized AI-Powered Thesis Library',
+        }])
+        monkeypatch.setattr(chat, 'find_papers_by_title', lambda *_args: [{
+            'id': 'p2', 'title': title,
+        }])
+        captured = {}
+
+        async def retrieve(question, _department, paper_id, is_overview, _category=None):
+            captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
+            return ('[1] YOLOv11 evidence', [{
+                'citation_id': 1, 'id': 'p2', 'chunk_id': 2, 'title': title,
+            }], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='The named thesis detects pedestrian hazards [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(
+                question=f'what about the other thesis "{title}"?',
+                guest_source_ids=['p1'],
+            ),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert captured['paper_id'] == 'p2'
+        assert captured['is_overview'] is False
+        assert response.sources[0]['id'] == 'p2'
+
+    def test_numbered_session_followup_uses_the_last_answer_source_order(self, monkeypatch):
+        references = [
+            {'id': 'p1', 'title': 'First Thesis', 'authors': 'Author One'},
+            {'id': 'p2', 'title': 'Second Thesis', 'authors': 'Author Two'},
+        ]
+        captured = {}
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, '_ensure_session_owner', lambda *_args: None)
+        monkeypatch.setattr(chat, '_load_chat_history', lambda *_args: [{
+            'question': 'What are the theses on this system?',
+            'answer': '1. First Thesis [1]\n2. Second Thesis [2]',
+            'sources': references,
+        }])
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: references)
+
+        async def retrieve(_question, _department, paper_id, is_overview, _category=None):
+            captured.update(paper_id=paper_id, is_overview=is_overview)
+            return ('[1] Second thesis evidence', [{
+                'citation_id': 1, 'id': 'p2', 'chunk_id': 1, 'title': 'Second Thesis',
+            }], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='Second Thesis evaluates a verified system [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(question='tell me about the second thesis', session_id='s1'),
+            _NoRequest(), BackgroundTasks(), SimpleNamespace(id='u1'),
+        ))
+
+        assert captured == {'paper_id': 'p2', 'is_overview': True}
+        assert response.sources[0]['id'] == 'p2'
+
+    def test_numbered_session_followup_ignores_sources_from_older_answers(self, monkeypatch):
+        latest_reference = {'id': 'p2', 'title': 'Latest Thesis', 'authors': 'Author Two'}
+        captured = {}
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, '_ensure_session_owner', lambda *_args: None)
+        monkeypatch.setattr(chat, '_load_chat_history', lambda *_args: [
+            {'question': 'Older list', 'answer': 'First Thesis [1]', 'sources': [{'id': 'p1'}]},
+            {'question': 'Latest answer', 'answer': 'Latest Thesis [1]', 'sources': [latest_reference]},
+        ])
+
+        def find_references(ids, _department):
+            captured['source_ids'] = ids
+            return [latest_reference]
+
+        monkeypatch.setattr(chat, 'find_papers_by_ids', find_references)
+
+        async def retrieve(_question, _department, paper_id, is_overview, _category=None):
+            captured.update(paper_id=paper_id, is_overview=is_overview)
+            return ('[1] Latest thesis evidence', [{
+                'citation_id': 1, 'id': 'p2', 'chunk_id': 1, 'title': 'Latest Thesis',
+            }], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='Latest Thesis evaluates a verified system [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(question='tell me about number 1', session_id='s1'),
+            _NoRequest(), BackgroundTasks(), SimpleNamespace(id='u1'),
+        ))
+
+        assert captured['source_ids'] == ['p2']
+        assert captured['paper_id'] == 'p2'
+        assert captured['is_overview'] is True
+        assert response.sources[0]['id'] == 'p2'
+
 
 class TestTracingBoundaries:
     def test_retrieve_evidence_exact_and_semantic_paths(self, monkeypatch):
@@ -230,6 +487,21 @@ class TestTracingBoundaries:
         monkeypatch.setattr(chat, 'check_topic_duplication', lambda *_: {'flagged': True})
         semantic, alert = run(chat._retrieve_evidence('question', 'CCSICT', None, False))
         assert semantic[0] == 'semantic' and alert['flagged']
+
+    def test_retrieve_evidence_merges_multiple_exact_papers_with_unique_citations(self, monkeypatch):
+        def exact_context(paper_id, *_args):
+            return (
+                '[1] Evidence',
+                [{'citation_id': 1, 'id': paper_id, 'chunk_id': paper_id, 'title': paper_id}],
+                1.0,
+            )
+
+        monkeypatch.setattr(chat, 'get_paper_overview_context', exact_context)
+        result, alert = run(chat._retrieve_evidence('question', 'CCSICT', ['p1', 'p2'], False))
+
+        assert alert is None
+        assert result[0] == '[1] Evidence\n\n[2] Evidence'
+        assert [(source['id'], source['citation_id']) for source in result[1]] == [('p1', 1), ('p2', 2)]
 
     def test_generation_helper_with_and_without_duplication(self, monkeypatch):
         class Chain:

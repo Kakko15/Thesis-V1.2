@@ -1,6 +1,5 @@
 import {
-  getAnalyticsOverview, getDepartments, getRecentActivity, getPublicSettings,
-  getScanHistory, getSessions, getTracks, listPapers, listUsers,
+  getDepartments, getPublicSettings, getSessions, getTracks, listPapers,
 } from '../api'
 
 // Same dynamic import expressions App.jsx passes to React.lazy — the module
@@ -25,13 +24,13 @@ const queryPrefetches = {
     ['departments', getDepartments],
   ],
   chat: [['public-settings', getPublicSettings], ['sessions', getSessions]],
-  novelty: [['scan-history', getScanHistory]],
+  // History access is subject to server-side feature and MFA checks. Loading
+  // the chunk is safe, but a speculative request can only produce a 403 before
+  // the route verifies that the current session is eligible.
+  novelty: [],
   upload: [['departments', getDepartments]],
-  admin: [
-    ['analytics-overview', getAnalyticsOverview],
-    ['analytics-activity', () => getRecentActivity(20)],
-    ['users', listUsers],
-  ],
+  // Analytics is administrator-only and may require privileged MFA.
+  admin: [],
   settings: [['sessions', getSessions]],
 }
 

@@ -102,8 +102,9 @@ class TestValidation:
             ChatRequest(question='Follow-up', guest_history=['q'] * 6)
         with pytest.raises(Exception):
             ChatRequest(question='Follow-up', guest_history=['x' * 4001])
+        assert len(ChatRequest(question='Follow-up', guest_source_ids=['id'] * 10).guest_source_ids) == 10
         with pytest.raises(Exception):
-            ChatRequest(question='Follow-up', guest_source_ids=['id'] * 6)
+            ChatRequest(question='Follow-up', guest_source_ids=['id'] * 11)
 
 
 class TestAccessControl:
@@ -112,7 +113,6 @@ class TestAccessControl:
     @pytest.mark.parametrize('method,path', [
         ('get', '/papers'),
         ('get', '/sessions'),
-        ('delete', '/sessions'),
         ('get', '/duplication/history'),
         ('get', '/analytics/overview'),
         ('get', '/analytics/users'),

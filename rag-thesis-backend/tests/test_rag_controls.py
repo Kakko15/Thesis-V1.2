@@ -132,6 +132,32 @@ class TestFollowups:
         assert 'A Centralized AI-Powered Thesis Library Using RAG' in rewritten
         assert 'Ahron John F. Barlis' in rewritten
 
+    def test_numbered_and_ordinal_followups_select_the_matching_prior_source(self):
+        sources = [
+            {'id': 'p1', 'title': 'First Thesis'},
+            {'id': 'p2', 'title': 'Second Thesis'},
+        ]
+        assert chat._resolve_numbered_thesis_reference('tell me about number 2', sources) == sources[1]
+        assert chat._resolve_numbered_thesis_reference('Explain the first thesis.', sources) == sources[0]
+        assert chat._resolve_numbered_thesis_reference('tell me about number 3', sources) is None
+
+    def test_plural_followups_keep_all_previously_presented_theses_in_scope(self):
+        sources = [{'id': 'p1'}, {'id': 'p2'}]
+        assert chat._is_plural_source_followup('tell me about those two theses', sources)
+        assert chat._is_plural_source_followup('provide the summary', sources)
+        assert chat._is_plural_source_followup('what are their general objectives?', sources)
+        assert not chat._is_plural_source_followup('what is its objective?', sources)
+
+    def test_explicit_thesis_titles_are_extracted_with_or_without_quotes(self):
+        title = 'Real-Time Autonomous Pedestrian Safety Using YOLOv11'
+        assert chat._extract_explicit_thesis_title(
+            f'what about the other thesis "{title}"?'
+        ) == title
+        assert chat._extract_explicit_thesis_title(
+            f'what about the other thesis {title}?'
+        ) == title
+        assert chat._extract_explicit_thesis_title('What methodology did the thesis use?') is None
+
     def test_specific_paper_followup_resolves_without_generation(self):
         rewritten = chat._resolve_specific_paper_followup(
             'what is/are their objectives?',

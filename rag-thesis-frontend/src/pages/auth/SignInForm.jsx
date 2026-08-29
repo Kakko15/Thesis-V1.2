@@ -1,28 +1,31 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { ArrowRight, KeyRound, Lock, Mail, TriangleAlert } from 'lucide-react'
+import { ArrowRight, KeyRound, TriangleAlert } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
 import { useSecurityGate } from '../../components/security/useSecurityGate'
-import { authOptions, friendlyAuthError, isValidEmail } from './authUtils'
 import {
-  ErrorAlert, FieldIcon, formStagger, PasswordEye, Rise, Shine, UnderlineLink, ValidTick,
+  authOptions, friendlyAuthError, isRateLimitError, isValidEmail, retryAfterSeconds, useResendTimer,
+} from './authUtils'
+import {
+  ErrorAlert, FloatingField, formStagger, PasswordEye, RateLimitAlert, Rise, Shine, UnderlineLink, ValidTick,
 } from './AuthFx'
 
 /**
  * Email + password sign-in, with a passwordless "email me a code" path.
- * MFA-enrolled accounts continue automatically to the 2FA step — the
- * orchestrator reacts to `needsMfa` from AuthContext after this succeeds.
+ * A successful password login always continues to the post-login
+ * verification picker (email code / authenticator app) — `onPasswordSuccess`
+ * arms it before the session reload lands.
  */
-export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify }) {
+export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify, onPasswordSuccess }) {
   const { reloadSession } = useAuth()
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [capsLock, setCapsLock] = useState(false)
+  const [touched, setTouched] = useState({})
   const [errors, setErrors] = useState({})
   const [errorNonce, setErrorNonce] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -30,10 +33,53 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
   // Gated submission that fails open when Turnstile itself is unreachable.
   const captcha = useSecurityGate()
   const [captchaReset, setCaptchaReset] = useState(0)
+  // Rate-limit cooldown: while `cooldown > 0` both submit paths stay disabled
+  // behind the RateLimitAlert countdown. Supabase's limit is per-IP, so the
+  // timer intentionally survives edits to the email field.
+  const [cooldown, setCooldown] = useResendTimer(0)
+  const [cooldownTotal, setCooldownTotal] = useState(0)
+
+  const startCooldown = (err) => {
+    const seconds = retryAfterSeconds(err) || 60
+    setCooldownTotal(seconds)
+    setCooldown(seconds)
+    setErrors({})
+  }
 
   const failWith = (next) => {
     setErrors(next)
     setErrorNonce((n) => n + 1)
+  }
+
+  const fieldError = (name, values) => {
+    if (name === 'email') return isValidEmail(values.email) ? '' : 'Enter a valid email address'
+    return values.password.length >= 8 ? '' : 'Password must be at least 8 characters'
+  }
+
+  // Revalidate a single field (optionally with its in-flight value), merging
+  // the result into the error map so the other field is left alone.
+  const checkField = (name, overrides = {}) => {
+    const message = fieldError(name, { email, password, ...overrides })
+    setErrors((prev) => {
+      const next = { ...prev }
+      if (message) next[name] = message
+      else delete next[name]
+      return next
+    })
+  }
+
+  // Blur validation: leaving a field with a bad (or empty) value flags it.
+  const blurField = (name) => () => {
+    setTouched((prev) => (prev[name] ? prev : { ...prev, [name]: true }))
+    checkField(name)
+  }
+
+  // Live validation only kicks in after the first blur, so typing into a
+  // fresh field never flashes red prematurely.
+  const changeField = (name, setter) => (e) => {
+    const { value } = e.target
+    setter(value)
+    if (touched[name]) checkField(name, { [name]: value })
   }
 
   const validate = (needPassword = true) => {
@@ -53,15 +99,18 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
         email: email.trim(), password, options: authOptions({}, captcha.token),
       })
       if (error) throw error
+      // The verification picker comes next for every account.
+      onPasswordSuccess?.()
       // Success: force a reload of the session state so AuthContext updates immediately.
       await reloadSession()
     } catch (err) {
-      const friendly = friendlyAuthError(err)
-      if ((err?.message || '').toLowerCase().includes('email not confirmed')) {
+      if (isRateLimitError(err)) {
+        startCooldown(err)
+      } else if ((err?.message || '').toLowerCase().includes('email not confirmed')) {
         onNeedsVerify?.(email.trim())
         toast.info('Almost there', { description: 'Verify your email to finish setting up.' })
       } else {
-        failWith({ form: friendly })
+        failWith({ form: friendlyAuthError(err) })
       }
     } finally {
       setLoading(false)
@@ -81,7 +130,8 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
       if (error) throw error
       onOtpSent?.(email.trim())
     } catch (err) {
-      failWith({ form: friendlyAuthError(err) })
+      if (isRateLimitError(err)) startCooldown(err)
+      else failWith({ form: friendlyAuthError(err) })
     } finally {
       setOtpLoading(false)
       captcha.onToken(null)
@@ -99,36 +149,22 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
       noValidate
     >
       <Rise>
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink-muted">
-            Email <span className="text-flame-500">*</span>
-          </span>
-          <div className="group relative">
-            <FieldIcon icon={Mail} />
-            <Input
-              className="pl-11 pr-11"
-              type="email"
-              name="email"
-              placeholder="you@isu.edu.ph"
-              value={email}
-              error={errors.email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              autoFocus
-            />
-            <ValidTick show={isValidEmail(email) && !errors.email} />
-          </div>
-          {errors.email && (
-            <span className="mt-1.5 block text-xs font-medium text-flame-500">{errors.email}</span>
-          )}
-        </label>
+        <FloatingField
+          label="Email"
+          required
+          type="email"
+          name="email"
+          value={email}
+          error={errors.email}
+          onChange={changeField('email', setEmail)}
+          onBlur={blurField('email')}
+          autoComplete="email"
+          endAdornment={<ValidTick show={isValidEmail(email) && !errors.email} />}
+        />
       </Rise>
 
       <Rise>
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-            Password <span className="text-flame-500">*</span>
-          </span>
+        <div className="mb-1.5 flex justify-end">
           <UnderlineLink
             onClick={onForgot}
             className="text-xs text-forest-700 hover:text-forest-500 dark:text-gold-300 dark:hover:text-gold-200"
@@ -136,25 +172,20 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
             Forgot password?
           </UnderlineLink>
         </div>
-        <div className="group relative">
-          <FieldIcon icon={Lock} />
-          <Input
-            className="pl-11 pr-11"
-            type={showPassword ? 'text' : 'password'}
-            name="password"
-            placeholder="Your password"
-            value={password}
-            error={errors.password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => setCapsLock(e.getModifierState?.('CapsLock') ?? false)}
-            onKeyUp={(e) => setCapsLock(e.getModifierState?.('CapsLock') ?? false)}
-            autoComplete="current-password"
-          />
-          <PasswordEye show={showPassword} onToggle={() => setShowPassword((s) => !s)} />
-        </div>
-        {errors.password && (
-          <span className="mt-1.5 block text-xs font-medium text-flame-500">{errors.password}</span>
-        )}
+        <FloatingField
+          label="Password"
+          required
+          type={showPassword ? 'text' : 'password'}
+          name="password"
+          value={password}
+          error={errors.password}
+          onChange={changeField('password', setPassword)}
+          onBlur={blurField('password')}
+          onKeyDown={(e) => setCapsLock(e.getModifierState?.('CapsLock') ?? false)}
+          onKeyUp={(e) => setCapsLock(e.getModifierState?.('CapsLock') ?? false)}
+          autoComplete="current-password"
+          endAdornment={<PasswordEye show={showPassword} onToggle={() => setShowPassword((s) => !s)} />}
+        />
         {capsLock && (
           <motion.span
             initial={{ opacity: 0, y: -4 }}
@@ -166,10 +197,15 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
         )}
       </Rise>
 
-      {errors.form && <ErrorAlert key={errorNonce}>{errors.form}</ErrorAlert>}
+      <AnimatePresence initial={false}>
+        {cooldown > 0 && (
+          <RateLimitAlert key="rate-limit" seconds={cooldown} total={cooldownTotal} />
+        )}
+      </AnimatePresence>
+      {cooldown <= 0 && errors.form && <ErrorAlert key={errorNonce}>{errors.form}</ErrorAlert>}
 
       <Rise>
-        <SecurityCheck variant="inline" action="signin" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
+        <SecurityCheck variant="inline" quiet action="signin" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
       </Rise>
 
       <Rise>
@@ -177,12 +213,14 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
           type="submit"
           size="lg"
           loading={loading}
-          disabled={captcha.blocked}
+          disabled={captcha.blocked || cooldown > 0}
           className="group relative w-full overflow-hidden"
         >
           <Shine />
-          Sign in
-          <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
+          {cooldown > 0 ? `Try again in ${cooldown}s` : 'Sign in'}
+          {cooldown <= 0 && (
+            <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
+          )}
         </Button>
       </Rise>
 
@@ -198,7 +236,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
           variant="secondary"
           size="lg"
           loading={otpLoading}
-          disabled={captcha.blocked}
+          disabled={captcha.blocked || cooldown > 0}
           onClick={handleOtpRequest}
           className="group relative w-full overflow-hidden"
         >

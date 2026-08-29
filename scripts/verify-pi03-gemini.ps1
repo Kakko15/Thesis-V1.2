@@ -36,7 +36,7 @@ $report = Get-Content -Raw $reportPath | ConvertFrom-Json
 $expected = @{
     chat_model = 'gemini-3.6-flash'
     verdict_model = 'gemini-3.5-flash-lite'
-    embedding_model = 'models/gemini-embedding-2'
+    embedding_model = 'models/gemini-embedding-001'
     embedding_dimensions = 768
 }
 foreach ($key in $expected.Keys) {
@@ -59,7 +59,7 @@ $summary = @(
     "- Tested release image: ``$imageId``",
     '- Chat: `gemini-3.6-flash` — live response received',
     '- Verdict: `gemini-3.5-flash-lite` — live response received',
-    '- Embeddings: `gemini-embedding-2` — 768 finite values received',
+    '- Embeddings: `gemini-embedding-001` — 768 finite values received',
     '- Input data: synthetic only',
     '- Response content or credentials retained: No',
     '- Result: **PASS**'

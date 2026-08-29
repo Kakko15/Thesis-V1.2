@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { PerformanceMonitor } from '@react-three/drei'
 import { useIsDark } from '../../hooks/useIsDark'
 import { ConstellationOrb } from './ConstellationOrb'
 import { ParticleField } from './ParticleField'
@@ -19,7 +18,7 @@ const ThesisCards = lazy(() => import('./ThesisCards').then((module) => ({ defau
  */
 export default function HeroScene({ scrollProgress, active = true }) {
   const isDark = useIsDark()
-  const { degraded, lost, paused, onCreated, pointerRef, setDegraded } = useSceneRuntime()
+  const { degraded, lost, paused, onCreated, pointerRef } = useSceneRuntime()
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 1023px)').matches)
 
   useEffect(() => {
@@ -41,20 +40,18 @@ export default function HeroScene({ scrollProgress, active = true }) {
       dpr={simple ? [1, 1.25] : [1, 2]}
       camera={{ position: [0, 0, 7.2], fov: 42 }}
       resize={{ scroll: false }}
-      gl={{ alpha: true, antialias: !simple, powerPreference: 'high-performance' }}
+      gl={{ alpha: true, antialias: !simple }}
       style={{ pointerEvents: 'none', background: 'transparent' }}
       onCreated={onCreated}
     >
-      <PerformanceMonitor onDecline={() => setDegraded(true)}>
-        <ConstellationOrb
-          isDark={isDark}
-          pointerRef={pointerRef}
-          scrollProgress={scrollProgress}
-          degraded={simple}
-        />
-        <ParticleField isDark={isDark} count={simple ? 260 : 600} />
-        {!simple && <Suspense fallback={null}><ThesisCards /></Suspense>}
-      </PerformanceMonitor>
+      <ConstellationOrb
+        isDark={isDark}
+        pointerRef={pointerRef}
+        scrollProgress={scrollProgress}
+        degraded={simple}
+      />
+      <ParticleField isDark={isDark} count={simple ? 260 : 600} />
+      {!simple && <Suspense fallback={null}><ThesisCards /></Suspense>}
     </Canvas>
   )
 }

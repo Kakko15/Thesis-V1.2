@@ -3,7 +3,6 @@ import { Fingerprint } from 'lucide-react'
 import { Button } from './ui/Button'
 import { MfaEnrollDialog } from './MfaEnrollDialog'
 import { useMfaStatus } from './useMfaStatus'
-import { apiErrorMessage } from '../api'
 
 /**
  * 2FA management row for Settings → Security. Enrollment and removal both
@@ -11,19 +10,7 @@ import { apiErrorMessage } from '../api'
  */
 export function TwoFactorSettings() {
   const [open, setOpen] = useState(false)
-  const { enabled, isLoading, isError, error, handleChanged } = useMfaStatus()
-
-  if (isLoading) {
-    return <p role="status" className="text-sm text-ink-muted">Checking two-factor status...</p>
-  }
-
-  if (isError) {
-    return (
-      <p role="alert" className="text-sm text-flame-500">
-        Two-factor status could not be loaded. {apiErrorMessage(error)}
-      </p>
-    )
-  }
+  const { enabled, handleChanged } = useMfaStatus()
 
   return (
     <div>

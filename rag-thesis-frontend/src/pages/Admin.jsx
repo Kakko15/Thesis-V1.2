@@ -12,7 +12,6 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { PageSkeleton } from '../components/ui/PageSkeleton'
 import { slotKeys } from '../lib/keys'
 import { cn } from '../lib/utils'
-import { useMfaStatus } from '../components/useMfaStatus'
 
 const AdminOverview = lazy(() => import('./admin/AdminOverview'))
 const UploadHistoryTab = lazy(() => import('./admin/UploadHistoryTab'))
@@ -98,31 +97,26 @@ export default function Admin() {
   } = useAuth()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('overview')
-  const mfaStatus = useMfaStatus(isAdmin && !isE2ETestMode)
   const mfaFactors = useQuery({
-    queryKey: ['mfa-assurance'],
+    queryKey: ['admin-mfa-factors'],
     queryFn: async () => {
-      const assurance = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      const [factors, assurance] = await Promise.all([
+        supabase.auth.mfa.listFactors(),
+        supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+      ])
+      if (factors.error) throw factors.error
       if (assurance.error) throw assurance.error
-      return assurance.data
+      return { factors: factors.data, assurance: assurance.data }
     },
     enabled: isAdmin && !isE2ETestMode,
     staleTime: 30_000,
   })
-  const securityQuery = {
-    isLoading: mfaStatus.isLoading || mfaFactors.isLoading,
-    isError: mfaStatus.isError || mfaFactors.isError,
-    data: { factors: { totp: mfaStatus.enabled ? [{ status: 'verified' }] : [] }, assurance: mfaFactors.data },
-    refetch: async () => {
-      await Promise.all([mfaStatus.handleChanged(), mfaFactors.refetch()])
-    },
-  }
-  const securityState = adminSecurityState(isAdmin, securityQuery)
+  const securityState = adminSecurityState(isAdmin, mfaFactors)
   if (securityState !== 'ready') {
     return (
       <AdminSecurityGate
         state={securityState}
-        query={securityQuery}
+        query={mfaFactors}
         navigate={navigate}
         refreshMfa={refreshMfa}
       />

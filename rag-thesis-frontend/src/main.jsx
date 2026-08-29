@@ -30,7 +30,9 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      gcTime: 5 * 60_000,
+      // Keep visited pages' data cached for 30 minutes so switching back to a
+      // tab renders instantly; staleness refetches silently in the background.
+      gcTime: 30 * 60_000,
       retry: (failureCount, error) => {
         const status = error?.response?.status
         // Authentication, authorization, validation, and readiness failures

@@ -33,6 +33,7 @@ test('maps common auth failures and parses retry timing', () => {
     ['OTP_expired', /expired/],
     ['Too many requests; retry after 42 seconds', /Too many authentication attempts/],
     ['Captcha verification failed', /security check expired or failed/i],
+    ['Captcha verification process failed', /security is misconfigured/i],
     ['New password should be at least 8 characters', /at least 8 characters/],
     ['New password must be different from the old password', /different from the old/],
     ['Auth session missing', /link has expired/],
