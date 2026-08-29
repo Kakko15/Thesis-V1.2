@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react'
 import { Routes, Route, useLocation } from 'react-router'
 import { AppShell } from './components/AppShell'
+import { IdleSessionGuard } from './components/IdleSessionGuard'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { RouteSkeleton } from './components/ui/PageSkeleton'
 
@@ -76,6 +77,8 @@ function BootFallback() {
 export default function App() {
   return (
     <Suspense fallback={<BootFallback />}>
+      {/* Tiered idle logout — active only while a session exists. */}
+      <IdleSessionGuard />
       <Routes>
         {/* Full-bleed surfaces (no shell) */}
         <Route path="/" element={<Landing />} />

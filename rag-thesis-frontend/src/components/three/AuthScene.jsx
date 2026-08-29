@@ -1,5 +1,4 @@
 import { Canvas } from '@react-three/fiber'
-import { PerformanceMonitor } from '@react-three/drei'
 import { useIsDark } from '../../hooks/useIsDark'
 import { ConstellationOrb } from './ConstellationOrb'
 import { ParticleField } from './ParticleField'
@@ -17,7 +16,7 @@ import { useSceneRuntime } from './useSceneRuntime'
  */
 export default function AuthScene() {
   const isDark = useIsDark()
-  const { degraded, lost, paused, onCreated, pointerRef, setDegraded } = useSceneRuntime()
+  const { degraded, lost, paused, onCreated, pointerRef } = useSceneRuntime()
 
   if (lost) return null
 
@@ -28,14 +27,12 @@ export default function AuthScene() {
       dpr={degraded ? [1, 1.25] : [1, 1.75]}
       camera={{ position: [0, 0, 8.4], fov: 42 }}
       resize={{ scroll: false }}
-      gl={{ alpha: true, antialias: !degraded, powerPreference: 'high-performance' }}
+      gl={{ alpha: true, antialias: !degraded }}
       style={{ pointerEvents: 'none', background: 'transparent' }}
       onCreated={onCreated}
     >
-      <PerformanceMonitor onDecline={() => setDegraded(true)}>
-        <ConstellationOrb isDark={isDark} pointerRef={pointerRef} degraded={degraded} />
-        <ParticleField isDark={isDark} count={degraded ? 220 : 430} />
-      </PerformanceMonitor>
+      <ConstellationOrb isDark={isDark} pointerRef={pointerRef} degraded={degraded} />
+      <ParticleField isDark={isDark} count={degraded ? 220 : 430} />
     </Canvas>
   )
 }

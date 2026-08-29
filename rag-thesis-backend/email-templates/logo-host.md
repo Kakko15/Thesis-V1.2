@@ -1,7 +1,11 @@
 # Logo Hosting for Email Templates
 
 Email clients block remote SVG and do not support Supabase template
-attachments, so the templates reference a public PNG.
+attachments, so the templates reference a **public PNG**:
+
+```html
+<img src="{{ .SiteURL }}/isu-thesis-ai-mark.png" width="84" height="84" alt="ISU Thesis AI Library">
+```
 
 ## How it works today (chosen option)
 
@@ -30,11 +34,6 @@ Invoke-RestMethod -Method Post `
   -Body $bytes -ContentType "image/png"
 ```
 
-For a different Supabase project, first create a public `public-assets` Storage
-bucket, upload that repository PNG as `isu-thesis-ai-mark.png`, and replace the
-project-specific URL in `confirm-signup.html`. The SQL schema does not provision
-this mail asset.
-
 ### If the logo ever 404s in a real email
 
 1. Open the public URL above in a browser — it must return the PNG.
@@ -58,17 +57,20 @@ still reads as branded and the code chip is untouched.
 | Raw GitHub URL | Zero-infra public host, but couples the email to the repo's default branch and leaks the repo path. |
 | Own CDN / static host | Best caching control at scale; overkill for the defense deployment. |
 
-Regenerate the PNG from the tracked vector source
-`rag-thesis-frontend/public/isu-thesis-ai-mark.svg` with headless Chrome,
-writing the result to `rag-thesis-frontend/public/isu-thesis-ai-mark.png`:
+Source assets on the maintainer's machine:
 
-Run this from the repository root and replace `<repo-root>` with the absolute
-path to this checkout in the input URL:
+```text
+C:\Users\Kazuha\Desktop\ISU-Thesis-AI-Library-Logo.png              (512×512, on white)
+C:\Users\Kazuha\Desktop\ISU-Thesis-AI-Library-Logo-transparent.png  (512×512, transparent — the file deployed)
+```
+
+Regenerate them from the vector source
+`rag-thesis-frontend/public/isu-thesis-ai-mark.svg` with headless Chrome:
 
 ```powershell
 # Transparent
 & "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless --disable-gpu `
   --hide-scrollbars --default-background-color=00000000 `
-  --screenshot="rag-thesis-frontend/public/isu-thesis-ai-mark.png" --window-size=512,512 `
-  "file:///<repo-root>/rag-thesis-frontend/public/isu-thesis-ai-mark.svg"
+  --screenshot="ISU-Thesis-AI-Library-Logo-transparent.png" --window-size=512,512 `
+  "file:///C:/Users/Kazuha/Desktop/Thesis-V1/rag-thesis-frontend/public/isu-thesis-ai-mark.svg"
 ```

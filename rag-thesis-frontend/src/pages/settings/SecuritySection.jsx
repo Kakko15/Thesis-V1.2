@@ -5,6 +5,7 @@ import { supabase } from '../../supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { apiErrorMessage } from '../../api'
 import { authOptions, friendlyAuthError, isStrongPassword } from '../auth/authUtils'
+import { PasswordGuide } from '../auth/AuthFx'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { OtpInput } from '../../components/ui/OtpInput'
@@ -163,6 +164,7 @@ function PasswordCard() {
               Update
             </Button>
           </div>
+          <PasswordGuide password={password} />
         </div>
       )}
     </SectionCard>

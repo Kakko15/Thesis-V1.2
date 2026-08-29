@@ -28,11 +28,6 @@ begin
 end;
 $$;
 
--- Existing pending profiles are intentionally left unchanged: the schema does
--- not record whether an account was held by the prior domain policy or by an
--- administrator. Review and approve those accounts explicitly rather than
--- overriding an administrative status decision during migration.
-
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users

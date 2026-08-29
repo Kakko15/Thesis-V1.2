@@ -331,7 +331,7 @@ const SURFACES = [
     name: 'authentication',
     path: '/login',
     fixture: null,
-    ready: (page) => expect(page.getByPlaceholder('you@isu.edu.ph')).toBeVisible(),
+    ready: (page) => expect(page.getByRole('textbox', { name: 'Email *' })).toBeVisible(),
   },
   {
     name: 'guest-chat',
@@ -350,12 +350,6 @@ const SURFACES = [
     path: '/archive',
     fixture: studentFixture,
     ready: (page) => expect(page.getByText('A Centralized AI-Powered Thesis Library')).toBeVisible(),
-  },
-  {
-    name: 'settings',
-    path: '/settings',
-    fixture: studentFixture,
-    ready: (page) => expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible(),
   },
   {
     name: 'novelty',

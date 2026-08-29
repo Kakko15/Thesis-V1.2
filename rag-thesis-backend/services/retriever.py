@@ -56,6 +56,11 @@ def public_source(paper: dict, similarity: float | None = None, *, chunk: dict |
     # paths that predate the thesis category migration never mislabel a paper.
     if 'thesis_category' in paper:
         source['thesis_category'] = paper.get('thesis_category') or 'student'
+    for field in (
+        'program_code', 'program_name', 'specialization_code', 'specialization_name',
+    ):
+        if paper.get(field):
+            source[field] = paper[field]
     if similarity is not None:
         source['similarity'] = round(similarity * 100, 2)
     if citation_id is not None:
@@ -108,8 +113,8 @@ def _author_query(fragment: str, department_filter: str | None, limit: int):
     def execute_query():
         query = sb.table('papers') \
             .select('id,title,authors,year,track,department') \
-            .ilike('authors', f'%{fragment}%') \
-            .eq('ingestion_status', 'ready')
+            .eq('ingestion_status', 'ready') \
+            .ilike('authors', f'%{fragment}%')
         if department_filter:
             query = query.eq('department', department_filter)
         return query.limit(limit).execute()
@@ -137,34 +142,155 @@ def find_papers_by_author(name: str, department_filter: str | None = None) -> li
 
 def find_papers_by_ids(paper_ids: list[str], department_filter: str | None = None) -> list[dict]:
     """Re-fetch prior guest references under the server-enforced department."""
-    unique_ids = list(dict.fromkeys(paper_ids))[:20]
+    unique_ids = list(dict.fromkeys(paper_ids))[:10]
     if not unique_ids:
         return []
     def execute_query():
         query = sb.table('papers') \
-            .select('id,title,authors,year,track,department') \
-            .in_('id', unique_ids) \
-            .eq('ingestion_status', 'ready')
+            .select(
+                'id,title,authors,year,track,department,program_id,specialization_id'
+            ) \
+            .eq('ingestion_status', 'ready') \
+            .in_('id', unique_ids)
         if department_filter:
             query = query.eq('department', department_filter)
-        return query.limit(20).execute()
+        return query.limit(10).execute()
 
-    rows = retry_transient(
-        execute_query,
-        label='Supabase guest reference lookup',
-        logger=logger,
-    ).data or []
+    try:
+        rows = retry_transient(
+            execute_query,
+            label='Supabase guest reference lookup',
+            logger=logger,
+        ).data or []
+    except Exception as error:
+        if not _is_missing_column_error(error):
+            raise
+
+        def execute_legacy_query():
+            query = sb.table('papers') \
+                .select('id,title,authors,year,track,department') \
+                .eq('ingestion_status', 'ready') \
+                .in_('id', unique_ids)
+            if department_filter:
+                query = query.eq('department', department_filter)
+            return query.limit(10).execute()
+
+        rows = retry_transient(
+            execute_legacy_query,
+            label='Supabase legacy guest reference lookup',
+            logger=logger,
+        ).data or []
+    _add_academic_labels(rows)
     by_id = {paper.get('id'): paper for paper in rows}
     return [public_source(by_id[paper_id]) for paper_id in unique_ids if paper_id in by_id]
+
+
+def find_papers_by_title(title: str, department_filter: str | None = None) -> list[dict]:
+    """Resolve a user-supplied title to ready papers without semantic guessing."""
+    normalized_title = _normalize_title(title)
+    if len(normalized_title) < 8:
+        return []
+    # Use a distinctive literal token to fetch candidates, then require a
+    # normalized full-title match below. This tolerates punctuation differences
+    # such as "Real-Time" versus "Real Time" without broadening the result.
+    title_tokens = re.findall(r'[a-z0-9]+', title, flags=re.IGNORECASE)
+    lookup_token = max(title_tokens, key=len)
+
+    def execute_query():
+        query = sb.table('papers').select(
+            'id,title,authors,year,track,department,program_id,specialization_id'
+        ).eq('ingestion_status', 'ready').ilike('title', f'%{lookup_token}%')
+        if department_filter:
+            query = query.eq('department', department_filter)
+        return query.limit(5).execute()
+
+    try:
+        rows = retry_transient(
+            execute_query,
+            label='Supabase exact title lookup',
+            logger=logger,
+        ).data or []
+    except Exception as error:
+        if not _is_missing_column_error(error):
+            raise
+
+        def execute_legacy_query():
+            query = sb.table('papers').select(
+                'id,title,authors,year,track,department'
+            ).eq('ingestion_status', 'ready').ilike('title', f'%{lookup_token}%')
+            if department_filter:
+                query = query.eq('department', department_filter)
+            return query.limit(5).execute()
+
+        rows = retry_transient(
+            execute_legacy_query,
+            label='Supabase legacy exact title lookup',
+            logger=logger,
+        ).data or []
+
+    # ILIKE narrows candidates; this check prevents wildcard characters in a
+    # user title from turning the exact-reference path into a broad match.
+    matches = [paper for paper in rows if _normalize_title(paper.get('title', '')) == normalized_title]
+    _add_academic_labels(matches)
+    return [public_source(paper) for paper in matches]
+
+
+def _normalize_title(value: str) -> str:
+    return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9]+', ' ', (value or '').lower())).strip()
+
+
+def _add_academic_labels(papers: list[dict]) -> None:
+    """Attach normalized catalog labels to paper metadata in place."""
+    program_ids = list({paper.get('program_id') for paper in papers if paper.get('program_id')})
+    specialization_ids = list({
+        paper.get('specialization_id') for paper in papers if paper.get('specialization_id')
+    })
+    if not program_ids and not specialization_ids:
+        return
+    try:
+        programs = (
+            retry_transient(
+                lambda: sb.table('programs').select('id,code,name').in_('id', program_ids).execute(),
+                label='Supabase paper program lookup',
+                logger=logger,
+            ).data or []
+            if program_ids else []
+        )
+        specializations = (
+            retry_transient(
+                lambda: sb.table('specializations').select('id,code,name').in_(
+                    'id', specialization_ids,
+                ).execute(),
+                label='Supabase paper specialization lookup',
+                logger=logger,
+            ).data or []
+            if specialization_ids else []
+        )
+    except Exception as error:
+        # The paper itself remains a valid ready reference when optional catalog
+        # labels are temporarily unavailable.
+        logger.warning('Academic label lookup failed; using paper metadata (%s)', type(error).__name__)
+        return
+
+    programs_by_id = {str(item.get('id')): item for item in programs}
+    specializations_by_id = {str(item.get('id')): item for item in specializations}
+    for paper in papers:
+        program = programs_by_id.get(str(paper.get('program_id')))
+        specialization = specializations_by_id.get(str(paper.get('specialization_id')))
+        if program:
+            paper['program_code'] = program.get('code')
+            paper['program_name'] = program.get('name')
+        if specialization:
+            paper['specialization_code'] = specialization.get('code')
+            paper['specialization_name'] = specialization.get('name')
 
 
 def list_archive_papers(
     department_filter: str | None = None,
     thesis_category: str | None = None,
     limit: int = 10,
-    exclude_paper_ids: list[str] | None = None,
-) -> tuple[int, int, list[dict]]:
-    """Return archive and filtered totals plus a bounded metadata preview."""
+) -> tuple[int, list[dict]]:
+    """Return an exact ready-paper count and a bounded metadata preview."""
     fields = 'id,title,authors,year,track,department,thesis_category'
 
     def execute_query():
@@ -175,8 +301,6 @@ def list_archive_papers(
             query = query.eq('department', department_filter)
         if thesis_category:
             query = query.eq('thesis_category', thesis_category)
-        if exclude_paper_ids:
-            query = query.not_.in_('id', list(dict.fromkeys(exclude_paper_ids)))
         return query.order('title').limit(limit).execute()
 
     try:
@@ -195,8 +319,6 @@ def list_archive_papers(
             ).eq('ingestion_status', 'ready')
             if department_filter:
                 query = query.eq('department', department_filter)
-            if exclude_paper_ids:
-                query = query.not_.in_('id', list(dict.fromkeys(exclude_paper_ids)))
             return query.order('title').limit(limit).execute()
 
         result = retry_transient(
@@ -210,44 +332,7 @@ def list_archive_papers(
         public_source(paper, citation_id=index)
         for index, paper in enumerate(rows, start=1)
     ]
-    filtered_total = result.count or 0
-    total = filtered_total
-    if exclude_paper_ids:
-        def execute_total_query():
-            query = sb.table('papers').select(
-                'id', count='exact'
-            ).eq('ingestion_status', 'ready')
-            if department_filter:
-                query = query.eq('department', department_filter)
-            if thesis_category:
-                query = query.eq('thesis_category', thesis_category)
-            return query.limit(0).execute()
-
-        try:
-            total_result = retry_transient(
-                execute_total_query,
-                label='Supabase archive inventory total',
-                logger=logger,
-            )
-        except Exception as error:
-            if not thesis_category or not _is_missing_column_error(error):
-                raise
-
-            def execute_legacy_total_query():
-                query = sb.table('papers').select(
-                    'id', count='exact'
-                ).eq('ingestion_status', 'ready')
-                if department_filter:
-                    query = query.eq('department', department_filter)
-                return query.limit(0).execute()
-
-            total_result = retry_transient(
-                execute_legacy_total_query,
-                label='Supabase legacy archive inventory total',
-                logger=logger,
-            )
-        total = total_result.count or 0
-    return total, filtered_total, sources
+    return result.count or 0, sources
 
 
 def _is_missing_column_error(error: Exception) -> bool:
@@ -331,7 +416,7 @@ def get_paper_overview_context(
     """Load overview or question-ranked chunks from one verified paper index."""
     def fetch_paper():
         query = sb.table('papers').select(
-            'id,title,authors,year,track,department,active_index_version'
+            'id,title,authors,year,track,department,program_id,specialization_id,active_index_version'
         ).eq('id', paper_id).eq('ingestion_status', 'ready')
         if department_filter:
             query = query.eq('department', department_filter)
@@ -364,6 +449,7 @@ def get_paper_overview_context(
     if not paper_rows:
         return '', [], 0.0
     paper = paper_rows[0]
+    _add_academic_labels([paper])
 
     def fetch_chunks():
         query = sb.table('chunks') \
@@ -419,6 +505,18 @@ def get_paper_overview_context(
             meta_bits.append(f'Track: {paper["track"]}')
         if paper.get('department'):
             meta_bits.append(f'Department: {paper["department"]}')
+        if paper.get('program_code') or paper.get('program_name'):
+            meta_bits.append(
+                'Program: '
+                + ' - '.join(filter(None, (paper.get('program_code'), paper.get('program_name'))))
+            )
+        if paper.get('specialization_code') or paper.get('specialization_name'):
+            meta_bits.append(
+                'Specialization: '
+                + ' - '.join(filter(None, (
+                    paper.get('specialization_code'), paper.get('specialization_name'),
+                )))
+            )
         if location['page_start']:
             page_label = (
                 str(location['page_start'])
@@ -488,7 +586,10 @@ def search_chunks(
     try:
         papers_res = retry_transient(
             lambda: sb.table('papers')
-            .select('id,title,authors,year,track,department,thesis_category')
+            .select(
+                'id,title,authors,year,track,department,thesis_category,'
+                'program_id,specialization_id'
+            )
             .in_('id', paper_ids).execute(),
             label='Supabase citation metadata lookup',
             logger=logger,
@@ -505,7 +606,9 @@ def search_chunks(
             label='Supabase legacy citation metadata lookup',
             logger=logger,
         )
-    paper_lookup = {p['id']: p for p in (papers_res.data or [])}
+    papers = papers_res.data or []
+    _add_academic_labels(papers)
+    paper_lookup = {p['id']: p for p in papers}
 
     # Rank individual evidence chunks, assign stable citations, then reorder.
     ranked = sorted(chunks, key=lambda item: item.get('similarity', 0.0), reverse=True)
@@ -527,6 +630,18 @@ def search_chunks(
             meta_bits.append(f"Year: {p['year']}")
         if p.get('department'):
             meta_bits.append(f"Department: {p['department']}")
+        if p.get('program_code') or p.get('program_name'):
+            meta_bits.append(
+                'Program: '
+                + ' - '.join(filter(None, (p.get('program_code'), p.get('program_name'))))
+            )
+        if p.get('specialization_code') or p.get('specialization_name'):
+            meta_bits.append(
+                'Specialization: '
+                + ' - '.join(filter(None, (
+                    p.get('specialization_code'), p.get('specialization_name'),
+                )))
+            )
         location = chunk_location(chunk)
         page_start = location['page_start']
         page_end = location['page_end']

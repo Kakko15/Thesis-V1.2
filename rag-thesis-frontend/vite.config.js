@@ -61,14 +61,13 @@ function e2eApiGuard() {
 }
 
 export default defineConfig(({ mode }) => {
-  // Local development normally starts Vite from this frontend directory,
-  // while Docker and the operational setup keep shared public settings in
-  // the repository-root .env. Read the Turnstile site key from either place
-  // so CAPTCHA cannot be enabled in Supabase while the widget silently stays
-  // absent from the sign-in page. A frontend-local value still takes priority.
+  // Localhost is not an authorized hostname for the production Turnstile key.
+  // Read that shared key only for production builds; local development may opt
+  // in with a frontend-local key that is explicitly authorized for its host.
   const frontendEnv = loadEnv(mode, FRONTEND_DIR, '')
   const rootEnv = loadEnv(mode, ROOT_DIR, '')
-  const turnstileSiteKey = frontendEnv.VITE_TURNSTILE_SITE_KEY || rootEnv.VITE_TURNSTILE_SITE_KEY || ''
+  const turnstileSiteKey = frontendEnv.VITE_TURNSTILE_SITE_KEY
+    || (mode === 'production' ? rootEnv.VITE_TURNSTILE_SITE_KEY : '')
 
   return {
   plugins: [backendReadiness(), ...(mode === 'e2e' ? [e2eApiGuard()] : []), react(), tailwindcss()],

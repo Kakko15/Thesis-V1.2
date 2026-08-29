@@ -108,7 +108,7 @@ function AvatarEditor({ user, profile, avatarUrl, refreshProfile }) {
         >
           <Camera size={15} />
         </button>
-        <input type="file" ref={fileInputRef} onChange={handleUpload} accept="image/jpeg,image/png,image/webp" className="hidden" />
+        <input type="file" ref={fileInputRef} onChange={handleUpload} accept="image/*" className="hidden" />
       </div>
       <div className="min-w-0 flex-1">
         <h3 className="text-sm font-semibold">Profile picture</h3>

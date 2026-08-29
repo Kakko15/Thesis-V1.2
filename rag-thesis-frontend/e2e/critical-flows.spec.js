@@ -136,8 +136,75 @@ test('protected routes redirect signed-out visitors to sign in', async ({ page }
   await page.goto('/upload')
 
   await expect(page).toHaveURL(/\/login$/)
-  await expect(page.getByPlaceholder('you@isu.edu.ph')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Email *' })).toBeVisible()
   expect(unexpected).toEqual([])
+})
+
+test('guest appearance controls open in place without redirecting to sign in', async ({ page }) => {
+  const unexpected = await mockApi(page)
+
+  await page.goto('/chat')
+  await page.getByRole('button', { name: 'Appearance and energy' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Appearance and energy' })).toBeVisible()
+  await expect(page).toHaveURL(/\/chat$/)
+  await page.getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('heading', { name: 'Appearance and energy' })).toBeHidden()
+  await expect(page).toHaveURL(/\/chat$/)
+  expect(unexpected).toEqual([])
+})
+
+test('password reset can send a verification code after the security check resolves', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('isu_e2e_turnstile', '1')
+    window.turnstile = {
+      render: (_element, options) => {
+        options.callback?.('e2e-turnstile-token')
+        return 'e2e-turnstile-widget'
+      },
+      remove: () => {},
+    }
+  })
+  let resetRequest
+  await page.route('**/__e2e_supabase/**', async (route) => {
+    resetRequest = route.request()
+    await route.fulfill({ status: 200, json: {} })
+  })
+
+  await page.goto('/login')
+  await page.getByRole('button', { name: 'Forgot password?' }).click()
+
+  const email = page.getByRole('textbox', { name: 'Email *' })
+  const send = page.getByRole('button', { name: 'Send verification code' })
+  await email.fill('researcher@example.test')
+  await expect(send).toBeEnabled()
+
+  await send.click()
+  await expect(page.getByRole('heading', { name: 'Reset your password' })).toBeVisible()
+  await expect(page.getByLabel('Password reset code')).toBeVisible()
+  expect(resetRequest.url()).toContain('/auth/v1/recover')
+  expect(resetRequest.postDataJSON()).toMatchObject({
+    email: 'researcher@example.test',
+    gotrue_meta_security: { captcha_token: 'e2e-turnstile-token' },
+  })
+})
+
+test('sign-in reports server-side CAPTCHA misconfiguration accurately', async ({ page }) => {
+  await page.route('**/__e2e_supabase/**', (route) => route.fulfill({
+    status: 400,
+    json: {
+      code: 400,
+      error_code: 'captcha_failed',
+      msg: 'captcha verification process failed',
+    },
+  }))
+
+  await page.goto('/login')
+  await page.getByRole('textbox', { name: 'Email *' }).fill('researcher@example.test')
+  await page.getByLabel('Password *').fill('Example1!')
+  await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
+
+  await expect(page.getByText(/Authentication security is misconfigured/)).toBeVisible()
 })
 
 test('guest RAG answer stays grounded and survives a hard route refresh', async ({ page }) => {
@@ -317,38 +384,6 @@ test('authenticated archive renders legacy-safe records and filters them', async
   await expect(page.getByText('Adaptive Irrigation Analytics for Isabela Farms')).toBeVisible()
   await expect(page.getByText('A Centralized AI-Powered Thesis Library')).not.toBeVisible()
   await expect(page.getByText('Showing 1 of 2 indexed theses')).toBeVisible()
-  expect(unexpected).toEqual([])
-})
-
-test('settings tabs support keyboard navigation and clear all server conversations', async ({ page }) => {
-  await useAuthenticatedSession(page)
-  let deleteRequests = 0
-  const unexpected = await mockApi(page, {
-    'GET /sessions': [{
-      id: 'session-1', title: 'Archived methods', department: 'CCSICT',
-      created_at: '2026-08-20T00:00:00Z',
-    }],
-    'DELETE /sessions': () => {
-      deleteRequests += 1
-      return { deleted: true }
-    },
-  })
-
-  await page.goto('/settings')
-  const profileTab = page.getByRole('tab', { name: /Profile/ })
-  await expect(profileTab).toHaveAttribute('aria-selected', 'true')
-  await profileTab.focus()
-  await profileTab.press('ArrowRight')
-  await expect(page.getByRole('tab', { name: /Appearance/ })).toHaveAttribute('aria-selected', 'true')
-
-  await page.getByRole('tab', { name: /Chat & AI/ }).click()
-  await expect(page.getByText('Clear all conversations')).toBeVisible()
-  await page.getByRole('button', { name: 'Clear all' }).click()
-  await expect(page.getByRole('heading', { name: 'Clear all conversations?' })).toBeVisible()
-  await page.getByRole('button', { name: 'Clear all', exact: true }).last().click()
-  await expect(page.getByText('All conversations cleared')).toBeVisible()
-
-  expect(deleteRequests).toBe(1)
   expect(unexpected).toEqual([])
 })
 

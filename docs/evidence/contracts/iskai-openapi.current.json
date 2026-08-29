@@ -2662,29 +2662,6 @@
       }
     },
     "/sessions": {
-      "delete": {
-        "description": "Delete the caller's current sessions and their cascading messages.",
-        "operationId": "delete_all_sessions_sessions_delete",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Delete All Sessions",
-        "tags": [
-          "sessions"
-        ]
-      },
       "get": {
         "operationId": "list_sessions_sessions_get",
         "responses": {

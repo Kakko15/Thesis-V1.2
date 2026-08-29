@@ -1,11 +1,10 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { KeyRound, Mail, Lock, ShieldCheck } from 'lucide-react'
+import { KeyRound } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
-import { Input, Field } from '../../components/ui/Input'
 import { StepHeader } from './StepHeader'
-import { EASE, FieldIcon, formStagger, Rise, Shine, UnderlineLink, ValidTick, ErrorAlert } from './AuthFx'
+import { EASE, FloatingField, formStagger, Rise, Shine, UnderlineLink, ValidTick, ErrorAlert } from './AuthFx'
 import { authOptions, friendlyAuthError, isValidEmail, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
 import { OtpInput } from '../../components/ui/OtpInput'
 import { toast } from 'sonner'
@@ -126,21 +125,15 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
             noValidate
           >
             <Rise>
-              <Field label="New Password" error={error} required>
-                <div className="group relative">
-                  <FieldIcon icon={Lock} />
-                  <Input
-                    className="pl-11"
-                    type="password"
-                    name="password"
-                    placeholder="Min. 6 characters"
-                    value={newPassword}
-                    error={error}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    autoFocus
-                  />
-                </div>
-              </Field>
+              <FloatingField
+                label="New Password"
+                required
+                type="password"
+                name="password"
+                value={newPassword}
+                error={error}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
             </Rise>
             <Rise>
               <SecurityCheck variant="inline" action="password_reset" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
@@ -225,23 +218,28 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
             noValidate
           >
             <Rise>
-              <Field label="Email" error={error} required>
-                <div className="group relative">
-                  <FieldIcon icon={Mail} />
-                  <Input
-                    className="pl-11 pr-11"
-                    type="email"
-                    name="email"
-                    placeholder="you@isu.edu.ph"
-                    value={email}
-                    error={error}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                    autoFocus
-                  />
-                  <ValidTick show={isValidEmail(email) && !error} />
-                </div>
-              </Field>
+              <FloatingField
+                label="Email"
+                required
+                type="email"
+                name="email"
+                value={email}
+                error={error}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                autoFocus
+                endAdornment={<ValidTick show={isValidEmail(email) && !error} />}
+              />
+            </Rise>
+            <Rise>
+              <SecurityCheck
+                variant="inline"
+                quiet
+                action="password_reset"
+                onToken={captcha.onToken}
+                onStatusChange={captcha.onStatusChange}
+                resetKey={captchaReset}
+              />
             </Rise>
             <Rise>
               <Button

@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, useInView } from 'framer-motion'
-import { RotateCcw, User } from 'lucide-react'
+import { BookMarked, RotateCcw, Send } from 'lucide-react'
 import { GlassCard } from '../../components/ui/GlassCard'
 import { Button } from '../../components/ui/Button'
+import { Badge } from '../../components/ui/Badge'
 import { Logo } from '../../components/ui/Logo'
+import { AnimatedLogo } from '../../components/ui/AnimatedLogo'
+import { LogoActivityDots } from '../../components/ui/LogoActivityDots'
 import { Reveal } from '../../components/ui/Motion'
 import { SectionHeading } from './SectionHeading'
-import { cn } from '../../lib/utils'
 import { contentKeys } from '../../lib/keys'
 import { usePreferences } from '../../context/PreferencesContext'
 
-/* Fully scripted product demo — no API calls. Phases:
-   0 idle · 1 typing question · 2 thinking · 3 streaming answer · 4 sources */
+/* Fully scripted product demo — no API calls. Mirrors the live Chat page
+   UI: the question types into the composer, sends into the thread as an
+   avatarless bubble, IskAI thinks with the AnimatedLogo indicator, then the
+   answer streams and evidence source cards land. Phases:
+   0 idle · 1 typing in composer · 2 sent + thinking · 3 streaming answer · 4 sources */
 
 const QUESTION = 'What local studies used CNNs for crop disease detection?'
 const ANSWER_WORDS =
@@ -19,11 +24,12 @@ const ANSWER_WORDS =
 // The demo answer repeats common words, so keys carry an occurrence number.
 const ANSWER_WORD_KEYS = contentKeys(ANSWER_WORDS, 'answer-word')
 const SOURCES = [
-  { n: 1, title: 'CNN-Based Rice Leaf Disease Detection', meta: 'Data Mining · 2023' },
-  { n: 2, title: 'Maize Disease Image Classification', meta: 'Data Mining · 2021' },
+  { n: 1, title: 'CNN-Based Rice Leaf Disease Detection', meta: 'Data Mining · 2023', track: 'Data Mining' },
+  { n: 2, title: 'Maize Disease Image Classification', meta: 'Data Mining · 2021', track: 'Data Mining' },
 ]
 
 const TYPE_MS = 26
+const SEND_PAUSE_MS = 600
 const THINK_MS = 1000
 const WORD_MS = 42
 
@@ -34,20 +40,6 @@ const wordVariant = {
 
 const isCitation = (word) => /^\[\d+\]$/.test(word)
 
-function ThinkingDots() {
-  return (
-    <span className="inline-flex items-center gap-1 py-1.5" aria-label="Thinking">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="h-1.5 w-1.5 animate-bounce rounded-full bg-forest-500 dark:bg-forest-300"
-          style={{ animationDelay: `${i * 140}ms` }}
-        />
-      ))}
-    </span>
-  )
-}
-
 export function AskDemo() {
   const { reducedMotion: reduced } = usePreferences()
   const ref = useRef(null)
@@ -55,18 +47,22 @@ export function AskDemo() {
   const [runId, setRunId] = useState(0)
   const [phase, setPhase] = useState(0)
   const [typed, setTyped] = useState('')
+  const threadRef = useRef(null)
+
+  // Fixed-height thread: each new phase scrolls the thread itself (never the
+  // page — scrollIntoView would drag the whole window with it).
+  useEffect(() => {
+    const thread = threadRef.current
+    if (!thread) return
+    thread.scrollTo({ top: thread.scrollHeight, behavior: reduced ? 'auto' : 'smooth' })
+  }, [phase, reduced])
 
   useEffect(() => {
     if (!inView) return undefined
     const timers = []
     if (reduced) {
       // Skip the animation: jump straight to the final frame.
-      timers.push(
-        setTimeout(() => {
-          setTyped(QUESTION)
-          setPhase(4)
-        }, 0),
-      )
+      timers.push(setTimeout(() => setPhase(4), 0))
       return () => timers.forEach(clearTimeout)
     }
     let i = 0
@@ -76,10 +72,14 @@ export function AskDemo() {
       if (i < QUESTION.length) {
         timers.push(setTimeout(typeNext, TYPE_MS))
       } else {
-        timers.push(setTimeout(() => setPhase(2), 350))
-        timers.push(setTimeout(() => setPhase(3), 350 + THINK_MS))
+        // Send: the composer clears and the bubble drops into the thread.
+        timers.push(setTimeout(() => { setTyped(''); setPhase(2) }, SEND_PAUSE_MS))
+        timers.push(setTimeout(() => setPhase(3), SEND_PAUSE_MS + THINK_MS))
         timers.push(
-          setTimeout(() => setPhase(4), 350 + THINK_MS + ANSWER_WORDS.length * WORD_MS + 500),
+          setTimeout(
+            () => setPhase(4),
+            SEND_PAUSE_MS + THINK_MS + ANSWER_WORDS.length * WORD_MS + 500,
+          ),
         )
       }
     }
@@ -106,49 +106,72 @@ export function AskDemo() {
       </SectionHeading>
 
       <Reveal delay={0.1}>
-        <GlassCard strong className="mx-auto mt-12 max-w-3xl overflow-hidden rounded-[2rem]">
-          {/* Title bar */}
-          <div className="flex items-center justify-between border-b border-forest-900/10 px-5 py-3 dark:border-white/10">
-            <div className="flex items-center gap-2" aria-hidden="true">
-              <span className="h-2.5 w-2.5 rounded-full bg-flame-500/70" />
-              <span className="h-2.5 w-2.5 rounded-full bg-gold-400/70" />
-              <span className="h-2.5 w-2.5 rounded-full bg-forest-500/70" />
+        <GlassCard strong className="mx-auto mt-12 flex max-w-3xl flex-col overflow-hidden rounded-[2rem]">
+          {/* Header — same as the live chat header */}
+          <div className="flex items-center justify-between gap-3 border-b border-forest-900/10 px-4 py-3 dark:border-white/10 sm:px-5 sm:py-3.5">
+            <div className="flex min-w-0 items-center gap-3">
+              <Logo size={32} />
+              <div className="min-w-0">
+                <div className="font-display text-sm font-extrabold">IskAI</div>
+                <div className="truncate text-xs text-ink-faint">
+                  Grounded in the CCSICT archive · citations included
+                </div>
+              </div>
             </div>
-            <span className="font-mono text-xs uppercase tracking-wider text-ink-faint">
-              Guest Researcher session · CCSICT archive
-            </span>
-            <Button variant="ghost" size="icon-sm" aria-label="Replay the demo" onClick={replay}>
-              <RotateCcw size={14} />
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge tone="neutral">Guest Researcher</Badge>
+              <Button variant="ghost" size="icon-sm" aria-label="Replay the demo" onClick={replay}>
+                <RotateCcw size={14} />
+              </Button>
+            </div>
           </div>
 
-          {/* Conversation */}
-          <div className="min-h-[23rem] space-y-5 p-5 sm:p-7">
-            {/* User bubble */}
-            {phase >= 1 && (
-              <div className="flex items-start justify-end gap-3">
-                <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-gradient-to-br from-forest-600 to-forest-800 px-4 py-3 text-sm text-white shadow-lg shadow-forest-900/20">
-                  {typed}
-                  {phase === 1 && (
-                    <span className="animate-caret ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.18em] rounded-full bg-gold-300" />
-                  )}
+          {/* Conversation — fixed height, scrolls internally */}
+          <div ref={threadRef} className="h-[24rem] space-y-6 overflow-y-auto px-4 py-6 sm:px-6">
+            {/* User bubble — current style: avatarless, accent corner */}
+            {phase >= 2 && (
+              <motion.div
+                initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.35, ease: [0.2, 0, 0, 1] }}
+                className="flex justify-end"
+              >
+                <div className="max-w-[85%] sm:max-w-[70%]">
+                  <div className="rounded-3xl rounded-br-lg bg-gradient-to-br from-forest-600 to-forest-800 px-5 py-3 text-sm leading-relaxed text-white shadow-lg shadow-forest-900/20">
+                    {QUESTION}
+                  </div>
                 </div>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold-300 to-gold-400">
-                  <User size={14} className="text-forest-950" />
-                </span>
-              </div>
+              </motion.div>
             )}
 
-            {/* AI bubble */}
-            {phase >= 2 && (
-              <div className="flex items-start gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/95 shadow-lg shadow-forest-950/25 dark:bg-white/90">
-                  <Logo size={29} glow />
-                </span>
-                <div className="glass max-w-[85%] rounded-2xl rounded-tl-md px-4 py-3 text-sm leading-relaxed">
-                  {phase === 2 ? (
-                    <ThinkingDots />
-                  ) : (
+            {/* Thinking — the same indicator the live chat shows */}
+            {phase === 2 && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex h-10 items-center gap-2"
+                role="status"
+                aria-live="polite"
+                aria-label="IskAI is searching the thesis archive"
+              >
+                <AnimatedLogo size={40} />
+                <LogoActivityDots />
+              </motion.div>
+            )}
+
+            {/* AI answer — bare logo, glass bubble, sources below */}
+            {phase >= 3 && (
+              <div className="flex gap-3">
+                <div aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center">
+                  <Logo size={40} />
+                </div>
+                <motion.div
+                  initial={reduced ? false : { opacity: 0, filter: 'blur(4px)' }}
+                  animate={{ opacity: 1, filter: 'blur(0px)' }}
+                  transition={{ duration: 0.4, ease: [0.2, 0, 0, 1] }}
+                  className="min-w-0 max-w-full flex-1 sm:max-w-[85%]"
+                >
+                  <div className="glass rounded-3xl rounded-tl-lg px-5 py-4 text-sm leading-relaxed">
                     <motion.span
                       key={runId}
                       initial="hidden"
@@ -171,38 +194,79 @@ export function AskDemo() {
                         ),
                       )}
                     </motion.span>
+                  </div>
+
+                  {/* Evidence sources — same card style as the live chat */}
+                  {phase >= 4 && (
+                    <motion.div
+                      initial={reduced ? false : { opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4, ease: [0.2, 0, 0, 1] }}
+                      className="mt-3 space-y-2"
+                    >
+                      <div className="flex items-center gap-1.5 px-1 text-xs font-bold uppercase tracking-wider text-ink-faint">
+                        <BookMarked size={12} /> Evidence sources
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {SOURCES.map((source, i) => (
+                          <motion.div
+                            key={source.n}
+                            initial={reduced ? false : { opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.15 + i * 0.08, duration: 0.4 }}
+                            className="glass flex w-full items-start gap-3 rounded-2xl p-3.5 text-left"
+                          >
+                            <div className="flex max-w-16 shrink-0 flex-wrap gap-1">
+                              <div className="flex h-7 min-w-7 items-center justify-center rounded-lg bg-gold-400/20 px-1.5 font-mono text-xs font-bold text-gold-text dark:text-gold-300">
+                                {source.n}
+                              </div>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold leading-snug">{source.title}</div>
+                              <div className="mt-1 text-xs text-ink-muted">{source.meta}</div>
+                              <div className="mt-1.5">
+                                <Badge tone="forest">{source.track}</Badge>
+                              </div>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </motion.div>
                   )}
-                </div>
+                </motion.div>
               </div>
             )}
+          </div>
 
-            {/* Source cards */}
-            {phase >= 4 && (
-              <motion.div
-                initial={reduced ? false : { opacity: 0, y: 18 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, ease: [0.2, 0, 0, 1] }}
-                className="grid gap-2.5 pl-11 sm:grid-cols-2"
+          {/* Composer — scripted: the question types here, then sends */}
+          <div className="border-t border-forest-900/10 p-4 dark:border-white/10" aria-hidden="true">
+            <div className="glass flex items-end gap-2 rounded-[1.4rem] p-2">
+              <div className="max-h-36 min-h-10 flex-1 px-3 py-2 text-sm leading-relaxed">
+                {phase === 1 ? (
+                  <>
+                    {typed}
+                    <span className="animate-caret ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.18em] rounded-full bg-forest-600 dark:bg-forest-300" />
+                  </>
+                ) : (
+                  <span className="opacity-45">
+                    {typed || 'Ask IskAI about CCSICT thesis research…'}
+                  </span>
+                )}
+              </div>
+              <Button
+                type="button"
+                size="icon"
+                disabled={!typed}
+                tabIndex={-1}
+                aria-label="Send example question"
+                className="shrink-0"
               >
-                {SOURCES.map((source, i) => (
-                  <motion.div
-                    key={source.n}
-                    initial={reduced ? false : { opacity: 0, scale: 0.92 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.15 + i * 0.12, type: 'spring', stiffness: 320, damping: 24 }}
-                    className={cn('glass flex items-start gap-2.5 rounded-xl px-3.5 py-3')}
-                  >
-                    <span className="mt-0.5 rounded-md bg-gold-400/20 px-1.5 py-0.5 font-mono text-xs font-semibold text-gold-text dark:text-gold-300">
-                      [{source.n}]
-                    </span>
-                    <span>
-                      <span className="block text-xs font-bold leading-snug">{source.title}</span>
-                      <span className="mt-0.5 block text-xs text-ink-muted">{source.meta}</span>
-                    </span>
-                  </motion.div>
-                ))}
-              </motion.div>
-            )}
+                <Send size={17} />
+              </Button>
+            </div>
+            <p className="mt-2 text-center text-xs text-ink-faint">
+              Answers are synthesized exclusively from archived CCSICT theses. Topics ≥85% similar to existing work are flagged for faculty review.
+            </p>
           </div>
         </GlassCard>
       </Reveal>

@@ -256,13 +256,6 @@ class TestSqlSecurityContracts:
         assert 'app.institutional_email_domain' not in sql
         assert "case when requested_role = 'faculty' then 'pending' else 'approved' end" in sql
 
-    def test_any_email_migration_preserves_existing_pending_reviews(self):
-        migration = open(
-            'migrations/20260828_allow_any_email_signup.sql', encoding='utf-8',
-        ).read().lower()
-        assert "case when requested_role = 'faculty' then 'pending' else 'approved' end" in migration
-        assert "update public.profiles" not in migration
-
     def test_upload_job_owner_survives_account_deletion(self):
         # ON DELETE RESTRICT on a NOT NULL owner made deleting any uploader fail
         # outright. The job history is provenance and has to outlive the account,

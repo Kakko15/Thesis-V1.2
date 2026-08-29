@@ -5,18 +5,18 @@ import { SectionHeading } from './SectionHeading'
 const AUDIENCES = [
   {
     icon: GraduationCap,
-    title: 'Students',
-    text: 'Cut literature-review time from days to minutes. Discover related local studies, validate your topic before proposal, and cite with confidence.',
+    title: 'For students',
+    text: 'Search indexed CCSICT theses by topic, review citation-marked answers, and identify potentially overlapping topics for faculty discussion.',
   },
   {
     icon: Users,
-    title: 'Faculty advisers',
-    text: 'Cross-reference proposals against years of accumulated theses in seconds. Streamline title defenses with data-backed novelty scans.',
+    title: 'For approved faculty advisers',
+    text: 'Review proposed topics against the indexed department archive. Similarity results are advisory and support, not replace, faculty judgment.',
   },
   {
     icon: Landmark,
-    title: 'The CCSICT department',
-    text: 'Preserve institutional memory in a structured, secure knowledge base — rescuing research from deteriorating shelves and scattered drives.',
+    title: 'For CCSICT',
+    text: 'Build an access-controlled thesis archive with structured metadata, private source storage, and AI-mediated research access.',
   },
 ]
 
@@ -25,7 +25,7 @@ export function Audiences() {
     <section className="relative px-6 py-24">
       <div className="mx-auto max-w-6xl">
         <SectionHeading eyebrow="Who it serves" className="mb-14">
-          One archive, <em className="font-accent text-gradient-isu">three missions</em>
+          One CCSICT archive, <em className="font-accent text-gradient-isu">three uses</em>
         </SectionHeading>
         <div className="grid gap-5 md:grid-cols-3">
           {AUDIENCES.map((audience, i) => (

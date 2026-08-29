@@ -134,6 +134,7 @@ export function SecurityCheck({
   title,
   description,
   quiet = false,
+  appearance = 'interaction-only',
   className,
 }) {
   const [status, setStatus] = useState('pending')
@@ -165,7 +166,12 @@ export function SecurityCheck({
   // The inline variant has no frame to caption, and Cloudflare's own widget
   // already says "verify you are human", so stay out of its way once visible.
   const silentInteraction = !isPanel && status === 'interactive'
-  const revealed = (!quiet || BLOCKING.has(status)) && !silentInteraction
+  // With the widget always on display it narrates its own pending/interactive/
+  // solved states, so the custom row only stays for failures the widget itself
+  // can never render (script blocked, unsupported browser, no response).
+  const widgetNarrates = appearance === 'always'
+  const widgetSilent = widgetNarrates && !['error', 'unsupported', 'unavailable'].includes(status)
+  const revealed = (!quiet || BLOCKING.has(status)) && !silentInteraction && !widgetSilent
 
   return (
     <div
@@ -194,7 +200,8 @@ export function SecurityCheck({
         onToken={onToken}
         onStatus={handleStatus}
         resetKey={resetKey + retryNonce}
-        className={cn(status === 'interactive' && revealed && (isPanel ? 'mt-3' : 'mt-2'))}
+        appearance={appearance}
+        className={cn(revealed && (appearance === 'always' || status === 'interactive') && (isPanel ? 'mt-3' : 'mt-2'))}
       />
     </div>
   )

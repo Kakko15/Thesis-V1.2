@@ -31,7 +31,7 @@ class ChatRequest(BaseModel):
     # IDs are re-fetched and department-scoped by the backend before use.
     guest_source_ids: list[
         Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
-    ] = Field(default_factory=list, max_length=5)
+    ] = Field(default_factory=list, max_length=10)
 
 
 class DuplicationAlert(BaseModel):
@@ -52,6 +52,9 @@ class ChatResponse(BaseModel):
     session_id: Optional[str] = None
     no_relevant_thesis: bool = False
     history_saved: bool = False
+    # Set only when this response was read from the current ready-paper index.
+    # Historical chat rows intentionally remain snapshots of their original run.
+    archive_current: bool = False
 
 
 class MetadataExtractionResponse(BaseModel):

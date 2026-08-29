@@ -9,6 +9,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = BACKEND_ROOT / 'migrations' / '20260717_rag_items_9_16.sql'
 HARDENING_MIGRATION = BACKEND_ROOT / 'migrations' / '20260719_production_hardening.sql'
 PROVENANCE_MIGRATION = BACKEND_ROOT / 'migrations' / '20260720_index_embedding_provenance.sql'
+ACTIVE_INDEX_COUNT_MIGRATION = BACKEND_ROOT / 'migrations' / '20260829_reindex_updates_chunk_count.sql'
 FULL_SCHEMA = BACKEND_ROOT / 'supabase_setup.sql'
 
 
@@ -110,6 +111,14 @@ class TestMigrationContract:
             'delete from public.paper_index_versions'
         )
 
+    def test_active_index_activation_updates_the_displayed_chunk_count(self):
+        sql = ACTIVE_INDEX_COUNT_MIGRATION.read_text(encoding='utf-8').lower()
+        assert 'select count(*) into v_chunk_count' in sql
+        assert 'chunk_count = v_chunk_count' in sql
+        assert sql.index('select count(*) into v_chunk_count') < sql.index(
+            'set active_index_version = p_index_version'
+        )
+
 
 class TestReindexDryRun:
     def test_dry_run_has_zero_external_calls(self, tmp_path, capsys):
@@ -195,3 +204,52 @@ class TestReindexDryRun:
     def test_model_change_flag_is_rejected_without_apply(self):
         with __import__('pytest').raises(ValueError, match='valid only with --apply'):
             reindex_citations.main(['--allow-model-change'])
+
+    def test_current_model_is_not_reindexed_again(self):
+        class Query:
+            def select(self, *_args):
+                return self
+
+            def eq(self, *_args):
+                return self
+
+            def limit(self, *_args):
+                return self
+
+            def execute(self):
+                return type('Result', (), {'data': [{
+                    'embedding_model': reindex_citations.settings.gemini_embed_model,
+                    'embedding_dimensions': 768,
+                    'provenance_status': 'verified',
+                }]})()
+
+        class Client:
+            storage_touched = False
+
+            def table(self, name):
+                assert name == 'paper_index_versions'
+                return Query()
+
+            @property
+            def storage(self):
+                self.storage_touched = True
+                raise AssertionError('storage must not be touched when no model migration is needed')
+
+        client = Client()
+        assert reindex_citations.apply_paper(client, {
+            'id': 'paper-1', 'active_index_version': 'v1',
+            'storage_path': 'paper.pdf', 'filename': 'paper.pdf',
+        }, allow_model_change=True) is None
+        assert client.storage_touched is False
+
+    def test_resume_rejects_state_from_another_index_configuration(self, tmp_path):
+        state_path = tmp_path / 'reindex-state.json'
+        reindex_citations.save_state({
+            'index_fingerprint': {'embedding_model': 'old-model'},
+            'completed': [],
+            'failed': {},
+        }, state_path)
+        args = reindex_citations.build_parser().parse_args(['--apply', '--all', '--resume'])
+
+        with __import__('pytest').raises(ValueError, match='different index configuration'):
+            reindex_citations.run_apply(args, object(), state_path)

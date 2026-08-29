@@ -1,31 +1,43 @@
-import { useMemo, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { Check, Lock, ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
-import { Input, Field } from '../../components/ui/Input'
-import { cn } from '../../lib/utils'
 import { StepHeader } from './StepHeader'
-import { FieldIcon, formStagger, PasswordEye, Rise, Shine } from './AuthFx'
-import {
-  friendlyAuthError, isStrongPassword, passwordStrength,
-  PASSWORD_RULES, STRENGTH_COLORS, STRENGTH_LABELS,
-} from './authUtils'
+import { FloatingField, formStagger, PasswordEye, PasswordGuide, Rise, Shine } from './AuthFx'
+import { friendlyAuthError, isStrongPassword } from './authUtils'
 
 /** Final step of the recovery flow — the user arrived via the emailed link. */
 export function ResetPasswordStep({ onDone }) {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  const [touched, setTouched] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const strength = useMemo(() => passwordStrength(password), [password])
+  // Blur validation: leaving the field with a weak (or empty) password flags
+  // it; once flagged, typing revalidates live so the error clears as it passes.
+  const passwordError = (value) => {
+    if (!value) return 'Please enter a password'
+    return isStrongPassword(value) ? '' : 'Use 8+ characters with uppercase, number, and symbol'
+  }
+  const handleBlur = () => {
+    setTouched(true)
+    setError(passwordError(password))
+  }
+  const handleChange = (e) => {
+    const { value } = e.target
+    setPassword(value)
+    if (touched) setError(passwordError(value))
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!isStrongPassword(password)) {
-      setError('Use 8+ characters with uppercase, number, and symbol')
+    const message = passwordError(password)
+    if (message) {
+      setTouched(true)
+      setError(message)
       return
     }
     setLoading(true)
@@ -59,72 +71,21 @@ export function ResetPasswordStep({ onDone }) {
         noValidate
       >
         <Rise>
-          <Field label="New password" error={error} required>
-            <div className="group relative">
-              <FieldIcon icon={Lock} />
-              <Input
-                className="pl-11 pr-11"
-                type={showPassword ? 'text' : 'password'}
-                name="new-password"
-                placeholder="At least 8 characters"
-                value={password}
-                error={error}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                autoFocus
-              />
-              <PasswordEye show={showPassword} onToggle={() => setShowPassword((s) => !s)} />
-            </div>
+          <FloatingField
+            label="New password"
+            required
+            type={showPassword ? 'text' : 'password'}
+            name="new-password"
+            value={password}
+            error={error}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            autoComplete="new-password"
+            autoFocus
+            endAdornment={<PasswordEye show={showPassword} onToggle={() => setShowPassword((s) => !s)} />}
+          />
 
-            <AnimatePresence>
-              {password && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.3, ease: [0.2, 0, 0, 1] }}
-                  className="overflow-hidden"
-                >
-                  <div className="mt-2.5 flex gap-1.5">
-                    {[0, 1, 2, 3].map((i) => (
-                      <div
-                        key={i}
-                        style={{ transitionDelay: `${i * 45}ms` }}
-                        className={cn(
-                          'h-1 flex-1 rounded-full transition-colors duration-300',
-                          i < strength ? STRENGTH_COLORS[strength] : 'bg-forest-900/10 dark:bg-white/10',
-                        )}
-                      />
-                    ))}
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="text-xs font-semibold text-ink-muted">{STRENGTH_LABELS[strength]}</span>
-                    {PASSWORD_RULES.map((rule) => {
-                      const ok = rule.test(password)
-                      return (
-                        <span
-                          key={rule.key}
-                          className={cn(
-                            'inline-flex items-center gap-1 text-xs font-medium transition-colors duration-300',
-                            ok ? 'text-forest-700 dark:text-forest-300' : 'opacity-40',
-                          )}
-                        >
-                          <motion.span
-                            animate={ok ? { scale: [1, 1.35, 1] } : {}}
-                            transition={{ duration: 0.3 }}
-                            className="inline-flex"
-                          >
-                            <Check size={10} className={cn('transition-opacity', ok ? 'opacity-100' : 'opacity-30')} />
-                          </motion.span>
-                          {rule.label}
-                        </span>
-                      )
-                    })}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </Field>
+          <PasswordGuide password={password} />
         </Rise>
 
         <Rise>

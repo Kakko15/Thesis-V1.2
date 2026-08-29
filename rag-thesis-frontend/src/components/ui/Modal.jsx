@@ -43,12 +43,6 @@ function useDeterministicDismiss(open, onClose, { canClose = () => true } = {}) 
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [open, onClose, canClose])
 
-  useEffect(() => {
-    const clearSelectInteraction = () => { selectInteraction.current = false }
-    document.addEventListener('iskai:select-value-change', clearSelectInteraction)
-    return () => document.removeEventListener('iskai:select-value-change', clearSelectInteraction)
-  }, [])
-
   const onOverlayClick = (event) => {
     if (event.target !== event.currentTarget || !canClose()) return
     if (selectInteraction.current) {

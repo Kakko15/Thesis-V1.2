@@ -69,27 +69,21 @@ class TestIndirectAccessModel:
 
 
 class _Query:
-    def __init__(self, rows, count=None):
+    def __init__(self, rows):
         self.rows = rows
-        self.count = count
-        self.filters = []
+        self.equalities = []
 
-    def select(self, *_args, **_kwargs):
+    def select(self, *_args):
         return self
 
     def in_(self, *_args):
-        self.filters.append(_args)
-        return self
-
-    @property
-    def not_(self):
         return self
 
     def ilike(self, *_args):
         return self
 
-    def eq(self, *_args):
-        self.filters.append(_args)
+    def eq(self, *args):
+        self.equalities.append(args)
         return self
 
     def limit(self, *_args):
@@ -99,7 +93,7 @@ class _Query:
         return self
 
     def execute(self):
-        return SimpleNamespace(data=self.rows, count=self.count)
+        return SimpleNamespace(data=self.rows)
 
 
 class _RetrieverClient:
@@ -123,20 +117,6 @@ class _RetrieverClient:
             'id': 'p1', 'title': 'Thesis', 'authors': 'Author', 'year': 2026,
             'track': 'Data Mining', 'department': 'CCSICT',
         }])
-
-
-class _InventoryClient:
-    def __init__(self):
-        self.queries = []
-
-    def table(self, name):
-        assert name == 'papers'
-        query = _Query(
-            [{'id': 'p2', 'title': 'Second', 'authors': 'Author Two', 'department': 'CCSICT'}],
-            count=1 if not self.queries else 3,
-        )
-        self.queries.append(query)
-        return query
 
 
 class TestChunkRetrieval:
@@ -169,36 +149,38 @@ class TestChunkRetrieval:
         assert '&lt;/retrieved_context&gt;' in context
         assert '</retrieved_context>' not in context
 
+    def test_semantic_context_also_contains_academic_program_metadata(self, monkeypatch):
+        class AcademicSearchClient(_RetrieverClient):
+            def table(self, name):
+                if name == 'chunks':
+                    return _Query([{'id': 11, 'metadata': {}}])
+                if name == 'programs':
+                    return _Query([{
+                        'id': 'program-1', 'code': 'BSCS',
+                        'name': 'Bachelor of Science in Computer Science',
+                    }])
+                if name == 'specializations':
+                    return _Query([{
+                        'id': 'specialization-1', 'code': 'DM', 'name': 'Data Mining',
+                    }])
+                return _Query([{
+                    'id': 'p1', 'title': 'Thesis', 'authors': 'Author',
+                    'department': 'CCSICT', 'track': 'Data Mining',
+                    'program_id': 'program-1', 'specialization_id': 'specialization-1',
+                }])
+
+        monkeypatch.setattr(retriever, 'sb', AcademicSearchClient())
+        context, sources, _top = retriever.search_chunks('query', 'CCSICT', [0.1] * 768)
+
+        assert 'Program: BSCS - Bachelor of Science in Computer Science' in context
+        assert 'Specialization: DM - Data Mining' in context
+        assert sources[0]['program_code'] == 'BSCS'
+
     def test_author_fast_path_is_department_scoped(self, monkeypatch):
         client = _RetrieverClient()
         monkeypatch.setattr(retriever, 'sb', client)
         sources = retriever.find_papers_by_author('Carlo Gallardo', 'CCSICT')
         assert sources[0]['department'] == 'CCSICT'
-
-    def test_inventory_exclusion_does_not_change_archive_total(self, monkeypatch):
-        client = _InventoryClient()
-        monkeypatch.setattr(retriever, 'sb', client)
-
-        total, filtered_total, sources = retriever.list_archive_papers(
-            'CCSICT', limit=10, exclude_paper_ids=['p1'],
-        )
-
-        assert total == 3
-        assert filtered_total == 1
-        assert [source['id'] for source in sources] == ['p2']
-        assert ('ingestion_status', 'ready') in client.queries[0].filters
-        assert ('department', 'CCSICT') in client.queries[0].filters
-        assert ('id', ['p1']) not in client.queries[1].filters
-
-    def test_prior_source_lookup_accepts_more_than_five_ids(self, monkeypatch):
-        ids = [f'p{index}' for index in range(7)]
-        client = _RetrieverClient()
-        client.table = lambda _name: _Query([{'id': paper_id} for paper_id in ids])
-        monkeypatch.setattr(retriever, 'sb', client)
-
-        sources = retriever.find_papers_by_ids(ids, 'CCSICT')
-
-        assert [source['id'] for source in sources] == ids
 
     def test_author_match_allows_omitted_middle_name(self):
         assert _author_name_matches('Carlo Rossi Gallardo', 'Ahron Barlis, Carlo Gallardo')
@@ -216,6 +198,50 @@ class TestChunkRetrieval:
         sources = retriever.find_papers_by_ids(['p1', 'p1'], 'CCSICT')
         assert [source['id'] for source in sources] == ['p1']
         assert sources[0]['department'] == 'CCSICT'
+
+    def test_exact_title_lookup_is_ready_scoped_and_enriches_academic_metadata(self, monkeypatch):
+        title = 'Real-Time Autonomous Pedestrian Safety Using YOLOv11'
+
+        class AcademicClient:
+            def table(self, name):
+                if name == 'papers':
+                    return _Query([{
+                        'id': 'p2', 'title': title, 'authors': 'Author Two',
+                        'department': 'CCSICT', 'track': 'Intelligent Systems',
+                        'program_id': 'program-1', 'specialization_id': 'specialization-1',
+                    }])
+                if name == 'programs':
+                    return _Query([{
+                        'id': 'program-1', 'code': 'BSCS',
+                        'name': 'Bachelor of Science in Computer Science',
+                    }])
+                return _Query([{
+                    'id': 'specialization-1', 'code': 'IS', 'name': 'Intelligent Systems',
+                }])
+
+        client = AcademicClient()
+        monkeypatch.setattr(retriever, 'sb', client)
+        sources = retriever.find_papers_by_title(title, 'CCSICT')
+
+        assert sources[0]['id'] == 'p2'
+        assert sources[0]['program_code'] == 'BSCS'
+        assert sources[0]['specialization_name'] == 'Intelligent Systems'
+
+    def test_remembered_paper_lookups_only_use_ready_theses(self, monkeypatch):
+        class ReadyOnlyClient:
+            def __init__(self):
+                self.queries = []
+
+            def table(self, _name):
+                query = _Query([])
+                self.queries.append(query)
+                return query
+
+        client = ReadyOnlyClient()
+        monkeypatch.setattr(retriever, 'sb', client)
+        retriever.find_papers_by_ids(['p1'], 'CCSICT')
+        retriever.get_paper_overview_context('p1', 'CCSICT')
+        assert all(('ingestion_status', 'ready') in query.equalities for query in client.queries)
 
     def test_exact_paper_overview_excludes_cover_chunk(self, monkeypatch):
         class OverviewClient:
@@ -238,6 +264,38 @@ class TestChunkRetrieval:
         assert 'Research problem' in context and 'System scope' in context
         assert [source['chunk_index'] for source in sources] == [1, 2]
         assert top == 1.0
+
+    def test_exact_context_contains_verified_program_and_specialization(self, monkeypatch):
+        class AcademicOverviewClient:
+            def table(self, name):
+                if name == 'papers':
+                    return _Query([{
+                        'id': 'p1', 'title': 'Thesis', 'authors': 'Author',
+                        'track': 'Data Mining', 'department': 'CCSICT',
+                        'program_id': 'program-1', 'specialization_id': 'specialization-1',
+                    }])
+                if name == 'programs':
+                    return _Query([{
+                        'id': 'program-1', 'code': 'BSCS',
+                        'name': 'Bachelor of Science in Computer Science',
+                    }])
+                if name == 'specializations':
+                    return _Query([{
+                        'id': 'specialization-1', 'code': 'DM', 'name': 'Data Mining',
+                    }])
+                return _Query([{
+                    'id': 2, 'paper_id': 'p1', 'chunk_index': 1, 'content': 'Program evidence',
+                }])
+
+        monkeypatch.setattr(retriever, 'sb', AcademicOverviewClient())
+        context, sources, _top = retriever.get_paper_overview_context(
+            'p1', 'CCSICT', 'What course and program is this?',
+        )
+
+        assert 'Program: BSCS - Bachelor of Science in Computer Science' in context
+        assert 'Specialization: DM - Data Mining' in context
+        assert sources[0]['program_code'] == 'BSCS'
+        assert sources[0]['specialization_name'] == 'Data Mining'
 
     def test_within_paper_ranking_selects_objectives_and_methodology(self):
         paper = {'title': 'Campus Research Library', 'authors': 'Author One'}

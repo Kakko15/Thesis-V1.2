@@ -77,6 +77,7 @@ test('public critical surfaces pass the four-viewport structural quality matrix'
             || element.getAttribute('aria-labelledby')
             || element.getAttribute('title')
             || element.getAttribute('placeholder')
+            || element.labels?.length
             || element.textContent.trim()
             || (element.tagName === 'INPUT' && element.type === 'hidden')
           ))

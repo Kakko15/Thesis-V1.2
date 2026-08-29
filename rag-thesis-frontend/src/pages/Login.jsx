@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import {
   AnimatePresence, motion, useSpring, useTransform,
 } from 'framer-motion'
@@ -16,20 +16,21 @@ import { SignInForm } from './auth/SignInForm'
 import { SignUpForm } from './auth/SignUpForm'
 import { OtpSignInStep } from './auth/OtpSignInStep'
 import { VerifyEmailStep } from './auth/VerifyEmailStep'
-import { MfaChallengeStep } from './auth/MfaChallengeStep'
+import { VerifyMethodStep } from './auth/VerifyMethodStep'
 import { ForgotPasswordStep } from './auth/ForgotPasswordStep'
 import { ResetPasswordStep } from './auth/ResetPasswordStep'
 import { SuccessStep } from './auth/SuccessStep'
 import { useIdleReady } from '../hooks/useIdleReady'
+import { safeNextPath } from '../lib/idleSession'
 
 const AuthScene = lazy(() => import('../components/three/AuthScene'))
 
-/* Steps: signin · signup · otp · verifyEmail · mfa · forgot · reset · success.
+/* Steps: signin · signup · otp · verifyEmail · verify · forgot · reset · success.
    Transitions between auth state and steps are DERIVED at render time
    (never set in effects):
-   - session needs 2FA          → mfa challenge
-   - session fully established  → success ceremony → dashboard
-   - PASSWORD_RECOVERY          → reset (event/URL driven)                 */
+   - password login succeeded     → verify (picker: email code / authenticator)
+   - session fully established    → success ceremony → dashboard
+   - PASSWORD_RECOVERY            → reset (event/URL driven)                 */
 
 const isRecoveryUrl = () =>
   /type=recovery/.test(window.location.hash + window.location.search)
@@ -37,7 +38,7 @@ const isRecoveryUrl = () =>
 /* Depth per step — direction of travel drives the slide axis: deeper steps
    enter from the right, returning steps from the left, tab switches slide
    along the tab order. */
-const STEP_DEPTH = { signin: 0, signup: 0, otp: 1, verifyEmail: 1, forgot: 1, mfa: 1, reset: 1, success: 2 }
+const STEP_DEPTH = { signin: 0, signup: 0, otp: 1, verifyEmail: 1, verify: 1, forgot: 1, reset: 1, success: 2 }
 const TABS = ['signin', 'signup']
 const TAB_META = {
   signin: { label: 'Sign in', icon: LogIn },
@@ -84,8 +85,14 @@ function useAuthScene() {
 export default function Login() {
   const [step, setStep] = useState(() => (isRecoveryUrl() ? 'reset' : 'signin'))
   const [email, setEmail] = useState('')
+  // Set by SignInForm the moment a password login succeeds: every account
+  // passes the post-login verification picker before the success ceremony.
+  const [awaitingVerify, setAwaitingVerify] = useState(false)
   const { user, needsMfa, displayName } = useAuth()
   const navigate = useNavigate()
+  // Idle logout preserves the route as ?next= so re-login lands back there.
+  const [searchParams] = useSearchParams()
+  const postLoginDestination = safeNextPath(searchParams.get('next'))
   const show3D = useAuthScene()
   const sceneReady = useIdleReady(show3D)
   const cardRef = useRef(null)
@@ -110,9 +117,9 @@ export default function Login() {
   // Render-time step resolution against the live auth state.
   let effectiveStep = step
   if (user && needsMfa && step !== 'reset' && step !== 'success') {
-    effectiveStep = 'mfa'
+    effectiveStep = 'verify'
   } else if (user && !needsMfa && !['reset', 'forgot'].includes(step)) {
-    effectiveStep = 'success'
+    effectiveStep = awaitingVerify ? 'verify' : 'success'
   }
 
   // Direction of travel for the step slide — state adjusted during render
@@ -160,13 +167,17 @@ export default function Login() {
         return <OtpSignInStep email={email} onBack={() => setStep('signin')} />
       case 'verifyEmail':
         return <VerifyEmailStep email={email} onBack={() => setStep('signup')} />
-      case 'mfa':
+      case 'verify':
         return (
-          <MfaChallengeStep
-            onUseAnotherAccount={async () => {
+          <VerifyMethodStep
+            email={email || user?.email || ''}
+            totpEnrolled={needsMfa}
+            onBack={async () => {
               await supabase.auth.signOut()
+              setAwaitingVerify(false)
               setStep('signin')
             }}
+            onDone={() => setAwaitingVerify(false)}
           />
         )
       case 'forgot':
@@ -178,7 +189,7 @@ export default function Login() {
           <SuccessStep
             title={`Welcome, ${displayName}!`}
             subtitle="Taking you to your dashboard…"
-            onDone={() => navigate('/dashboard', { replace: true })}
+            onDone={() => navigate(postLoginDestination, { replace: true })}
           />
         )
       default:
@@ -187,6 +198,7 @@ export default function Login() {
             email={email}
             setEmail={setEmail}
             onForgot={() => setStep('forgot')}
+            onPasswordSuccess={() => setAwaitingVerify(true)}
             onOtpSent={(addr) => {
               setEmail(addr)
               setStep('otp')

@@ -6,29 +6,24 @@ const PRINCIPLES = [
   {
     icon: Lock,
     title: 'Indirect archive access',
-    text: 'The interface does not provide manuscript downloads. It returns AI-synthesized answers and limited cited metadata or excerpts from authorized archive content.',
+    text: 'Full manuscripts are never exposed through the interface. Content reaches you only as AI-synthesized answers with citations, protecting every author\u2019s intellectual property.',
   },
   {
     icon: EyeOff,
-    title: 'Account and activity data',
-    text: 'The library stores account and profile details, conversations, upload and novelty-scan records, and security or audit events needed to operate and review the service. It does not use advertising identifiers or third-party analytics.',
+    title: 'Minimal footprint',
+    text: 'The library stores your name, email, role, and conversations — nothing else. No tracking pixels, no advertising identifiers, no third-party analytics.',
   },
   {
     icon: ShieldCheck,
     title: 'Duplication screening',
-    text: 'Uploads and novelty scans are checked against the archive at the configured similarity threshold. Filenames, results, matched excerpts, decisions, and related review records may be retained for authorized audit and administration.',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'AI processing',
-    text: 'Questions and relevant archive content, document text, embeddings, and novelty-review content may be processed by Google Gemini services. Use is subject to applicable institutional privacy and corpus-handling requirements.',
+    text: 'Uploads and novelty scans are checked against the archive at the 85% similarity threshold. Screening metadata is kept so faculty can audit decisions later.',
   },
 ]
 
 export function PrivacySection() {
   return (
     <div className="space-y-5">
-      <SectionCard icon={ShieldCheck} title="How your data is handled" description="A summary of information used to provide and administer the library.">
+      <SectionCard icon={ShieldCheck} title="How your data is handled" description="The guarantees the library makes about your information.">
         <div className="space-y-3">
           {PRINCIPLES.map(({ icon: Icon, title, text }) => (
             <div key={title} className="glass flex items-start gap-3.5 rounded-2xl p-4">
@@ -47,8 +42,8 @@ export function PrivacySection() {
       <SectionCard icon={UserX} title="Account removal" description="What to do when you no longer need access.">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="max-w-md text-xs leading-relaxed text-ink-muted">
-            Account deletion is handled by an administrator so required archive and audit records
-            can be reviewed. Contact the CCSICT system administrators to request removal.
+            Account deletion is handled by an administrator so archived contributions and audit
+            trails stay intact. Contact your department administrator to request removal.
           </p>
           <Button variant="outline" size="sm" onClick={() => { window.location.href = 'mailto:ccsict@isu.edu.ph?subject=Account%20deletion%20request' }}>
             Contact administrator

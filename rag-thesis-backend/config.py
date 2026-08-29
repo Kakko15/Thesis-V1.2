@@ -15,11 +15,11 @@ class Settings(BaseSettings):
     # --- Model configuration (current Gemini models; paper architecture unchanged) ---
     gemini_chat_model: str = 'gemini-3.6-flash'
     gemini_verdict_model: str = 'gemini-3.5-flash-lite'
-    gemini_embed_model: str = 'models/gemini-embedding-2'
+    gemini_embed_model: str = 'models/gemini-embedding-001'
     # The current pgvector schema is vector(768). A dimension change requires
     # an explicit database migration rather than an environment-only switch.
     embedding_dimensions: Literal[768] = 768
-    gemini_timeout_seconds: float = 25.0
+    gemini_timeout_seconds: float = 60.0
     gemini_max_retries: int = 1
     gemini_max_output_tokens: int = 700
     gemini_thinking_level: Literal['minimal', 'low', 'medium', 'high'] = 'low'

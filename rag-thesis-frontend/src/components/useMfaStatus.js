@@ -7,21 +7,16 @@ import { useAuth } from '../context/AuthContext'
  * the dashboard nudge, the settings row, and the admin gate all read the same
  * cached snapshot.
  */
-export function useMfaStatus(queryEnabled = true) {
+export function useMfaStatus() {
   const { refreshMfa } = useAuth()
-  const { data, refetch, isLoading, isError, error } = useQuery({
+  const { data, refetch, isLoading } = useQuery({
     queryKey: ['mfa-factors'],
-    queryFn: async () => {
-      const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors()
-      if (factorsError) throw factorsError
-      return factors
-    },
-    enabled: queryEnabled,
+    queryFn: async () => (await supabase.auth.mfa.listFactors()).data,
   })
   const enabled = !!data?.totp?.some((f) => f.status === 'verified')
   const handleChanged = async () => {
     await refetch()
     await refreshMfa()
   }
-  return { enabled, isLoading, isError, error, handleChanged }
+  return { enabled, isLoading, handleChanged }
 }

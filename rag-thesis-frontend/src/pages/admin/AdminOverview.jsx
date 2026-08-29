@@ -31,6 +31,25 @@ const ACTION_LABELS = {
   role_change: { label: 'Role changed', icon: UserCog, tone: 'text-forest-500' },
 }
 
+function activityDetail(action, detail) {
+  if (!detail || typeof detail !== 'object') return detail || ''
+
+  if (action === 'chat_query') {
+    const parts = []
+    if (detail.fast_path) parts.push(detail.fast_path.replaceAll('_', ' '))
+    if (typeof detail.sources_cited === 'number') {
+      parts.push(`${detail.sources_cited} ${detail.sources_cited === 1 ? 'source' : 'sources'}`)
+    }
+    if (detail.duplication_flagged) parts.push('similarity flagged')
+    return parts.join(' | ') || 'Completed'
+  }
+
+  if (detail.title || detail.filename) return detail.title || detail.filename
+  if (detail.target_email) return `${detail.target_email}${detail.new_role ? `: ${detail.new_role}` : ''}`
+  if (detail.reason) return detail.reason
+  return 'Details available in system logs'
+}
+
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
@@ -187,7 +206,7 @@ export default function AdminOverview() {
               </span>
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-sm text-ink-muted">Flagged (â‰¥50%)</span>
+              <span className="text-sm text-ink-muted">Flagged (&gt;=50%)</span>
               <span className="font-display text-xl font-extrabold text-flame-500">
                 {overview?.usage?.flagged_scans ?? 0}
               </span>
@@ -216,7 +235,7 @@ export default function AdminOverview() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{meta.label}</div>
                     <div className="truncate text-xs text-ink-faint">
-                      {typeof a.detail === 'object' ? JSON.stringify(a.detail) : (a.detail?.title || a.detail?.filename || a.detail?.target_email || a.detail || '')}
+                      {activityDetail(a.action, a.detail)}
                     </div>
                   </div>
                   <span className="shrink-0 text-xs text-ink-faint">{timeAgo(a.created_at)}</span>

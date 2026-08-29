@@ -15,7 +15,7 @@ import { friendlyAuthError } from './authUtils'
  * app. Success upgrades the session to aal2 — AuthContext clears `needsMfa`
  * and the orchestrator proceeds.
  */
-export function MfaChallengeStep({ onUseAnotherAccount }) {
+export function MfaChallengeStep({ onUseAnotherAccount, onVerified, switchLabel = 'Use a different account' }) {
   const [factorId, setFactorId] = useState(null)
   const [factorError, setFactorError] = useState('')
   const [code, setCode] = useState('')
@@ -45,6 +45,7 @@ export function MfaChallengeStep({ onUseAnotherAccount }) {
       if (err) throw err
       toast.success('Identity verified')
       // Session is now aal2 → AuthContext flips needsMfa → orchestrator redirects.
+      onVerified?.()
     } catch (err) {
       setError(friendlyAuthError(err))
       setShakeNonce((n) => n + 1)
@@ -115,7 +116,7 @@ export function MfaChallengeStep({ onUseAnotherAccount }) {
           onClick={onUseAnotherAccount}
           className="text-xs font-semibold text-ink-faint transition-colors hover:text-ink"
         >
-          Use a different account
+          {switchLabel}
         </button>
       </div>
     </div>

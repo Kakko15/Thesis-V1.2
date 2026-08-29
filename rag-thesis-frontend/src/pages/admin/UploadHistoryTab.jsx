@@ -102,7 +102,7 @@ export default function UploadHistoryTab() {
           <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
           <Input
             className="pl-11"
-            placeholder="Search titles or authorsâ€¦"
+            placeholder="Search titles or authors..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -188,4 +188,3 @@ export default function UploadHistoryTab() {
     </div>
   )
 }
-

@@ -33,13 +33,13 @@ export function FinalCTA() {
               <span className="text-gold-300">.</span>
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-white/70 sm:text-base">
-              Join the students and advisers of ISU Echague already researching at the speed of
-              thought.
+              Sign in or create an account for saved chats and CCSICT archive access. Faculty
+              requests require approval.
             </p>
             <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Magnetic>
                 <Button size="xl" variant="gold" onClick={() => navigate('/login')} className="group">
-                  Get started free
+                  Sign in or create account
                   <ArrowRight
                     size={17}
                     className="transition-transform duration-300 group-hover:translate-x-1"
@@ -53,10 +53,13 @@ export function FinalCTA() {
                   className="text-white hover:bg-white/10"
                   onClick={() => navigate('/chat')}
                 >
-                  Explore as Guest Researcher
+                  Try guest chat
                 </Button>
               </Magnetic>
             </div>
+            <p className="mt-4 text-xs leading-relaxed text-white/60">
+              No account required. CCSICT archive only; chats are not saved and use is rate-limited.
+            </p>
           </div>
         </GlassCard>
       </Reveal>

@@ -1,19 +1,18 @@
-import { useMemo, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { ArrowRight, Check, Lock, Mail, User } from 'lucide-react'
+import { ArrowRight, Lock } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
-import { Input, Field, Select } from '../../components/ui/Input'
+import { Field, Select } from '../../components/ui/Input'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
 import { useSecurityGate } from '../../components/security/useSecurityGate'
-import { cn } from '../../lib/utils'
 import {
-  authOptions, friendlyAuthError, isStrongPassword, isValidEmail, passwordStrength,
-  PASSWORD_RULES, STRENGTH_COLORS, STRENGTH_LABELS,
+  authOptions, friendlyAuthError, isStrongPassword, isValidEmail,
 } from './authUtils'
 import {
-  ErrorAlert, FieldIcon, formStagger, PasswordEye, Rise, Shine, UnderlineLink, ValidTick,
+  ErrorAlert, FloatingField, formStagger, PasswordEye, PasswordGuide, Rise, Shine, UnderlineLink,
+  ValidTick,
 } from './AuthFx'
 
 /** Create-account form → email verification step (or straight in when
@@ -23,6 +22,9 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
   const [role, setRole] = useState('student')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [touched, setTouched] = useState({})
   const [errors, setErrors] = useState({})
   const [errorNonce, setErrorNonce] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -31,20 +33,70 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
   const captcha = useSecurityGate()
   const [captchaReset, setCaptchaReset] = useState(0)
 
-  const strength = useMemo(() => passwordStrength(password), [password])
+  const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword
 
   const failWith = (next) => {
     setErrors(next)
     setErrorNonce((n) => n + 1)
   }
 
-  const validate = () => {
-    const next = {}
-    if (fullName.trim().length < 2) next.fullName = 'Please enter your full name'
-    if (!isValidEmail(email)) next.email = 'Enter a valid email address'
-    if (!isStrongPassword(password)) {
-      next.password = 'Use 8+ characters with uppercase, number, and symbol'
+  const fieldError = (name, values) => {
+    switch (name) {
+      case 'fullName':
+        return values.fullName.trim().length < 2 ? 'Please enter your full name' : ''
+      case 'email':
+        return isValidEmail(values.email) ? '' : 'Enter a valid email address'
+      case 'password':
+        if (!values.password) return 'Please enter a password'
+        return isStrongPassword(values.password)
+          ? ''
+          : 'Use 8+ characters with uppercase, number, and symbol'
+      case 'confirmPassword':
+        if (!values.confirmPassword) return 'Please confirm your password'
+        return values.confirmPassword === values.password ? '' : 'Passwords do not match'
+      default:
+        return ''
     }
+  }
+
+  // Revalidate a single field (optionally with its in-flight value), merging
+  // the result into the error map so other fields are left alone.
+  const checkField = (name, overrides = {}) => {
+    const message = fieldError(name, { fullName, email, password, confirmPassword, ...overrides })
+    setErrors((prev) => {
+      const next = { ...prev }
+      if (message) next[name] = message
+      else delete next[name]
+      return next
+    })
+  }
+
+  // Blur validation: leaving a field with a bad (or empty) value flags it.
+  const blurField = (name) => () => {
+    setTouched((prev) => (prev[name] ? prev : { ...prev, [name]: true }))
+    checkField(name)
+  }
+
+  // Live validation only kicks in after the first blur, so typing into a
+  // fresh field never flashes red prematurely.
+  const changeField = (name, setter) => (e) => {
+    const { value } = e.target
+    setter(value)
+    if (touched[name]) checkField(name, { [name]: value })
+    // Confirm password follows edits to the password it must match.
+    if (name === 'password' && touched.confirmPassword) {
+      checkField('confirmPassword', { password: value })
+    }
+  }
+
+  const validate = () => {
+    const values = { fullName, email, password, confirmPassword }
+    const next = {}
+    for (const name of ['fullName', 'email', 'password', 'confirmPassword']) {
+      const message = fieldError(name, values)
+      if (message) next[name] = message
+    }
+    setTouched({ fullName: true, email: true, password: true, confirmPassword: true })
     failWith(next)
     return Object.keys(next).length === 0
   }
@@ -92,41 +144,32 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       noValidate
     >
       <Rise>
-        <Field label="Full name" error={errors.fullName} required>
-          <div className="group relative">
-            <FieldIcon icon={User} />
-            <Input
-              className="pl-11 pr-11"
-              name="name"
-              placeholder="Juan D. Dela Cruz"
-              value={fullName}
-              error={errors.fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              autoComplete="name"
-              autoFocus
-            />
-            <ValidTick show={fullName.trim().length >= 2 && !errors.fullName} />
-          </div>
-        </Field>
+        <FloatingField
+          label="Full name"
+          required
+          name="name"
+          value={fullName}
+          error={errors.fullName}
+          onChange={changeField('fullName', setFullName)}
+          onBlur={blurField('fullName')}
+          autoComplete="name"
+          endAdornment={<ValidTick show={fullName.trim().length >= 2 && !errors.fullName} />}
+        />
       </Rise>
 
       <Rise>
-        <Field label="Email" error={errors.email} required>
-          <div className="group relative">
-            <FieldIcon icon={Mail} />
-            <Input
-              className="pl-11 pr-11"
-              type="email"
-              name="email"
-              placeholder="you@isu.edu.ph"
-              value={email}
-              error={errors.email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-            />
-            <ValidTick show={isValidEmail(email) && !errors.email} />
-          </div>
-        </Field>
+        <FloatingField
+          label="Email"
+          required
+          type="email"
+          name="email"
+          value={email}
+          error={errors.email}
+          onChange={changeField('email', setEmail)}
+          onBlur={blurField('email')}
+          autoComplete="email"
+          endAdornment={<ValidTick show={isValidEmail(email) && !errors.email} />}
+        />
       </Rise>
 
       <Rise>
@@ -153,72 +196,45 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       </Rise>
 
       <Rise>
-        <Field label="Password" error={errors.password} required>
-          <div className="group relative">
-            <FieldIcon icon={Lock} />
-            <Input
-              className="pl-11 pr-11"
-              type={showPassword ? 'text' : 'password'}
-              name="new-password"
-              placeholder="At least 8 characters"
-              value={password}
-              error={errors.password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-            <PasswordEye show={showPassword} onToggle={() => setShowPassword((s) => !s)} />
-          </div>
+        <FloatingField
+          label="Password"
+          required
+          type={showPassword ? 'text' : 'password'}
+          name="new-password"
+          value={password}
+          error={errors.password}
+          onChange={changeField('password', setPassword)}
+          onBlur={blurField('password')}
+          autoComplete="new-password"
+          endAdornment={(
+            <>
+              <ValidTick show={passwordsMatch} className="right-11" />
+              <PasswordEye show={showPassword} onToggle={() => setShowPassword((s) => !s)} />
+            </>
+          )}
+        />
 
-          {/* Strength meter + live requirement ticks */}
-          <AnimatePresence>
-            {password && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.3, ease: [0.2, 0, 0, 1] }}
-                className="overflow-hidden"
-              >
-                <div className="mt-2.5 flex gap-1.5">
-                  {[0, 1, 2, 3].map((i) => (
-                    <div
-                      key={i}
-                      style={{ transitionDelay: `${i * 45}ms` }}
-                      className={cn(
-                        'h-1 flex-1 rounded-full transition-colors duration-300',
-                        i < strength ? STRENGTH_COLORS[strength] : 'bg-forest-900/10 dark:bg-white/10',
-                      )}
-                    />
-                  ))}
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="text-xs font-semibold text-ink-muted">{STRENGTH_LABELS[strength]}</span>
-                  {PASSWORD_RULES.map((rule) => {
-                    const ok = rule.test(password)
-                    return (
-                      <span
-                        key={rule.key}
-                        className={cn(
-                          'inline-flex items-center gap-1 text-xs font-medium transition-colors duration-300',
-                          ok ? 'text-forest-700 dark:text-forest-300' : 'opacity-40',
-                        )}
-                      >
-                        <motion.span
-                          animate={ok ? { scale: [1, 1.35, 1] } : {}}
-                          transition={{ duration: 0.3 }}
-                          className="inline-flex"
-                        >
-                          <Check size={10} className={cn('transition-opacity', ok ? 'opacity-100' : 'opacity-30')} />
-                        </motion.span>
-                        {rule.label}
-                      </span>
-                    )
-                  })}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </Field>
+        <PasswordGuide password={password} />
+      </Rise>
+
+      <Rise>
+        <FloatingField
+          label="Confirm password"
+          required
+          type={showConfirmPassword ? 'text' : 'password'}
+          name="confirm-password"
+          value={confirmPassword}
+          error={errors.confirmPassword}
+          onChange={changeField('confirmPassword', setConfirmPassword)}
+          onBlur={blurField('confirmPassword')}
+          autoComplete="new-password"
+          endAdornment={(
+            <>
+              <ValidTick show={passwordsMatch} className="right-11" />
+              <PasswordEye show={showConfirmPassword} onToggle={() => setShowConfirmPassword((s) => !s)} />
+            </>
+          )}
+        />
       </Rise>
 
       {exists && (
@@ -241,7 +257,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       {errors.form && <ErrorAlert key={errorNonce}>{errors.form}</ErrorAlert>}
 
       <Rise>
-        <SecurityCheck variant="inline" action="signup" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
+        <SecurityCheck variant="inline" quiet action="signup" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
       </Rise>
 
       <Rise>

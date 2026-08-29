@@ -7,8 +7,33 @@ Plus Jakarta Sans / Inter / JetBrains Mono, 32px glass card, aurora hero).
 | File | Purpose |
 |---|---|
 | `confirm-signup.html` | **Production** — paste into Supabase (see below) |
-| `preview.html` | Generated local browser preview with sample values (`893573`); regenerate after editing the production file (not committed) |
+| `magic-link.html` | **Production** — Magic Link / sign-in code email (see below) |
+| `preview.html` | Local browser preview with sample values (`893573`); regenerate after editing the production file |
+| `magic-link-preview.html` | Local browser preview for `magic-link.html` (`427915`) |
 | `logo-host.md` | How the logo image is hosted and what to do if it ever 404s |
+
+## Deploy: Magic Link template
+
+The **Magic Link** email backs two flows in the app: the "Email me a login
+link" button (`OtpSignInStep.jsx`) and the post-login "Email me a code"
+verification (`VerifyMethodStep.jsx`), which reads the 6-digit code with
+`supabase.auth.verifyOtp({ email, token, type: 'email' })`.
+
+1. Open the Supabase Dashboard → your project → **Authentication → Emails**
+   (or **Authentication → Email Templates**) → **Magic Link**.
+2. Replace the entire **Body (HTML)** with the contents of
+   [`magic-link.html`](magic-link.html).
+3. Set **Subject** to:
+
+   ```text
+   Your ISU Thesis AI Library sign-in code — {{ .Token }}
+   ```
+
+4. **Save**, then send a real test sign-in code and verify in Gmail web + mobile.
+
+> Never remove `{{ .Token }}` from this template: without it the email shows
+> only the link and the app's six-box code step (`VerifyMethodStep.jsx`,
+> `OtpSignInStep.jsx`) has nothing to verify.
 
 ## Deploy: Confirm signup template
 
@@ -19,11 +44,11 @@ Plus Jakarta Sans / Inter / JetBrains Mono, 32px glass card, aurora hero).
 3. Set **Subject** to:
 
    ```text
-   Confirm your ISU Thesis AI Library account
+   Confirm your ISU Thesis AI Library account — {{ .Token }} is your code
    ```
 
-   Keep the one-time code in the email body so lock-screen notifications and
-   mail-routing logs do not expose it.
+   (Supabase allows template variables in the subject; putting the code in the
+   subject lets users read it from the lock-screen notification.)
 4. **Save**, then send a real test signup and verify in Gmail web + mobile.
 
 ### Template variables used (keep verbatim)
@@ -46,8 +71,8 @@ of the project's Site URL.
 Dashboard → **Authentication → URL Configuration**:
 
 - **Site URL** = the deployed frontend origin (e.g. `https://thesis.your-domain`
-  or `http://localhost:5173` in development). `{{ .ConfirmationURL }}` redirects
-  here after confirmation.
+  or `http://localhost:5173` in development). The logo loads from this origin,
+  and `{{ .ConfirmationURL }}` redirects here after confirmation.
 - **Redirect URLs** must include the same origin.
 
 In **local development** the logo still loads, because it is served from the
@@ -61,22 +86,31 @@ After editing `confirm-signup.html`, regenerate `preview.html` from the repo
 root (PowerShell):
 
 ```powershell
-   $tpl = Get-Content -LiteralPath "rag-thesis-backend\email-templates\confirm-signup.html" -Raw -Encoding UTF8
-   $prev = $tpl.Replace('{{ .SiteURL }}', 'https://your-frontend.example')`
+$tpl = Get-Content -LiteralPath "rag-thesis-backend\email-templates\confirm-signup.html" -Raw
+$prev = $tpl.Replace('{{ .SiteURL }}', 'file:///C:/Users/Kazuha/Desktop/Thesis-V1/rag-thesis-frontend/public')`
             .Replace('{{ .Token }}', '893573')`
             .Replace('{{ .Email }}', 'carlo.gallardo@example.com')`
             .Replace('{{ .ConfirmationURL }}', '#')
 Set-Content -LiteralPath "rag-thesis-backend\email-templates\preview.html" -Value $prev -Encoding UTF8
 ```
 
-Then open the generated `preview.html` in a browser (or screenshot it headlessly).
-Replace `<repo-root>` below with the absolute path to this checkout:
+Same for the Magic Link template:
+
+```powershell
+$tpl = Get-Content -LiteralPath "rag-thesis-backend\email-templates\magic-link.html" -Raw
+$prev = $tpl.Replace('{{ .Token }}', '427915')`
+            .Replace('{{ .Email }}', 'carlo.gallardo@example.com')`
+            .Replace('{{ .ConfirmationURL }}', '#')
+Set-Content -LiteralPath "rag-thesis-backend\email-templates\magic-link-preview.html" -Value $prev -Encoding UTF8
+```
+
+Then open `preview.html` in a browser (or screenshot it headlessly):
 
 ```powershell
 & "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless --disable-gpu `
   --hide-scrollbars --force-device-scale-factor=1 `
   --screenshot="preview.png" --window-size=720,1100 `
-  "file:///<repo-root>/rag-thesis-backend/email-templates/preview.html"
+  "file:///C:/Users/Kazuha/Desktop/Thesis-V1/rag-thesis-backend/email-templates/preview.html"
 ```
 
 ## Design notes / known email-client constraints

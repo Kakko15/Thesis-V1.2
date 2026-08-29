@@ -13,8 +13,8 @@ import { RoleBadge } from './ui/Badge'
 import { Button } from './ui/Button'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/Tooltip'
 import { Sheet } from './ui/Sheet'
-import { CommandPalette } from './CommandPalette'
 import { AppearanceDialog } from './AppearanceDialog'
+import { CommandPalette } from './CommandPalette'
 import { cn } from '../lib/utils'
 
 function useNavItems() {
@@ -156,12 +156,17 @@ export function AppShell({ children }) {
   }
 
   // Appearance and account settings live on the dedicated /settings page now —
-  // these shortcuts deep-link into the matching section.
+  // these shortcuts deep-link into the matching section. /settings is behind
+  // ProtectedRoute, so guests (e.g. on /chat) get the same controls in a
+  // dialog instead of a redirect to /login.
   const openAppearance = () => {
     setCommandOpen(false)
     setMobileOpen(false)
-    if (user) navigate('/settings?section=appearance')
-    else setAppearanceOpen(true)
+    if (!user) {
+      setAppearanceOpen(true)
+      return
+    }
+    navigate('/settings?section=appearance')
   }
   const openProfile = () => {
     setCommandOpen(false)

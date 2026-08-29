@@ -185,12 +185,19 @@ describe('readBrowserSignals', () => {
 })
 
 describe('detectWebgl', () => {
-  const canvasWith = (contexts) => ({
-    createElement: () => ({ getContext: (name) => (contexts.includes(name) ? {} : null) }),
+  const canvasWith = (contexts, calls = []) => ({
+    createElement: () => ({
+      getContext: (name, options) => {
+        calls.push([name, options])
+        return contexts.includes(name) ? {} : null
+      },
+    }),
   })
 
   it('detects webgl2', () => {
-    assert.equal(detectWebgl(canvasWith(['webgl2'])), true)
+    const calls = []
+    assert.equal(detectWebgl(canvasWith(['webgl2'], calls)), true)
+    assert.deepEqual(calls, [['webgl2', { antialias: false, powerPreference: 'default' }]])
   })
 
   it('falls back to webgl1', () => {

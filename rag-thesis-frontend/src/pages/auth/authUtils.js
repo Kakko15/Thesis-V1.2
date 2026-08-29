@@ -40,6 +40,14 @@ export function isStrongPassword(password) {
   return PASSWORD_RULES.every((rule) => rule.test(password || ''))
 }
 
+const RATE_LIMIT_PATTERNS = ['rate limit', 'you can only request this after', 'too many requests']
+
+/** True when Supabase throttled the attempt (429 / "after N seconds"). */
+export function isRateLimitError(err) {
+  const message = (err?.message || err?.error_description || '').toLowerCase()
+  return RATE_LIMIT_PATTERNS.some((pattern) => message.includes(pattern))
+}
+
 const AUTH_ERROR_RULES = [
   ['invalid login credentials', 'Incorrect email or password. Double-check and try again.'],
   ['email not confirmed', 'This email isn’t verified yet — we can send you a fresh verification code.'],
@@ -69,9 +77,12 @@ export function friendlyAuthError(err) {
   }
   const message = raw.toLowerCase()
   if (matchesAuthRule(message, ['captcha', 'turnstile', 'challenge'])) {
+    if (message.includes('captcha verification process failed')) {
+      return 'Authentication security is misconfigured. CAPTCHA is enabled in Supabase, but this app has no matching verification key.'
+    }
     return 'The security check expired or failed. Complete it again and retry.'
   }
-  if (matchesAuthRule(message, ['rate limit', 'you can only request this after', 'too many requests'])) {
+  if (matchesAuthRule(message, RATE_LIMIT_PATTERNS)) {
     return 'Too many authentication attempts. Please wait and try again.'
   }
   if (message.includes('password should be')) return raw

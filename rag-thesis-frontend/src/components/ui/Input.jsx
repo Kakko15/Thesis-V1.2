@@ -62,7 +62,6 @@ export const Select = forwardRef(function Select(
       target: { name, value: nextValue },
       currentTarget: { name, value: nextValue },
     })
-    document.dispatchEvent(new Event('iskai:select-value-change'))
   }
 
   return (

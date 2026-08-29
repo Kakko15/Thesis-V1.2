@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Filter, Keyboard, MessageSquareText, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { apiErrorMessage, deleteAllSessions, getSessions } from '../../api'
+import { apiErrorMessage, deleteSession, getSessions } from '../../api'
 import { useAuth } from '../../context/AuthContext'
 import { getChatPrefs, setChatPref } from '../../lib/chatPrefs'
 import { THESIS_CATEGORIES } from '../../lib/catalog'
@@ -35,7 +35,7 @@ function Toggle({ checked, onChange, label }) {
   )
 }
 
-function ClearConversations({ isLoading, isError, refetch }) {
+function ClearConversations({ sessions }) {
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -43,9 +43,16 @@ function ClearConversations({ isLoading, isError, refetch }) {
   const clearAll = async () => {
     setBusy(true)
     try {
-      await deleteAllSessions()
+      const results = await Promise.allSettled(sessions.map((session) => deleteSession(session.id)))
+      const failed = results.filter((result) => result.status === 'rejected').length
       await queryClient.invalidateQueries({ queryKey: ['sessions'] })
-      toast.success('All conversations cleared')
+      if (failed > 0) {
+        toast.warning(`Cleared ${sessions.length - failed} of ${sessions.length} conversations`, {
+          description: 'Some deletions failed — try again in a moment.',
+        })
+      } else {
+        toast.success('All conversations cleared')
+      }
       setConfirmOpen(false)
     } catch (err) {
       toast.error('Could not clear conversations', { description: apiErrorMessage(err) })
@@ -59,23 +66,18 @@ function ClearConversations({ isLoading, isError, refetch }) {
       <div className="min-w-0">
         <div className="text-sm font-semibold">Clear all conversations</div>
         <p className="mt-0.5 text-xs text-ink-muted">
-          Permanently deletes every saved conversation and its messages from your account.
+          Permanently deletes {sessions.length === 0 ? 'your' : `all ${sessions.length}`} saved conversation{sessions.length === 1 ? '' : 's'} and their messages.
         </p>
-        {isError && <p className="mt-1 text-xs text-flame-700 dark:text-flame-300">Conversation history could not be loaded.</p>}
       </div>
-      {isError ? (
-        <Button variant="outline" size="sm" onClick={() => refetch()}>Retry</Button>
-      ) : (
-        <Button variant="danger" size="sm" onClick={() => setConfirmOpen(true)} disabled={isLoading}>
-          <Trash2 size={14} /> {isLoading ? 'Loading...' : 'Clear all'}
-        </Button>
-      )}
+      <Button variant="danger" size="sm" onClick={() => setConfirmOpen(true)} disabled={sessions.length === 0}>
+        <Trash2 size={14} /> Clear all
+      </Button>
       <ConfirmDialog
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
         onConfirm={clearAll}
         title="Clear all conversations?"
-        message="Every conversation currently saved to your account and every message in them will be permanently deleted. This cannot be undone."
+        message={`${sessions.length} conversation${sessions.length === 1 ? '' : 's'} and every message in them will be permanently deleted. This cannot be undone.`}
         confirmLabel="Clear all"
         danger
         loading={busy}
@@ -87,7 +89,7 @@ function ClearConversations({ isLoading, isError, refetch }) {
 export function ChatSection() {
   const { user } = useAuth()
   const [prefs, setPrefs] = useState(getChatPrefs)
-  const { isLoading, isError, refetch } = useQuery({
+  const { data: sessions = [] } = useQuery({
     queryKey: ['sessions'],
     queryFn: getSessions,
     enabled: !!user,
@@ -143,7 +145,7 @@ export function ChatSection() {
 
       {user && (
         <SectionCard icon={Trash2} title="Conversation data" description="Manage everything IskAI remembers for you.">
-          <ClearConversations isLoading={isLoading} isError={isError} refetch={refetch} />
+          <ClearConversations sessions={sessions} />
         </SectionCard>
       )}
     </div>

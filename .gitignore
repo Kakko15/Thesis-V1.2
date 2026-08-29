@@ -22,6 +22,14 @@ PRODUCTION_IMPROVEMENTS_RECOMMENDATIONS.md
 
 # Duplicate local source asset; the application uses the optimized public copy.
 ISU_Logo.jpg
+/IsabelaLogo.jpg
+
+# Local reindex checkpoint and generated email-template previews.
+/rag-thesis-backend/.reindex_items_9_16_state.json
+/rag-thesis-backend/email-templates/magic-link-preview.html
+/rag-thesis-backend/email-templates/magic-link-preview.png
+/rag-thesis-backend/email-templates/preview.html
+/rag-thesis-backend/email-templates/reset-password-preview.html
 
 # SonarQube scanner cache
 .scannerwork/

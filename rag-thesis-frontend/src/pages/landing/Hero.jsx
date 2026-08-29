@@ -176,7 +176,7 @@ export function Hero() {
           >
             <Magnetic>
               <Button size="xl" variant="gold" onClick={() => navigate('/login')} className="group">
-                Get started free
+                Sign in or create account
                 <ArrowRight
                   size={17}
                   className="transition-transform duration-300 group-hover:translate-x-1"
@@ -186,7 +186,7 @@ export function Hero() {
             <Magnetic strength={0.2}>
               <Button size="xl" variant="secondary" onClick={() => navigate('/chat')}>
                 <MessageSquareText size={18} />
-                Explore as Guest Researcher
+                Try guest chat
               </Button>
             </Magnetic>
           </motion.div>
