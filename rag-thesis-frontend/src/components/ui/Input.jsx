@@ -62,6 +62,7 @@ export const Select = forwardRef(function Select(
       target: { name, value: nextValue },
       currentTarget: { name, value: nextValue },
     })
+    document.dispatchEvent(new Event('iskai:select-value-change'))
   }
 
   return (
@@ -90,7 +91,7 @@ export const Select = forwardRef(function Select(
         )}
         {...triggerProps}
       >
-        <SelectPrimitive.Value placeholder={resolvedPlaceholder} />
+        <SelectPrimitive.Value placeholder={resolvedPlaceholder} className="min-w-0 flex-1 truncate" />
         <SelectPrimitive.Icon asChild>
           <ChevronDown
             size={16}
@@ -131,7 +132,11 @@ export const Select = forwardRef(function Select(
                   <SelectPrimitive.ItemIndicator className="absolute left-3 inline-flex items-center justify-center">
                     <Check size={15} aria-hidden="true" />
                   </SelectPrimitive.ItemIndicator>
-                  <SelectPrimitive.ItemText>{option.props.children}</SelectPrimitive.ItemText>
+                  <SelectPrimitive.ItemText>
+                    <span className="block max-w-[min(28rem,calc(100vw-5rem))] truncate">
+                      {option.props.children}
+                    </span>
+                  </SelectPrimitive.ItemText>
                 </SelectPrimitive.Item>
               )
             }) : (

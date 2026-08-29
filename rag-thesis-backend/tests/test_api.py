@@ -112,6 +112,7 @@ class TestAccessControl:
     @pytest.mark.parametrize('method,path', [
         ('get', '/papers'),
         ('get', '/sessions'),
+        ('delete', '/sessions'),
         ('get', '/duplication/history'),
         ('get', '/analytics/overview'),
         ('get', '/analytics/users'),

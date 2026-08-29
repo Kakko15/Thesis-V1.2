@@ -33,10 +33,10 @@ function backendReadiness() {
   }
 }
 
-// `/chat` and `/upload` are both React pages and backend API prefixes. Browser
-// navigation requests HTML, so keep those inside Vite and let the SPA history
-// fallback serve index.html. JSON and multipart API requests still proxy to
-// FastAPI.
+// `/chat`, `/upload`, and `/settings` are both React pages and backend API
+// prefixes. Browser navigation requests HTML, so keep those inside Vite and
+// let the SPA history fallback serve index.html. JSON and multipart API
+// requests still proxy to FastAPI.
 const spaAwareApiProxy = {
   target: BACKEND,
   changeOrigin: true,
@@ -96,7 +96,7 @@ export default defineConfig(({ mode }) => {
       '/catalog': BACKEND,
       '/maintenance': BACKEND,
       '/departments': BACKEND,
-      '/settings': BACKEND,
+      '/settings': spaAwareApiProxy,
     },
   },
   build: {

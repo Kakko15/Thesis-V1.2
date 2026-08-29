@@ -59,6 +59,13 @@ def create_session(session: SessionCreate, user: CurrentUser):
     return res.data[0] if res.data else None
 
 
+@router.delete('')
+def delete_all_sessions(user: CurrentUser):
+    """Delete the caller's current sessions and their cascading messages."""
+    sb.table('chat_sessions').delete().eq('user_id', user.id).execute()
+    return {'deleted': True}
+
+
 @router.put('/{session_id}', responses=errors(404))
 def update_session(session_id: str, session: SessionUpdate, user: CurrentUser):
     _owned_session_or_404(session_id, user.id)

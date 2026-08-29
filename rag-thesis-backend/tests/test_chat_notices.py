@@ -92,6 +92,20 @@ class TestNoticesAreClassifiedAtTheSource:
         response = ChatResponse(answer=_conversation_response(), sources=[])
         assert chat_notices.response_kind(response) == chat_notices.KIND_NOTICE
 
+    def test_the_model_identity_response_is_a_notice(self):
+        from routers.chat import _model_response
+
+        response = ChatResponse(answer=_model_response(), sources=[])
+        assert chat_notices.response_kind(response) == chat_notices.KIND_NOTICE
+
+    def test_grounded_answer_starting_with_model_words_stays_an_answer(self):
+        response = ChatResponse(
+            answer='IskAI uses retrieval techniques described in the archived study [1].',
+            sources=[{'id': 'p1'}],
+        )
+        assert chat_notices.response_kind(response) == chat_notices.KIND_ANSWER
+        assert not chat_notices.is_stored_non_answer(response.answer)
+
     def test_the_grounded_fallback_is_a_notice_but_keeps_its_sources(self):
         """It reports that no direct answer could be verified, then points at
         the closest archived studies. Reclassified so it stops becoming model

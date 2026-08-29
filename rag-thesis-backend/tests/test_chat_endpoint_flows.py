@@ -48,6 +48,17 @@ class TestEarlyChatPaths:
         ))
         assert blocked.answer == chat.REFUSAL_MESSAGE
 
+    def test_model_identity_does_not_search_the_archive(self, monkeypatch):
+        async def should_not_retrieve(*_args):
+            raise AssertionError('model identity must not run vector retrieval')
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='what model are you?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert chat.settings.gemini_chat_model in response.answer
+        assert response.sources == []
+
     def test_author_metadata_fast_path(self, monkeypatch):
         monkeypatch.setattr(chat, 'find_papers_by_author', lambda *_: [{
             'id': 'p1', 'title': 'Archive Study',
@@ -67,6 +78,56 @@ class TestEarlyChatPaths:
         ))
         assert response.sources == []
         assert 'usage limit' in response.answer.lower()
+
+    def test_archive_inventory_uses_live_metadata_without_rag(self, monkeypatch):
+        papers = [
+            {
+                'citation_id': 1, 'id': 'p1', 'title': 'Archive Study One',
+                'authors': 'Author One', 'track': 'Data Mining', 'department': 'CCSICT',
+            },
+            {
+                'citation_id': 2, 'id': 'p2', 'title': 'Archive Study Two',
+                'authors': 'Author Two', 'year': 2025, 'department': 'CCSICT',
+            },
+        ]
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, 'list_archive_papers', lambda *_args: (len(papers), len(papers), papers))
+        async def should_not_retrieve(*_args):
+            raise AssertionError('inventory requests must not run vector retrieval')
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+
+        response = run(chat._chat_impl(
+            ChatRequest(question='Is there any thesis other than that?'),
+            _NoRequest(), BackgroundTasks(), SimpleNamespace(id='u1'),
+        ))
+
+        assert '**2 indexed theses**' in response.answer
+        assert [source['id'] for source in response.sources] == ['p1', 'p2']
+
+    def test_other_papers_followup_excludes_prior_sources(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, '_ensure_session_owner', lambda *_args: None)
+        monkeypatch.setattr(chat, '_load_chat_history', lambda *_args: [{
+            'question': 'What theses are available?',
+            'answer': 'One thesis [1].',
+            'sources': [{'id': 'p1'}],
+        }])
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [{'id': 'p1'}])
+
+        def inventory(*args):
+            captured['excluded'] = args[3]
+            return 1, 0, []
+
+        monkeypatch.setattr(chat, 'list_archive_papers', inventory)
+        response = run(chat._chat_impl(
+            ChatRequest(question='Are there any other theses?', session_id='s1'),
+            _NoRequest(), BackgroundTasks(), SimpleNamespace(id='u1'),
+        ))
+        assert captured['excluded'] == ['p1']
+        assert response.no_relevant_thesis is True
+        assert '**1 indexed thesis**' in response.answer
+        assert 'no additional theses' in response.answer
 
 
 class TestRetrievalAndGenerationFlow:

@@ -320,6 +320,38 @@ test('authenticated archive renders legacy-safe records and filters them', async
   expect(unexpected).toEqual([])
 })
 
+test('settings tabs support keyboard navigation and clear all server conversations', async ({ page }) => {
+  await useAuthenticatedSession(page)
+  let deleteRequests = 0
+  const unexpected = await mockApi(page, {
+    'GET /sessions': [{
+      id: 'session-1', title: 'Archived methods', department: 'CCSICT',
+      created_at: '2026-08-20T00:00:00Z',
+    }],
+    'DELETE /sessions': () => {
+      deleteRequests += 1
+      return { deleted: true }
+    },
+  })
+
+  await page.goto('/settings')
+  const profileTab = page.getByRole('tab', { name: /Profile/ })
+  await expect(profileTab).toHaveAttribute('aria-selected', 'true')
+  await profileTab.focus()
+  await profileTab.press('ArrowRight')
+  await expect(page.getByRole('tab', { name: /Appearance/ })).toHaveAttribute('aria-selected', 'true')
+
+  await page.getByRole('tab', { name: /Chat & AI/ }).click()
+  await expect(page.getByText('Clear all conversations')).toBeVisible()
+  await page.getByRole('button', { name: 'Clear all' }).click()
+  await expect(page.getByRole('heading', { name: 'Clear all conversations?' })).toBeVisible()
+  await page.getByRole('button', { name: 'Clear all', exact: true }).last().click()
+  await expect(page.getByText('All conversations cleared')).toBeVisible()
+
+  expect(deleteRequests).toBe(1)
+  expect(unexpected).toEqual([])
+})
+
 test('faculty novelty scan renders deterministic advisory metrics', async ({ page }) => {
   await useAuthenticatedSession(page, {
     ...adminFixture,

@@ -108,7 +108,8 @@ def _author_query(fragment: str, department_filter: str | None, limit: int):
     def execute_query():
         query = sb.table('papers') \
             .select('id,title,authors,year,track,department') \
-            .ilike('authors', f'%{fragment}%')
+            .ilike('authors', f'%{fragment}%') \
+            .eq('ingestion_status', 'ready')
         if department_filter:
             query = query.eq('department', department_filter)
         return query.limit(limit).execute()
@@ -136,16 +137,17 @@ def find_papers_by_author(name: str, department_filter: str | None = None) -> li
 
 def find_papers_by_ids(paper_ids: list[str], department_filter: str | None = None) -> list[dict]:
     """Re-fetch prior guest references under the server-enforced department."""
-    unique_ids = list(dict.fromkeys(paper_ids))[:5]
+    unique_ids = list(dict.fromkeys(paper_ids))[:20]
     if not unique_ids:
         return []
     def execute_query():
         query = sb.table('papers') \
             .select('id,title,authors,year,track,department') \
-            .in_('id', unique_ids)
+            .in_('id', unique_ids) \
+            .eq('ingestion_status', 'ready')
         if department_filter:
             query = query.eq('department', department_filter)
-        return query.limit(5).execute()
+        return query.limit(20).execute()
 
     rows = retry_transient(
         execute_query,
@@ -154,6 +156,98 @@ def find_papers_by_ids(paper_ids: list[str], department_filter: str | None = Non
     ).data or []
     by_id = {paper.get('id'): paper for paper in rows}
     return [public_source(by_id[paper_id]) for paper_id in unique_ids if paper_id in by_id]
+
+
+def list_archive_papers(
+    department_filter: str | None = None,
+    thesis_category: str | None = None,
+    limit: int = 10,
+    exclude_paper_ids: list[str] | None = None,
+) -> tuple[int, int, list[dict]]:
+    """Return archive and filtered totals plus a bounded metadata preview."""
+    fields = 'id,title,authors,year,track,department,thesis_category'
+
+    def execute_query():
+        query = sb.table('papers').select(
+            fields, count='exact'
+        ).eq('ingestion_status', 'ready')
+        if department_filter:
+            query = query.eq('department', department_filter)
+        if thesis_category:
+            query = query.eq('thesis_category', thesis_category)
+        if exclude_paper_ids:
+            query = query.not_.in_('id', list(dict.fromkeys(exclude_paper_ids)))
+        return query.order('title').limit(limit).execute()
+
+    try:
+        result = retry_transient(
+            execute_query,
+            label='Supabase archive inventory',
+            logger=logger,
+        )
+    except Exception as error:
+        if thesis_category or not _is_missing_column_error(error):
+            raise
+
+        def execute_legacy_query():
+            query = sb.table('papers').select(
+                'id,title,authors,year,track,department', count='exact'
+            ).eq('ingestion_status', 'ready')
+            if department_filter:
+                query = query.eq('department', department_filter)
+            if exclude_paper_ids:
+                query = query.not_.in_('id', list(dict.fromkeys(exclude_paper_ids)))
+            return query.order('title').limit(limit).execute()
+
+        result = retry_transient(
+            execute_legacy_query,
+            label='Supabase legacy archive inventory',
+            logger=logger,
+        )
+
+    rows = result.data or []
+    sources = [
+        public_source(paper, citation_id=index)
+        for index, paper in enumerate(rows, start=1)
+    ]
+    filtered_total = result.count or 0
+    total = filtered_total
+    if exclude_paper_ids:
+        def execute_total_query():
+            query = sb.table('papers').select(
+                'id', count='exact'
+            ).eq('ingestion_status', 'ready')
+            if department_filter:
+                query = query.eq('department', department_filter)
+            if thesis_category:
+                query = query.eq('thesis_category', thesis_category)
+            return query.limit(0).execute()
+
+        try:
+            total_result = retry_transient(
+                execute_total_query,
+                label='Supabase archive inventory total',
+                logger=logger,
+            )
+        except Exception as error:
+            if not thesis_category or not _is_missing_column_error(error):
+                raise
+
+            def execute_legacy_total_query():
+                query = sb.table('papers').select(
+                    'id', count='exact'
+                ).eq('ingestion_status', 'ready')
+                if department_filter:
+                    query = query.eq('department', department_filter)
+                return query.limit(0).execute()
+
+            total_result = retry_transient(
+                execute_legacy_total_query,
+                label='Supabase legacy archive inventory total',
+                logger=logger,
+            )
+        total = total_result.count or 0
+    return total, filtered_total, sources
 
 
 def _is_missing_column_error(error: Exception) -> bool:
@@ -238,7 +332,7 @@ def get_paper_overview_context(
     def fetch_paper():
         query = sb.table('papers').select(
             'id,title,authors,year,track,department,active_index_version'
-        ).eq('id', paper_id)
+        ).eq('id', paper_id).eq('ingestion_status', 'ready')
         if department_filter:
             query = query.eq('department', department_filter)
         return query.limit(1).execute()
@@ -257,7 +351,7 @@ def get_paper_overview_context(
         def fetch_legacy_paper():
             query = sb.table('papers').select(
                 'id,title,authors,year,track,department'
-            ).eq('id', paper_id)
+            ).eq('id', paper_id).eq('ingestion_status', 'ready')
             if department_filter:
                 query = query.eq('department', department_filter)
             return query.limit(1).execute()

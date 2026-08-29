@@ -37,6 +37,7 @@ test('maps common auth failures and parses retry timing', () => {
     ['New password must be different from the old password', /different from the old/],
     ['Auth session missing', /link has expired/],
     ['Failed to fetch', /Network hiccup/],
+    [{}, /could not complete account creation/],
     ['Unknown provider failure', /Authentication failed/],
   ]
   for (const [message, expected] of cases) assert.match(friendlyAuthError({ message }), expected)

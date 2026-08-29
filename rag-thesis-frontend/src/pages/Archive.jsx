@@ -211,8 +211,8 @@ export default function Archive() {
       </div>
 
       {/* Filters */}
-      <GlassCard className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-12">
-        <div className="relative sm:col-span-2 lg:col-span-4">
+      <GlassCard className="grid items-center gap-3 p-4 sm:grid-cols-2 xl:grid-cols-12">
+        <div className="relative sm:col-span-2 xl:col-span-4">
           <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
           <Input
             className="pl-11"
@@ -222,18 +222,18 @@ export default function Archive() {
           />
         </div>
         {programs.length > 0 ? (
-          <Select value={filters.program_id} onChange={(e) => setFilter('program_id', e.target.value)} className="lg:col-span-2" aria-label="Filter by academic program">
+          <Select value={filters.program_id} onChange={(e) => setFilter('program_id', e.target.value)} className="min-w-0 xl:col-span-2" aria-label="Filter by academic program" title={programs.find((program) => program.id === filters.program_id)?.name}>
             <option value="">All programs</option>
             {programs.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}
           </Select>
         ) : activeTracks.length > 0 ? (
-          <Select value={filters.track} onChange={(e) => setFilter('track', e.target.value)} className="lg:col-span-2" aria-label={`Filter by ${trackLabel}`}>
+          <Select value={filters.track} onChange={(e) => setFilter('track', e.target.value)} className="min-w-0 xl:col-span-2" aria-label={`Filter by ${trackLabel}`} title={filters.track || undefined}>
             <option value="">All {trackLabel}s</option>
             {activeTracks.map((t) => <option key={t} value={t}>{t}</option>)}
           </Select>
         ) : null}
         {specializations.length > 0 && (
-          <Select value={filters.specialization_id} onChange={(e) => setFilter('specialization_id', e.target.value)} className="lg:col-span-2" aria-label="Filter by academic specialization">
+          <Select value={filters.specialization_id} onChange={(e) => setFilter('specialization_id', e.target.value)} className="min-w-0 xl:col-span-2" aria-label="Filter by academic specialization" title={specializations.find((specialization) => specialization.id === filters.specialization_id)?.name}>
             <option value="">All specializations</option>
             {specializations.map((specialization) => (
               <option key={specialization.id} value={specialization.id}>{specialization.code} — {specialization.name}</option>
@@ -241,18 +241,18 @@ export default function Archive() {
           </Select>
         )}
         {isSuperadmin && (
-          <Select value={filters.department} onChange={(e) => setFilter('department', e.target.value)} className="lg:col-span-2" aria-label="Filter by department">
+          <Select value={filters.department} onChange={(e) => setFilter('department', e.target.value)} className="min-w-0 xl:col-span-2" aria-label="Filter by department" title={filters.department || undefined}>
             <option value="">All depts</option>
             {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
           </Select>
         )}
-        <Select value={filters.thesis_category} onChange={(e) => setFilter('thesis_category', e.target.value)} className="lg:col-span-2" aria-label="Filter by thesis category">
+        <Select value={filters.thesis_category} onChange={(e) => setFilter('thesis_category', e.target.value)} className="min-w-0 xl:col-span-2" aria-label="Filter by thesis category">
           <option value="">All categories</option>
           {THESIS_CATEGORIES.map((category) => (
             <option key={category.value} value={category.value}>{category.label}</option>
           ))}
         </Select>
-        <Select value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="lg:col-span-2" aria-label="Filter by year">
+        <Select value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="min-w-0 xl:col-span-2" aria-label="Filter by year">
           <option value="">All years</option>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
         </Select>

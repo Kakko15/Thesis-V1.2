@@ -8,14 +8,15 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { listPapers } from '../api'
-import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Skeleton } from '../components/ui/Skeleton'
+import { PageSkeleton } from '../components/ui/PageSkeleton'
 import { Badge } from '../components/ui/Badge'
 import { PageTransition, AnimatedCounter, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { Button } from '../components/ui/Button'
 import { MfaEnrollDialog } from '../components/MfaEnrollDialog'
+import { useMfaStatus } from '../components/useMfaStatus'
 import { formatDate } from '../lib/utils'
 import { slotKeys } from '../lib/keys'
 
@@ -72,64 +73,27 @@ function QuickAction({ icon: Icon, title, text, onClick, tone = 'forest' }) {
   )
 }
 
-function SecurityCard() {
+// 2FA management lives in Settings → Security. The dashboard keeps only a
+// slim nudge, shown while 2FA is off, because admins need it for Operations.
+function SecurityNudge() {
+  const { isAdmin } = useAuth()
+  const { enabled, isLoading: checking, isError, handleChanged } = useMfaStatus()
   const [open, setOpen] = useState(false)
-  const { refreshMfa } = useAuth()
-  const { data, refetch } = useQuery({
-    queryKey: ['mfa-factors'],
-    queryFn: async () => (await supabase.auth.mfa.listFactors()).data,
-  })
-  const enabled = !!data?.totp?.some((f) => f.status === 'verified')
-  const handleMfaChanged = async () => {
-    await refetch()
-    await refreshMfa()
-  }
-
+  if (checking || isError || enabled) return null
   return (
-    <>
-      <GlassCard className="p-6">
-        <div className="flex items-start justify-between">
-          <div
-            className={
-              enabled
-                ? 'flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-lg shadow-forest-900/25'
-                : 'flex h-12 w-12 items-center justify-center rounded-2xl bg-forest-900/8 dark:bg-white/8'
-            }
-          >
-            <Fingerprint size={20} className={enabled ? 'text-gold-300' : 'opacity-50'} />
-          </div>
-          <span
-            className={
-              enabled
-                ? 'inline-flex items-center gap-1.5 rounded-full bg-forest-500/12 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-forest-700 dark:text-forest-300'
-                : 'inline-flex items-center gap-1.5 rounded-full bg-forest-900/8 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-ink-muted dark:bg-white/8'
-            }
-          >
-            <span className={enabled ? 'h-1.5 w-1.5 rounded-full bg-forest-500' : 'h-1.5 w-1.5 rounded-full bg-forest-900/30 dark:bg-white/30'} />
-            {enabled ? '2FA on' : '2FA off'}
-          </span>
+    <GlassCard className="flex flex-wrap items-center gap-3 border border-gold-400/25 p-4 text-sm">
+      <Fingerprint size={17} className="shrink-0 text-gold-500" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <div className="font-bold">Secure your account with two-factor authentication</div>
+        <div className="mt-0.5 text-xs text-ink-muted">
+          {isAdmin
+            ? 'Operations and administration data require a verified 2FA session.'
+            : 'Add an authenticator app so a stolen password alone can never open your account.'}
         </div>
-        <h2 className="font-display mt-4 text-base font-bold">Account security</h2>
-        <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-          {enabled
-            ? 'Sign-ins require your authenticator code. Manage or disable it here.'
-            : 'Protect your account with an authenticator app — takes about a minute.'}
-        </p>
-        <Button
-          variant={enabled ? 'outline' : 'primary'}
-          size="sm"
-          className="mt-4 w-full"
-          onClick={() => setOpen(true)}
-        >
-          {enabled ? 'Manage 2FA' : 'Enable 2FA'}
-        </Button>
-      </GlassCard>
-      <MfaEnrollDialog
-        open={open}
-        onClose={() => setOpen(false)}
-        onChanged={handleMfaChanged}
-      />
-    </>
+      </div>
+      <Button size="sm" onClick={() => setOpen(true)}>Enable 2FA</Button>
+      <MfaEnrollDialog open={open} onClose={() => setOpen(false)} onChanged={handleChanged} />
+    </GlassCard>
   )
 }
 
@@ -159,6 +123,14 @@ export default function Dashboard() {
   const recent = (papers || []).slice(0, 5)
   const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'
 
+  // While the initial archive query is still loading, keep showing the same
+  // full-page skeleton the auth/Suspense gates render, so the refresh flow is
+  // one seamless skeleton state that resolves straight into real content
+  // instead of flashing a second, differently-shaped skeleton.
+  if (isLoading) {
+    return <PageSkeleton />
+  }
+
   return (
     <PageTransition className="mx-auto max-w-6xl space-y-6">
       {/* Header */}
@@ -183,6 +155,8 @@ export default function Dashboard() {
           <Sparkles size={16} /> Ask IskAI
         </Button>
       </div>
+
+      <SecurityNudge />
 
       {papersError && (
         <GlassCard role="alert" className="flex flex-wrap items-center gap-3 border border-flame-500/25 p-4 text-sm">
@@ -249,7 +223,6 @@ export default function Dashboard() {
               onClick={() => navigate('/upload')}
             />
           )}
-          <SecurityCard />
         </div>
 
         {/* Recent additions */}
