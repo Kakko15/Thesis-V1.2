@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router'
 import { useAuth } from '../context/AuthContext'
-import { Spinner } from './ui/Spinner'
+import { RouteSkeleton } from './ui/PageSkeleton'
 import { AlertTriangle, XCircle } from 'lucide-react'
 
 /**
@@ -12,12 +12,10 @@ import { AlertTriangle, XCircle } from 'lucide-react'
 export function ProtectedRoute({ children, roles, isAllowed, allowGuest = false }) {
   const { user, role, loading, needsMfa, profileError, isPending, isRejected, signOut } = useAuth()
 
+  // Session check resolves quickly, but never show a bare spinner — render the
+  // route-shaped skeleton so the loading state already looks like the page.
   if (loading) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <Spinner size={36} />
-      </div>
-    )
+    return <RouteSkeleton />
   }
 
   if (!user) {
@@ -53,12 +51,9 @@ export function ProtectedRoute({ children, roles, isAllowed, allowGuest = false 
           <AlertTriangle size={28} className="text-gold-500" />
         </div>
         <h2 className="font-display text-2xl font-bold">Pending Approval</h2>
-        {/* Two different things land here now — a faculty request, or any address
-            outside the institutional domain — so the copy no longer blames the role. */}
         <p className="mt-2 max-w-sm text-sm text-ink-muted">
           Your account request has been received. An administrator will review it before
-          access is granted. Faculty requests and sign-ups from outside the ISU email
-          domain both need approval.
+          access is granted. Faculty requests require approval before they can use the library.
         </p>
         <button onClick={signOut} className="mt-6 text-sm font-semibold text-forest-700 hover:text-forest-500">
           Sign out

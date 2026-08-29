@@ -3,9 +3,13 @@
 from routers.chat import (
     _answer_reports_no_evidence,
     _author_lookup_response,
+    _archive_inventory_response,
     _conversation_response,
     _extract_author_name,
     _grounded_retrieval_fallback,
+    _is_archive_inventory_question,
+    _is_archive_count_question,
+    _is_model_question,
     _is_simple_conversation,
     _looks_like_misdirected_greeting,
     filter_cited_sources,
@@ -54,6 +58,86 @@ class TestConversationFastPath:
 
     def test_fast_response_uses_chatbot_brand(self):
         assert 'IskAI' in _conversation_response()
+
+    def test_model_identity_is_handled_without_archive_retrieval(self):
+        assert _is_model_question('what model are you?')
+        assert _is_model_question('Which AI model do you use?')
+        assert not _is_model_question('What model did this thesis use?')
+
+
+class TestArchiveInventoryFastPath:
+    def test_recognizes_direct_inventory_questions(self):
+        assert _is_archive_inventory_question('What are the theses here?')
+        assert _is_archive_inventory_question('How many theses are indexed?')
+        assert _is_archive_inventory_question('Is there any thesis other than that?')
+        assert _is_archive_inventory_question('is there any thesis than those two?')
+        assert not _is_archive_inventory_question('What methodology did this thesis use?')
+        assert not _is_archive_inventory_question('How many studies were reviewed in this thesis?')
+        assert not _is_archive_inventory_question('How many papers did the authors cite?')
+        assert not _is_archive_inventory_question('What theses discuss archive systems?')
+        assert not _is_archive_inventory_question('What studies are available on machine learning?')
+        assert not _is_archive_inventory_question('What papers are here about cybersecurity?')
+        assert not _is_archive_inventory_question('Are there more papers about RAG?')
+        assert not _is_archive_inventory_question('Which papers are in the library for machine learning?')
+        assert not _is_archive_inventory_question('What available papers deal with machine learning?')
+        assert not _is_archive_inventory_question('Show papers concerning cybersecurity available here')
+        assert not _is_archive_inventory_question('Which theses in the archive examine attendance?')
+        assert not _is_archive_inventory_question('What papers are available in 2025?')
+        assert not _is_archive_inventory_question('What theses are available by Juan Cruz?')
+
+    def test_short_followup_requires_inventory_history(self):
+        assert _is_archive_inventory_question('one only?', ['What theses are available here?'])
+        assert not _is_archive_inventory_question('one only?', ['Explain the thesis methodology'])
+
+    def test_response_uses_live_metadata_and_citations(self):
+        answer = _archive_inventory_response('CCSICT', 2, [
+            {'title': 'First Thesis', 'authors': 'Author One', 'track': 'Data Mining'},
+            {'title': 'Second Thesis', 'authors': 'Author Two', 'year': 2025},
+        ])
+        assert '**2 indexed theses**' in answer
+        assert 'First Thesis' in answer and '[1]' in answer
+        assert 'Second Thesis' in answer and '[2]' in answer
+        assert 'live indexed archive' in answer
+
+    def test_large_inventory_is_explicitly_truncated(self):
+        sources = [
+            {'title': f'Thesis {index}', 'authors': f'Author {index}'}
+            for index in range(1, 11)
+        ]
+        answer = _archive_inventory_response('CCSICT', 137, sources)
+        assert '**137 indexed theses**' in answer
+        assert 'first **10 of 137**' in answer
+        assert 'topic, title, author, year, or category' in answer
+
+    def test_count_question_requests_no_catalog_dump(self):
+        assert _is_archive_count_question('How many theses are indexed?')
+        assert not _is_archive_count_question('What theses are indexed?')
+        answer = _archive_inventory_response(
+            'CCSICT', 137, [{'title': 'Should not appear'}], count_only=True,
+        )
+        assert '**137 indexed theses**' in answer
+        assert 'Should not appear' not in answer
+
+    def test_category_inventory_is_labeled_as_a_subset(self):
+        answer = _archive_inventory_response(
+            'CCSICT', 3, [], count_only=True, thesis_category='faculty',
+        )
+        assert '**3 indexed faculty-authored theses**' in answer
+
+    def test_other_paper_response_keeps_the_archive_total(self):
+        answer = _archive_inventory_response(
+            'CCSICT', 3, [], additional_only=True,
+        )
+        assert '**3 indexed theses**' in answer
+        assert 'no additional theses' in answer
+
+    def test_other_paper_count_does_not_report_total_as_remaining(self):
+        answer = _archive_inventory_response(
+            'CCSICT', 12, [{'title': 'Additional', 'authors': 'Author'}],
+            count_only=True, additional_only=True, additional_total=4,
+        )
+        assert '**12 indexed theses**' in answer
+        assert '**4 additional theses**' in answer
 
 
 class TestGroundingGuards:

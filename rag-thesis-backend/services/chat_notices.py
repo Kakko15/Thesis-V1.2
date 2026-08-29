@@ -105,6 +105,24 @@ def reset_capacity_limit() -> None:
     _CAPACITY_STATE['limited_until'] = 0.0
 
 
+def model_response(department: str = 'CCSICT') -> str:
+    """Return the deterministic model-identity notice."""
+    return (
+        f'IskAI uses {settings.gemini_chat_model} for grounded answer synthesis and '
+        f'{settings.gemini_embed_model} for semantic retrieval. Responses are restricted '
+        f'to evidence from the indexed {department} thesis archive.'
+    )
+
+
+def _is_model_response(answer: str) -> bool:
+    prefix = (
+        f'IskAI uses {settings.gemini_chat_model} for grounded answer synthesis and '
+        f'{settings.gemini_embed_model} for semantic retrieval. Responses are restricted '
+        'to evidence from the indexed '
+    )
+    return answer.startswith(prefix) and answer.endswith(' thesis archive.')
+
+
 def is_stored_non_answer(answer: str) -> bool:
     """Recognize a persisted notice from its text.
 
@@ -115,7 +133,10 @@ def is_stored_non_answer(answer: str) -> bool:
     normalized = re.sub(r'\s+', ' ', answer or '').strip()
     if not normalized:
         return False
-    return any(normalized.startswith(marker[:60]) for marker in NOTICE_MARKERS)
+    return (
+        _is_model_response(normalized)
+        or any(normalized.startswith(marker[:60]) for marker in NOTICE_MARKERS)
+    )
 
 
 def response_kind(response) -> str:
@@ -134,5 +155,7 @@ def response_kind(response) -> str:
     ):
         return KIND_NOTICE
     if answer.startswith((NO_RELEVANT_PREFIX, GROUNDED_FALLBACK_PREFIX)):
+        return KIND_NOTICE
+    if not getattr(response, 'sources', None) and _is_model_response(answer):
         return KIND_NOTICE
     return KIND_ANSWER

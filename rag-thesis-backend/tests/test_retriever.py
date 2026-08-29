@@ -69,19 +69,27 @@ class TestIndirectAccessModel:
 
 
 class _Query:
-    def __init__(self, rows):
+    def __init__(self, rows, count=None):
         self.rows = rows
+        self.count = count
+        self.filters = []
 
-    def select(self, *_args):
+    def select(self, *_args, **_kwargs):
         return self
 
     def in_(self, *_args):
+        self.filters.append(_args)
+        return self
+
+    @property
+    def not_(self):
         return self
 
     def ilike(self, *_args):
         return self
 
     def eq(self, *_args):
+        self.filters.append(_args)
         return self
 
     def limit(self, *_args):
@@ -91,7 +99,7 @@ class _Query:
         return self
 
     def execute(self):
-        return SimpleNamespace(data=self.rows)
+        return SimpleNamespace(data=self.rows, count=self.count)
 
 
 class _RetrieverClient:
@@ -115,6 +123,20 @@ class _RetrieverClient:
             'id': 'p1', 'title': 'Thesis', 'authors': 'Author', 'year': 2026,
             'track': 'Data Mining', 'department': 'CCSICT',
         }])
+
+
+class _InventoryClient:
+    def __init__(self):
+        self.queries = []
+
+    def table(self, name):
+        assert name == 'papers'
+        query = _Query(
+            [{'id': 'p2', 'title': 'Second', 'authors': 'Author Two', 'department': 'CCSICT'}],
+            count=1 if not self.queries else 3,
+        )
+        self.queries.append(query)
+        return query
 
 
 class TestChunkRetrieval:
@@ -152,6 +174,31 @@ class TestChunkRetrieval:
         monkeypatch.setattr(retriever, 'sb', client)
         sources = retriever.find_papers_by_author('Carlo Gallardo', 'CCSICT')
         assert sources[0]['department'] == 'CCSICT'
+
+    def test_inventory_exclusion_does_not_change_archive_total(self, monkeypatch):
+        client = _InventoryClient()
+        monkeypatch.setattr(retriever, 'sb', client)
+
+        total, filtered_total, sources = retriever.list_archive_papers(
+            'CCSICT', limit=10, exclude_paper_ids=['p1'],
+        )
+
+        assert total == 3
+        assert filtered_total == 1
+        assert [source['id'] for source in sources] == ['p2']
+        assert ('ingestion_status', 'ready') in client.queries[0].filters
+        assert ('department', 'CCSICT') in client.queries[0].filters
+        assert ('id', ['p1']) not in client.queries[1].filters
+
+    def test_prior_source_lookup_accepts_more_than_five_ids(self, monkeypatch):
+        ids = [f'p{index}' for index in range(7)]
+        client = _RetrieverClient()
+        client.table = lambda _name: _Query([{'id': paper_id} for paper_id in ids])
+        monkeypatch.setattr(retriever, 'sb', client)
+
+        sources = retriever.find_papers_by_ids(ids, 'CCSICT')
+
+        assert [source['id'] for source in sources] == ids
 
     def test_author_match_allows_omitted_middle_name(self):
         assert _author_name_matches('Carlo Rossi Gallardo', 'Ahron Barlis, Carlo Gallardo')

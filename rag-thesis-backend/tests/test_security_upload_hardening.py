@@ -240,27 +240,28 @@ class TestSqlSecurityContracts:
         assert "requested_role') in ('faculty', 'admin')" not in sql
         assert 'protect_profile_security_fields' in sql
         assert 'grant update (full_name, avatar_url)' in sql
+        assert 'grant execute on function public.handle_new_user() to supabase_auth_admin' in sql
         assert 'avatar must be an existing object owned by the profile owner' in sql
         assert 'avatar_url text' in sql
         assert sql.index('avatar_url text') < sql.index('grant update (full_name, avatar_url)')
         assert "new.raw_user_meta_data ->> 'department'" not in sql
         assert "'ccsict', -- public registration" in sql
 
-    def test_signup_does_not_auto_approve_off_domain_accounts(self):
-        # Sign-up goes browser -> Supabase Auth and never reaches FastAPI, so this
-        # trigger is the only enforcement point. Without the domain test, any
-        # address on the internet received status 'approved' and could read the
-        # archive immediately.
+    def test_signup_allows_any_email_but_holds_faculty_for_approval(self):
+        # Sign-up goes browser -> Supabase Auth and never reaches FastAPI. Any
+        # valid email may create a student account, but public metadata cannot
+        # request a privileged role or choose a department.
         sql = open('supabase_setup.sql', encoding='utf-8').read().lower()
-        assert 'is_institutional' in sql
-        assert 'when not is_institutional then \'pending\'' in sql
-        assert 'app.institutional_email_domain' in sql
-        # The domain check must be applied to the status, and the approved branch
-        # must be the last resort rather than a default.
-        approved_at = sql.index("else 'approved'")
-        assert sql.index('when not is_institutional') < approved_at
-        # Case must not be a bypass: a capitalised address is the same account.
-        assert 'lower(coalesce(new.email' in sql
+        assert 'is_institutional' not in sql
+        assert 'app.institutional_email_domain' not in sql
+        assert "case when requested_role = 'faculty' then 'pending' else 'approved' end" in sql
+
+    def test_any_email_migration_preserves_existing_pending_reviews(self):
+        migration = open(
+            'migrations/20260828_allow_any_email_signup.sql', encoding='utf-8',
+        ).read().lower()
+        assert "case when requested_role = 'faculty' then 'pending' else 'approved' end" in migration
+        assert "update public.profiles" not in migration
 
     def test_upload_job_owner_survives_account_deletion(self):
         # ON DELETE RESTRICT on a NOT NULL owner made deleting any uploader fail

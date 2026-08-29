@@ -9,7 +9,7 @@ import { StepHeader } from './StepHeader'
 import { ErrorAlert, formStagger, Rise, Shine, UnderlineLink } from './AuthFx'
 import { friendlyAuthError, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
 
-/** Confirm a new account with the 6-digit signup code (link also works). */
+/** Confirm a new account with the six-digit token in the confirmation email. */
 export function VerifyEmailStep({ email, onBack }) {
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
@@ -24,11 +24,11 @@ export function VerifyEmailStep({ email, onBack }) {
     try {
       const { error: err } = await supabase.auth.verifyOtp({ email, token, type: 'signup' })
       if (err) throw err
-      toast.success('Email verified — welcome aboard!')
-      // Session lands in AuthContext → orchestrator redirects.
+      toast.success('Email verified - welcome aboard!')
+      // Session lands in AuthContext, then Login redirects to the dashboard.
     } catch (err) {
       setError(friendlyAuthError(err))
-      setShakeNonce((n) => n + 1)
+      setShakeNonce((value) => value + 1)
       setCode('')
     } finally {
       setVerifying(false)
@@ -59,9 +59,8 @@ export function VerifyEmailStep({ email, onBack }) {
         title="Verify your email"
         subtitle={
           <>
-            Enter the 6-digit code we sent to{' '}
-            <span className="font-semibold">{maskEmail(email)}</span> — or click the
-            confirmation link in the same email.
+            Enter the 6-digit code sent to <span className="font-semibold">{maskEmail(email)}</span>{' '}
+            to finish creating your account.
           </>
         }
         onBack={onBack}

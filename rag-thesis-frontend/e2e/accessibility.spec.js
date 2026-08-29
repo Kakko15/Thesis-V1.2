@@ -352,6 +352,12 @@ const SURFACES = [
     ready: (page) => expect(page.getByText('A Centralized AI-Powered Thesis Library')).toBeVisible(),
   },
   {
+    name: 'settings',
+    path: '/settings',
+    fixture: studentFixture,
+    ready: (page) => expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible(),
+  },
+  {
     name: 'novelty',
     path: '/novelty',
     fixture: facultyFixture,

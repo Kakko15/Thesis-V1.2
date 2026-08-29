@@ -64,7 +64,9 @@ export function friendlyAuthError(err) {
   if (typeof raw !== 'string') {
     try { raw = JSON.stringify(raw) } catch { raw = String(raw) }
   }
-  if (raw === '{}') return 'Internal server error from Supabase (500). Please check your SMTP settings.'
+  if (raw === '{}') {
+    return 'Supabase could not complete account creation. Check its Auth or Postgres logs; email delivery is only one possible cause.'
+  }
   const message = raw.toLowerCase()
   if (matchesAuthRule(message, ['captcha', 'turnstile', 'challenge'])) {
     return 'The security check expired or failed. Complete it again and retry.'

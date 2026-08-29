@@ -1,4 +1,5 @@
 import { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabaseClient'
 import { getFeaturePermissions } from '../api'
 import { avatarPublicUrl } from '../lib/avatar'
@@ -19,6 +20,7 @@ function getDisplayName(profile, user) {
 }
 
 export const AuthProvider = ({ children }) => {
+  const queryClient = useQueryClient()
   const initialE2EFixture = isE2ETestMode ? readE2EAuthFixture() : null
   const [user, setUser] = useState(() => initialE2EFixture?.user ?? null)
   const [profile, setProfile] = useState(() => initialE2EFixture?.profile ?? null)
@@ -81,6 +83,8 @@ export const AuthProvider = ({ children }) => {
 
   const syncSession = useCallback(async (session) => {
     const currentUser = session?.user ?? null
+    const identityChanged = currentUser?.id !== user?.id
+    if (identityChanged) queryClient.clear()
     await checkMfa(currentUser)
     setUser(currentUser)
     if (currentUser) {
@@ -96,7 +100,7 @@ export const AuthProvider = ({ children }) => {
       setFeatures(null)
     }
     setLoading(false)
-  }, [checkMfa, fetchProfile, loadFeatures])
+  }, [checkMfa, fetchProfile, loadFeatures, queryClient, user?.id])
 
   const reloadSession = useCallback(async () => {
     if (isE2ETestMode) {
@@ -185,11 +189,13 @@ export const AuthProvider = ({ children }) => {
     signOut: async () => {
       if (isE2ETestMode) {
         clearE2EAuthFixture()
+        queryClient.clear()
         setUser(null)
         setProfile(null)
         setFeatures(null)
         return
       }
+      queryClient.clear()
       await supabase.auth.signOut()
     },
     broadcastFeatureUpdate: () => {

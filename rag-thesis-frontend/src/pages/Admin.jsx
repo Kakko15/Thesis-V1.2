@@ -9,7 +9,10 @@ import { Button } from '../components/ui/Button'
 import { GlassCard } from '../components/ui/GlassCard'
 import { PageTransition } from '../components/ui/Motion'
 import { Skeleton } from '../components/ui/Skeleton'
+import { PageSkeleton } from '../components/ui/PageSkeleton'
+import { slotKeys } from '../lib/keys'
 import { cn } from '../lib/utils'
+import { useMfaStatus } from '../components/useMfaStatus'
 
 const AdminOverview = lazy(() => import('./admin/AdminOverview'))
 const UploadHistoryTab = lazy(() => import('./admin/UploadHistoryTab'))
@@ -22,16 +25,24 @@ const BASE_TABS = [
   { id: 'system', label: 'System Management', component: SystemManagementTab },
 ]
 
+const TAB_STAT_SLOTS = slotKeys(4, 'admin-tab-stat')
+const TAB_PANEL_SLOTS = slotKeys(2, 'admin-tab-panel')
+
+// Content-area skeleton shown under the real header while a tab chunk or the
+// overview data loads. Mirrors AdminOverview's layout (4 stat tiles + 2 chart
+// panels at their real 21rem height) so it blends seamlessly with both the
+// full-page skeleton that precedes it and the content that replaces it.
 function AdminTabFallback() {
   return (
     // `role="status"` is what lets the element carry a name at all — a bare div
     // cannot — and it announces the load to assistive tech rather than leaving
     // the region silent.
-    <div className="space-y-4" role="status" aria-label="Loading administration data">
-      <Skeleton className="h-28" />
+    <div className="space-y-6" role="status" aria-label="Loading administration data">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {TAB_STAT_SLOTS.map((slotId) => <Skeleton key={slotId} className="h-28" />)}
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Skeleton className="h-72" />
-        <Skeleton className="h-72" />
+        {TAB_PANEL_SLOTS.map((slotId) => <Skeleton key={slotId} className="h-[21rem]" />)}
       </div>
     </div>
   )
@@ -47,7 +58,10 @@ function adminSecurityState(isAdmin, query) {
 }
 
 function AdminSecurityGate({ state, query, navigate, refreshMfa }) {
-  if (state === 'loading') return <AdminTabFallback />
+  // While the 2FA session check runs, keep showing the same full-page admin
+  // skeleton the route gates render, so the load is one continuous skeleton
+  // state instead of flashing a second, differently-shaped one.
+  if (state === 'loading') return <PageSkeleton variant="admin" />
   const content = {
     error: {
       tone: 'text-flame-500', title: 'Security status unavailable',
@@ -56,8 +70,8 @@ function AdminSecurityGate({ state, query, navigate, refreshMfa }) {
     },
     setup: {
       tone: 'text-gold-500', title: 'Secure administrator access',
-      message: 'Administrator and Operations data require verified two-factor authentication. Enable 2FA from your dashboard, then sign in again to obtain a protected session.',
-      label: 'Go to account security', action: () => navigate('/dashboard'),
+      message: 'Administrator and Operations data require verified two-factor authentication. Enable 2FA in Settings → Security, then sign in again to obtain a protected session.',
+      label: 'Open security settings', action: () => navigate('/settings?section=security'),
     },
     challenge: {
       tone: 'text-gold-500', title: 'Verify your administrator session',
@@ -84,26 +98,31 @@ export default function Admin() {
   } = useAuth()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('overview')
+  const mfaStatus = useMfaStatus(isAdmin && !isE2ETestMode)
   const mfaFactors = useQuery({
-    queryKey: ['admin-mfa-factors'],
+    queryKey: ['mfa-assurance'],
     queryFn: async () => {
-      const [factors, assurance] = await Promise.all([
-        supabase.auth.mfa.listFactors(),
-        supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
-      ])
-      if (factors.error) throw factors.error
+      const assurance = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
       if (assurance.error) throw assurance.error
-      return { factors: factors.data, assurance: assurance.data }
+      return assurance.data
     },
     enabled: isAdmin && !isE2ETestMode,
     staleTime: 30_000,
   })
-  const securityState = adminSecurityState(isAdmin, mfaFactors)
+  const securityQuery = {
+    isLoading: mfaStatus.isLoading || mfaFactors.isLoading,
+    isError: mfaStatus.isError || mfaFactors.isError,
+    data: { factors: { totp: mfaStatus.enabled ? [{ status: 'verified' }] : [] }, assurance: mfaFactors.data },
+    refetch: async () => {
+      await Promise.all([mfaStatus.handleChanged(), mfaFactors.refetch()])
+    },
+  }
+  const securityState = adminSecurityState(isAdmin, securityQuery)
   if (securityState !== 'ready') {
     return (
       <AdminSecurityGate
         state={securityState}
-        query={mfaFactors}
+        query={securityQuery}
         navigate={navigate}
         refreshMfa={refreshMfa}
       />

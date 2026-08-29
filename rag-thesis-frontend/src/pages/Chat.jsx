@@ -26,6 +26,7 @@ import { AnimatedLogo } from '../components/ui/AnimatedLogo'
 import { LogoActivityDots } from '../components/ui/LogoActivityDots'
 import { Sheet } from '../components/ui/Sheet'
 import { cn, normalizePercent, timeAgo } from '../lib/utils'
+import { getChatPrefs } from '../lib/chatPrefs'
 import { THESIS_CATEGORIES } from '../lib/catalog'
 
 const STARTERS = [
@@ -109,7 +110,7 @@ function GuestGate({ gate, awaiting, onStatus }) {
 
 function Composer({
   value, onChange, onSend, onFocus, placeholder, footnote,
-  sending, verifying, onStop, textareaRef, children,
+  sending, verifying, onStop, textareaRef, sendKey, children,
 }) {
   return (
     <div className="border-t border-forest-900/10 p-4 dark:border-white/10">
@@ -126,7 +127,13 @@ function Composer({
           onChange={(e) => onChange(e.target.value)}
           onFocus={onFocus}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend() }
+            // sendKey preference from Settings → Chat & AI: default Enter sends
+            // (Shift+Enter newlines); 'ctrlEnter' flips it so Enter newlines and
+            // only Ctrl/Cmd+Enter sends.
+            const shouldSend = sendKey === 'ctrlEnter'
+              ? e.key === 'Enter' && (e.ctrlKey || e.metaKey)
+              : e.key === 'Enter' && !e.shiftKey
+            if (shouldSend) { e.preventDefault(); onSend() }
           }}
           className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:opacity-45"
         />
@@ -457,8 +464,10 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [filterDepartment, setFilterDepartment] = useState('')
   // Content scope, not a security boundary: every visitor (guests included)
-  // may narrow retrieval to student or faculty theses.
-  const [filterCategory, setFilterCategory] = useState('')
+  // may narrow retrieval to student or faculty theses. Starts from the default
+  // chosen in Settings → Chat & AI.
+  const [filterCategory, setFilterCategory] = useState(() => getChatPrefs().defaultCategory)
+  const [sendKey] = useState(() => getChatPrefs().sendKey)
   const [sending, setSending] = useState(false)
   const [chatError, setChatError] = useState(null)
   const [sessionId, setSessionId] = useState(null)
@@ -550,7 +559,7 @@ export default function Chat() {
     setSessionId(null)
     setMessages([])
     setChatError(null)
-    setFilterCategory('')
+    setFilterCategory(getChatPrefs().defaultCategory)
     setSidebarOpen(false)
     inputRef.current?.focus()
   }
@@ -868,6 +877,7 @@ export default function Chat() {
           // Warm the check up front so the token is ready before they finish typing.
           onFocus={guestGate.arm}
           textareaRef={inputRef}
+          sendKey={sendKey}
           placeholder={`Ask IskAI about ${effectiveDepartment} thesis research…`}
           sending={sending}
           verifying={isVerifyingSend(awaitingCheck, gateStatus)}

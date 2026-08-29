@@ -98,7 +98,7 @@ One correction to the 2026-08-03 wording: "nothing in code" was true of *availab
 | 3 | Crash on `top_papers_json[0]` in the novelty scanner | Reproducible 500 for faculty at the exact moment a matched thesis was just deleted | P0 | S | A | §2.1 B3 | ✅ Fixed | 
 | 4 | `delete_user` can never delete an uploader | `upload_jobs.owner_id` is `ON DELETE RESTRICT`; admins get an opaque 500 with no guidance | P0 | S | A | §2.1 B4 | ✅ Fixed | 
 | 5 | Bound every Gemini client | Two `ChatGoogleGenerativeAI` clients have no timeout, retry cap, or output cap — a hung call holds a worker indefinitely | P0 | S | A | §2.1 B5 | ✅ Fixed | 
-| 6 | Enforce the `@isu.edu.ph` signup domain server-side | Anyone with any email address can create an auto-approved student account today | P0 | S | A | §6.1 | ✅ Fixed | 
+| 6 | Decide and approve the student signup boundary | Any valid email may now create an approved student account; institutional approval and publication/RLS controls are required before public release | P0 | S | A | §6.1 | ⛔ Blocked externally |
 | 7 | Load-test the real `/chat` path | Every performance number on record measured non-RAG endpoints; the core feature's capacity is unknown | P0 | M | A/B | §4.7 | 🟡 Measured on a synthetic corpus | 
 | 8 | Server-side pagination, search, and filtering for the archive | `GET /papers` ships the whole catalog **and every profile row** to build one page | P1 | M | B | §2.1 B9, §4.3 | 🟡 Partial | 
 | 9 | Multi-process API with externalized state | One uvicorn process is the entire API, and four caches live in its memory | P0 | M | B | §2.1 B10, §4.1 | ❌ Phase B | 
@@ -523,7 +523,7 @@ These are policy gaps rather than code bugs, but they gate public exposure.
 
 | Status & # | Gap | Where | Priority |
 |---|---|---|---|
-| ✅ Fixed S1 | **No institutional email domain enforcement.** `handle_new_user` sets department `CCSICT` and status `approved` for any email address whatsoever. `@isu.edu.ph` appears only as UI placeholder text; `src/pages/auth/authUtils.js` accepts any valid address | `supabase_setup.sql:43-65` | **P0** |
+| ⛔ Policy S1 | **Open student registration requires institutional approval.** `handle_new_user` intentionally approves a student using any valid email, while faculty requests remain pending and public metadata cannot request an administrative role or another department. Migration `20260828_allow_any_email_signup.sql` supersedes the previous domain trigger for new accounts; existing pending profiles remain pending for explicit review | `supabase_setup.sql`, `migrations/20260828_allow_any_email_signup.sql`, governance protocol | **P0 (external)** |
 | ✅ Fixed S2 | Guest chat has no global spend ceiling. Per-guest (30/min) and per-IP (300/min) limits exist, and Turnstile is available but off by default. Nothing caps *total* daily guest token spend | `config.py:40-41, 73` | P1 |
 | 🟡 Partial S3 | Transitive Python dependencies are not hash-locked and base images are pinned by tag, not digest. No SBOM, no image signing | `requirements.txt`, `Dockerfile` | P1 |
 | ❌ Open S4 | Secrets are loaded from `.env` files on the host; rotation is documented but manual | `docs/SECRET_ROTATION.md` | P1 |
@@ -755,8 +755,8 @@ LangSmith tracing is implemented privacy-safely but is off by default and the fr
 
 ## 6. Security and compliance
 
-### 6.1 Enforce the institutional email domain — P0 · S · Phase A
-See **S1**. Enforce server-side in `handle_new_user()` (`supabase_setup.sql:43-65`): reject non-`@isu.edu.ph` signups, or admit them as `pending` for manual approval. Guest mode already covers legitimate outsiders. Mirror the rule client-side with a friendly message, and keep a superadmin path for panelists and librarians without ISU addresses. *(This was deliberately deferred in July; it is restated because it remains the single largest gap between the current build and a public university service.)*
+### 6.1 Approve the student signup boundary — ⛔ **BLOCKED EXTERNALLY** · P0 · S · Phase A
+The 2026-08-28 policy intentionally permits new student accounts from any valid email while keeping faculty requests pending. Before public release, obtain written institutional approval for that boundary and validate that RLS plus publication/audience rules constrain every manuscript-derived surface. Existing pending student profiles are not bulk-approved by the migration because the schema cannot distinguish a prior domain hold from an administrator's explicit review decision.
 
 ### 6.2 Guest-chat spend ceiling — ✅ **DONE** · P1 · S · Phase A
 Turnstile is implemented and config-gated (`services/turnstile.py`) — enable it in production with `TURNSTILE_SECRET_KEY` and `VITE_TURNSTILE_SITE_KEY`. ~~Add the missing piece: a global daily guest token budget in Redis, so a determined script cannot exhaust the quota even with valid challenges.~~ **Closed 2026-08-04** — see **S2** in §2.3. It reuses the `limits` storage that already backs rate limiting, so it inherits Redis in production without waiting on **B10**. Moving the verified-guest cache to Redis remains part of B10 (Phase B).

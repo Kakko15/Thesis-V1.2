@@ -9,6 +9,8 @@ Enforces:
   * Retrieval-assistant-only behavior: refuses to write thesis content and
     resists prompt injection (OWASP LLM Top 10).
 """
+# Routing, persistence, and generation remain together at this API boundary.
+# pylint: disable=too-many-lines
 
 import asyncio
 import logging
@@ -54,6 +56,7 @@ from services.retriever import (
     find_papers_by_author,
     find_papers_by_ids,
     get_paper_overview_context,
+    list_archive_papers,
     search_chunks,
     split_author_names,
 )
@@ -83,9 +86,15 @@ _IDENTITY_QUESTIONS = {
     'who are you', 'what are you', 'who is iskai', 'what is iskai',
     'tell me about yourself', 'what can you do',
 }
+_MODEL_QUESTIONS = {
+    'what model are you', 'which model are you', 'what ai model are you',
+    'which ai model are you', 'what model do you use', 'which model do you use',
+    'what ai model do you use', 'which ai model do you use',
+}
 _GREETING_ADDRESSEES = {
     'dear', 'friend', 'my friend', 'iskai', 'dear iskai',
 }
+_ARCHIVE_INVENTORY_LIMIT = 10
 
 
 def _normalize_short_query(question: str) -> str:
@@ -106,11 +115,129 @@ def _is_simple_conversation(question: str) -> bool:
     return False
 
 
+def _is_model_question(question: str) -> bool:
+    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
+    return normalized in _MODEL_QUESTIONS
+
+
+def _model_response(department: str = 'CCSICT') -> str:
+    return chat_notices.model_response(department)
+
+
 def _conversation_response() -> str:
     # Defined in chat_notices so the notice classifier and this message cannot
     # drift apart; a reworded greeting would otherwise stop being recognized as
     # a notice and start being replayed to the model as conversational context.
     return chat_notices.CONVERSATION_MESSAGE
+
+
+def _is_archive_inventory_question(question: str, prior_questions: list[str] | None = None) -> bool:
+    """Identify requests about live archive contents rather than manuscript text."""
+    normalized = re.sub(r'[^a-z0-9 ]+', ' ', (question or '').lower())
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    if not normalized:
+        return False
+    # Topic qualifiers turn these into research searches even when they also
+    # contain words such as "available", "archive", or "more".
+    without_other_than = normalized.replace('other than', '')
+    if re.search(
+        r'\b(?:about|on|for|by|related to|deal(?:s|t|ing)? with|regarding|concerning|'
+        r'discuss(?:es|ed|ing)?|cover(?:s|ed|ing)?|examin(?:e|es|ed|ing)|'
+        r'use(?:s|d|ing)?|focus(?:es|ed|ing)? on)\b|\b(?:19|20)\d{2}\b',
+        without_other_than,
+    ):
+        return False
+    direct_patterns = (
+        r'\bhow many\b.*\b(?:thesis|theses|papers|studies)\b.*\b(?:archive|available|here|indexed|library)\b',
+        r'\bhow many\b.*\b(?:archived|available|indexed)\b.*\b(?:thesis|theses|papers|studies)\b',
+        r'\b(?:list|show|which|what)\b.*\b(?:thesis|theses|papers|studies)\b'
+        r'.*\b(?:archive|available|here|indexed|library)\b',
+        r'\b(?:list|show|which|what)\b.*\b(?:available|indexed|archive)\b.*\b(?:thesis|theses|papers|studies)\b',
+        r'\b(?:any|are there|is there)\b.*\b(?:thesis|theses|papers|studies)\b.*\b(?:other|others|more|than)\b',
+        r'\b(?:any|are there|is there)\b.*\b(?:other|others|more)\b.*\b(?:thesis|theses|papers|studies)\b',
+        r'\b(?:thesis|theses|papers|studies)\b.*\bother than\b',
+    )
+    if any(re.search(pattern, normalized) for pattern in direct_patterns):
+        return True
+    if normalized in {'any others', 'are there others', 'is that all', 'only one', 'one only'}:
+        return any(
+            _is_archive_inventory_question(previous)
+            for previous in (prior_questions or [])[-2:]
+        )
+    return False
+
+
+def _is_archive_count_question(question: str) -> bool:
+    normalized = re.sub(r'[^a-z0-9 ]+', ' ', (question or '').lower())
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    return bool(
+        re.search(r'\bhow many\b', normalized)
+        or re.search(r'\b(?:count|number) of\b.*\b(?:thesis|theses|papers|studies)\b', normalized)
+    )
+
+
+def _asks_for_other_archive_papers(question: str) -> bool:
+    normalized = re.sub(r'[^a-z0-9 ]+', ' ', (question or '').lower())
+    return bool(re.search(r'\b(?:other|others|more|than)\b', normalized))
+
+
+def _archive_inventory_response(
+    department: str,
+    total: int,
+    sources: list[dict],
+    *,
+    count_only: bool = False,
+    thesis_category: str | None = None,
+    additional_only: bool = False,
+    additional_total: int | None = None,
+) -> str:
+    """Describe the authoritative ready-paper inventory without an LLM."""
+    category_label = f'{thesis_category}-authored ' if thesis_category else ''
+    if not total:
+        return f'The {department} archive currently has no indexed {category_label}theses.'
+    noun = 'thesis' if total == 1 else 'theses'
+    count_text = f'The {department} archive currently has **{total} indexed {category_label}{noun}**.'
+    remaining = len(sources) if additional_total is None else additional_total
+    if additional_only and not remaining:
+        return (
+            f'{count_text} I found no additional {category_label}theses beyond the '
+            'ones already cited in this conversation.'
+        )
+    if count_only and additional_only:
+        remaining_noun = 'thesis' if remaining == 1 else 'theses'
+        return (
+            f'{count_text} Of those, **{remaining} additional {category_label}{remaining_noun}** '
+            'have not already been cited in this conversation.'
+        )
+    if count_only and not additional_only:
+        return f'{count_text} This count comes from the live indexed archive.'
+
+    lines = [
+        f'{count_text} Here are additional titles not already cited:'
+        if additional_only else f'{count_text[:-1]}:'
+    ]
+    for index, source in enumerate(sources, start=1):
+        details = [str(value) for value in (source.get('year'), source.get('track')) if value]
+        detail_text = f" ({' · '.join(details)})" if details else ''
+        lines.append(
+            f'{index}. **{source.get("title", "Untitled thesis")}** by '
+            f'{source.get("authors", "Unknown authors")}{detail_text} [{index}]'
+        )
+    answer = '\n'.join(lines)
+    if not additional_only and total > len(sources):
+        answer += (
+            f'\n\nShowing the first **{len(sources)} of {total}** titles alphabetically. '
+            'Use the archive filters or ask by topic, title, author, year, or category to narrow the list.'
+        )
+    elif additional_only and remaining > len(sources):
+        answer += (
+            f'\n\nShowing the first **{len(sources)} of {remaining} additional titles** alphabetically. '
+            'Use the archive filters or ask by topic, title, author, year, or category to narrow the list.'
+        )
+    answer += (
+        '\n\nThis count comes from the live indexed archive, not from claims inside a thesis document.'
+    )
+    return answer
 
 
 def _extract_author_name(question: str) -> str | None:
@@ -659,6 +786,19 @@ async def _chat_impl(
         )
 
     # Greetings and identity questions need neither retrieval nor generation.
+    if _is_model_question(req.question):
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': 0,
+            'duplication_flagged': False,
+            'fast_path': 'model_identity',
+        })
+        return ChatResponse(
+            answer=_model_response(effective_department),
+            sources=[],
+            session_id=req.session_id,
+        )
+
     if _is_simple_conversation(req.question):
         background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
             'question_length': len(req.question),
@@ -680,16 +820,6 @@ async def _chat_impl(
         })
         return ChatResponse(answer=REFUSAL_MESSAGE, sources=[], session_id=req.session_id)
 
-    # S2: turn an out-of-allowance guest away before the first paid call rather
-    # than after. Everything below this point can reach Gemini — the follow-up
-    # rewrite, the retrieval embedding, then generation itself.
-    if not user and await asyncio.to_thread(guest_budget.is_exhausted):
-        background_tasks.add_task(log_activity, None, 'chat_query_budget_exhausted', {
-            'question_length': len(req.question),
-            'stage': 'pre_retrieval',
-        })
-        return _guest_budget_response(req.session_id)
-
     # Authenticated history is loaded only after ownership verification. Guest
     # history is ephemeral, user-question-only context supplied by this open UI.
     history_messages: list[dict] = []
@@ -710,7 +840,7 @@ async def _chat_impl(
         if source_ids:
             reference_sources = await asyncio.to_thread(
                 find_papers_by_ids,
-                source_ids[:5],
+                source_ids,
                 effective_department,
             )
     elif not user:
@@ -730,6 +860,59 @@ async def _chat_impl(
             logger.warning('Guest reference lookup failed; continuing (%s)', type(e).__name__)
     chat_history_str = _format_chat_history(history_messages)
     prior_questions = [message['question'] for message in history_messages]
+
+    if _is_archive_inventory_question(req.question, prior_questions):
+        asks_for_other_papers = _asks_for_other_archive_papers(req.question)
+        excluded_ids = (
+            [source['id'] for source in reference_sources if source.get('id')]
+            if asks_for_other_papers
+            else []
+        )
+        try:
+            inventory_total, additional_total, inventory_sources = await asyncio.to_thread(
+                list_archive_papers,
+                effective_department,
+                req.thesis_category_filter,
+                _ARCHIVE_INVENTORY_LIMIT,
+                excluded_ids,
+            )
+        except Exception as error:
+            logger.exception('Archive inventory lookup failed')
+            raise HTTPException(
+                status_code=503,
+                detail='The thesis archive is temporarily unavailable. Please try again in a moment.',
+            ) from error
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': len(inventory_sources),
+            'duplication_flagged': False,
+            'fast_path': 'archive_inventory',
+            'department': effective_department,
+        })
+        return ChatResponse(
+            answer=_archive_inventory_response(
+                effective_department,
+                inventory_total,
+                inventory_sources,
+                count_only=_is_archive_count_question(req.question),
+                thesis_category=req.thesis_category_filter,
+                additional_only=asks_for_other_papers,
+                additional_total=additional_total,
+            ),
+            sources=[] if _is_archive_count_question(req.question) else inventory_sources,
+            session_id=req.session_id,
+            no_relevant_thesis=(not inventory_sources if asks_for_other_papers else not inventory_total),
+        )
+
+    # S2: turn an out-of-allowance guest away before the first paid call rather
+    # than after. The SQL-only inventory path above remains available because it
+    # does not consume Gemini quota.
+    if not user and await asyncio.to_thread(guest_budget.is_exhausted):
+        background_tasks.add_task(log_activity, None, 'chat_query_budget_exhausted', {
+            'question_length': len(req.question),
+            'stage': 'pre_retrieval',
+        })
+        return _guest_budget_response(req.session_id)
 
     async def try_author_fast_path(question: str) -> ChatResponse | None:
         """Resolve person-name variants locally before any Gemini or embedding call."""

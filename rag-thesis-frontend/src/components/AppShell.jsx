@@ -1,20 +1,20 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3, Command, LayoutDashboard, Library, LogIn, LogOut, Menu,
-  MessageSquareText, MoreHorizontal, Palette, Search, ShieldCheck, UploadCloud, X,
+  MessageSquareText, MoreHorizontal, Palette, Search, Settings2, ShieldCheck, UploadCloud, X,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { healthCheck } from '../api'
+import { prefetchRoute } from '../lib/routePrefetch'
 import { BrandMark, Logo } from './ui/Logo'
 import { RoleBadge } from './ui/Badge'
 import { Button } from './ui/Button'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/Tooltip'
 import { Sheet } from './ui/Sheet'
-import { ProfileSettingsModal } from './ProfileSettingsModal'
-import { AppearanceDialog } from './AppearanceDialog'
 import { CommandPalette } from './CommandPalette'
+import { AppearanceDialog } from './AppearanceDialog'
 import { cn } from '../lib/utils'
 
 function useNavItems() {
@@ -49,10 +49,17 @@ function HealthStatus({ compact = false }) {
 
 function NavIcon({ item, compact = false, onNavigate }) {
   const Icon = item.icon
+  const queryClient = useQueryClient()
+  const { user } = useAuth()
+  // Hover/focus intent: warm the page chunk and its data before the click
+  // lands, so the destination renders instantly instead of showing skeletons.
+  const warm = () => prefetchRoute(item.to, queryClient, { signedIn: !!user })
   const link = (
     <NavLink
       to={item.to}
       onClick={onNavigate}
+      onPointerEnter={warm}
+      onFocus={warm}
       aria-label={compact ? item.label : undefined}
       className={({ isActive }) => cn(
         'group relative flex items-center rounded-2xl font-medium transition-colors',
@@ -119,9 +126,8 @@ function AccountBlock({ compact, onOpenProfile, onLogout, user, displayName, ava
 
 export function AppShell({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const { user, role, displayName, avatarUrl, signOut } = useAuth()
   const items = useNavItems()
   const navigate = useNavigate()
@@ -149,13 +155,18 @@ export function AppShell({ children }) {
     navigate('/')
   }
 
+  // Appearance and account settings live on the dedicated /settings page now —
+  // these shortcuts deep-link into the matching section.
   const openAppearance = () => {
     setCommandOpen(false)
-    setAppearanceOpen(true)
+    setMobileOpen(false)
+    if (user) navigate('/settings?section=appearance')
+    else setAppearanceOpen(true)
   }
   const openProfile = () => {
     setCommandOpen(false)
-    setSettingsOpen(true)
+    setMobileOpen(false)
+    navigate('/settings')
   }
 
   return (
@@ -178,7 +189,12 @@ export function AppShell({ children }) {
           <AccountBlock user={user} role={role} displayName={displayName} avatarUrl={avatarUrl} onOpenProfile={openProfile} onLogout={handleAccountAction} />
           <div className="flex items-center justify-between">
             <HealthStatus />
-            <Button variant="ghost" size="icon-sm" onClick={() => setAppearanceOpen(true)} aria-label="Appearance and energy"><Palette size={16} /></Button>
+            <div className="flex items-center gap-1">
+              {user && (
+                <Button variant="ghost" size="icon-sm" onClick={openProfile} aria-label="Settings"><Settings2 size={16} /></Button>
+              )}
+              <Button variant="ghost" size="icon-sm" onClick={openAppearance} aria-label="Appearance and energy"><Palette size={16} /></Button>
+            </div>
           </div>
         </div>
       </aside>
@@ -193,8 +209,14 @@ export function AppShell({ children }) {
             <TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="Quick access"><Command size={18} /></Button></TooltipTrigger>
             <TooltipContent side="right">Quick access (Ctrl K)</TooltipContent>
           </Tooltip>
+          {user && (
+            <Tooltip>
+              <TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={openProfile} aria-label="Settings"><Settings2 size={18} /></Button></TooltipTrigger>
+              <TooltipContent side="right">Settings</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
-            <TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={() => setAppearanceOpen(true)} aria-label="Appearance and energy"><Palette size={18} /></Button></TooltipTrigger>
+            <TooltipTrigger asChild><Button variant="ghost" size="icon" onClick={openAppearance} aria-label="Appearance and energy"><Palette size={18} /></Button></TooltipTrigger>
             <TooltipContent side="right">Appearance and energy</TooltipContent>
           </Tooltip>
           <HealthStatus compact />
@@ -247,8 +269,11 @@ export function AppShell({ children }) {
               </nav>
               <div className="mt-5 space-y-3 border-t border-[var(--border)] pt-5">
                 <Button variant="secondary" className="w-full justify-start" onClick={() => { setMobileOpen(false); setCommandOpen(true) }}><Search size={16} /> Quick access</Button>
-                <Button variant="outline" className="w-full justify-start" onClick={() => { setMobileOpen(false); setAppearanceOpen(true) }}><Palette size={16} /> Appearance and energy</Button>
-                <AccountBlock user={user} role={role} displayName={displayName} avatarUrl={avatarUrl} onOpenProfile={() => { setMobileOpen(false); openProfile() }} onLogout={handleAccountAction} />
+                {user && (
+                  <Button variant="outline" className="w-full justify-start" onClick={openProfile}><Settings2 size={16} /> Settings</Button>
+                )}
+                <Button variant="outline" className="w-full justify-start" onClick={openAppearance}><Palette size={16} /> Appearance and energy</Button>
+                <AccountBlock user={user} role={role} displayName={displayName} avatarUrl={avatarUrl} onOpenProfile={openProfile} onLogout={handleAccountAction} />
               </div>
       </Sheet>
 
@@ -258,7 +283,6 @@ export function AppShell({ children }) {
 
       <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} items={items} onOpenAppearance={openAppearance} onOpenProfile={user ? openProfile : null} />
       <AppearanceDialog open={appearanceOpen} onClose={() => setAppearanceOpen(false)} />
-      <ProfileSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

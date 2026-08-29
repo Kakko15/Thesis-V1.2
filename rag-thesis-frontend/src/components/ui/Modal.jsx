@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as AlertDialog from '@radix-ui/react-alert-dialog'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -25,6 +25,15 @@ import { Button } from './Button'
 const preventInteractOutside = (event) => event.preventDefault()
 
 function useDeterministicDismiss(open, onClose, { canClose = () => true } = {}) {
+  // Set when a pointerdown lands on a select trigger (native <select> or a
+  // Radix combobox) inside the dialog. A Radix select's dropdown renders in a
+  // portal ABOVE this overlay and closes on outside pointerdown — so the very
+  // click that dismisses the dropdown ALSO lands on this overlay a frame
+  // later. Swallow that ONE overlay click instead of closing the dialog
+  // underneath the user. Cleared by the swallow itself, or by a native
+  // select's change event (a real option pick).
+  const selectInteraction = useRef(false)
+
   useEffect(() => {
     if (!open) return undefined
     const onKeyDown = (event) => {
@@ -33,13 +42,39 @@ function useDeterministicDismiss(open, onClose, { canClose = () => true } = {}) 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [open, onClose, canClose])
-  return [preventInteractOutside, (event) => {
-    if (event.target === event.currentTarget && canClose()) onClose?.()
-  }]
+
+  useEffect(() => {
+    const clearSelectInteraction = () => { selectInteraction.current = false }
+    document.addEventListener('iskai:select-value-change', clearSelectInteraction)
+    return () => document.removeEventListener('iskai:select-value-change', clearSelectInteraction)
+  }, [])
+
+  const onOverlayClick = (event) => {
+    if (event.target !== event.currentTarget || !canClose()) return
+    if (selectInteraction.current) {
+      selectInteraction.current = false
+      return
+    }
+    onClose?.()
+  }
+
+  const onContentPointerDownCapture = (event) => {
+    if (event.target instanceof Element && event.target.closest('select, [role="combobox"]')) {
+      selectInteraction.current = true
+    }
+  }
+
+  const onContentChangeCapture = (event) => {
+    if (event.target instanceof Element && event.target.closest('select')) {
+      selectInteraction.current = false
+    }
+  }
+
+  return [preventInteractOutside, onOverlayClick, onContentPointerDownCapture, onContentChangeCapture]
 }
 
 export function Modal({ open, onClose, title, description, children, className, size = 'md' }) {
-  const [onInteractOutside, onOverlayClick] = useDeterministicDismiss(open, onClose)
+  const [onInteractOutside, onOverlayClick, onContentPointerDownCapture, onContentChangeCapture] = useDeterministicDismiss(open, onClose)
   const sizes = {
     sm: 'max-w-sm',
     md: 'max-w-lg',
@@ -74,6 +109,8 @@ export function Modal({ open, onClose, title, description, children, className, 
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.97, y: 10 }}
                 transition={{ type: 'spring', stiffness: 420, damping: 36 }}
+                onPointerDownCapture={onContentPointerDownCapture}
+                onChangeCapture={onContentChangeCapture}
                 className={cn(
                   'surface-glass fixed left-1/2 top-1/2 z-[81] max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[1.75rem] p-6 sm:p-8',
                   sizes[size],
@@ -103,6 +140,8 @@ export function Modal({ open, onClose, title, description, children, className, 
 
 export function ConfirmDialog({ open, onClose, onConfirm, title, message, confirmLabel = 'Confirm', danger = false, loading = false }) {
   const canClose = () => !loading
+  // ConfirmDialog holds no selects, so only the overlay + interact guards are
+  // needed from the dismiss hook.
   const [onInteractOutside, onOverlayClick] = useDeterministicDismiss(open, onClose, { canClose })
   return (
     <AlertDialog.Root open={open} onOpenChange={(next) => !next && canClose() && onClose?.()}>

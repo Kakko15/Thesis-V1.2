@@ -195,6 +195,10 @@ export async function deleteSession(sessionId) {
   const { data } = await api.delete(`/sessions/${sessionId}`)
   return data
 }
+export async function deleteAllSessions() {
+  const { data } = await api.delete('/sessions')
+  return data
+}
 export async function getSessionMessages(sessionId) {
   const { data } = await api.get(`/sessions/${sessionId}/messages`)
   return data
