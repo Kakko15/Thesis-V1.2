@@ -1,6 +1,6 @@
 # ISO/IEC 25010 Evidence Snapshot
 
-> **Snapshot notice:** This file records the dated evidence below and is not a live delivery-status ledger. The current defect and improvement ledger is [`SYSTEM_IMPROVEMENTS_AND_BUGS_2026-08-03.md`](../../SYSTEM_IMPROVEMENTS_AND_BUGS_2026-08-03.md), and the paper-to-system comparison is [`PAPER_VS_SYSTEM_COMPARISON_2026-08-25.md`](../../PAPER_VS_SYSTEM_COMPARISON_2026-08-25.md). Final evidence must be regenerated from the immutable release manifest (`scripts/corpus_manifest.py` and `scripts/release_fingerprint.py`).
+> **Snapshot notice:** This file records the dated evidence below and is not a live delivery-status ledger. Final evidence must be regenerated from the immutable release manifest (`scripts/corpus_manifest.py` and `scripts/release_fingerprint.py`).
 >
 > This notice previously pointed at `ISU_ECHAGUE_PRODUCTION_ROADMAP.md` as the authoritative ledger. That file does not exist in the repository and is listed in `.gitignore`, so anyone following the link — including a panel member — reached nothing.
 
