@@ -208,7 +208,7 @@
               "minLength": 1,
               "type": "string"
             },
-            "maxItems": 5,
+            "maxItems": 10,
             "title": "Guest Source Ids",
             "type": "array"
           },
@@ -254,6 +254,11 @@
           "answer": {
             "title": "Answer",
             "type": "string"
+          },
+          "archive_current": {
+            "default": false,
+            "title": "Archive Current",
+            "type": "boolean"
           },
           "duplication_alert": {
             "anyOf": [
