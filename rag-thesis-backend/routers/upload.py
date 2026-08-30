@@ -41,6 +41,7 @@ from services.filenames import sanitize_filename
 from services.llm_output import coerce_text, strip_code_fence
 from services.rate_limiting import limiter
 from services.operations import record_security_event
+from services import gemini_pool
 
 logger = logging.getLogger(__name__)
 
@@ -607,7 +608,9 @@ Do not wrap in markdown code blocks.
 Text:
 {text[:8000]}
 """
-        result = await llm.ainvoke(prompt)
+        result = await gemini_pool.arun(
+            llm, gemini_pool.EXTRACT, lambda client: client.ainvoke(prompt),
+        )
         data = json.loads(strip_code_fence(coerce_text(result)))
 
         ai_year = str(data.get('year', '') or '').strip()
