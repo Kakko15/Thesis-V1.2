@@ -302,3 +302,88 @@ def append_table_rows(xml, anchor, rows, label=''):
         built.append(row)
     insert_at = tbl.start() + anchor_row.end()
     return xml[:insert_at] + ''.join(built) + xml[insert_at:], ncells
+
+def replace_parts(src, dst, parts):
+    """Rewrite several zip entries at once, copying every other byte-for-byte.
+
+    `write_xml` handles a single part, which is enough for text surgery. Swapping
+    a figure needs two: the replacement image bytes in word/media, and the
+    drawing extent in word/document.xml that sizes it on the page.
+    """
+    if src != dst:
+        shutil.copyfile(src, dst)
+    with zipfile.ZipFile(src) as zin:
+        infos = zin.infolist()
+        data = {i.filename: zin.read(i.filename) for i in infos}
+    for name, payload in parts.items():
+        if name not in data:
+            raise KeyError(f'{name} is not a part of {src}')
+        data[name] = payload
+    with zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for i in infos:
+            zi = zipfile.ZipInfo(i.filename, date_time=i.date_time)
+            zi.compress_type = i.compress_type
+            zi.external_attr = i.external_attr
+            zout.writestr(zi, data[i.filename])
+
+
+def media_rid(src, target):
+    """Relationship id for a word/media entry, e.g. 'media/image8.png'."""
+    rels = read_xml(src, 'word/_rels/document.xml.rels')
+    match = re.search(
+        r'<Relationship[^>]*Id="([^"]+)"[^>]*Target="' + re.escape(target) + r'"',
+        rels,
+    ) or re.search(
+        r'<Relationship[^>]*Target="' + re.escape(target) + r'"[^>]*Id="([^"]+)"',
+        rels,
+    )
+    if not match:
+        raise LookupError(f'no relationship targets {target}')
+    return match.group(1)
+
+
+def set_drawing_extent(xml, rid, cx, cy, label=''):
+    """Resize the one drawing that embeds `rid`.
+
+    Both the wp:extent (the shape's size on the page) and the a:ext inside its
+    graphic frame have to agree, or Word renders the picture at the old aspect
+    ratio and squashes it. Scoped to the drawing that actually holds the
+    relationship, never a global value replace.
+    """
+    anchor = xml.index(f'r:embed="{rid}"')
+    start = xml.rindex('<w:drawing>', 0, anchor)
+    end = xml.index('</w:drawing>', anchor) + len('</w:drawing>')
+    block = xml[start:end]
+    block, n_extent = re.subn(
+        r'<wp:extent cx="\d+" cy="\d+"/>', f'<wp:extent cx="{cx}" cy="{cy}"/>', block,
+    )
+    block, n_ext = re.subn(
+        r'<a:ext cx="\d+" cy="\d+"/>', f'<a:ext cx="{cx}" cy="{cy}"/>', block,
+    )
+    if (n_extent, n_ext) != (1, 1):
+        raise ValueError(
+            f'{label}: expected one wp:extent and one a:ext, found {n_extent} and {n_ext}'
+        )
+    return xml[:start] + block + xml[end:]
+
+
+def png_pixels(path):
+    """(width, height) from a PNG IHDR, without needing an imaging library."""
+    with open(path, 'rb') as handle:
+        head = handle.read(24)
+    if head[1:4] != b'PNG':
+        raise ValueError(f'{path} is not a PNG')
+    return int.from_bytes(head[16:20], 'big'), int.from_bytes(head[20:24], 'big')
+
+
+def text_width_emu(xml):
+    """Usable text width in EMU, from the section's page size and margins."""
+    page = re.search(r'<w:pgSz [^>]*w:w="(\d+)"', xml)
+    mar = (
+        re.search(r'<w:pgMar [^>]*w:left="(\d+)"[^>]*w:right="(\d+)"', xml)
+        or re.search(r'<w:pgMar [^>]*w:right="(\d+)"[^>]*w:left="(\d+)"', xml)
+    )
+    if not page or not mar:
+        raise LookupError('could not read page size or margins')
+    twips = int(page.group(1)) - int(mar.group(1)) - int(mar.group(2))
+    return twips * 635  # 1 twip = 635 EMU

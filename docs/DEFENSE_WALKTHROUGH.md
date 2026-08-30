@@ -35,7 +35,7 @@ questions.
 | Cleaning | Regex removal of headers, page numbers, figure noise; PII redaction | — |
 | Chunking | LangChain `RecursiveCharacterTextSplitter` | **800 tokens, 100 overlap** |
 | Tokenizer | `cl100k_base` as a **fixed documented proxy** | — |
-| Embedding | `models/gemini-embedding-2` | **768 dimensions** |
+| Embedding | `models/gemini-embedding-001` | **768 dimensions** |
 | Storage | Supabase Postgres + pgvector | `vector(768)` |
 | Retrieval | `match_chunks` cosine similarity, department-scoped | **threshold 0.30, top-k 5** |
 | Reordering | Re-implementation of LangChain `LongContextReorder` | after Liu et al. 2024 |
