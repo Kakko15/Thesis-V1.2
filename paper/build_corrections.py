@@ -34,11 +34,11 @@ CELLS = [
 # --- prose: model names, pipeline description, Table 6 -------------------
 PROSE = [
     ("such as Gemini's text-embedding-004",
-     'specifically Gemini Embedding 2 (models/gemini-embedding-2)', 1, 'embed prose A'),
-    ('the Gemini text-embedding-004 model', 'the Gemini Embedding 2 model', 1, 'embed prose B'),
-    ("powered by Gemini's text-embedding-004", 'powered by Gemini Embedding 2', 1, 'embed prose C'),
+     'specifically Gemini Embedding (models/gemini-embedding-001)', 1, 'embed prose A'),
+    ('the Gemini text-embedding-004 model', 'the Gemini Embedding model', 1, 'embed prose B'),
+    ("powered by Gemini's text-embedding-004", 'powered by Gemini Embedding', 1, 'embed prose C'),
     ('Gemini text-embedding-004, Supabase pgvector',
-     'Gemini Embedding 2, Supabase pgvector', 1, 'T6 embed'),
+     'Gemini Embedding, Supabase pgvector', 1, 'T6 embed'),
     ('via the Gemini 1.5 Flash model', 'via the Gemini 3.6 Flash model', 1, 'LLM prose'),
     # extraction is PyMuPDF; LangChain document loaders are not used.
     # A third "document loaders" mention in the Ch.2 literature review is a
@@ -176,7 +176,7 @@ TABLE_ROWS = [
         ('PyJWT', 'v2.13.0', 'Will encode and verify the JSON Web Tokens used for authenticated sessions.'),
         ('HTTPX', 'v0.28.1', 'Will perform outbound HTTP calls to Supabase and the Gemini API.'),
     ]),
-    ('models/gemini-embedding-2 (768 dimensions)', 'Table 3 AI/RAG', [
+    ('models/gemini-embedding-001 (768 dimensions)', 'Table 3 AI/RAG', [
         ('Gemini 3.5 Flash Lite', 'gemini-3.5-flash-lite', 'Will handle bounded verdict and metadata-extraction work that does not require the primary generation model.'),
         ('langchain-core', 'v1.5.1', 'Will provide the Runnable and prompt abstractions that compose the retrieval-to-generation chain.'),
         ('langchain-text-splitters', 'v1.1.2', 'Will supply the RecursiveCharacterTextSplitter used to chunk extracted manuscript text.'),
@@ -326,15 +326,56 @@ PROSE5 = [
 ]
 
 
+# --- Figures -------------------------------------------------------------
+# Figure 8 is an embedded PNG, so no text pass could ever reach it. The
+# original labelled the Response Generator `gemini-1.5-flash`, the Embedding
+# Model `text-embedding-004`, and the RAG Pipeline "LangChain &
+# langchain-community" -- a dependency this project does not use -- while
+# showing a retired "Researcher" actor with no superadmin and a synchronous
+# upload path the system replaced with a durable queue. Every one of those
+# contradicted the corrected body text.
+#
+# It is also resized here. The original drawing was 7.67 in wide on an A4 page
+# with 1 in margins, i.e. 1.4 in past the right margin. The replacement is
+# fitted to the measured text width, preserving its own aspect ratio.
+FIGURES = [
+    # Figure 1 (2.1.1) labelled the embedding step `text-embedding-004` and the
+    # generation step "Gemini 1.5 Flash". Faithful redraw, same seven steps and
+    # colours, with only those two model names corrected. Its original drawing was
+    # also distorted: a 7.48 x 3.87 in extent, an aspect of 1.93 against the
+    # image's native 2.33, so it was squashed as well as over-wide.
+    ('media/image1.png', 'figures/figure1_rag_architecture.png', 'Figure 1 RAG flow'),
+    ('media/image8.png', 'figures/figure8_system_architecture.png', 'Figure 8 architecture'),
+]
+
+
+def apply_figures(xml, src, verbose=True):
+    """Swap embedded figures and refit each drawing to the text width."""
+    media = {}
+    width_emu = D.text_width_emu(xml)
+    for target, source, label in FIGURES:
+        payload = open(source, 'rb').read()
+        pixels_w, pixels_h = D.png_pixels(source)
+        cx = width_emu
+        cy = round(width_emu * pixels_h / pixels_w)
+        rid = D.media_rid(src, target)
+        xml = D.set_drawing_extent(xml, rid, cx, cy, label=label)
+        media['word/' + target] = payload
+        if verbose:
+            print(f'  figure {label:26s} {source} '
+                  f'({pixels_w}x{pixels_h} px -> {cx/914400:.2f}x{cy/914400:.2f} in)')
+    return xml, media
+
+
 def build(verbose=True):
     xml = D.read_xml(SRC)
     for old, new, label in CELLS:
         xml, _ = D.replace_cell(xml, old, new, expect=1, label=label)
         if verbose: print(f'  cell   {label:26s} {old} -> {new}')
-    xml = D.replace_cell_nth(xml, 'text-embedding-004', 'Gemini Embedding 2', 0, 'T3 embed name')
+    xml = D.replace_cell_nth(xml, 'text-embedding-004', 'Gemini Embedding', 0, 'T3 embed name')
     xml = D.replace_cell_nth(xml, 'text-embedding-004',
-                             'models/gemini-embedding-2 (768 dimensions)', 0, 'T3 embed id')
-    if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding 2')
+                             'models/gemini-embedding-001 (768 dimensions)', 0, 'T3 embed id')
+    if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding')
     for old, new, n, label in PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5:
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')
@@ -346,5 +387,6 @@ def build(verbose=True):
 
 if __name__ == '__main__':
     xml = build()
-    D.write_xml(SRC, DST, xml)
+    xml, media = apply_figures(xml, SRC)
+    D.replace_parts(SRC, DST, {D.DOC: xml.encode('utf8'), **media})
     print(f'\nwrote {DST}')

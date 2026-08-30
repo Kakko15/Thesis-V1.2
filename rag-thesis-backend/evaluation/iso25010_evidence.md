@@ -6,7 +6,84 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
-## Current local revalidation - 2026-08-25
+## Current local revalidation - 2026-08-30
+
+Measured on Windows 11 against commit `00e2f69`, with the paper and figure work of
+that day present in the working tree but not yet committed. No application source
+changed in this pass; the only backend files touched were line-ending
+normalizations, verified content-identical with `git diff --numstat`.
+
+Toolchain: Python 3.14.6 (`.venv3146`), PyTest 9.1.1, coverage 7.15.2, Pylint 4.0.6,
+Node.js 24.18.0, Vite 8.1.5, ESLint 9.39.5, Playwright 1.61.1, axe-core 4.12.1.
+**Interpreter note:** the local venv is 3.14.6 while CI and the container assert
+3.14.7 (`.github/workflows/quality.yml:33`, `Dockerfile:27`); `requirements.lock`
+resolves against Python 3.14 at the minor level, so the pinned set is identical.
+
+Every figure below was read from the command's **exit code**, not from its printed
+summary. Backend counts were taken with `ALLOW_DISPOSABLE_SUPABASE_TESTS=0`.
+
+| Criterion | Instrument | Observed result | Status |
+|---|---|---|---|
+| Backend dependency consistency | `pip check` | No broken requirements found | Passed |
+| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 743 passed and 3 opt-in external integration tests skipped; 90.56% coverage (3,931 statements, 371 missed) | Passed |
+| Backend maintainability | Pylint | 10.00/10 | Passed |
+| Frontend unit tests | Node test runner | 89/89 passed across 7 suites | Passed |
+| Frontend coverage | Node test runner with `--experimental-test-coverage`, gated at 85/80/85 | 93.35% lines, 87.73% branches, 94.20% functions | Passed |
+| Frontend maintainability | ESLint 9.39.5 | 0 errors, **1 warning** (see below) | Passed; one advisory |
+| Frontend production build | Vite 8.1.5 | Production build completed in 10.65 s | Passed |
+| Frontend bundle budget | `npm run bundle:budget` | Bundle budget OK | Passed |
+| Frontend production dependency audit | `npm audit --omit=dev` | found 0 vulnerabilities | Passed |
+| Critical browser journeys and accessibility | Playwright 1.61.1 with Chromium, axe-core 4.12.1 | 24/24 passed in 2.2 min | Passed |
+| Backend dependency vulnerability audit | pip-audit | Not run in this pass; requires network access to the advisory database | Pending re-run |
+| Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771 | Not run in this pass; no SonarQube server was available | Pending re-run |
+| Container vulnerability scan | Trivy | Not run in this pass; no image build was performed | Pending re-run |
+
+### Suite growth since 2026-08-25
+
+The backend suite grew by **32 tests** (711 to 743), the frontend by **4** (85 to 89),
+and the Playwright suite by **3 specs** (21 to 24). Backend coverage moved from 91.49%
+to 90.56%, a 0.93-point fall from new code landing below the existing average; the
+85% gate is unaffected.
+
+### Corrected: the ESLint result is no longer clean
+
+The 2026-08-25 block above records "0 errors and 0 warnings". That was accurate when
+measured. `rag-thesis-frontend/src/pages/Archive.jsx` has since changed in commit
+`0ce89c6`, and ESLint now reports:
+
+```
+src/pages/Archive.jsx:185:16  warning  Function 'Archive' has a complexity of 27. Maximum allowed is 24  complexity
+```
+
+It is a warning, not an error, so `npm run lint` still exits 0 and the CI gate still
+passes. Recorded here rather than silently carried forward, because the earlier line
+would otherwise misdescribe the current build.
+
+### Instrument defect found and corrected: mixed line endings
+
+Pylint initially reported **9.94/10, exit code 16**. Every message was `C0327`
+(mixed-line-endings) against `rag-thesis-backend/services/retriever.py`, whose working
+copy held 476 CRLF lines mixed into 255 LF ones.
+
+This never reached CI. Every text blob in the repository is stored with LF, and CI
+checks out on Linux, so the mixture existed only in the Windows working tree — which
+is precisely what made it dangerous: **the local gate was red while CI stayed green,
+and the printed score gave no hint why.** A local run quoting 9.94 would have
+understated a build that scores 10.00 in the environment that actually gates it.
+
+Fourteen tracked files had drifted (9 CRLF-only, 5 mixed, including
+`tests/test_chat_logic.py` and two frontend sources). All were normalized to LF;
+`git diff --numstat` confirms **zero content change** in every file not edited for
+other reasons. Pylint then returned **10.00/10, exit 0**.
+
+A repository-level `.gitattributes` now pins `* text=auto eol=lf`, so a checked-out
+working tree matches CI byte for byte and this class of drift cannot recur silently.
+One consequence worth recording: normalizing `evaluation/golden_dataset.json` changed
+its bytes and therefore its SHA-256. The dataset is still entirely placeholders and no
+formal run has consumed it, so no retained result is invalidated — but the hash is now
+fixed ahead of the formal evaluation rather than during it.
+
+## Local revalidation - 2026-08-25
 
 Measured on Windows 11 against commit `733e186` with PyTest 9.1.1, Pylint 4.0.6,
 Node.js 24.18.0, Vite 8.1.5 and ESLint 9.39.5. **Interpreter note:** the local
