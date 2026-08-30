@@ -32,6 +32,7 @@ from services.citations import (
     validate_citations,
 )
 from services.embedder import embed_text
+from services import gemini_pool
 from services import chat_notices, guest_budget
 from services.chat_notices import (
     CAPACITY_MESSAGE,
@@ -704,7 +705,9 @@ async def _rewrite_followup(
         + f'\n\nFollow-up: {question}'
     )
     try:
-        rewritten = _coerce_answer(await llm.ainvoke(prompt)).strip()
+        rewritten = _coerce_answer(
+            await gemini_pool.arun(llm, gemini_pool.CHAT, lambda client: client.ainvoke(prompt))
+        ).strip()
         if (
             3 <= len(rewritten) <= 1000
             and '\n' not in rewritten
@@ -729,7 +732,9 @@ async def _repair_citations(answer: str, context: str, sources: list[dict]) -> s
         'answer_length': len(answer),
         'model': settings.gemini_chat_model,
     }):
-        return _coerce_answer(await llm.ainvoke(prompt)).strip()
+        return _coerce_answer(
+            await gemini_pool.arun(llm, gemini_pool.CHAT, lambda client: client.ainvoke(prompt))
+        ).strip()
 
 
 def _missing_referenced_papers(
@@ -765,7 +770,9 @@ async def _repair_multi_paper_coverage(
         f'<retrieved_context>\n{context}\n</retrieved_context>\n\n'
         f'Question: {question}\n\nIncomplete draft:\n{answer}'
     )
-    return _coerce_answer(await llm.ainvoke(prompt)).strip()
+    return _coerce_answer(
+        await gemini_pool.arun(llm, gemini_pool.CHAT, lambda client: client.ainvoke(prompt))
+    ).strip()
 
 
 async def _summarize_duplication(alert: dict) -> str:
@@ -783,7 +790,9 @@ async def _summarize_duplication(alert: dict) -> str:
         f"Relevant excerpt: {alert.get('matched_excerpt', '')}"
     )
     try:
-        return _coerce_answer(await llm.ainvoke(prompt)).strip()
+        return _coerce_answer(
+            await gemini_pool.arun(llm, gemini_pool.CHAT, lambda client: client.ainvoke(prompt))
+        ).strip()
     except Exception as e:
         logger.exception('Duplication summary generation failed (%s)', type(e).__name__)
         return ''
@@ -865,14 +874,21 @@ async def _retrieve_evidence(
 
 
 async def _invoke_generation(prompt_template, generation_input: dict, alert_data: dict | None):
-    chain = prompt_template | llm
+    async def generate():
+        # Rebuilt per client so a reserve key composes the same prompt;
+        # `prompt_template | llm` is still exactly what runs on the primary.
+        return await gemini_pool.arun(
+            llm, gemini_pool.CHAT,
+            lambda client: (prompt_template | client).ainvoke(generation_input),
+        )
+
     if alert_data:
         result, duplication_summary = await asyncio.gather(
-            chain.ainvoke(generation_input),
+            generate(),
             _summarize_duplication(alert_data),
         )
         return result, duplication_summary
-    return await chain.ainvoke(generation_input), None
+    return await generate(), None
 
 
 @router.post('', response_model=ChatResponse, responses=errors(401, 502, 503))

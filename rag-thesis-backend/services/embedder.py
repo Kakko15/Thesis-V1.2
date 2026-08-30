@@ -10,6 +10,7 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 from config import settings
 from services.network_retry import retry_transient
+from services import gemini_pool
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,10 @@ def _with_retry(fn, *args):
 
 def embed_text(text: str) -> list[float]:
     """Vector embedding for a single string (for example, a search query)."""
-    return _with_retry(embeddings_model.embed_query, text)
+    return gemini_pool.run(
+        embeddings_model, gemini_pool.EMBED,
+        lambda client: _with_retry(client.embed_query, text),
+    )
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
@@ -44,5 +48,8 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     vectors: list[list[float]] = []
     for start in range(0, len(texts), _BATCH_SIZE):
         batch = texts[start : start + _BATCH_SIZE]
-        vectors.extend(_with_retry(embeddings_model.embed_documents, batch))
+        vectors.extend(gemini_pool.run(
+            embeddings_model, gemini_pool.EMBED,
+            lambda client, chunk=batch: _with_retry(client.embed_documents, chunk),
+        ))
     return vectors

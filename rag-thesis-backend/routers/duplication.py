@@ -24,6 +24,7 @@ from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
 from services.filenames import sanitize_filename
 from services.guards import REFUSAL_MESSAGE, prohibited_reason
+from services import gemini_pool
 from services.llm_output import coerce_text
 from services.novelty import percent, verdict_for_coverage
 from services.rate_limiting import limiter
@@ -298,7 +299,10 @@ async def scan_duplication(
     Format your response using Markdown.
     """
             try:
-                verdict = _coerce(await llm.ainvoke(prompt))
+                verdict = _coerce(await gemini_pool.arun(
+                    llm, gemini_pool.VERDICT,
+                    lambda client: client.ainvoke(prompt),
+                ))
             except Exception:
                 logger.exception('Verdict generation failed')
                 verdict = (
@@ -406,7 +410,9 @@ Human: {req.question}
 AI:
 """
     try:
-        answer = _coerce(llm.invoke(prompt))
+        answer = _coerce(gemini_pool.run(
+            llm, gemini_pool.VERDICT, lambda client: client.invoke(prompt),
+        ))
     except Exception as e:
         logger.exception('Duplication follow-up chat failed')
         raise HTTPException(

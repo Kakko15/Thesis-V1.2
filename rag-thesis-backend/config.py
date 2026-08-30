@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     gemini_max_output_tokens: int = 700
     gemini_thinking_level: Literal['minimal', 'low', 'medium', 'high'] = 'low'
     gemini_capacity_cooldown_seconds: int = 60
+    # Optional reserve API keys, comma-separated, tried in order only after the
+    # primary key reports exhaustion (services/gemini_pool.py). Empty by default,
+    # which leaves the single-key control flow untouched. Each key must be a
+    # separately-owned allowance used with its owner's consent; extra accounts
+    # minted to multiply one person's free tier breach the provider's terms.
+    gemini_api_keys: str = ''
+    # How long an exhausted reserve key is demoted before being tried again.
+    gemini_key_cooldown_seconds: int = Field(default=60, ge=5, le=3600)
 
     # --- RAG parameters (thesis paper, Section 3.2.3) ---
     # Fixed thesis contract; measured by the documented local tokenizer proxy.
@@ -130,6 +138,22 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(',') if o.strip()]
+
+    @property
+    def gemini_reserve_key_list(self) -> list[str]:
+        """Reserve keys, in order, excluding the primary and any duplicate.
+
+        A key repeated here would be retried against its own exhausted quota and
+        waste a round trip, so duplicates are dropped rather than honoured.
+        """
+        reserve: list[str] = []
+        seen = {self.gemini_api_key.strip()}
+        for value in self.gemini_api_keys.split(','):
+            key = value.strip()
+            if key and key not in seen:
+                seen.add(key)
+                reserve.append(key)
+        return reserve
 
     @property
     def turnstile_allowed_hostname_list(self) -> list[str]:
