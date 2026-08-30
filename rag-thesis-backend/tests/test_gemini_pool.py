@@ -24,6 +24,12 @@ def clean_pool(monkeypatch):
     gemini_pool.reset()
     # Never construct a real client: stand one in per (kind, key).
     monkeypatch.setattr(gemini_pool, '_build', lambda kind, key: f'client:{kind}:{key}')
+    # Pin the Gemini-direct route. Without this every rotation assertion below
+    # silently depends on the developer's .env: configuring LLM_BASE_URL routes
+    # chat traffic to a gateway, reserve_attempts() correctly returns nothing
+    # for those kinds, and seven tests turn red locally while CI -- which has no
+    # .env at all -- stays green. TestGateway covers the routed path explicitly.
+    monkeypatch.setattr(settings, 'llm_base_url', '')
     yield
     gemini_pool.reset()
 
@@ -194,6 +200,49 @@ class TestClientConstruction:
     def test_unknown_kind_is_rejected(self):
         with pytest.raises(ValueError, match='Unknown Gemini client kind'):
             REAL_BUILD('nonsense', 'k')
+
+
+class TestGateway:
+    """LLM_BASE_URL routes the chat kinds elsewhere; embeddings never move."""
+
+    @pytest.fixture
+    def routed(self, monkeypatch):
+        monkeypatch.setattr(settings, 'llm_base_url', 'https://gateway.example/v1')
+        monkeypatch.setattr(settings, 'llm_api_key', 'sk-test')
+
+    def test_disabled_when_no_base_url_is_set(self):
+        assert gemini_pool.gateway_enabled() is False
+
+    def test_enabled_when_a_base_url_is_set(self, routed):
+        assert gemini_pool.gateway_enabled() is True
+
+    def test_whitespace_only_base_url_is_not_a_gateway(self, monkeypatch):
+        monkeypatch.setattr(settings, 'llm_base_url', '   ')
+        assert gemini_pool.gateway_enabled() is False
+
+    @pytest.mark.parametrize('kind', [gemini_pool.CHAT, gemini_pool.EXTRACT, gemini_pool.VERDICT])
+    def test_chat_kinds_are_routed(self, routed, kind):
+        assert type(REAL_BUILD(kind, 'unused')).__name__ == 'ChatOpenAI'
+
+    def test_embeddings_are_never_routed(self, routed):
+        """The pgvector column is vector(768) and match_chunks filters on the
+        recorded embedding model, so routing embeddings returns zero results
+        rather than degraded ones."""
+        assert type(REAL_BUILD(gemini_pool.EMBED, 'k')).__name__ == 'GoogleGenerativeAIEmbeddings'
+
+    def test_the_model_name_is_sent_unchanged(self, routed):
+        """Only the route changes, so the paper's tables stay accurate."""
+        assert REAL_BUILD(gemini_pool.CHAT, 'unused').model_name == settings.gemini_chat_model
+        assert REAL_BUILD(gemini_pool.VERDICT, 'unused').model_name == settings.gemini_verdict_model
+
+    def test_reserve_gemini_keys_are_skipped_for_routed_kinds(self, routed, monkeypatch):
+        """The gateway authenticates itself, so Gemini reserves cannot help."""
+        use_keys(monkeypatch, 'k2', 'k3')
+        assert gemini_pool.reserve_attempts(gemini_pool.CHAT) == []
+
+    def test_embeddings_still_get_the_reserve_pool(self, routed, monkeypatch):
+        use_keys(monkeypatch, 'k2', 'k3')
+        assert [k for k, _ in gemini_pool.reserve_attempts(gemini_pool.EMBED)] == ['k2', 'k3']
 
 
 def _async(value):

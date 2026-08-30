@@ -13,6 +13,9 @@ langchain-core==1.5.1
 langchain-text-splitters==1.1.2
 tiktoken==0.13.0
 langchain-google-genai==4.3.1
+# Used only when LLM_BASE_URL points chat traffic at an OpenAI-compatible
+# gateway (services/gemini_pool.py). Embeddings never use it.
+langchain-openai==1.4.1
 langsmith==0.10.10
 supabase==2.31.0
 

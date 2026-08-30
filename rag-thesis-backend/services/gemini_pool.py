@@ -39,6 +39,7 @@ from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_openai import ChatOpenAI
 
 from config import settings
 from services.chat_notices import is_capacity_error
@@ -60,13 +61,44 @@ _clients: dict[tuple[str, str], object] = {}
 _lock = threading.Lock()
 
 
+def gateway_enabled() -> bool:
+    """Whether chat traffic is routed through an OpenAI-compatible gateway."""
+    return bool(settings.llm_base_url.strip())
+
+
+def _gateway_client(kind: str):
+    """One chat client pointed at the gateway, sending the model name unchanged.
+
+    Only the route changes. A gateway that serves `gemini-3.6-flash` still runs
+    `gemini-3.6-flash`, so the evaluated model, the paper's version tables and
+    Figure 8 all stay accurate. `thinking_level` is dropped because it is a
+    Gemini-native parameter with no OpenAI-compatible equivalent.
+    """
+    return ChatOpenAI(
+        model=settings.gemini_verdict_model if kind == VERDICT else settings.gemini_chat_model,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
+        timeout=settings.gemini_timeout_seconds,
+        max_retries=settings.gemini_max_retries,
+        max_tokens=settings.gemini_max_output_tokens,
+    )
+
+
 def _build(kind: str, api_key: str):
     """Construct one client, matching each call site's existing parameters.
 
     The chat kinds differ only where the original call sites already differed:
     `extract` and `verdict` never passed `thinking_level`, so they are reproduced
     without it rather than quietly normalized into the chat configuration.
+
+    EMBED is never routed through the gateway. The pgvector column is
+    vector(768) under a CHECK constraint and `match_chunks` filters on the
+    recorded embedding model, so a different embedding source returns zero
+    results rather than degraded ones — a failure that presents as an empty
+    archive rather than as a misconfiguration.
     """
+    if kind != EMBED and gateway_enabled():
+        return _gateway_client(kind)
     if kind in (CHAT, EXTRACT):
         options = {
             'model': settings.gemini_chat_model,
@@ -131,6 +163,11 @@ def reserve_attempts(kind: str) -> list[tuple[str, object]]:
     every option is better than giving up early, so a pool can never behave worse
     than the single key it replaced.
     """
+    if kind != EMBED and gateway_enabled():
+        # The gateway authenticates with its own credential, so the reserve
+        # Gemini keys cannot help this kind; offering them would spend a round
+        # trip per key on a request that never reaches Google with those keys.
+        return []
     keys = settings.gemini_reserve_key_list
     ready = [key for key in keys if not _is_cooling(key)]
     cooling = [key for key in keys if _is_cooling(key)]
