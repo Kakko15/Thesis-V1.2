@@ -40,7 +40,11 @@ def run(coro):
 
 
 class TestReserveKeyResolution:
-    def test_no_reserve_keys_by_default(self):
+    def test_no_reserve_keys_when_unset(self, monkeypatch):
+        # Pinned rather than read from the ambient .env: once a developer
+        # configures real reserve keys this assertion would fail locally while
+        # still passing in CI, which has no .env at all.
+        monkeypatch.setattr(settings, 'gemini_api_keys', '')
         assert settings.gemini_reserve_key_list == []
 
     def test_primary_and_duplicates_are_excluded(self, monkeypatch):
