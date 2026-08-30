@@ -1,0 +1,29 @@
+# Line endings.
+#
+# Every text blob in this repository is already stored with LF, and CI and both
+# containers run on Linux. A Windows working tree that differs from them is how
+# `rag-thesis-backend/services/retriever.py` ended up with 476 CRLF lines mixed
+# into 255 LF ones: Pylint reported C0327 on every one of them and the score fell
+# from 10.00 to 9.94, failing the local gate while CI stayed green and gave no
+# hint why. Checking out LF everywhere means a local run reproduces CI exactly.
+#
+# After changing this file, normalize an existing clone once:
+#     git add --renormalize .
+* text=auto eol=lf
+
+# Binary. Never transformed, never diffed as text. `text=auto` would detect most
+# of these anyway; declaring them is cheap insurance for the evidence artifacts
+# and the paper, where a corrupting transform would be silent.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
