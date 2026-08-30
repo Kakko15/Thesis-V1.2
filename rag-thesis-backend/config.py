@@ -32,6 +32,18 @@ class Settings(BaseSettings):
     gemini_api_keys: str = ''
     # How long an exhausted reserve key is demoted before being tried again.
     gemini_key_cooldown_seconds: int = Field(default=60, ge=5, le=3600)
+    # Optional OpenAI-compatible gateway for the CHAT models only. When set,
+    # chat / extract / verdict calls are routed here instead of to Google
+    # directly; the model names above are sent unchanged, so pointing at a
+    # gateway that serves `gemini-3.6-flash` keeps the evaluated model
+    # identical and only changes the route.
+    #
+    # Embeddings are deliberately never routed. The pgvector column is
+    # vector(768) with a CHECK constraint, and match_chunks filters on the
+    # recorded embedding model, so a different embedding source silently
+    # returns zero results until every paper is reindexed.
+    llm_base_url: str = ''
+    llm_api_key: str = ''
 
     # --- RAG parameters (thesis paper, Section 3.2.3) ---
     # Fixed thesis contract; measured by the documented local tokenizer proxy.
