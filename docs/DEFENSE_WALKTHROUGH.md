@@ -1,8 +1,14 @@
 # Defense walkthrough — what the system does, why, and what to say
 
-Written 2026-08-04, re-verified against commit `733e186` on **2026-08-25**.
+Written 2026-08-04, re-verified against commit `733e186` on **2026-08-25**, and
+again on **2026-08-31** against a live archive and live queries.
 Every number here was measured or read from the code, not estimated. Where something is unmeasured or unfinished it says so, because the
 fastest way to lose a panel is to be caught overstating one claim.
+
+Corrected on 2026-08-31: the archive holds **2** ready papers, not 3; the
+embedding model is `gemini-embedding-001`; grounded answers measured 4.5–11.4 s
+on the currently configured route; and chat generation may now be routed through
+an OpenAI-compatible gateway without changing the model.
 
 ---
 
@@ -39,7 +45,7 @@ questions.
 | Storage | Supabase Postgres + pgvector | `vector(768)` |
 | Retrieval | `match_chunks` cosine similarity, department-scoped | **threshold 0.30, top-k 5** |
 | Reordering | Re-implementation of LangChain `LongContextReorder` | after Liu et al. 2024 |
-| Generation | `gemini-3.6-flash` via a LangChain Expression Language chain | — |
+| Generation | `gemini-3.6-flash` via a LangChain Expression Language chain | direct, or via `LLM_BASE_URL` |
 | Validation | Structural citation check, then one bounded repair attempt | — |
 | Duplication | Cosine screening at upload and at query time | **≥ 0.85 flags** |
 
@@ -77,9 +83,17 @@ evaluation department, gets no saved history, and is rate limited.
 your Data Mining papers. Watch for the citation markers `[1]`, `[2]` and the
 source list underneath.
 
-**Expect 8–15 seconds.** Do not apologise for it; explain it:
+**Expect roughly 5–12 seconds.** Do not apologise for it; explain it:
 > Retrieval is milliseconds. The wait is the language model generating a grounded
-> answer. We measured it: 8 to 15 seconds on the free provider tier.
+> answer. We measured it: 4.5 to 11.4 seconds across four live queries.
+
+Four samples on 2026-08-31 through the current provider route: 4.5 s, 6.2 s,
+10.6 s, 11.4 s. The earlier "8 to 15 seconds" figure was measured against Google
+directly on the free tier; quote whichever route you are actually demoing on.
+Latency there was highly variable — a separate check of five keys recorded 0.9 s
+to 45.8 s for an **eight-token** reply, with the slow call landing on a different
+key each run. If a demo answer takes far longer than expected, that is provider
+variance, not a fault in the system.
 
 ### 3.2 The refusal guard
 
@@ -202,11 +216,18 @@ A panel trusts a candidate who names their own limits. All of these are already
 in the repository's audit reports.
 
 1. **The performance figures for `/chat` are from a synthetic corpus on the free
-   provider tier.** A grounded answer takes 8–15 s; the free tier saturates below
-   five concurrent users. That ceiling is the **provider's** rate limit, not the
-   application's — application-only throughput was measured separately at p95
-   204 ms. A paid-tier re-run against the approved corpus is required before the
-   formal evaluation.
+   provider tier.** A grounded answer took 8–15 s there and the free tier
+   saturated below five concurrent users. That ceiling is the **provider's** rate
+   limit, not the application's — application-only throughput was measured
+   separately at p95 204 ms. A re-run against the approved corpus is required
+   before the formal evaluation.
+
+   Chat generation can now be routed through an OpenAI-compatible gateway
+   (`LLM_BASE_URL`), which changes the route but not the model — the same
+   `gemini-3.6-flash` is sent. Measured 4.5–11.4 s on 2026-08-31. **The load
+   figures above were not re-measured on that route**, so do not present them as
+   characterizing it. Embeddings are never routed and still go to Google
+   directly, so every question still makes one call there.
 2. **Objective 2 results are pending.** The baseline-versus-RAG comparison needs
    the locked 50-thesis corpus and faculty-validated ground truth. Nothing is
    displayed until then, on purpose.
@@ -301,8 +322,12 @@ all 43 evaluation questions.
       that is fixed, but the widget is unnecessary and adds a dependency.
 - [ ] Backend, frontend, **and the ingestion worker** all running. Uploads stay
       queued forever without the worker.
-- [ ] Know which project you are pointed at. Your app database has **3 papers,
-      26 CCSICT chunks**. A thin archive is fine; being surprised by it is not.
+- [ ] Know which project you are pointed at. Your app database has **2 ready
+      papers, 26 CCSICT chunks** (22 + 4), verified 2026-08-31. A thin archive is
+      fine; being surprised by it is not. Only one of the two is not your own
+      thesis, so demo on *Real-Time Autonomous Pedestrian Safety and Hazard
+      Detection Using YOLOv11* (Bugauisan & Respicio, 2025) — asking your own
+      paper about itself invites the obvious objection.
 - [ ] One rehearsed question you know retrieves well, and one refusal example.
 - [ ] Do not demo an upload you have not rehearsed — ingestion takes minutes and
       spends provider quota.
