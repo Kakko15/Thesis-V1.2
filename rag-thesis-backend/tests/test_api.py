@@ -52,6 +52,60 @@ class TestHealth:
         assert body['status'] in ('ok', 'degraded')
         assert body['checks']['api'] == 'ok'
 
+    def test_health_does_not_re_read_the_schema_on_every_poll(self, client, monkeypatch):
+        """Finding 16: `/health` is unauthenticated and ran four `select` calls
+        per request, so the global 120/minute default permitted 480 database
+        reads a minute per caller. A named 30/minute limit would have broken
+        legitimate polling — the frontend polls every 30 s per open tab — so the
+        amplification is removed at the source instead."""
+        import main
+
+        calls = []
+        monkeypatch.setattr(main, '_verify_database_contract', lambda: calls.append(1))
+        main.reset_contract_cache()
+
+        for _ in range(5):
+            assert client.get('/health').status_code == 200
+        assert len(calls) == 1, 'the schema contract should be checked once per window'
+
+    def test_health_recovers_after_the_cache_window(self, client, monkeypatch):
+        import main
+
+        calls = []
+        monkeypatch.setattr(main, '_verify_database_contract', lambda: calls.append(1))
+        monkeypatch.setattr(main, '_CONTRACT_CACHE_TTL_SECONDS', 0)
+        main.reset_contract_cache()
+
+        client.get('/health')
+        client.get('/health')
+        assert len(calls) == 2
+
+    def test_health_reports_degraded_when_the_schema_check_raises(self, client, monkeypatch):
+        import main
+
+        def broken():
+            raise RuntimeError('relation does not exist')
+
+        monkeypatch.setattr(main, '_verify_database_contract', broken)
+        main.reset_contract_cache()
+        body = client.get('/health').json()
+        assert body['status'] == 'degraded'
+        assert body['checks']['database'] == 'unavailable_or_incompatible'
+
+    def test_readiness_still_pays_for_an_exact_answer(self, client, monkeypatch):
+        """`/ready` gates whether traffic reaches this instance, so a stale
+        `ready` could route requests to a broken process. It must not share the
+        health cache."""
+        import main
+
+        calls = []
+        monkeypatch.setattr(main, '_verify_database_contract', lambda: calls.append(1))
+        main.reset_contract_cache()
+
+        client.get('/ready')
+        client.get('/ready')
+        assert len(calls) == 2
+
     def test_readiness_endpoint_has_machine_readable_state(self, client, monkeypatch):
         self._available_database(monkeypatch)
         res = client.get('/ready')

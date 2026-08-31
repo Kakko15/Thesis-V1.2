@@ -667,14 +667,14 @@ class TestStorageCleanupMaintenance:
         client = ScriptedClient({
             'storage_cleanup_queue': [
                 [{'id': 1, 'operation': 'delete_paper', 'attempts': 0}],
-                {
+                [{
                     'id': 1,
                     'operation': 'delete_paper',
                     'resource_path': 'private.pdf',
                     'paper_id': 'p1',
                     'attempts': 0,
                     'status': 'pending',
-                },
+                }],
                 [],
             ],
             'papers': [[]],
@@ -685,17 +685,29 @@ class TestStorageCleanupMaintenance:
         assert maintenance.retry_storage_cleanup(1, user)['status'] == 'completed'
         assert client.bucket.removed == ['private.pdf']
 
+    def test_retrying_an_expunged_task_is_404_not_500(self, monkeypatch):
+        """Finding 4: the route declares a 404 it could not emit. `.single()`
+        made PostgREST reject the zero-row result and postgrest-py raise before
+        the guard, so a superadmin retrying an expunged task got an unhandled
+        500. The stub never emulated that, so the suite stayed green."""
+        user = SimpleNamespace(id='root')
+        client = ScriptedClient({'storage_cleanup_queue': [[]]})
+        monkeypatch.setattr(maintenance, 'sb', client)
+        with pytest.raises(HTTPException) as caught:
+            maintenance.retry_storage_cleanup(999, user)
+        assert caught.value.status_code == 404
+
     def test_cleanup_retry_failure_remains_pending(self, monkeypatch):
         user = SimpleNamespace(id='root')
         client = ScriptedClient({
-            'storage_cleanup_queue': [{
+            'storage_cleanup_queue': [[{
                 'id': 2,
                 'operation': 'rollback_upload',
                 'resource_path': 'orphan.pdf',
                 'paper_id': None,
                 'attempts': 1,
                 'status': 'pending',
-            }, []],
+            }], []],
         })
         client.bucket.fail_remove = True
         monkeypatch.setattr(maintenance, 'sb', client)

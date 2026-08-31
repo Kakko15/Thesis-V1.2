@@ -7,6 +7,7 @@ Run (production):   uvicorn main:app --host 0.0.0.0 --port 8000
 import logging
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -44,37 +45,70 @@ from routers import analytics, catalog, chat, departments, duplication, maintena
 from routers import settings as settings_router
 
 
-_operations_stop = threading.Event()
-_OPERATIONS_STATE = {'thread': None}
+_OPERATIONS_STATE: dict[str, object] = {'thread': None, 'stop': None}
 
 
-def _operations_monitor() -> None:
+def _operations_monitor(stop: threading.Event) -> None:
+    """Evaluate operational health until this generation's own event is set."""
     from dependencies.auth import sb
     from services.operations import evaluate_operations
 
-    while not _operations_stop.is_set():
+    while not stop.is_set():
         try:
             evaluate_operations(sb)
         except Exception as error:
             logger.warning('Operations monitor failed (%s)', type(error).__name__)
-        _operations_stop.wait(settings.operations_monitor_seconds)
+        stop.wait(settings.operations_monitor_seconds)
 
 
 def start_operations_monitor() -> None:
-    if not settings.operations_monitor_enabled or _OPERATIONS_STATE['thread'] is not None:
+    """Start the monitor unless one is enabled-and-running already.
+
+    Each generation gets its **own** stop event, passed to the thread rather
+    than read from module scope. A single shared event meant a restart called
+    `clear()` on the event the previous thread was still watching — which
+    un-cancelled it — and then started a second thread. Both would race on
+    `upsert_alert` / `resolve_alert` and an alert could flap between open and
+    resolved.
+    """
+    if not settings.operations_monitor_enabled:
         return
-    _operations_stop.clear()
-    thread = threading.Thread(target=_operations_monitor, daemon=True)
+    existing = _OPERATIONS_STATE['thread']
+    if isinstance(existing, threading.Thread) and existing.is_alive():
+        return
+    stop = threading.Event()
+    thread = threading.Thread(target=_operations_monitor, args=(stop,), daemon=True)
+    _OPERATIONS_STATE['stop'] = stop
     _OPERATIONS_STATE['thread'] = thread
     thread.start()
 
 
 def stop_operations_monitor() -> None:
-    _operations_stop.set()
+    """Signal the monitor and forget it only once it has actually stopped.
+
+    `Event.wait` is interruptible, so a thread parked between cycles exits
+    immediately. The gap this closes is the other case: a thread inside
+    `evaluate_operations()` for more than the join timeout — realistic, since
+    `notify_webhook` retries three times with its own httpx timeout on each.
+    The handle used to be cleared regardless, which is what let a second thread
+    start alongside the first.
+    """
+    stop = _OPERATIONS_STATE['stop']
+    if isinstance(stop, threading.Event):
+        stop.set()
     thread = _OPERATIONS_STATE['thread']
-    if thread is not None:
+    if isinstance(thread, threading.Thread):
         thread.join(timeout=2)
+        if thread.is_alive():
+            # Still inside a cycle. Its own event stays set, so it will exit at
+            # the end of this one; keeping the handle means the next start()
+            # declines rather than racing a second monitor against it.
+            logger.warning(
+                'Operations monitor did not stop within 2s; leaving it to finish its cycle',
+            )
+            return
     _OPERATIONS_STATE['thread'] = None
+    _OPERATIONS_STATE['stop'] = None
 
 
 @asynccontextmanager
@@ -155,6 +189,53 @@ app.include_router(settings_router.router)
 app.include_router(maintenance.router)
 
 
+_CONTRACT_CACHE_TTL_SECONDS = 15.0
+_CONTRACT_CACHE: dict[str, float | bool] = {'checked_at': 0.0, 'ok': False}
+
+
+def _cached_database_contract() -> bool:
+    """Report schema health for `/health`, re-checking at most every 15 seconds.
+
+    `/health` is unauthenticated and `_verify_database_contract` issues four
+    separate reads, so the global 120/minute default permitted 480 database
+    reads per minute per caller — the same denial-of-wallet shape that
+    `rate_limit_public` was introduced for on the public summary and catalog
+    endpoints. The frontend also polls this every 30 seconds per open tab.
+
+    A named 30/minute limit was the obvious fix and is the wrong one here:
+    legitimate traffic would breach it (sixteen tabs behind one campus NAT poll
+    32 times a minute), and the badge would start reporting a healthy system as
+    degraded. Caching the contract instead removes the amplification at the
+    source — 120 requests a minute now cost at most four reads per 15-second
+    window — and leaves real polling untouched.
+
+    `/ready` deliberately does NOT use this. It gates whether traffic should
+    reach this instance, so a stale `ready` could route requests to a broken
+    process; it keeps paying for the exact answer.
+    """
+    now = time.monotonic()
+    if now - float(_CONTRACT_CACHE['checked_at']) < _CONTRACT_CACHE_TTL_SECONDS:
+        return bool(_CONTRACT_CACHE['ok'])
+    try:
+        _verify_database_contract()
+        healthy = True
+    except Exception as error:
+        logger.warning(
+            'Health check: database unavailable or incompatible (%s)',
+            type(error).__name__,
+        )
+        healthy = False
+    _CONTRACT_CACHE['checked_at'] = now
+    _CONTRACT_CACHE['ok'] = healthy
+    return healthy
+
+
+def reset_contract_cache() -> None:
+    """Test hook: force the next `/health` call to re-check the schema."""
+    _CONTRACT_CACHE['checked_at'] = 0.0
+    _CONTRACT_CACHE['ok'] = False
+
+
 def _verify_database_contract() -> None:
     """Fail when the configured project is reachable but lacks required schema."""
     from dependencies.auth import sb
@@ -173,13 +254,10 @@ def _verify_database_contract() -> None:
 @app.get('/health')
 def health():
     """Return liveness and dependency status."""
-    checks = {'api': 'ok'}
-    try:
-        _verify_database_contract()
-        checks['database'] = 'ok'
-    except Exception as error:
-        logger.warning('Health check: database unavailable or incompatible (%s)', type(error).__name__)
-        checks['database'] = 'unavailable_or_incompatible'
+    checks = {
+        'api': 'ok',
+        'database': 'ok' if _cached_database_contract() else 'unavailable_or_incompatible',
+    }
     status = 'ok' if all(value == 'ok' for value in checks.values()) else 'degraded'
     return {'status': status, 'checks': checks, 'version': app.version}
 

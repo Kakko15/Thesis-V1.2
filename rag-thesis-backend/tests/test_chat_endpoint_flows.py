@@ -530,7 +530,7 @@ class TestChatPersistence:
         assert mismatch.value.status_code == 409
 
     def test_authenticated_exchange_is_saved_atomically(self, monkeypatch):
-        async def implementation(*_args):
+        async def implementation(*_args, **_kwargs):
             return ChatResponse(answer='Grounded [1].', sources=[{'id': 'p1'}])
 
         monkeypatch.setattr(chat, '_chat_impl', implementation)
@@ -548,7 +548,7 @@ class TestChatPersistence:
         assert response.history_saved is True
 
     def test_guest_exchange_is_never_reported_as_saved(self, monkeypatch):
-        async def implementation(*_args):
+        async def implementation(*_args, **_kwargs):
             return ChatResponse(answer='No relevant thesis.', no_relevant_thesis=True)
 
         monkeypatch.setattr(chat, '_chat_impl', implementation)
@@ -564,7 +564,7 @@ class TestChatPersistence:
         assert response.history_saved is False
 
     def test_persistence_failure_is_disclosed_to_the_client(self, monkeypatch):
-        async def implementation(*_args):
+        async def implementation(*_args, **_kwargs):
             return ChatResponse(answer='Grounded [1].', sources=[{'id': 'p1'}])
 
         def fail(*_args):

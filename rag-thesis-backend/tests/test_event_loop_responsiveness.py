@@ -138,7 +138,15 @@ class RecordingQuery:
         self._data = data
 
     def select(self, *_args): return self
-    def insert(self, *_args): return self
+
+    def insert(self, payload):
+        # Echo the row back the way PostgREST does. The scan endpoint now
+        # refuses to serve an id-less result (finding 17), so a stub that
+        # returns nothing here would exercise the failure path instead of the
+        # off-the-event-loop behaviour these tests are about.
+        self._data = [{**payload, 'id': 'scan-1'}]
+        return self
+
     def in_(self, *_args): return self
     def eq(self, *_args): return self
     def limit(self, *_args): return self

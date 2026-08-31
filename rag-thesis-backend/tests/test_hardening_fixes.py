@@ -86,8 +86,11 @@ class TestLifespanReplacesDeprecatedEventHooks:
 
     def test_lifespan_owns_the_operations_monitor_lifecycle(self, monkeypatch):
         monkeypatch.setattr(main.settings, 'operations_monitor_enabled', True)
-        monkeypatch.setattr(main, '_operations_monitor', lambda: None)
+        # Receives the stop event now: each generation watches its own rather
+        # than one shared module-level event (finding 5).
+        monkeypatch.setattr(main, '_operations_monitor', lambda _stop: None)
         main._OPERATIONS_STATE['thread'] = None
+        main._OPERATIONS_STATE['stop'] = None
         with TestClient(main.app):
             assert main._OPERATIONS_STATE['thread'] is not None
         # The stop half runs on exit, which two independent hooks could not

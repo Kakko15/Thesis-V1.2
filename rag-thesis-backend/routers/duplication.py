@@ -67,13 +67,40 @@ def _short_excerpt(text: str, limit: int = 320) -> str:
     return normalized if len(normalized) <= limit else f'{normalized[:limit].rstrip()}…'
 
 
+_CHAT_LOG_TURNS = 20
+
+
+def _persist_turn(scan_id: str, chat_log: list, question: str, answer: str) -> list:
+    """Append one exchange to a scan's transcript and write it back.
+
+    Shared by the answered and refused paths so they cannot drift again: the
+    refusal previously returned a rendered transcript it never persisted.
+    """
+    updated = [
+        *chat_log,
+        {'role': 'user', 'content': question},
+        {'role': 'ai', 'content': answer},
+    ][-_CHAT_LOG_TURNS:]
+    sb.table('scan_history').update({'chat_log': updated}).eq('id', scan_id).execute()
+    return updated
+
+
+_PUBLIC_SCAN_FIELDS = (
+    'id', 'filename', 'department', 'duplication_percentage', 'highest_similarity',
+    'matched_chunk_percentage', 'matched_chunk_count', 'total_chunks',
+    'verdict_level', 'top_matches', 'verdict_summary', 'chat_log', 'created_at',
+)
+
+
 def _public_scan(scan: dict) -> dict:
-    """Never return private comparison excerpts through public scan responses."""
-    return {
-        key: value
-        for key, value in scan.items()
-        if key not in {'matched_chunks'}
-    }
+    """Return only the declared scan fields.
+
+    An allowlist, matching `_ACTIVITY_FIELDS`, `_PROFILE_FIELDS` and
+    `_SESSION_FIELDS` elsewhere. The previous denylist excluded only
+    `matched_chunks`, so it published `user_id` (harmless — always the caller's
+    own) and would have published any column added later by default.
+    """
+    return {key: scan[key] for key in _PUBLIC_SCAN_FIELDS if key in scan}
 
 
 def _clean_chunk_records(document) -> list[dict]:
@@ -341,8 +368,20 @@ async def scan_duplication(
         'flagged': percentage > 0,
     })
 
-    stored = hist_res.data[0] if hist_res.data else history_data
-    return _public_scan(stored)
+    # Fail loudly rather than serving an id-less scan. Falling back to the
+    # locally built `history_data` looked defensive but produced a response with
+    # no `id`: the client then keyed the result on `undefined` and every
+    # follow-up question posted `scan_id: undefined`, which DuplicationChatReq
+    # rejects with a 422 the reviewer cannot act on. The scan itself is already
+    # persisted at this point, so it is recoverable from the history list.
+    if not hist_res.data:
+        logger.error('Novelty scan was stored but PostgREST returned no representation')
+        raise HTTPException(
+            502,
+            'The scan completed and was saved, but its identifier could not be read '
+            'back. Open it from the scan history to ask follow-up questions.',
+        )
+    return _public_scan(hist_res.data[0])
 
 
 @router.post('/chat', responses=errors(404, 502))
@@ -371,10 +410,12 @@ def duplication_chat(
             'reason': blocked_reason,
             'question_length': len(req.question),
         })
-        return {
-            'answer': REFUSAL_MESSAGE,
-            'chat_log': [*chat_log, {'role': 'ai', 'content': REFUSAL_MESSAGE}],
-        }
+        # Persisted exactly as the success path below does. This used to render
+        # the refusal to the reviewer and write nothing back, so reloading the
+        # scan lost both the question and the refusal — the adviser saw a
+        # transcript that silently omitted a turn that had happened.
+        chat_log = _persist_turn(req.scan_id, chat_log, req.question, REFUSAL_MESSAGE)
+        return {'answer': REFUSAL_MESSAGE, 'chat_log': chat_log}
 
     history_str = ''
     for msg in chat_log[-5:]:
@@ -420,12 +461,7 @@ AI:
             'The AI reviewer is temporarily unavailable. Please try again later.',
         ) from e
 
-    chat_log.append({'role': 'user', 'content': req.question})
-    chat_log.append({'role': 'ai', 'content': answer})
-    chat_log = chat_log[-20:]
-
-    sb.table('scan_history').update({'chat_log': chat_log}).eq('id', req.scan_id).execute()
-
+    chat_log = _persist_turn(req.scan_id, chat_log, req.question, answer)
     return {'answer': answer, 'chat_log': chat_log}
 
 

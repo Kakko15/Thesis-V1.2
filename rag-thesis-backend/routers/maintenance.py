@@ -153,16 +153,22 @@ def list_pending_storage_cleanup(user: SuperadminUser):
 
 @router.post('/storage-cleanup/{task_id}/retry', responses=errors(404, 503))
 def retry_storage_cleanup(task_id: int, user: SuperadminUser):
+    # `.limit(1)` rather than `.single()`, matching every other read in this
+    # codebase. `.single()` sets Accept: application/vnd.pgrst.object+json, and
+    # PostgREST rejects a zero-row result — postgrest-py then raises before the
+    # guard below is reached, so a superadmin retrying an expunged task received
+    # an unhandled 500 while the route documented a 404 it could never emit.
     result = (
         sb.table('storage_cleanup_queue')
         .select('id,operation,resource_path,paper_id,job_id,attempts,status')
         .eq('id', task_id)
-        .single()
+        .limit(1)
         .execute()
     )
-    if not result.data:
+    rows = result.data or []
+    if not rows:
         raise HTTPException(404, 'Cleanup task not found')
-    task = result.data
+    task = rows[0]
     if task.get('status') == 'completed':
         return {'task_id': task_id, 'status': 'completed'}
 

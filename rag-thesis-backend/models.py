@@ -102,7 +102,10 @@ class UploadAccepted(BaseModel):
 
 class UploadJobStatus(BaseModel):
     job_id: str
-    status: str            # staging | queued | processing | retry_wait | completed | failed
+    # `cancelled` is enforced by upload_jobs_status_check
+    # (migrations/20260724_operations_security.sql), returned by
+    # request_upload_cancellation, and rendered by src/pages/Upload.jsx.
+    status: str            # staging | queued | processing | retry_wait | completed | failed | cancelled
     stage: str             # store | download | extract | chunk | embed | screen | index | done
     progress: int          # 0-100
     message: str = ''

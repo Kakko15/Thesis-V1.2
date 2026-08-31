@@ -652,12 +652,16 @@ def test_worker_health_is_generic(monkeypatch):
 
 def test_api_operations_monitor_lifecycle(monkeypatch):
     monkeypatch.setattr(main.settings, 'operations_monitor_enabled', True)
-    monkeypatch.setattr(main, '_operations_monitor', lambda: None)
+    # Takes the stop event now: each generation watches its own rather than a
+    # shared module-level one (finding 5).
+    monkeypatch.setattr(main, '_operations_monitor', lambda _stop: None)
     main._OPERATIONS_STATE['thread'] = None
+    main._OPERATIONS_STATE['stop'] = None
     main.start_operations_monitor()
     assert main._OPERATIONS_STATE['thread'] is not None
     main.stop_operations_monitor()
     assert main._OPERATIONS_STATE['thread'] is None
+    assert main._OPERATIONS_STATE['stop'] is None
 
 
 def test_heartbeat_context_and_cancellation_branches(monkeypatch):
@@ -843,10 +847,55 @@ def test_operations_monitor_runs_one_bounded_evaluation(monkeypatch):
         def wait(self, _seconds): return None
 
     calls = []
-    monkeypatch.setattr(main, '_operations_stop', Stop())
     monkeypatch.setattr(operations, 'evaluate_operations', lambda _client: calls.append(True))
-    main._operations_monitor()
+    # Finding 5: the stop event is now passed to the thread rather than read
+    # from module scope, so every generation watches its own.
+    main._operations_monitor(Stop())
     assert calls == [True]
+
+
+def test_a_restart_cannot_run_two_monitors(monkeypatch):
+    """Finding 5: one module-level Event was shared by every generation, so a
+    restart called clear() on the event the previous thread was still watching
+    -- un-cancelling it -- and then started a second. Both would race on
+    upsert_alert / resolve_alert and an alert could flap open/resolved."""
+    import threading
+
+    monkeypatch.setattr(main.settings, 'operations_monitor_enabled', True)
+    started = []
+    released = threading.Event()
+
+    def blocking(_client):
+        started.append(True)
+        released.wait(5)
+
+    monkeypatch.setattr(operations, 'evaluate_operations', blocking)
+    monkeypatch.setattr(main, '_CONTRACT_CACHE_TTL_SECONDS', 0)
+    main._OPERATIONS_STATE['thread'] = None
+    main._OPERATIONS_STATE['stop'] = None
+    try:
+        main.start_operations_monitor()
+        first = main._OPERATIONS_STATE['thread']
+        # Stuck inside evaluate_operations, so the 2s join times out.
+        main.stop_operations_monitor()
+        assert main._OPERATIONS_STATE['thread'] is first, (
+            'the handle must be kept while the thread is still alive'
+        )
+        main.start_operations_monitor()
+        assert main._OPERATIONS_STATE['thread'] is first, (
+            'a second monitor must not start alongside a live one'
+        )
+        assert first.is_alive()
+    finally:
+        released.set()
+        stop = main._OPERATIONS_STATE['stop']
+        if isinstance(stop, threading.Event):
+            stop.set()
+        thread = main._OPERATIONS_STATE['thread']
+        if isinstance(thread, threading.Thread):
+            thread.join(timeout=5)
+        main._OPERATIONS_STATE['thread'] = None
+        main._OPERATIONS_STATE['stop'] = None
 
 
 def test_worker_health_handles_registry_failure(monkeypatch):
