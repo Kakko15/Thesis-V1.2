@@ -53,6 +53,11 @@ EXTRACT = 'extract'
 VERDICT = 'verdict'
 EMBED = 'embed'
 
+# Cache slot for the gateway client. The gateway authenticates with its own
+# credential rather than a Gemini key, so it needs a stable identity in the
+# `(kind, api_key)` cache that can never collide with a real key.
+_GATEWAY_KEY = '\x00gateway'
+
 # api_key -> monotonic deadline before which the key is treated as exhausted.
 _cooldowns: dict[str, float] = {}
 # (kind, api_key) -> constructed client; building one per call would open a new
@@ -97,7 +102,11 @@ def _build(kind: str, api_key: str):
     results rather than degraded ones — a failure that presents as an empty
     archive rather than as a misconfiguration.
     """
-    if kind != EMBED and gateway_enabled():
+    # The sentinel decides, not `gateway_enabled()`. Keying off the global flag
+    # meant every reserve Gemini key also built a gateway client, so the
+    # "fall back to Google" hops were four more calls to the same gateway with
+    # the same credential — a fallback that could not fall back.
+    if api_key == _GATEWAY_KEY:
         return _gateway_client(kind)
     if kind in (CHAT, EXTRACT):
         options = {
@@ -157,70 +166,90 @@ def reset() -> None:
 
 
 def reserve_attempts(kind: str) -> list[tuple[str, object]]:
-    """`(api_key, client)` pairs to try after the primary, best candidates first.
+    """`(api_key, client)` pairs of Gemini reserve keys, best candidates first.
 
     A key still inside its cooldown is demoted rather than dropped: exhausting
     every option is better than giving up early, so a pool can never behave worse
     than the single key it replaced.
     """
-    if kind != EMBED and gateway_enabled():
-        # The gateway authenticates with its own credential, so the reserve
-        # Gemini keys cannot help this kind; offering them would spend a round
-        # trip per key on a request that never reaches Google with those keys.
-        return []
     keys = settings.gemini_reserve_key_list
     ready = [key for key in keys if not _is_cooling(key)]
     cooling = [key for key in keys if _is_cooling(key)]
     return [(key, _client(kind, key)) for key in ready + cooling]
 
 
+def attempt_chain(primary, kind: str) -> list[tuple[str, str | None, object]]:
+    """Every client to try, in order, as `(label, api_key, client)`.
+
+    The gateway goes first when configured, because that is the whole point of
+    configuring it — but it is treated as best-effort. Google remains the
+    contract: `primary` is the caller's own Gemini client, followed by any
+    reserve keys.
+
+    This is deliberately assembled here rather than at the call sites. Each
+    caller passes the Gemini client it already holds, which is what keeps the
+    single-key path and the existing tests unchanged; if the gateway were only
+    reachable through `reserve_attempts` it would never be tried at all, because
+    the primary is always attempted first.
+    """
+    chain: list[tuple[str, str | None, object]] = []
+    # Skipped entirely while cooling, unlike a reserve key, which is merely
+    # demoted. A key that is only rate-limited fails fast and is still worth a
+    # last-resort attempt; an unreachable gateway can hang until
+    # `gemini_timeout_seconds`, so retrying it on every request would add a
+    # minute to every question when Google is sitting right behind it.
+    if kind != EMBED and gateway_enabled() and not _is_cooling(_GATEWAY_KEY):
+        chain.append(('gateway', _GATEWAY_KEY, _client(kind, _GATEWAY_KEY)))
+    chain.append(('primary', None, primary))
+    chain.extend(('reserve', key, client) for key, client in reserve_attempts(kind))
+    return chain
+
+
+def _should_continue(label: str, error: BaseException) -> bool:
+    """Whether a failure on this hop should fall through to the next one.
+
+    The gateway is optional infrastructure, so **any** failure there falls back
+    to Google — an unreachable host, a rejected credential and an exhausted
+    quota are all reasons to use the provider that is actually under contract,
+    and none of them is a reason to fail a user's question.
+
+    Google hops keep the original narrower rule: only exhaustion rotates, so a
+    malformed prompt fails once instead of being replayed against every key.
+    """
+    if label == 'gateway':
+        logger.warning(
+            'Gemini gateway hop failed (%s); falling back to Google',
+            type(error).__name__,
+        )
+        return True
+    return is_capacity_error(error)
+
+
 async def arun(primary, kind: str, call: Callable[[object], Awaitable[T]]) -> T:
-    """Await `call(primary)`, falling through to reserve keys on exhaustion."""
-    try:
-        return await call(primary)
-    except Exception as error:  # pylint: disable=broad-exception-caught
-        if not is_capacity_error(error):
-            raise
-        last = error
-    # Deliberately outside the handler above: the loop re-raises whichever
-    # exhaustion error came last, and inside an `except` block that would read as
-    # an unchained re-raise of a different exception.
-    for api_key, client in _announced(kind):
+    """Await `call` against each client in turn: gateway, primary, reserves."""
+    last: BaseException | None = None
+    for label, api_key, client in attempt_chain(primary, kind):
         try:
             return await call(client)
-        except Exception as retry_error:  # pylint: disable=broad-exception-caught
-            if not is_capacity_error(retry_error):
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            if not _should_continue(label, error):
                 raise
-            _mark_exhausted(api_key)
-            last = retry_error
-    raise last
+            if api_key:
+                _mark_exhausted(api_key)
+            last = error
+    raise last  # type: ignore[misc]  # the chain always holds at least `primary`
 
 
 def run(primary, kind: str, call: Callable[[object], T]) -> T:
     """Synchronous `arun`, for the embedding and duplication-chat call sites."""
-    try:
-        return call(primary)
-    except Exception as error:  # pylint: disable=broad-exception-caught
-        if not is_capacity_error(error):
-            raise
-        last = error
-    for api_key, client in _announced(kind):
+    last: BaseException | None = None
+    for label, api_key, client in attempt_chain(primary, kind):
         try:
             return call(client)
-        except Exception as retry_error:  # pylint: disable=broad-exception-caught
-            if not is_capacity_error(retry_error):
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            if not _should_continue(label, error):
                 raise
-            _mark_exhausted(api_key)
-            last = retry_error
-    raise last
-
-
-def _announced(kind: str) -> list[tuple[str, object]]:
-    """Reserve attempts, logging once that the primary key ran out."""
-    attempts = reserve_attempts(kind)
-    if attempts:
-        logger.warning(
-            'Primary Gemini key reported exhaustion; trying %d reserve key(s) for %s',
-            len(attempts), kind,
-        )
-    return attempts
+            if api_key:
+                _mark_exhausted(api_key)
+            last = error
+    raise last  # type: ignore[misc]  # the chain always holds at least `primary`

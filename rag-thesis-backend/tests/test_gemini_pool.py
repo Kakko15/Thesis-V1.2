@@ -11,6 +11,9 @@ from services import gemini_pool
 # below exercises the real factory rather than the stand-in.
 REAL_BUILD = gemini_pool._build
 
+# What the stubbed `_build` in `clean_pool` returns for the gateway hop.
+GATEWAY_STUB = f'client:{gemini_pool.CHAT}:{gemini_pool._GATEWAY_KEY}'
+
 
 class CapacityError(RuntimeError):
     """Shaped like a provider 429 so `is_capacity_error` recognizes it."""
@@ -24,12 +27,13 @@ def clean_pool(monkeypatch):
     gemini_pool.reset()
     # Never construct a real client: stand one in per (kind, key).
     monkeypatch.setattr(gemini_pool, '_build', lambda kind, key: f'client:{kind}:{key}')
-    # Pin the Gemini-direct route. Without this every rotation assertion below
-    # silently depends on the developer's .env: configuring LLM_BASE_URL routes
-    # chat traffic to a gateway, reserve_attempts() correctly returns nothing
-    # for those kinds, and seven tests turn red locally while CI -- which has no
-    # .env at all -- stays green. TestGateway covers the routed path explicitly.
+    # Pin every input this module reads from configuration. Without this the
+    # assertions below silently depend on the developer's .env, and a local run
+    # disagrees with CI -- which has no .env at all. That has now bitten twice:
+    # once when real GEMINI_API_KEYS were added, and again when LLM_BASE_URL
+    # was. Tests that need either opt in through `use_keys` or TestGateway.
     monkeypatch.setattr(settings, 'llm_base_url', '')
+    monkeypatch.setattr(settings, 'gemini_api_keys', '')
     yield
     gemini_pool.reset()
 
@@ -220,9 +224,18 @@ class TestGateway:
         monkeypatch.setattr(settings, 'llm_base_url', '   ')
         assert gemini_pool.gateway_enabled() is False
 
+    GATEWAY = gemini_pool._GATEWAY_KEY
+
     @pytest.mark.parametrize('kind', [gemini_pool.CHAT, gemini_pool.EXTRACT, gemini_pool.VERDICT])
-    def test_chat_kinds_are_routed(self, routed, kind):
-        assert type(REAL_BUILD(kind, 'unused')).__name__ == 'ChatOpenAI'
+    def test_the_sentinel_builds_a_gateway_client(self, routed, kind):
+        assert type(REAL_BUILD(kind, self.GATEWAY)).__name__ == 'ChatOpenAI'
+
+    @pytest.mark.parametrize('kind', [gemini_pool.CHAT, gemini_pool.EXTRACT, gemini_pool.VERDICT])
+    def test_a_real_key_still_builds_a_gemini_client(self, routed, kind):
+        """Keying off `gateway_enabled()` instead of the sentinel made every
+        reserve key build another gateway client, so the fallback could not
+        fall back."""
+        assert type(REAL_BUILD(kind, 'gemini-key')).__name__ == 'ChatGoogleGenerativeAI'
 
     def test_embeddings_are_never_routed(self, routed):
         """The pgvector column is vector(768) and match_chunks filters on the
@@ -232,17 +245,81 @@ class TestGateway:
 
     def test_the_model_name_is_sent_unchanged(self, routed):
         """Only the route changes, so the paper's tables stay accurate."""
-        assert REAL_BUILD(gemini_pool.CHAT, 'unused').model_name == settings.gemini_chat_model
-        assert REAL_BUILD(gemini_pool.VERDICT, 'unused').model_name == settings.gemini_verdict_model
+        assert REAL_BUILD(gemini_pool.CHAT, self.GATEWAY).model_name == settings.gemini_chat_model
+        assert REAL_BUILD(
+            gemini_pool.VERDICT, self.GATEWAY,
+        ).model_name == settings.gemini_verdict_model
 
-    def test_reserve_gemini_keys_are_skipped_for_routed_kinds(self, routed, monkeypatch):
-        """The gateway authenticates itself, so Gemini reserves cannot help."""
+    def test_the_gateway_is_tried_first_then_google(self, routed, monkeypatch):
         use_keys(monkeypatch, 'k2', 'k3')
-        assert gemini_pool.reserve_attempts(gemini_pool.CHAT) == []
+        chain = gemini_pool.attempt_chain('primary-client', gemini_pool.CHAT)
+        assert [label for label, _key, _client in chain] == [
+            'gateway', 'primary', 'reserve', 'reserve',
+        ]
 
-    def test_embeddings_still_get_the_reserve_pool(self, routed, monkeypatch):
+    def test_embeddings_skip_the_gateway_hop_entirely(self, routed, monkeypatch):
         use_keys(monkeypatch, 'k2', 'k3')
-        assert [k for k, _ in gemini_pool.reserve_attempts(gemini_pool.EMBED)] == ['k2', 'k3']
+        chain = gemini_pool.attempt_chain('primary-client', gemini_pool.EMBED)
+        assert [label for label, _key, _client in chain] == ['primary', 'reserve', 'reserve']
+
+    def test_any_gateway_failure_falls_back_to_google(self, routed):
+        """The gateway is optional infrastructure; Google is the contract. An
+        unreachable host or a rejected credential must not fail the question."""
+        seen = []
+
+        async def call(client):
+            seen.append(client)
+            if client == GATEWAY_STUB:
+                raise PermissionError('gateway rejected the credential')
+            return 'answered by google'
+
+        assert run(
+            gemini_pool.arun('primary-client', gemini_pool.CHAT, call),
+        ) == 'answered by google'
+        assert seen == [GATEWAY_STUB, 'primary-client']
+
+    def test_a_failed_gateway_is_skipped_on_the_next_request(self, routed):
+        """Otherwise every question pays a failed gateway round trip. An
+        unreachable host can hang until gemini_timeout_seconds, so retrying it
+        per request would add a minute to each answer with Google right behind
+        it."""
+        async def failing(client):
+            if client == GATEWAY_STUB:
+                raise ConnectionError('gateway unreachable')
+            return 'from google'
+
+        assert run(gemini_pool.arun('primary-client', gemini_pool.CHAT, failing)) == 'from google'
+
+        second = gemini_pool.attempt_chain('primary-client', gemini_pool.CHAT)
+        assert [label for label, _k, _c in second] == ['primary'], (
+            'the gateway should be skipped while cooling'
+        )
+
+    def test_the_gateway_is_retried_once_its_cooldown_expires(self, routed, monkeypatch):
+        gemini_pool._mark_exhausted(gemini_pool._GATEWAY_KEY)
+        assert [l for l, _k, _c in gemini_pool.attempt_chain('p', gemini_pool.CHAT)] == ['primary']
+
+        monkeypatch.setattr(settings, 'gemini_key_cooldown_seconds', 0)
+        gemini_pool._mark_exhausted(gemini_pool._GATEWAY_KEY)
+        assert [l for l, _k, _c in gemini_pool.attempt_chain('p', gemini_pool.CHAT)] == [
+            'gateway', 'primary',
+        ]
+
+    def test_a_google_hop_still_only_rotates_on_exhaustion(self, routed, monkeypatch):
+        """Past the gateway the narrower rule holds: a malformed prompt fails
+        once instead of being replayed against every key."""
+        use_keys(monkeypatch, 'k2')
+        seen = []
+
+        async def call(client):
+            seen.append(client)
+            if client == GATEWAY_STUB:
+                raise CapacityError()
+            raise ValueError('malformed request')
+
+        with pytest.raises(ValueError):
+            run(gemini_pool.arun('primary-client', gemini_pool.CHAT, call))
+        assert seen == [GATEWAY_STUB, 'primary-client']
 
 
 def _async(value):
