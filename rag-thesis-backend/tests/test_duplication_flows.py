@@ -10,13 +10,28 @@ from services.document_processor import ExtractedDocument, ExtractedPage
 
 
 class Query:
+    """Stub builder whose `insert` echoes the row back, as PostgREST does.
+
+    It previously returned the scripted `data` for an insert, and the scan tests
+    scripted that as `[]` — so they exercised the id-less fallback path rather
+    than the real one, which is exactly why finding 17 went unnoticed. Echoing
+    the payload plus a generated id keeps the assertions honest.
+    """
+
     def __init__(self, data): self.data = data; self.payload = None
     def select(self, *_args): return self
     def eq(self, *_args): return self
     def in_(self, *_args): return self
     def order(self, *_args, **_kwargs): return self
+    def limit(self, *_args): return self
     def update(self, payload): self.payload = payload; return self
-    def insert(self, payload): self.payload = payload; return self
+
+    def insert(self, payload):
+        self.payload = payload
+        scripted = self.data[0] if isinstance(self.data, list) and self.data else {}
+        self.data = [{**payload, **scripted}]
+        return self
+
     def execute(self): return SimpleNamespace(data=self.data)
 
 
@@ -75,7 +90,7 @@ def prepare(monkeypatch):
 class TestNoveltyScan:
     def test_clear_scan_has_deterministic_metrics(self, monkeypatch):
         prepare(monkeypatch)
-        client = Client([[]], {'scan_history': [[]]})
+        client = Client([[]], {'scan_history': [[{'id': 'scan-1'}]]})
         monkeypatch.setattr(duplication, 'sb', client)
         response = asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
         assert response['verdict_level'] == 'clear'
@@ -90,7 +105,7 @@ class TestNoveltyScan:
         }
         client = Client([[match]], {
             'papers': [[{'id': 'p1', 'title': 'Existing', 'authors': 'A', 'year': 2025, 'track': 'Data Mining', 'department': 'CCSICT'}]],
-            'scan_history': [[]],
+            'scan_history': [[{'id': 'scan-1'}]],
         })
         monkeypatch.setattr(duplication, 'sb', client)
         monkeypatch.setattr(duplication, 'llm', fake_llm('Faculty review advised.'))
@@ -111,7 +126,7 @@ class TestNoveltyScan:
             'paper_id': 'p1', 'content': 'Archived content', 'similarity': 0.9,
             'page_start': 2, 'page_end': 2, 'section': 'Introduction',
         }
-        client = Client([[match]], {'papers': [[]], 'scan_history': [[]]})
+        client = Client([[match]], {'papers': [[]], 'scan_history': [[{'id': 'scan-1'}]]})
         monkeypatch.setattr(duplication, 'sb', client)
         # The verdict must not need the LLM: there are no excerpts left to compare.
         monkeypatch.setattr(duplication, 'llm', fake_llm(fail_with=lambda: pytest.fail(
@@ -148,12 +163,16 @@ class TestDuplicationChat:
         assert missing.value.status_code == 404
 
         scan = {'chat_log': [], 'matched_chunks': []}
-        monkeypatch.setattr(duplication, 'sb', Client([], {'scan_history': [[scan]]}))
+        monkeypatch.setattr(duplication, 'sb', Client([], {'scan_history': [[scan], []]}))
         monkeypatch.setattr(duplication, 'log_activity', lambda *_args, **_kwargs: None)
         blocked = run_chat(
             duplication.DuplicationChatReq(scan_id='x', question='Write my thesis chapter'), user,
         )
         assert blocked['answer'] == duplication.REFUSAL_MESSAGE
+        # Finding 12: the refusal used to be rendered and never written back, so
+        # reloading the scan lost both the question and the refusal.
+        assert [turn['role'] for turn in blocked['chat_log']] == ['user', 'ai']
+        assert blocked['chat_log'][0]['content'] == 'Write my thesis chapter'
 
     def test_grounded_followup_updates_owned_scan(self, monkeypatch):
         scan = {

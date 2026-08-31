@@ -14,6 +14,7 @@ import {
 } from '../api'
 import { SecurityCheck } from '../components/security/SecurityCheck'
 import { useGuestChatGate } from './chat/useGuestChatGate'
+import { messageNoticeLabel } from './chat/messageNotice'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/Button'
 import { GlassCard } from '../components/ui/GlassCard'
@@ -434,6 +435,7 @@ function AiAvatar() {
 
 function AiBubble({ message, animate }) {
   const groupedSources = groupEvidenceSources(message.sources)
+  const noticeLabel = messageNoticeLabel(message)
   return (
     <div className="flex gap-3">
       <AiAvatar />
@@ -452,10 +454,10 @@ function AiBubble({ message, animate }) {
               <BookMarked size={12} aria-hidden="true" /> Searched the current indexed archive
             </div>
           )}
-          {message.no_relevant_thesis && (
+          {noticeLabel && (
             <div className="mt-3 flex items-center gap-2 rounded-xl bg-gold-400/10 px-3 py-2 text-xs font-medium text-gold-text dark:text-gold-300">
               <Info size={13} className="shrink-0" />
-              Search completed · no qualifying archive evidence.
+              {noticeLabel}
             </div>
           )}
         </div>
@@ -699,6 +701,13 @@ export default function Chat() {
           answer: m.answer,
           sources: m.sources || [],
           duplication_alert: m.duplication_alert,
+          // The server exposes chat_messages.kind specifically so a restored
+          // transcript can tell a system notice from a research answer, and
+          // this used to discard it — so reloading a conversation made a
+          // capacity apology or a refusal visually identical to a grounded
+          // answer. Carried under its own name because the local `kind` above
+          // is the message's 'user' | 'ai' role, a different thing entirely.
+          messageKind: m.kind,
         })
       })
       setMessages(rebuilt)
