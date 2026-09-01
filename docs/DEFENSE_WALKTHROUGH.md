@@ -228,6 +228,16 @@ in the repository's audit reports.
    figures above were not re-measured on that route**, so do not present them as
    characterizing it. Embeddings are never routed and still go to Google
    directly, so every question still makes one call there.
+
+   **Say the governance consequence before a panelist finds it.** The paper's
+   no-training guarantee (§2.1.6) comes from Google's Gemini API terms, and those
+   terms do not extend to another operator. While `LLM_BASE_URL` is set, chat,
+   extract and verdict prompts are served by that third party. So: leave it unset
+   for the formal evaluation and for any run whose prompts carry governed corpus
+   text, and treat enabling it as a change the privacy review has to see.
+   `scripts/release_fingerprint.py` records `generation_route` — the enabled flag
+   and the gateway host, never the credential — so a reported result can always
+   be traced to the provider that actually produced it.
 2. **Objective 2 results are pending.** The baseline-versus-RAG comparison needs
    the locked 50-thesis corpus and faculty-validated ground truth. Nothing is
    displayed until then, on purpose.
@@ -238,8 +248,14 @@ in the repository's audit reports.
 4. **Citation validation is structural, not semantic** (see §4).
 5. **PII redaction is best-effort**, a deterministic regex pass paired with
    mandatory human privacy review — not a guarantee.
-6. **Single-process API.** Four caches live in memory, so it cannot yet be
-   replicated. Fine for a pilot; documented as the first scaling task.
+6. **Single-process API.** **Six** pieces of state live in process memory, so it
+   cannot yet be replicated: the role cache and the role-feature cache
+   (`dependencies/auth.py`), the `/health` schema-contract cache (`main.py`), the
+   provider capacity flag (`services/chat_notices.py`), the verified-guest set
+   (`services/turnstile.py`), and the per-key cooldowns
+   (`services/gemini_pool.py`). The guest token budget deliberately does *not* —
+   it counts against the shared rate-limit store, which is the pattern the other
+   six would follow. Fine for a pilot; documented as the first scaling task.
 7. **Data Privacy Act operationalization is incomplete** — NPC registration and a
    user-facing privacy notice are outstanding. Retention enforcement is
    deliberately disabled pending institutional approval.
@@ -248,13 +264,16 @@ in the repository's audit reports.
 
 ## 6. Quality evidence you can quote
 
+Re-measured 2026-09-01 by exit code, not by reading the printed summary.
+
 | Instrument | Result |
 |---|---|
-| Backend tests (PyTest, gated ≥85%) | **711 passed, 3 skipped, 91.49% coverage** |
+| Backend tests (PyTest, gated ≥85%) | **790 passed, 3 skipped, 90.90% coverage** |
 | Backend lint (Pylint) | **10.00/10** |
-| Frontend tests | **85 passed** across 7 suites, **92.95% lines**, 86.72% branches, 95.38% functions |
-| Frontend lint (ESLint) | **0 errors, 0 warnings** |
-| Browser journeys (Playwright) | **21 passed** |
+| Frontend tests | **93.66% lines**, 88.09% branches, 94.29% functions |
+| Frontend lint (ESLint) | **0 errors, 1 warning** (`Archive.jsx` complexity 27 > 24; advisory, the gate still exits 0) |
+| Browser journeys (Playwright) | **24 passed** |
+| Reliability (SonarQube 26.7.0.124771) | Gate **PASSED** — 0 bugs, 0 vulnerabilities, 0 hotspots; Reliability **A**, Security **A**, Maintainability **A**; duplication 1.3% |
 | Accessibility (axe, WCAG 2.2 AA) | **0 blocking, 0 advisory** across 11 surfaces × 4 themes × 2 widths |
 | Production dependency audit | 0 vulnerabilities (npm), 0 advisories (26 pinned Python packages) |
 | Dependency integrity | 94 packages hash-locked, 2,242 SHA-256 hashes, `--require-hashes` |

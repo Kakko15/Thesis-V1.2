@@ -180,6 +180,7 @@ TABLE_ROWS = [
         ('Gemini 3.5 Flash Lite', 'gemini-3.5-flash-lite', 'Will handle bounded verdict and metadata-extraction work that does not require the primary generation model.'),
         ('langchain-core', 'v1.5.1', 'Will provide the Runnable and prompt abstractions that compose the retrieval-to-generation chain.'),
         ('langchain-text-splitters', 'v1.1.2', 'Will supply the RecursiveCharacterTextSplitter used to chunk extracted manuscript text.'),
+        ('langchain-openai', 'v1.4.1', 'Will provide the OpenAI-compatible chat client used only when generation is routed through a gateway; embeddings are never routed through it.'),
         ('tiktoken', 'v0.13.0', 'Will provide the cl100k_base tokenizer used as a fixed proxy for measuring chunk sizes.'),
         ('PyMuPDF', 'v1.28.0', 'Will extract text and layout information directly from uploaded PDF manuscripts.'),
         ('tesserocr', 'v2.10.0', 'Will bind the Tesseract OCR engine for image-based scanned pages.'),
@@ -204,7 +205,9 @@ PROSE3 = [
      'synthesizing a response. The effective model set, comprising the chat, verdict, and '
      'embedding models together with the generation and retrieval parameters, will be '
      'frozen in a signed release fingerprint for the duration of the evaluation, so that '
-     'every reported result is attributable to one exact configuration.',
+     'every reported result is attributable to one exact configuration. The fingerprint '
+     'will additionally record which provider served the generation calls, so that a '
+     'reported result cannot be attributed to the wrong route.',
      1, 'P1-1 release fingerprint'),
     # P3-15 what citation validation does and does not prove
     ('produce highly traceable, accurate in-line citations.',
@@ -349,6 +352,34 @@ FIGURES = [
 ]
 
 
+# --- P6: the boundary of the no-training guarantee ------------------------
+# The paper rests its data-governance argument on Google's Gemini API terms.
+# `LLM_BASE_URL` (rag-thesis-backend/config.py:45) can route chat, extract and
+# verdict calls to a third party those terms do not cover, so the guarantee has
+# to be stated with its scope rather than unqualified.
+PROSE6 = [
+    ('ensuring compliance with Google’s API data governance policy (Google, 2024).',
+     'ensuring compliance with Google’s API data governance policy (Google, 2024). '
+     'This guarantee is bounded by the provider actually serving each call: the '
+     'architecture permits generation to be routed through an OpenAI-compatible gateway '
+     'without changing the model, and a third-party operator is not covered by those '
+     'terms. The direct Google route will therefore be used for the formal evaluation and '
+     'for any processing of the governed corpus, and the release fingerprint will record '
+     'which route produced each result. Embedding calls are never routed and reach Google '
+     'in every configuration.',
+     1, 'P6-1 no-training guarantee scope'),
+    ('Additionally, the indirect access model protects intellectual property by preventing '
+     'users from viewing, downloading, or reproducing any full-text thesis content.',
+     'Additionally, the indirect access model protects intellectual property by preventing '
+     'users from viewing, downloading, or reproducing any full-text thesis content. Where '
+     'the deployment routes generation through a third-party gateway rather than calling '
+     'Google directly, that operator will be treated as a processor of institutional data '
+     'and disclosed to the privacy review before any governed manuscript is processed '
+     'through it.',
+     1, 'P6-2 gateway disclosed to privacy review'),
+]
+
+
 def apply_figures(xml, src, verbose=True):
     """Swap embedded figures and refit each drawing to the text width."""
     media = {}
@@ -376,7 +407,7 @@ def build(verbose=True):
     xml = D.replace_cell_nth(xml, 'text-embedding-004',
                              'models/gemini-embedding-001 (768 dimensions)', 0, 'T3 embed id')
     if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding')
-    for old, new, n, label in PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5:
+    for old, new, n, label in PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5 + PROSE6:
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')
     for anchor, label, rows in TABLE_ROWS:
