@@ -21,7 +21,13 @@ class Settings(BaseSettings):
     embedding_dimensions: Literal[768] = 768
     gemini_timeout_seconds: float = 60.0
     gemini_max_retries: int = 1
-    gemini_max_output_tokens: int = 700
+    # Shared by the reasoning trace and the visible answer, not just the answer.
+    # At 700 with thinking_level='low', a measured call spent 609 tokens reasoning
+    # and returned finish_reason=MAX_TOKENS with the reply cut off mid-word. That is
+    # the real cause of the truncation the 500 -> 700 bump was meant to fix. A
+    # truncated answer also scores near-zero on Ragas Answer Correctness, so this
+    # silently penalised the RAG arm of the Objective 2 comparison.
+    gemini_max_output_tokens: int = 2000
     gemini_thinking_level: Literal['minimal', 'low', 'medium', 'high'] = 'low'
     gemini_capacity_cooldown_seconds: int = 60
     # Optional reserve API keys, comma-separated, tried in order only after the
