@@ -7,6 +7,41 @@ Shared so the three call sites cannot drift apart: `routers/chat.py` and
 
 import re
 
+# The two providers name the same event differently and in different case: the
+# Gemini SDK reports `MAX_TOKENS`, an OpenAI-compatible gateway reports
+# `length`. Both mean the reply stopped at the output-token ceiling rather than
+# because the model finished, so both are compared casefolded.
+_TRUNCATION_FINISH_REASONS = frozenset({'max_tokens', 'length'})
+
+
+class TruncatedGeneration(RuntimeError):
+    """A model reply stopped at the output-token ceiling instead of finishing."""
+
+
+def finish_reason(result) -> str:
+    """The provider's own stop reason, casefolded. Empty when it reports none.
+
+    Never raises. `response_metadata` is absent entirely on a bare string
+    result, nothing constrains a provider to put a mapping there, and an
+    unreadable stop reason must read as "not truncated" rather than fail a
+    question that the model may well have answered perfectly well.
+    """
+    metadata = getattr(result, 'response_metadata', None)
+    if not isinstance(metadata, dict):
+        return ''
+    return str(metadata.get('finish_reason') or '').strip().lower()
+
+
+def is_truncated(result) -> bool:
+    """Whether generation was cut off at the ceiling rather than completing.
+
+    This is the only signal that distinguishes a short answer from a severed
+    one. Without it a fragment reaches citation validation, which sees missing
+    markers, "repairs" them, and serves the fragment as finished work.
+    """
+    return finish_reason(result) in _TRUNCATION_FINISH_REASONS
+
+
 # A model asked for raw JSON still fences or labels it periodically. Anchored at
 # the ends so a fence inside the payload is left alone.
 _FENCE_OPEN = re.compile(r'\A\s*```[ \t]*(?:json)?[ \t]*\r?\n?', re.IGNORECASE)

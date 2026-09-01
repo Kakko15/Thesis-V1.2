@@ -46,7 +46,7 @@ from services.guards import (
     is_ambiguous_followup,
     prohibited_reason,
 )
-from services.llm_output import coerce_text
+from services.llm_output import TruncatedGeneration, coerce_text, is_truncated
 from services.observability import safe_trace
 from services.rate_limiting import ip_rate_limit_key, limiter
 from services.retriever import (
@@ -631,9 +631,16 @@ async def _repair_citations(answer: str, context: str, sources: list[dict]) -> s
         'answer_length': len(answer),
         'model': settings.gemini_chat_model,
     }):
-        return _coerce_answer(
-            await gemini_pool.arun(llm, gemini_pool.CHAT, lambda client: client.ainvoke(prompt))
-        ).strip()
+        result = await gemini_pool.arun(
+            llm, gemini_pool.CHAT, lambda client: client.ainvoke(prompt),
+        )
+        # A severed repair is a failed repair. Returning it would hand the
+        # caller a fragment that its own validation may well pass, since the
+        # surviving units keep their markers. The caller already treats a raised
+        # repair failure as a reason to serve the grounded fallback.
+        if is_truncated(result):
+            raise TruncatedGeneration('citation repair stopped at the output ceiling')
+        return _coerce_answer(result).strip()
 
 
 def _missing_referenced_papers(
@@ -661,9 +668,15 @@ async def _repair_multi_paper_coverage(
         source.get('title', 'Untitled thesis') for source in sources
     ))
     prompt = prompts.multi_paper_repair_prompt(answer, question, context, titles)
-    return _coerce_answer(
-        await gemini_pool.arun(llm, gemini_pool.CHAT, lambda client: client.ainvoke(prompt))
-    ).strip()
+    result = await gemini_pool.arun(
+        llm, gemini_pool.CHAT, lambda client: client.ainvoke(prompt),
+    )
+    # This rewrite replaces the answer wholesale, so a severed one would install
+    # a fragment over a complete reply. The caller keeps the original draft when
+    # this raises, which is the better of the two available answers.
+    if is_truncated(result):
+        raise TruncatedGeneration('multi-paper coverage repair stopped at the output ceiling')
+    return _coerce_answer(result).strip()
 
 
 async def _summarize_duplication(alert: dict) -> str:
@@ -1226,6 +1239,13 @@ async def _chat_impl(
     # would staple a marker onto the token's own line -- all of which a leading
     # token silently defeats.
     answer, sentinel_fired = prompts.strip_no_evidence_sentinel(_coerce_answer(result))
+    # Read from the provider's stop reason, never inferred from the text: a
+    # reply severed at the output ceiling is usually a well-formed prefix that
+    # no downstream check can tell from a genuinely short answer. Measured on
+    # the gateway route, one reply spent 1,920 of its 1,996 output tokens
+    # reasoning, announced "two distinct systems", described one, and was still
+    # served as finished work after the repair ladder stapled a marker onto it.
+    generation_truncated = is_truncated(result)
     phrase_reports_no_evidence = _answer_reports_no_evidence(answer)
     reports_no_evidence = sentinel_fired or phrase_reports_no_evidence
     answer = normalize_citation_markers(answer)
@@ -1240,6 +1260,7 @@ async def _chat_impl(
     if (
         plural_paper_ids
         and not reports_no_evidence
+        and not generation_truncated
         and _missing_referenced_papers(answer, sources, plural_paper_ids)
     ):
         try:
@@ -1257,7 +1278,22 @@ async def _chat_impl(
 
     # 5. Structural citation validation and one bounded repair attempt.
     citation_repaired = False
-    if reports_no_evidence:
+    if generation_truncated:
+        # Discarded rather than repaired. Every rung of the ladder below assumes
+        # it is looking at a complete answer whose markers went missing; against
+        # a fragment they instead make it *look* complete, which is the worst
+        # available outcome: the reader cannot see that the reply stops early,
+        # and a Ragas Answer Correctness score cannot either. The grounded
+        # fallback is the same honest degradation used when repair fails.
+        logger.warning(
+            'Generation stopped at the output ceiling (%s tokens, gateway=%s); '
+            'serving the grounded retrieval fallback instead of a fragment',
+            gemini_pool.active_output_ceiling(),
+            gemini_pool.gateway_enabled(),
+        )
+        answer = _grounded_retrieval_fallback(sources, effective_department)
+        unique_sources = filter_cited_sources(answer, sources)
+    elif reports_no_evidence:
         # Keep the model's own account of what the archive *does* cover, and the
         # sources it cited for it. This branch used to replace all of that with
         # the generic message and clear the sources, so "the archive has nothing

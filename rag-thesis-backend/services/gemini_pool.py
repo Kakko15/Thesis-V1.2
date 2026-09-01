@@ -71,13 +71,39 @@ def gateway_enabled() -> bool:
     return bool(settings.llm_base_url.strip())
 
 
+def active_output_ceiling() -> int:
+    """The output-token ceiling actually in force for chat generation.
+
+    The two routes carry different budgets, so a caller reporting "the reply hit
+    the ceiling" has to name the one that applied. Reading
+    `gemini_max_output_tokens` unconditionally reported 2,000 on a gateway
+    deployment whose ceiling was 6,000, which sends a reader to the wrong
+    setting with a number that never applied.
+    """
+    if gateway_enabled():
+        return settings.llm_gateway_max_output_tokens
+    return settings.gemini_max_output_tokens
+
+
 def _gateway_client(kind: str):
     """One chat client pointed at the gateway, sending the model name unchanged.
 
-    Only the route changes. A gateway that serves `gemini-3.6-flash` still runs
-    `gemini-3.6-flash`, so the evaluated model, the paper's version tables and
-    Figure 8 all stay accurate. `thinking_level` is dropped because it is a
-    Gemini-native parameter with no OpenAI-compatible equivalent.
+    The model name is unchanged, so `gemini-3.6-flash` on a gateway is still
+    `gemini-3.6-flash` and the paper's version tables and Figure 8 stay
+    accurate. **The answers are not equivalent, and this comment used to claim
+    they were.** `thinking_level` is Gemini-native and cannot cross an
+    OpenAI-compatible boundary, so for as long as it was simply dropped nothing
+    bounded reasoning on this route: a measured grounded call spent 1,920 of its
+    1,996 output tokens reasoning and returned a severed reply, while the same
+    question answered completely in 943 tokens against Google.
+
+    `reasoning_effort` is the OpenAI-compatible spelling of the same control and
+    is sent here carrying `thinking_level`'s configured value. An operator that
+    rejects the parameter fails this hop, and `_should_continue` then falls the
+    call back to Google, which is the provider under contract anyway -- so
+    sending it cannot strand a question. The ceiling is this route's own
+    (`llm_gateway_max_output_tokens`), leaving the direct route's evaluated
+    budget untouched.
     """
     return ChatOpenAI(
         model=settings.gemini_verdict_model if kind == VERDICT else settings.gemini_chat_model,
@@ -85,7 +111,8 @@ def _gateway_client(kind: str):
         base_url=settings.llm_base_url,
         timeout=settings.gemini_timeout_seconds,
         max_retries=settings.gemini_max_retries,
-        max_tokens=settings.gemini_max_output_tokens,
+        max_tokens=settings.llm_gateway_max_output_tokens,
+        reasoning_effort=settings.gemini_thinking_level,
     )
 
 
