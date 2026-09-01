@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $backend = Join-Path $repoRoot 'rag-thesis-backend'
 $envFile = Join-Path $backend '.env'
-$python = Join-Path $backend '.venv3146\Scripts\python.exe'
+$python = Join-Path $backend '.venv\Scripts\python.exe'
 
 function Get-DotEnvValue([string]$Name) {
     $match = Get-Content -LiteralPath $envFile |

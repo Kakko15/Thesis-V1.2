@@ -68,14 +68,27 @@ Key paper parameters enforced in code:
 
 Use Python 3.14.7, matching CI and the production container. Dependencies are exact-pinned and validated with `pip check`, `pip-audit`, PyTest, and Pylint.
 
-```bash
+First-time setup (PowerShell, from the repository root):
+
+```powershell
 cd rag-thesis-backend
 py -3.14 -m venv .venv
-.venv\Scripts\activate                         # Windows
-pip install -r requirements.txt
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 copy .env.example .env                          # then fill in the values
-python -m uvicorn main:app --reload --port 8000
 ```
+
+Name the environment **`.venv`**. Every command in this file, in
+`evaluation/iso25010_evidence.md` and in `scripts/verify-pi04-live.ps1` assumes
+that name. A differently-named one produces an environment the documented
+commands never exercise — that mismatch has already cost a red local gate
+against a green CI, and a worker command that failed with
+`.venv\Scripts\python.exe is not recognized`.
+
+**Activate before every command.** Without `Activate.ps1` a bare `python`
+resolves to whatever interpreter is first on `PATH`, typically the system
+Python, which carries different library versions from the pinned set. The app
+still starts; it simply is not the environment the tests validate.
 
 **Two dependency files, on purpose.** `requirements.txt` is the human-readable
 statement of intent — direct dependencies only, and the file the paper's version
@@ -98,14 +111,44 @@ uv pip compile requirements.txt --generate-hashes \
 
 `tests/test_dependency_lock.py` fails if the two ever disagree.
 
-In a second terminal, start the durable ingestion worker. Uploads remain queued
-until this process is running, and API restarts do not lose accepted jobs.
+### Running the stack — four processes
 
-```bash
+Start them in this order. The malware scanner comes first because
+`MALWARE_SCAN_MODE=clamav` makes it a hard dependency of every upload: with the
+container down the scan fails and the manuscript is rejected. `docker start` on
+an already-running container is a harmless no-op.
+
+```powershell
+# 1 — malware scanner
+docker start isu-clamav
+
+# 2 — backend API
 cd rag-thesis-backend
-.venv\Scripts\activate                         # Windows
+.\.venv\Scripts\Activate.ps1
+python -m uvicorn main:app --reload --port 8000
+
+# 3 — ingestion worker (new terminal)
+cd rag-thesis-backend
+.\.venv\Scripts\Activate.ps1
 python -m workers.ingestion_worker
+
+# 4 — frontend (new terminal)
+cd rag-thesis-frontend
+npm run dev
 ```
+
+Uploads remain queued until the worker is running, and API restarts do not lose
+accepted jobs. Confirm all four are up before demoing or uploading:
+
+```powershell
+curl.exe http://localhost:8000/health
+curl.exe http://localhost:8000/ready
+curl.exe http://localhost:8000/health/worker
+docker ps --filter name=isu-clamav --format "{{.Names}} {{.Status}}"
+```
+
+Both Python terminals should show a `(.venv)` prompt. If either does not, that
+process is running on the system interpreter rather than the pinned set.
 
 - `SUPABASE_KEY` must be the **service_role** key.
 - Never place the service-role key in the frontend or commit it. Rotate any key that is exposed outside the local test environment.
