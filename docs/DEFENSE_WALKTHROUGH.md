@@ -106,7 +106,7 @@ generation *requests*, not research questions about methodology.
 
 This is worth rehearsing, because an earlier version of the guard wrongly blocked
 the second question. It was found and fixed, and the fix was verified on a
-47-case matrix and across all 43 evaluation questions with zero changes to the
+40-case matrix and across all 43 evaluation questions with zero changes to the
 frozen results. If a panelist asks how you know the guard is right, that is the
 answer.
 
@@ -329,7 +329,7 @@ looked for a generation verb and a thesis artifact anywhere in the same sentence
 so it blocked legitimate questions like "what methodology did they use to create
 the attendance system?" — exactly the questions the archive exists to answer. The
 fix required the verb to actually *govern* the artifact and the request to be
-addressed to the assistant, verified on a 47-case matrix with zero changes across
+addressed to the assistant, verified on a 40-case matrix with zero changes across
 all 43 evaluation questions.
 
 ---
