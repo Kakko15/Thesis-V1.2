@@ -65,13 +65,18 @@ def build_manifest() -> dict:
         ROOT / 'docker-compose.operations.yml',
     ]
     return {
+        # 3 adds the gateway's own reasoning and output bounds to
+        # `generation_route`. They decide whether a reply on that route is
+        # complete or severed, so two runs differing only in them are not the
+        # same configuration and must not fingerprint alike.
+        #
         # 2 adds `generation_route`. Section 3.2.1 of the paper claims every
         # reported result is attributable to one exact configuration, and until
         # this field existed that was not true: LLM_BASE_URL is read from the
         # environment with an empty default, so routing every chat, extract and
         # verdict call through a third-party gateway left this manifest
         # byte-identical to a direct-to-Google run.
-        'schema_version': 2,
+        'schema_version': 3,
         'git_commit': git_commit(),
         'runtime': {'python': platform.python_version(), 'python_implementation': platform.python_implementation()},
         'models': {
@@ -95,6 +100,16 @@ def build_manifest() -> dict:
         'generation_route': {
             'gateway_enabled': gateway_enabled(),
             'gateway_host': gateway_host(),
+            # Null on the direct route rather than a number, because neither
+            # applies there: `generation_contract` above is the whole story for
+            # Google, and printing this route's budget beside it would read as
+            # though it had been in force.
+            'gateway_max_output_tokens': (
+                settings.llm_gateway_max_output_tokens if gateway_enabled() else None
+            ),
+            'gateway_reasoning_effort': (
+                settings.gemini_thinking_level if gateway_enabled() else None
+            ),
             'reserve_key_count': len(settings.gemini_reserve_key_list),
         },
         'rag_contract': {

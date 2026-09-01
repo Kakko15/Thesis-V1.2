@@ -29,6 +29,24 @@ class Settings(BaseSettings):
     # silently penalised the RAG arm of the Objective 2 comparison.
     gemini_max_output_tokens: int = 2000
     gemini_thinking_level: Literal['minimal', 'low', 'medium', 'high'] = 'low'
+    # The gateway's own ceiling, because `thinking_level` is Gemini-native and an
+    # OpenAI-compatible route cannot carry it; `reasoning_effort` is sent there
+    # instead (services/gemini_pool.py). Measured on 2026-09-02 against the
+    # configured gateway with one grounded prompt, same question each time:
+    #
+    #   ceiling 2000, no effort sent -> 1,918 reasoning tokens, finish=length,
+    #                                   346 visible characters (severed)
+    #   ceiling 6000, no effort sent -> 3,902 reasoning tokens, finish=stop
+    #   ceiling 6000, effort='low'   -> 1,249 reasoning tokens, finish=stop,
+    #                                   1,145 visible characters
+    #
+    # So the effort parameter is what actually bounds reasoning, and the raised
+    # ceiling is the headroom that keeps a harder question from being severed
+    # anyway. Both are needed: neither alone produced a complete answer at the
+    # cost of the other. Kept separate from `gemini_max_output_tokens` so the
+    # direct Google route, which is the one a formal evaluation run must use,
+    # keeps the exact budget it was evaluated with.
+    llm_gateway_max_output_tokens: int = 6000
     gemini_capacity_cooldown_seconds: int = 60
     # Optional reserve API keys, comma-separated, tried in order only after the
     # primary key reports exhaustion (services/gemini_pool.py). Empty by default,

@@ -55,7 +55,29 @@ def test_the_manifest_records_which_provider_served_generation(monkeypatch):
     # Adding a field changed the artifact's shape, so the version has to move
     # with it; a reader comparing two manifests must be able to tell which
     # schema each one was written under.
-    assert routed['schema_version'] == 2
+    assert routed['schema_version'] == 3
+
+
+def test_the_manifest_records_the_bounds_that_decide_a_severed_reply(monkeypatch):
+    """The gateway's reasoning and output bounds decide whether a reply completes.
+
+    `thinking_level` cannot cross an OpenAI-compatible boundary, so the gateway
+    carries its own effort and ceiling. A run served with them unset produced
+    severed answers while the same question completed against Google, which
+    makes them part of the configuration a result is attributable to, not
+    deployment trivia.
+    """
+    monkeypatch.setattr(settings, 'llm_base_url', '')
+    direct = build_manifest()['generation_route']
+    assert direct['gateway_max_output_tokens'] is None
+    assert direct['gateway_reasoning_effort'] is None
+
+    monkeypatch.setattr(settings, 'llm_base_url', 'https://gateway.example/v1')
+    monkeypatch.setattr(settings, 'llm_gateway_max_output_tokens', 6000)
+    monkeypatch.setattr(settings, 'gemini_thinking_level', 'low')
+    routed = build_manifest()['generation_route']
+    assert routed['gateway_max_output_tokens'] == 6000
+    assert routed['gateway_reasoning_effort'] == 'low'
 
 
 def test_the_manifest_never_carries_the_gateway_credential(monkeypatch):

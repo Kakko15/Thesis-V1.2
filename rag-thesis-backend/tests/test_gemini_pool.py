@@ -250,6 +250,38 @@ class TestGateway:
             gemini_pool.VERDICT, self.GATEWAY,
         ).model_name == settings.gemini_verdict_model
 
+    def test_the_route_carries_a_reasoning_bound_and_its_own_ceiling(self, routed):
+        """`thinking_level` cannot cross an OpenAI-compatible boundary.
+
+        While it was simply dropped, nothing bounded reasoning on this route: a
+        measured grounded call spent 1,918 of its 1,996 output tokens reasoning
+        and returned a severed reply, where the same question answered
+        completely in 943 tokens against Google. `reasoning_effort` is the
+        equivalent control, and the raised ceiling is the headroom that keeps a
+        harder question from being severed anyway.
+        """
+        client = REAL_BUILD(gemini_pool.CHAT, self.GATEWAY)
+        assert client.reasoning_effort == settings.gemini_thinking_level
+        assert client.max_tokens == settings.llm_gateway_max_output_tokens
+
+    def test_the_direct_route_keeps_the_budget_it_was_evaluated_with(self, routed):
+        """A formal Objective 2 run must use Google, on the exact budget the
+        frozen pipeline was measured with. The gateway's larger ceiling is its
+        own and must not leak onto it."""
+        google = REAL_BUILD(gemini_pool.CHAT, 'gemini-key')
+        assert google.max_output_tokens == settings.gemini_max_output_tokens
+        assert google.max_output_tokens != settings.llm_gateway_max_output_tokens
+
+    def test_the_reported_ceiling_is_the_one_that_applied(self, routed, monkeypatch):
+        """A truncation warning names a ceiling; it must be the live one.
+
+        Reading the direct route's budget on a gateway deployment understated it
+        by 5,600 tokens and pointed a reader at the wrong setting.
+        """
+        assert gemini_pool.active_output_ceiling() == settings.llm_gateway_max_output_tokens
+        monkeypatch.setattr(settings, 'llm_base_url', '')
+        assert gemini_pool.active_output_ceiling() == settings.gemini_max_output_tokens
+
     def test_the_gateway_is_tried_first_then_google(self, routed, monkeypatch):
         use_keys(monkeypatch, 'k2', 'k3')
         chain = gemini_pool.attempt_chain('primary-client', gemini_pool.CHAT)

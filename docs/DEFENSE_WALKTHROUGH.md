@@ -234,6 +234,19 @@ in the repository's audit reports.
    characterizing it. Embeddings are never routed and still go to Google
    directly, so every question still makes one call there.
 
+   **The route changed the answers, not only the latency, and that is worth
+   saying plainly if it comes up.** `thinking_level` is a Gemini-native
+   parameter with no OpenAI-compatible equivalent, so it was dropped on the
+   gateway and nothing bounded reasoning there. Measured on 2026-09-02, one
+   grounded reply spent **1,920 of its 1,996 output tokens reasoning**, stopped
+   at the ceiling, and returned a 453-character fragment that announced "two
+   distinct systems" and described one; the same question against Google
+   answered completely in 943 tokens and passed citation validation first time.
+   Two things now prevent that reaching a reader: the gateway carries
+   `reasoning_effort` and its own larger ceiling, and any reply that still stops
+   at the ceiling is discarded for the grounded fallback rather than repaired
+   into looking finished. Both are recorded in the release fingerprint.
+
    **Say the governance consequence before a panelist finds it.** The paper's
    no-training guarantee (§2.1.6) comes from Google's Gemini API terms, and those
    terms do not extend to another operator. While `LLM_BASE_URL` is set, chat,
