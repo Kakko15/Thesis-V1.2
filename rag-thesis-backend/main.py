@@ -10,6 +10,14 @@ import threading
 import time
 from contextlib import asynccontextmanager
 
+from warning_filters import silence_known_third_party_warnings
+
+# Must run before the first `langchain*` import below.
+silence_known_third_party_warnings()
+
+# The filter call above has to precede these imports, so the first-party
+# import that provides it cannot sit in its usual place.
+# pylint: disable=wrong-import-order
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +25,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+# pylint: enable=wrong-import-order
 
 from config import settings
 from services.rate_limiting import limiter

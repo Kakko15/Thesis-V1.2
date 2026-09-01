@@ -12,7 +12,16 @@ import threading
 import time
 import uuid
 
+from warning_filters import silence_known_third_party_warnings
+
+# Must run before the first `langchain*` import below.
+silence_known_third_party_warnings()
+
+# The filter call above has to precede these imports, so the first-party
+# import that provides it cannot sit in its usual place.
+# pylint: disable=wrong-import-order
 from supabase import create_client
+# pylint: enable=wrong-import-order
 
 from config import settings
 from services.ingestion import (
