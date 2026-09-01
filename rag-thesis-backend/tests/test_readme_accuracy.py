@@ -101,7 +101,12 @@ class TestObjectiveTwoMetricsAreDescribedCorrectly:
         return (BACKEND / 'evaluation' / 'run_comparison.py').read_text(encoding='utf-8')
 
     def test_the_baseline_is_scored_only_on_answer_correctness(self, comparison):
-        assert "baseline_scores.append({'answer_correctness'" in comparison
+        # Both construction sites - the scored one and the one used when a
+        # query never reached the provider - carry answer_correctness and
+        # nothing else. Asserted at construction rather than at the append,
+        # because that is where the key set is actually decided.
+        assert "baseline_entry = {'answer_correctness'" in comparison
+        assert comparison.count('baseline_entry = {') == 2
 
     def test_no_baseline_faithfulness_or_context_precision_is_computed(self, comparison):
         assert 'baseline_faithfulness' not in comparison

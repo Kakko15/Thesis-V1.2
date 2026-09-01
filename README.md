@@ -250,6 +250,42 @@ java -jar <jmeter>/bin/ApacheJMeter.jar -n -t jmeter/provider_independent_load.j
   -l evaluation/results/jmeter/provider_run_1.jtl
 ```
 
+### Running the Objective 2 comparison
+
+Configure the process before the run, because three settings silently change
+what the result means:
+
+| Setting | Value for a formal run | Why |
+|---|---|---|
+| `LLM_BASE_URL` | **unset** | A gateway is a third party, and the paper's no-training guarantee (§2.1.6) comes from Google's terms. The release fingerprint records which route served the run. |
+| `APP_ENVIRONMENT` | `development` | `production` *forces* a non-zero guest token budget, and the harness runs as a guest. |
+| `GUEST_DAILY_TOKEN_BUDGET` | `0` | Same reason: a budget throttles the evaluation into a notice. |
+
+Never pass `--allow-unvalidated` for a run you intend to report.
+
+**Runs resume.** Each completed query is checkpointed to
+`evaluation/results/checkpoints/<run-id>.pathways.jsonl`, and Ragas scores to
+`<run-id>.scores.jsonl`. A run interrupted at query 38 of 40 continues from 38
+rather than discarding both arms for the 37 that already succeeded — a full run
+is roughly 80 model calls before scoring adds ~160 more. The run id defaults to
+the dataset's SHA-256 prefix, so re-running the same dataset resumes and a
+changed dataset starts clean. Use `--fresh` to discard a checkpoint deliberately.
+
+**Provider outages are never scored.** On an exhausted quota `/chat` returns
+HTTP 200 carrying a capacity notice, and trips a 60-second process-wide cooldown
+during which every following question returns that notice without being
+attempted. Scored naively, one rate-limit event would record 3–6 consecutive
+queries as near-zero for the RAG arm and *understate the study's own finding*.
+The harness retries such queries with backoff (clearing the cooldown first, or
+the retry just replays the notice), and marks any that never recover
+`rag_unattempted`. Those are excluded from the paired test, listed in
+`unattempted_query_ids`, and force `formal_result: false`.
+
+This applies **only** to capacity and guest-allowance notices. *No relevant
+thesis was found* is the retrieval threshold working correctly, and is the
+expected answer for the three negative-control queries — it is scored, never
+retried.
+
 `jmeter/` holds four current plans. `thesis_load_test.jmx` is retained only as the
 superseded original and should not be used for new evidence.
 

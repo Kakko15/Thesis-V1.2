@@ -14,9 +14,28 @@ measured. Paired Answer Correctness scores receive the statistical treatment
 from Section 3.2.5: Shapiro-Wilk normality test, then a paired-samples t-test
 (parametric) or Wilcoxon Signed-Rank test (non-parametric) at alpha = 0.05.
 
+Two properties matter for a result that gets frozen into a paper.
+
+**Runs resume.** Each completed query is checkpointed before the next begins, so
+an interruption at query 38 of 40 continues rather than discarding both arms for
+the 37 that already succeeded.
+
+**Provider outages are never scored.** On an exhausted quota the chat path
+returns a capacity notice rather than raising, and trips a process-wide cooldown
+during which every following question returns that notice without being
+attempted. Scoring those against the ground truth would report the RAG arm as
+wrong for questions it was never asked, and would understate the study's own
+finding. They are retried, then excluded and reported. A "no relevant thesis"
+answer is NOT an outage - it is the retrieval threshold working, and is the
+expected answer for the negative controls - so it is scored, never retried.
+
 Usage (from rag-thesis-backend/):
     pip install -r evaluation/requirements-eval.txt
     python -m evaluation.run_comparison [--dataset evaluation/golden_dataset.json]
+    python -m evaluation.run_comparison --fresh      # discard any checkpoint
+
+Set LLM_BASE_URL empty, APP_ENVIRONMENT=development and
+GUEST_DAILY_TOKEN_BUDGET=0 for a formal run; see the README.
 
 Outputs CSV + JSON summaries into evaluation/results/.
 """
@@ -38,8 +57,36 @@ from config import settings
 from models import ChatRequest
 from routers.chat import _chat_impl
 from scripts.release_fingerprint import build_manifest, sha256_file
+from services import chat_notices, gemini_pool
 
 RESULTS_DIR = Path(__file__).parent / 'results'
+
+# How many times one query may be re-attempted when the provider never actually
+# processed it, and how long to wait between attempts.
+_UNATTEMPTED_MAX_ATTEMPTS = 4
+_UNATTEMPTED_BACKOFF_SECONDS = (20, 45, 90)
+
+# Notices that mean "the provider never processed this question" — an exhausted
+# quota or an exhausted guest allowance. These must never be scored.
+#
+# `NO_RELEVANT_PREFIX` is deliberately NOT in this list, and the distinction is
+# the whole point. "No relevant thesis was found" is the retrieval threshold
+# doing its job: it is a real, correct system response, and for the three
+# negative-control queries it is the *expected* one. Retrying it would corrupt
+# the instrument; scoring it is exactly right. Same for the grounded fallback,
+# which carries real citations, and for a guard refusal, which is a finding
+# worth reporting rather than an outage.
+_UNATTEMPTED_NOTICES = (
+    chat_notices.CAPACITY_MESSAGE,
+    chat_notices.GUEST_BUDGET_MESSAGE,
+)
+
+
+def is_unattempted(answer: str) -> bool:
+    """True when the RAG arm returned a notice meaning the query never ran."""
+    normalized = re.sub(r'\s+', ' ', answer or '').strip()
+    return any(normalized.startswith(notice[:60]) for notice in _UNATTEMPTED_NOTICES)
+
 
 baseline_llm = ChatGoogleGenerativeAI(
     model=settings.gemini_chat_model,
@@ -146,62 +193,146 @@ def _coerce(result) -> str:
     return str(content)
 
 
-async def _run_pathways(queries: list[dict]) -> list[dict]:
-    """Process queries through the baseline and exact deployed guest RAG path."""
-    rows = []
-    for q in queries:
-        question = q['question']
-        print(f"  [{q['id']:>2}] {question[:70]}...")
-        department = settings.thesis_evaluation_department
+async def _attempt_pathways(question: str, department: str):
+    """One attempt at both arms, run concurrently."""
 
-        async def run_baseline():
-            started = time.perf_counter()
-            result = await baseline_llm.ainvoke(BASELINE_PROMPT.format(
+    async def run_baseline():
+        started = time.perf_counter()
+        # Routed through the key pool for the same reason the RAG arm is: with
+        # reserve keys configured the experimental arm could rotate past an
+        # exhausted key while the control arm could not, so a rate limit took
+        # down only the control. Same model, same prompt - only availability
+        # was asymmetric.
+        result = await gemini_pool.arun(
+            baseline_llm,
+            gemini_pool.CHAT,
+            lambda client: client.ainvoke(BASELINE_PROMPT.format(
                 question=question,
                 department=department,
-            ))
-            return _coerce(result), time.perf_counter() - started
-
-        async def run_rag():
-            started = time.perf_counter()
-            trace: dict = {}
-            response = await _chat_impl(
-                ChatRequest(question=question, department_filter=department),
-                None,
-                BackgroundTasks(),
-                None,
-                evaluation_trace=trace,
-            )
-            return response, trace, time.perf_counter() - started
-
-        (baseline_answer, baseline_latency), (rag_response, trace, rag_latency) = (
-            await asyncio.gather(run_baseline(), run_rag())
+            )),
         )
-        context = trace.get('context', '')
-        sources = trace.get('sources', [])
-        top_similarity = trace.get('top_similarity', 0.0)
+        return _coerce(result), time.perf_counter() - started
 
-        rows.append({
-            'id': q['id'],
-            'question': question,
-            'ground_truth': q.get('ground_truth', ''),
-            'baseline_answer': baseline_answer,
-            'baseline_latency_s': round(baseline_latency, 3),
-            'rag_answer': rag_response.answer,
-            'rag_context': context,
-            'rag_contexts': _ranked_contexts(context),
-            'rag_sources': [
-                {'citation_id': source.get('citation_id'), 'title': source.get('title')}
-                for source in sources
-            ],
-            'rag_top_similarity': round(top_similarity, 4),
-            'rag_end_to_end_latency_s': round(rag_latency, 3),
-        })
+    async def run_rag():
+        started = time.perf_counter()
+        trace: dict = {}
+        response = await _chat_impl(
+            ChatRequest(question=question, department_filter=department),
+            None,
+            BackgroundTasks(),
+            None,
+            evaluation_trace=trace,
+        )
+        return response, trace, time.perf_counter() - started
+
+    return await asyncio.gather(run_baseline(), run_rag())
+
+
+def _build_row(q, baseline, rag, attempts: int, unattempted: bool) -> dict:
+    baseline_answer, baseline_latency = baseline
+    rag_response, trace, rag_latency = rag
+    context = trace.get('context', '')
+    sources = trace.get('sources', [])
+    return {
+        'id': q['id'],
+        'question': q['question'],
+        'ground_truth': q.get('ground_truth', ''),
+        'baseline_answer': baseline_answer,
+        'baseline_latency_s': round(baseline_latency, 3),
+        'rag_answer': rag_response.answer,
+        'rag_context': context,
+        'rag_contexts': _ranked_contexts(context),
+        'rag_sources': [
+            {'citation_id': source.get('citation_id'), 'title': source.get('title')}
+            for source in sources
+        ],
+        'rag_top_similarity': round(trace.get('top_similarity', 0.0), 4),
+        'rag_end_to_end_latency_s': round(rag_latency, 3),
+        'attempts': attempts,
+        # True only when the provider never processed the question. Such a row
+        # is excluded from the paired statistics rather than scored, because
+        # scoring an outage notice against the ground truth would report the
+        # RAG arm as wrong for a question it was never given.
+        'rag_unattempted': unattempted,
+    }
+
+
+async def _run_query(q: dict) -> dict:
+    """Run one query, re-attempting only when the provider never processed it."""
+    question = q['question']
+    department = settings.thesis_evaluation_department
+    last = None
+    for attempt in range(1, _UNATTEMPTED_MAX_ATTEMPTS + 1):
+        # An earlier query may have tripped the process-wide capacity cooldown,
+        # and while it holds `_chat_impl` returns the capacity notice without
+        # calling the provider at all. Clearing it first is what makes a retry
+        # an actual retry rather than an instant replay of the same notice.
+        chat_notices.reset_capacity_limit()
+        try:
+            baseline, rag = await _attempt_pathways(question, department)
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            if attempt == _UNATTEMPTED_MAX_ATTEMPTS:
+                raise
+            delay = _UNATTEMPTED_BACKOFF_SECONDS[
+                min(attempt - 1, len(_UNATTEMPTED_BACKOFF_SECONDS) - 1)
+            ]
+            print(f'      attempt {attempt} raised {type(error).__name__}; retrying in {delay}s')
+            await asyncio.sleep(delay)
+            continue
+        last = (baseline, rag)
+        if not is_unattempted(rag[0].answer):
+            return _build_row(q, baseline, rag, attempt, unattempted=False)
+        if attempt < _UNATTEMPTED_MAX_ATTEMPTS:
+            delay = _UNATTEMPTED_BACKOFF_SECONDS[
+                min(attempt - 1, len(_UNATTEMPTED_BACKOFF_SECONDS) - 1)
+            ]
+            print(f'      attempt {attempt} returned a capacity notice; retrying in {delay}s')
+            await asyncio.sleep(delay)
+    print(f'      query {q["id"]} never reached the provider; excluded from the paired test')
+    return _build_row(q, last[0], last[1], _UNATTEMPTED_MAX_ATTEMPTS, unattempted=True)
+
+
+def _load_checkpoint(path: Path) -> dict:
+    """Return already-completed rows, keyed by query id."""
+    if not path.exists():
+        return {}
+    done = {}
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if line.strip():
+            row = json.loads(line)
+            done[row['id']] = row
+    return done
+
+
+async def _run_pathways(queries: list[dict], checkpoint: Path | None = None) -> list[dict]:
+    """Process queries through the baseline and exact deployed guest RAG path.
+
+    Each completed query is appended to `checkpoint` before the next one starts,
+    so a run interrupted at query 38 of 40 resumes instead of discarding both
+    arms for all 37 that had already succeeded. A full run is roughly 80 model
+    calls before Ragas scoring adds its own; losing all of it to one transient
+    failure is not an acceptable property for a result that gets frozen into a
+    paper.
+    """
+    completed = _load_checkpoint(checkpoint) if checkpoint else {}
+    if completed:
+        print(f'  resuming: {len(completed)} of {len(queries)} queries already recorded')
+    rows = []
+    for q in queries:
+        if q['id'] in completed:
+            rows.append(completed[q['id']])
+            continue
+        print(f"  [{q['id']:>2}] {q['question'][:70]}...")
+        row = await _run_query(q)
+        rows.append(row)
+        if checkpoint:
+            with checkpoint.open('a', encoding='utf-8') as handle:
+                handle.write(json.dumps(row, ensure_ascii=False) + '\n')
     return rows
 
 
-def run_pathways(queries: list[dict]) -> list[dict]:
-    return asyncio.run(_run_pathways(queries))
+def run_pathways(queries: list[dict], checkpoint: Path | None = None) -> list[dict]:
+    return asyncio.run(_run_pathways(queries, checkpoint))
 
 
 def _metric_value(result) -> float:
@@ -217,8 +348,18 @@ def _metric_value(result) -> float:
 GEMINI_OPENAI_COMPAT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/'
 
 
-async def _score_with_ragas(rows: list[dict]) -> dict:
-    """Use explicit Gemini-backed Ragas metrics with valid pathway semantics."""
+async def _score_with_ragas(rows: list[dict], checkpoint: Path | None = None) -> dict:
+    """Use explicit Gemini-backed Ragas metrics with valid pathway semantics.
+
+    Scoring is the longer half of a run: three judged metrics per query, each
+    its own model call. Every query's scores are checkpointed as they land, and
+    a judge call that fails transiently is retried rather than taking the whole
+    run with it.
+
+    A row the provider never processed is not scored at all. Its `rag_answer`
+    is an outage notice, and scoring that against the ground truth would record
+    the RAG arm as wrong for a question it was never asked.
+    """
     from google import genai
     from openai import AsyncOpenAI
     from ragas.embeddings import GoogleEmbeddings
@@ -246,45 +387,96 @@ async def _score_with_ragas(rows: list[dict]) -> dict:
 
     baseline_scores: list[dict] = []
     rag_scores: list[dict] = []
+    done = _load_checkpoint(checkpoint) if checkpoint else {}
+    if done:
+        print(f'  resuming: {len(done)} of {len(rows)} queries already scored')
+
+    async def judged(label, call):
+        """Await one judge call, retrying transient provider failures."""
+        for attempt in range(1, _UNATTEMPTED_MAX_ATTEMPTS + 1):
+            try:
+                return await call()
+            except Exception as error:  # pylint: disable=broad-exception-caught
+                if attempt == _UNATTEMPTED_MAX_ATTEMPTS:
+                    raise
+                delay = _UNATTEMPTED_BACKOFF_SECONDS[
+                    min(attempt - 1, len(_UNATTEMPTED_BACKOFF_SECONDS) - 1)
+                ]
+                print(f'      {label} failed ({type(error).__name__}); retrying in {delay}s')
+                await asyncio.sleep(delay)
+        raise AssertionError('unreachable')
+
     for index, row in enumerate(rows, start=1):
+        if row['id'] in done:
+            entry = done[row['id']]
+            baseline_scores.append(entry['baseline'])
+            rag_scores.append(entry['rag'])
+            continue
         print(f'  Scoring query {index}/{len(rows)}...')
-        common = {'user_input': row['question'], 'reference': row['ground_truth']}
-        baseline_correctness = await answer_correctness.ascore(
-            **common,
-            response=row['baseline_answer'],
-        )
-        rag_correctness = await answer_correctness.ascore(
-            **common,
-            response=row['rag_answer'],
-        )
-        contexts = row.get('rag_contexts') or []
-        rag_faithfulness = None
-        rag_context_precision = None
-        if contexts:
-            rag_faithfulness = await faithfulness.ascore(
-                user_input=row['question'],
-                response=row['rag_answer'],
-                retrieved_contexts=contexts,
+        if row.get('rag_unattempted'):
+            print('      skipped: the provider never processed this query')
+            baseline_entry = {'answer_correctness': None}
+            rag_entry = {
+                'answer_correctness': None,
+                'faithfulness': None,
+                'context_precision': None,
+            }
+        else:
+            common = {'user_input': row['question'], 'reference': row['ground_truth']}
+            baseline_correctness = await judged(
+                'baseline answer_correctness',
+                lambda common=common, row=row: answer_correctness.ascore(
+                    **common, response=row['baseline_answer'],
+                ),
             )
-            rag_context_precision = await context_precision.ascore(
-                **common,
-                retrieved_contexts=contexts,
+            rag_correctness = await judged(
+                'rag answer_correctness',
+                lambda common=common, row=row: answer_correctness.ascore(
+                    **common, response=row['rag_answer'],
+                ),
             )
-        baseline_scores.append({'answer_correctness': _metric_value(baseline_correctness)})
-        rag_scores.append({
-            'answer_correctness': _metric_value(rag_correctness),
-            'faithfulness': (
-                _metric_value(rag_faithfulness) if rag_faithfulness is not None else None
-            ),
-            'context_precision': (
-                _metric_value(rag_context_precision) if rag_context_precision is not None else None
-            ),
-        })
+            contexts = row.get('rag_contexts') or []
+            rag_faithfulness = None
+            rag_context_precision = None
+            if contexts:
+                rag_faithfulness = await judged(
+                    'rag faithfulness',
+                    lambda row=row, contexts=contexts: faithfulness.ascore(
+                        user_input=row['question'],
+                        response=row['rag_answer'],
+                        retrieved_contexts=contexts,
+                    ),
+                )
+                rag_context_precision = await judged(
+                    'rag context_precision',
+                    lambda common=common, contexts=contexts: context_precision.ascore(
+                        **common, retrieved_contexts=contexts,
+                    ),
+                )
+            baseline_entry = {'answer_correctness': _metric_value(baseline_correctness)}
+            rag_entry = {
+                'answer_correctness': _metric_value(rag_correctness),
+                'faithfulness': (
+                    _metric_value(rag_faithfulness) if rag_faithfulness is not None else None
+                ),
+                'context_precision': (
+                    _metric_value(rag_context_precision)
+                    if rag_context_precision is not None else None
+                ),
+            }
+        baseline_scores.append(baseline_entry)
+        rag_scores.append(rag_entry)
+        if checkpoint:
+            with checkpoint.open('a', encoding='utf-8') as handle:
+                handle.write(json.dumps(
+                    {'id': row['id'], 'baseline': baseline_entry, 'rag': rag_entry},
+                    ensure_ascii=False,
+                ) + chr(10))
     return {'baseline': baseline_scores, 'rag': rag_scores}
 
 
-def score_with_ragas(rows: list[dict]) -> dict:
-    return asyncio.run(_score_with_ragas(rows))
+def score_with_ragas(rows: list[dict], checkpoint: Path | None = None) -> dict:
+    return asyncio.run(_score_with_ragas(rows, checkpoint))
 
 
 def statistical_treatment(baseline_scores: list[float], rag_scores: list[float]) -> dict:
@@ -328,6 +520,22 @@ def main():
         action='store_true',
         help='Development smoke only: run with an unvalidated dataset and mark output non-formal',
     )
+    parser.add_argument(
+        '--run-id',
+        default=None,
+        help=(
+            'Checkpoint namespace. A run writes each completed query to '
+            'results/checkpoints/<run-id>.*.jsonl and resumes from it, so an '
+            'interrupted run continues instead of restarting. Defaults to the '
+            'dataset SHA-256 prefix, which means a re-run of the same dataset '
+            'resumes automatically and a changed dataset starts clean.'
+        ),
+    )
+    parser.add_argument(
+        '--fresh',
+        action='store_true',
+        help='Ignore and overwrite any existing checkpoint for this run id.',
+    )
     args = parser.parse_args()
 
     dataset_path = Path(args.dataset).resolve()
@@ -346,8 +554,27 @@ def main():
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
 
-    print(f'Running {len(queries)} queries through both pathways...')
-    rows = run_pathways(queries)
+    # Keyed on the dataset digest by default so a resumed run can never splice
+    # answers collected against one instrument into results reported for
+    # another. Change the dataset and the run id changes with it.
+    run_id = args.run_id or sha256_file(dataset_path)[:12]
+    checkpoint_dir = RESULTS_DIR / 'checkpoints'
+    checkpoint_dir.mkdir(exist_ok=True)
+    pathways_checkpoint = checkpoint_dir / f'{run_id}.pathways.jsonl'
+    scores_checkpoint = checkpoint_dir / f'{run_id}.scores.jsonl'
+    if args.fresh:
+        for path in (pathways_checkpoint, scores_checkpoint):
+            path.unlink(missing_ok=True)
+
+    print(f'Running {len(queries)} queries through both pathways (run id {run_id})...')
+    rows = run_pathways(queries, pathways_checkpoint)
+
+    unattempted = [row['id'] for row in rows if row.get('rag_unattempted')]
+    if unattempted:
+        print(
+            f'\nWARNING: {len(unattempted)} of {len(rows)} queries never reached the '
+            f'provider and are excluded from the paired test: {unattempted}'
+        )
 
     sanitized_rows = sanitize_evaluation_rows(rows)
     output: dict = {
@@ -367,14 +594,21 @@ def main():
             ),
             'evaluation_script_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         },
-        'formal_result': not dataset_issues,
+        # A run with excluded queries is not a formal result. The paired test
+        # would otherwise be reported over a silently smaller n than the
+        # instrument declares, which is the same class of error as quoting a
+        # /chat load run that returned 100% HTTP 200 while answering nothing.
+        'formal_result': not dataset_issues and not unattempted,
         'dataset_validation_issues': dataset_issues,
+        'unattempted_query_ids': unattempted,
+        'queries_scored': len(rows) - len(unattempted),
+        'queries_total': len(rows),
         'rows': sanitized_rows,
     }
 
     if not args.skip_ragas:
         print('Evaluating with Ragas (Answer Correctness, RAG Faithfulness/Context Precision)...')
-        ragas_results = score_with_ragas(rows)
+        ragas_results = score_with_ragas(rows, scores_checkpoint)
         output['ragas'] = ragas_results
 
         for metric in ('answer_correctness',):
@@ -394,6 +628,10 @@ def main():
                 output.setdefault('means', {})[metric] = {
                     'baseline': sum(base) / len(base),
                     'rag': sum(rag) / len(rag),
+                    # The paired n, stated rather than inferred from the query
+                    # count: an unattempted or non-finite score drops its pair,
+                    # so this can legitimately be smaller than queries_total.
+                    'n': len(pairs),
                 }
         output['rag_diagnostics'] = {}
         for metric in ('faithfulness', 'context_precision'):
