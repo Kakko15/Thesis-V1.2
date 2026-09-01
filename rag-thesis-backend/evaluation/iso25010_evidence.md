@@ -410,21 +410,30 @@ capacity has been measured only provider-independently.
 
 ## Required commands
 
+> **Environment renamed 2026-09-02.** The evidence venv was `.venv3146` throughout
+> every dated block above, and those blocks record it as it was. It was renamed to
+> `.venv` on 2026-09-02 so the README's setup instructions and the commands below
+> finally name the same directory — the mismatch had produced a red local gate
+> against a green CI and a worker command that failed outright. Nothing about the
+> environment changed but its name: same Python 3.14.6, same pinned packages,
+> re-verified after the rename at 874 passed / 3 skipped / 91.17% coverage and
+> Pylint 10.00/10, both read by exit code.
+
 ```powershell
 # Backend: current suite and enforced coverage gate
 cd rag-thesis-backend
-.\.venv3146\Scripts\python.exe -m pip check
-.\.venv3146\Scripts\python.exe -m pytest `
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m pytest `
   --cov=routers --cov=services --cov=dependencies --cov=workers `
   --cov=main --cov=config --cov=models `
   --cov-report=term-missing --cov-report=xml --cov-fail-under=85
 
 # Opt-in disposable-project integration test
 $env:ALLOW_DISPOSABLE_SUPABASE_TESTS='1'
-.\.venv3146\Scripts\python.exe -m pytest -m integration -v
+.\.venv\Scripts\python.exe -m pytest -m integration -v
 
 # Backend maintainability
-.\.venv3146\Scripts\python.exe -m pylint --rcfile=.pylintrc `
+.\.venv\Scripts\python.exe -m pylint --rcfile=.pylintrc `
   routers services dependencies workers main.py config.py models.py
 
 # Frontend
