@@ -6,6 +6,117 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## Current local revalidation - 2026-09-01
+
+Measured on Windows 11 against commit `4d216ea` with the documentation and release
+fingerprint work of that day present but not yet committed. Toolchain unchanged from
+the 2026-08-30 pass (`.venv3146`, Python 3.14.6, PyTest 9.1.1, Pylint 4.0.6, Node.js
+24.18.0, ESLint 9.39.5). Every figure was read from the command's **exit code**.
+Backend counts taken with `ALLOW_DISPOSABLE_SUPABASE_TESTS=0`.
+
+| Criterion | Instrument | Observed result | Status |
+|---|---|---|---|
+| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 790 passed and 3 opt-in external integration tests skipped; 90.90% coverage (4,078 statements, 371 missed) | Passed |
+| Backend maintainability | Pylint | 10.00/10 | Passed |
+| Frontend unit tests and coverage | Node test runner with `--experimental-test-coverage`, gated at 85/80/85 | 93.66% lines, 88.09% branches, 94.29% functions | Passed |
+| Frontend maintainability | ESLint 9.39.5 | 0 errors, 1 warning (the `Archive.jsx` complexity advisory recorded on 2026-08-30, unchanged) | Passed; one advisory |
+| Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771, SonarScanner CLI 7.3.0 in `sonarsource/sonar-scanner-cli` | Quality gate **PASSED** (scanner exit 0). 0 bugs, 0 vulnerabilities, 0 security hotspots. Reliability **A**, Security **A**, Maintainability **A**. Duplication 1.3%. 330 code smells retained as backlog | Passed |
+| Backend dependency vulnerability audit | pip-audit | Not run in this pass | Pending re-run |
+| Container vulnerability scan | Trivy | Not run in this pass; no image build was performed | Pending re-run |
+
+### Suite growth since 2026-08-30
+
+The backend suite grew by **47 tests** (743 to 790) and coverage rose from 90.56% to
+90.90%. Two of the new tests cover `generation_route` in the release fingerprint; the
+rest arrived with the 2026-08-31 and 09-01 feature and audit commits.
+
+### Reliability: the first SonarQube run since 2026-07-20
+
+Run locally against SonarQube Community Build **26.7.0.124771** — the same build the
+paper's Table 4 names — with both coverage reports supplied. Gate status was read from
+the scanner's **exit code** with `sonar.qualitygate.wait=true`, not from the dashboard.
+
+**Result: quality gate PASSED, 0 bugs, 0 vulnerabilities, 0 security hotspots, A/A/A**, with 102 Python and 122 JavaScript/JSX source files analysed, the same backend surface as the first run, so the result is not an artifact of a narrowed scope (see defect 3).
+
+Getting there required fixing four defects in the analysis configuration itself. None
+had ever been caught, because the scan had not been run since 2026-07-20.
+
+1. **The virtualenv exclusion did not match the virtualenv.** `sonar.exclusions` listed
+   `rag-thesis-backend/.venv/**` while the environment in use is `.venv3146`, so every
+   vendored library under it sat inside `sonar.sources`. The glob is now `.venv*/**`.
+
+2. **A full second copy of the source tree was inside the analysis scope.**
+   `rag-thesis-backend/tmp-review-py312` holds **411 Python files** — a complete copy of
+   the backend. It is gitignored, so a clean CI checkout never sees it, but any local run
+   would have analysed it and reported the entire backend as duplicated code. The scratch
+   directories are now excluded explicitly.
+
+3. **Frontend unit tests were analysed as production code.** `sonar.tests` named only
+   `rag-thesis-backend/tests`; the frontend's tests sit beside the code they cover and so
+   cannot be listed there. Two of the three bugs in the first run came from one
+   `.test.js` file this way — rules intended for shipped software applied to assertions.
+   The obvious fix, `sonar.test.inclusions=**/*.test.js`, is wrong and was reverted.
+   That property filters the **entire** test file set rather than the frontend's share
+   of it, so a `.js` pattern silently dropped every Python file under `sonar.tests`
+   from the analysis: Python files analysed fell from **102 to 59**, and the improved
+   ratings from that run were partly an artifact of a smaller analysed surface. The
+   frontend tests are instead excluded from *source* analysis by
+   `rag-thesis-frontend/src/**/*.test.js` in `sonar.exclusions`, which leaves backend
+   test indexing untouched (re-measured: 102 Python files, as before). Their coverage
+   is unaffected, arriving through `sonar.javascript.lcov.reportPaths`. A comment in
+   `sonar-project.properties` records why the property must not be reintroduced.
+
+4. **Backend Python coverage did not import at all.** The first run reported
+   `Cannot resolve 41 file paths, ignoring coverage measures for those files`, and
+   whole-repository coverage read **9.5%**. The documented pytest command passes seven
+   separate `--cov=` targets, so `coverage.xml` records several absolute `<source>` roots
+   with bare filenames such as `activity.py`. This is a local-scan artifact rather than a
+   CI defect — GitHub Actions checks out at a fixed path, so the absolute roots resolve
+   there — but it makes the report non-portable, and it is worth knowing that a
+   whole-repository coverage figure quoted from a local scan may silently exclude the
+   backend. For this run the `<source>` roots were remapped to the container's mount
+   point; no coverage measure was altered.
+
+Two real code findings survived that cleanup and were fixed rather than suppressed:
+
+- `rag-thesis-frontend/src/components/security/SecurityCheck.jsx` carried a conditional
+  returning the same value on both branches (`isPanel ? 'text-xs' : 'text-xs'`), a
+  leftover from an earlier size tweak. Collapsed to the single class.
+- `rag-thesis-backend/scripts/seed_synthetic_corpus.py` raised four `S2245`
+  pseudorandom-generator findings. These are **not** weaknesses: the script seeds an
+  obviously-labelled synthetic corpus and `--seed` exists precisely so the corpus is
+  reproducible, which a cryptographic generator would defeat. Nothing derived from the
+  stream is a secret, token, or access-control identifier. Suppressed with `NOSONAR`
+  and that rationale recorded inline, matching the existing convention in
+  `dependencies/auth.py`.
+
+**On the whole-repository coverage figure (48.1%).** This is not in tension with the
+90.90% backend and 93.66% frontend numbers above, and the difference must be stated
+whenever it is quoted. The gated figures measure the modules the gates name; SonarQube
+measures everything inside `sonar.sources`, which additionally includes `scripts/`,
+`evaluation/`, `migrations/`, and every React component whose behaviour is covered by
+Playwright rather than by instrumented unit tests. The comparable historical number is
+the 36.3% baseline recorded on 2026-07-20.
+
+### Instrument defect found and corrected: a stale virtual environment
+
+The backend gate was first run in `rag-thesis-backend/.venv` and returned **21
+collection errors** with Pylint at **9.99/10, exit 16** — every failure a
+`ModuleNotFoundError: No module named 'langchain_openai'`.
+
+The repository is not at fault. That venv holds Python 3.14.3, `langchain-core` 1.4.8
+against a pin of 1.5.1, `langchain-google-genai` 4.2.6 against 4.3.1, and no
+`langchain-openai` at all, which `requirements.txt:18` has declared since `a50b59b`.
+The evidence venv is `.venv3146`, and every result in this file was produced there.
+
+This is the same shape as the 2026-08-30 line-endings defect: **a red local gate
+against a green CI**, with a printed score that gives no hint why. It is worth naming
+the root cause, because it is structural rather than accidental — `README.md` tells a
+new contributor to create `.venv`, while every command block in this file uses
+`.venv3146`. Following the README therefore produces an environment the documented
+commands never exercise. Delete the stale `.venv` and `.venv312`, or reconcile the two
+names, before the next contributor reproduces this.
+
 ## Current local revalidation - 2026-08-30
 
 Measured on Windows 11 against commit `00e2f69`, with the paper and figure work of
