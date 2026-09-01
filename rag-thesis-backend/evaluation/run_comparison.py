@@ -257,6 +257,26 @@ def _build_row(q, baseline, rag, attempts: int, unattempted: bool) -> dict:
     }
 
 
+def _unattempted_row(q: dict, detail: str) -> dict:
+    """A row for a query the provider never served."""
+    return {
+        'id': q['id'],
+        'question': q['question'],
+        'ground_truth': q.get('ground_truth', ''),
+        'baseline_answer': '',
+        'baseline_latency_s': 0.0,
+        'rag_answer': '',
+        'rag_context': '',
+        'rag_contexts': [],
+        'rag_sources': [],
+        'rag_top_similarity': 0.0,
+        'rag_end_to_end_latency_s': 0.0,
+        'attempts': _UNATTEMPTED_MAX_ATTEMPTS,
+        'rag_unattempted': True,
+        'failure': detail[:300],
+    }
+
+
 async def _run_query(q: dict) -> dict:
     """Run one query, re-attempting only when the provider never processed it."""
     question = q['question']
@@ -272,7 +292,17 @@ async def _run_query(q: dict) -> dict:
             baseline, rag = await _attempt_pathways(question, department)
         except Exception as error:  # pylint: disable=broad-exception-caught
             if attempt == _UNATTEMPTED_MAX_ATTEMPTS:
-                raise
+                # Exhausted. Record it as unattempted and carry on rather than
+                # killing the run: one provider hiccup on query 37 of 40 should
+                # not end the evaluation, and an excluded query is already
+                # visible -- it is listed in `unattempted_query_ids` and forces
+                # `formal_result: false`, so it cannot pass unnoticed.
+                query_id = q['id']
+                print(
+                    f'      query {query_id} failed {_UNATTEMPTED_MAX_ATTEMPTS} times '
+                    f'({type(error).__name__}); excluded from the paired test'
+                )
+                return _unattempted_row(q, str(error))
             delay = _UNATTEMPTED_BACKOFF_SECONDS[
                 min(attempt - 1, len(_UNATTEMPTED_BACKOFF_SECONDS) - 1)
             ]

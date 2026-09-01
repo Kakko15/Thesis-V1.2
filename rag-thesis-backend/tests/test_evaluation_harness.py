@@ -248,3 +248,21 @@ def test_a_checkpoint_round_trips_as_json_lines(tmp_path):
     )
     assert _load_checkpoint(checkpoint)[7]['baseline']['answer_correctness'] == 0.1
     assert _load_checkpoint(tmp_path / 'missing.jsonl') == {}
+
+
+def test_a_persistent_provider_error_is_excluded_rather_than_fatal(monkeypatch):
+    """One provider hiccup must not end a 40-query run.
+
+    The row is still excluded from the paired test and still forces
+    `formal_result: false`, so a silent partial result remains impossible.
+    """
+    async def always_fails(_question, _department):
+        raise RuntimeError('ServerError: upstream unavailable')
+
+    monkeypatch.setattr(run_comparison, '_attempt_pathways', always_fails)
+    _skip_backoff(monkeypatch)
+    rows = asyncio.run(_run_pathways([QUERY, dict(QUERY, id=2, question='Q2')]))
+
+    assert [row['id'] for row in rows] == [1, 2], 'the run continued past the failure'
+    assert all(row['rag_unattempted'] for row in rows)
+    assert 'ServerError' in rows[0]['failure']
