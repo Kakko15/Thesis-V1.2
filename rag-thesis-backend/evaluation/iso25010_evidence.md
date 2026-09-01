@@ -6,6 +6,60 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## Current local revalidation - 2026-09-02
+
+Measured on Windows 11 against commit `dacc99b` with a clean working tree — the
+first pass taken at a committed, pushed and CI-green revision rather than mid-change.
+Toolchain unchanged from the 2026-09-01 pass (`.venv3146`, Python 3.14.6, PyTest 9.1.1,
+Pylint 4.0.6, Node.js 24.18.0, ESLint 9.39.5). Every figure was read from the command's
+**exit code**. Backend counts taken with `ALLOW_DISPOSABLE_SUPABASE_TESTS=0`.
+
+| Criterion | Instrument | Observed result | Status |
+|---|---|---|---|
+| Backend dependency consistency | `pip check` | No broken requirements found | Passed |
+| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 851 passed and 3 opt-in external integration tests skipped; 91.03% coverage (4,138 statements, 371 missed) | Passed |
+| Backend maintainability | Pylint | 10.00/10 | Passed |
+| Frontend unit tests and coverage | Node test runner with `--experimental-test-coverage`, gated at 85/80/85 | 93.66% lines, 88.09% branches, 94.29% functions | Passed |
+| Frontend maintainability | ESLint 9.39.5 | 0 errors, 1 warning (the `Archive.jsx` complexity advisory recorded on 2026-08-30, unchanged) | Passed; one advisory |
+| Frontend production build | Vite | Production build completed in 859 ms | Passed |
+| Frontend bundle budget | `npm run bundle:budget` | Bundle budget OK | Passed |
+| Frontend production dependency audit | `npm audit --omit=dev` | found 0 vulnerabilities | Passed |
+| Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771 | Not re-run locally in this pass; green in CI on `dacc99b` | Passed in CI |
+| Container vulnerability scan | Trivy | Not run locally in this pass; both images green in CI on `dacc99b` | Passed in CI |
+| Backend dependency vulnerability audit | pip-audit | Not run in this pass | Pending re-run |
+
+Critical browser journeys and the axe accessibility matrix were **not** re-run
+locally in this pass; they run inside the CI Frontend job, which is green on
+`dacc99b`. The 2026-09-01 and 2026-08-30 figures stand.
+
+### CI on `dacc99b`
+
+Verified by polling the unauthenticated GitHub check-runs API, not by assumption:
+[run 33549370159](https://github.com/Kakko15/Thesis-V1.2/actions/runs/33549370159),
+all six checks `completed` with conclusion `success` — Backend (PyTest + Pylint),
+Frontend (ESLint + build), Secret scan, both container vulnerability scans, and
+SonarQube.
+
+### Suite growth since 2026-09-01
+
+The backend suite grew by **61 tests** (790 to 851) and coverage rose from 90.90% to
+91.03%. They arrived with the four test-bearing commits of 2026-09-01/02 — `c574827`
+and `1dc0be3` (provider outages excluded from scoring rather than recorded as wrong RAG
+answers), `557fbee` (the shared prompt layer in `services/prompts.py` and its parity
+tests), and `ba43731` (the `GEMINI_MAX_OUTPUT_TOKENS` correction). The `generation_route`
+fingerprint tests from `f28400d` were already counted in the 790, since that work was
+present in the working tree when the 2026-09-01 pass was taken. Statement count rose
+from 4,078 to 4,138 with missed statements unchanged at 371.
+
+### Objective 2 remains gated
+
+Unchanged from the entries below and restated because it is the one figure a reader
+will look for: no formal baseline-versus-RAG result exists. `evaluation/golden_dataset.json`
+holds 40 queries of which **40 are still `REPLACE:` placeholders**, `validated_by_faculty_panel`
+is not true, and every artifact in `evaluation/results/` carries `formal_result: false`.
+The three `comparison_20260901_*` artifacts are 3-query development smokes whose recorded
+`dataset_validation_issues` name the placeholder count and the missing faculty validators.
+
 ## Current local revalidation - 2026-09-01
 
 Measured on Windows 11 against commit `4d216ea` with the documentation and release

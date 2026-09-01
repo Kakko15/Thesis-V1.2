@@ -105,10 +105,15 @@ and show that it answers. That contrast is the whole point: the guard blocks
 generation *requests*, not research questions about methodology.
 
 This is worth rehearsing, because an earlier version of the guard wrongly blocked
-the second question. It was found and fixed, and the fix was verified on a
-40-case matrix and across all 43 evaluation questions with zero changes to the
-frozen results. If a panelist asks how you know the guard is right, that is the
-answer.
+the second question. It was found and fixed, and the fix is covered by a 40-case
+matrix — `tests/test_rag_controls.py::TestRequestGuard`, which collects exactly
+40 parametrised cases and runs inside the backend gate. If a panelist asks how
+you know the guard is right, that is the answer, and it is a number they can
+reproduce with `pytest tests/test_rag_controls.py::TestRequestGuard`.
+
+Do **not** claim the guard was re-verified against Objective 2 results. There are
+none yet: every artifact in `evaluation/results/` is `formal_result: false`, and
+the Golden Dataset is still unvalidated placeholders (§5, limitation 2).
 
 ### 3.3 Login → dashboard
 
@@ -264,11 +269,15 @@ in the repository's audit reports.
 
 ## 6. Quality evidence you can quote
 
-Re-measured 2026-09-01 by exit code, not by reading the printed summary.
+The backend, frontend unit-test, frontend lint and CI rows were re-measured
+**2026-09-02** against `dacc99b` by exit code, not by reading the printed
+summary. The rest — Playwright, SonarQube, axe, the audits, dependency integrity
+and the container images — are the 2026-09-01 figures carried forward and dated
+in `evaluation/iso25010_evidence.md`.
 
 | Instrument | Result |
 |---|---|
-| Backend tests (PyTest, gated ≥85%) | **790 passed, 3 skipped, 90.90% coverage** |
+| Backend tests (PyTest, gated ≥85%) | **851 passed, 3 skipped, 91.03% coverage** (4,138 statements, 371 missed) |
 | Backend lint (Pylint) | **10.00/10** |
 | Frontend tests | **93.66% lines**, 88.09% branches, 94.29% functions |
 | Frontend lint (ESLint) | **0 errors, 1 warning** (`Archive.jsx` complexity 27 > 24; advisory, the gate still exits 0) |
@@ -278,7 +287,7 @@ Re-measured 2026-09-01 by exit code, not by reading the printed summary.
 | Production dependency audit | 0 vulnerabilities (npm), 0 advisories (26 pinned Python packages) |
 | Dependency integrity | 94 packages hash-locked, 2,242 SHA-256 hashes, `--require-hashes` |
 | Container images | Digest-pinned; SBOM emitted per commit |
-| CI | 6 checks, all green on `733e186` |
+| CI | 6 checks, all green on `dacc99b` ([run 33549370159](https://github.com/Kakko15/Thesis-V1.2/actions/runs/33549370159)) |
 
 If asked about defect history, the honest and impressive answer is:
 > A full audit found 20 defects. Independent passes during remediation found 17
@@ -329,8 +338,8 @@ looked for a generation verb and a thesis artifact anywhere in the same sentence
 so it blocked legitimate questions like "what methodology did they use to create
 the attendance system?" — exactly the questions the archive exists to answer. The
 fix required the verb to actually *govern* the artifact and the request to be
-addressed to the assistant, verified on a 40-case matrix with zero changes across
-all 43 evaluation questions.
+addressed to the assistant, verified on the 40-case matrix in
+`tests/test_rag_controls.py::TestRequestGuard`.
 
 ---
 

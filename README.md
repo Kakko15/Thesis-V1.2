@@ -194,8 +194,11 @@ would otherwise be refused.
 > `active_track_names('CCSICT')` therefore returns the three specialization names
 > plus the program codes for `BSDSA`, `BSIS` and `BLIS`, and that is what
 > `papers.track` is stamped with. The constant is retained only as an outage
-> fallback. This also affects the thesis paper and the Objective 2 Golden
-> Dataset, where 12 of 40 queries are categorized under the two dropped names.
+> fallback. This also affects the thesis paper. The mismatch no longer reaches
+> the Objective 2 Golden Dataset: `13f10c6` realigned its categories, and all 40
+> queries now carry catalog values — Data Mining 9, Web and Mobile Application
+> Development 8, Network and Security 6, BSDSA 6, BSIS 4, Cross-track 3,
+> Negative control 3, BLIS 1 — with none under either dropped name.
 > `departments.title` carries the full college name
 (`name` is the short code and the foreign-key target for papers, profiles,
 chat sessions, scans, uploads, and the activity log, so it cannot hold prose).
