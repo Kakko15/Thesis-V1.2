@@ -252,7 +252,7 @@ disposable-project checks also run and the totals read 677 passed / 1 skipped.
 
 The three skipped backend checks are two explicitly authorized disposable-Supabase integrations and one ClamAV Docker/EICAR integration. The PI-04 migration has not been applied to a disposable Supabase project because no local Supabase CLI/Docker daemon was available. They remain deployment/evidence gates and were not represented as passing. Deployed security-header validation also remains pending because it requires the final deployment URL.
 
-> **Superseded evidence — Objective 2 smoke run.** `evaluation/results/comparison_20260728_140718.json` records `generation_contract.max_output_tokens: 500`, while `config.py` now specifies **700**. Its fingerprint therefore no longer describes this build and it must not be presented as characterizing the current system. The artifact is retained unaltered as dated evidence; it has to be re-run and re-fingerprinted before the formal evaluation. It was in any case a three-query synthetic development smoke explicitly marked `"formal_result": false`.
+> **Superseded evidence — Objective 2 smoke run.** `evaluation/results/comparison_20260728_140718.json` records `generation_contract.max_output_tokens: 500`, while `config.py` now specifies **2000**. Its fingerprint therefore no longer describes this build and it must not be presented as characterizing the current system. The artifact is retained unaltered as dated evidence; it has to be re-run and re-fingerprinted before the formal evaluation. It was in any case a three-query synthetic development smoke explicitly marked `"formal_result": false`.
 
 ## `/chat` RAG load profile — first measured run, 2026-08-04
 

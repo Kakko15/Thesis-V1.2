@@ -172,10 +172,24 @@ class TestTheChatEndpointEnforcesIt:
     def _no_department_lookup(self, monkeypatch):
         monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_a: 'CCSICT')
 
+    @pytest.fixture(autouse=True)
+    def _room_for_one_generation(self, budget, monkeypatch):
+        """Widen the shared ceiling to two generations for this class only.
+
+        A real charge here is the prompt plus GEMINI_MAX_OUTPUT_TOKENS. The
+        shared fixture's flat 1000 stopped covering even one generation when
+        that cap rose from 700 to 2000, and these tests began refusing before
+        they ever reached generation. Derived from the cap so it tracks it.
+        The boundary tests keep the flat 1000; they charge it explicitly.
+        """
+        monkeypatch.setattr(
+            settings, 'guest_daily_token_budget', settings.gemini_max_output_tokens * 2,
+        )
+
     def test_an_exhausted_guest_is_refused_before_any_retrieval(
         self, storage, budget, monkeypatch,
     ):
-        storage.counters[self._today()] = 5000
+        storage.counters[self._today()] = settings.gemini_max_output_tokens * 4
 
         async def must_not_run(*_args, **_kwargs):
             raise AssertionError('retrieval ran after the allowance was exhausted')
@@ -186,7 +200,7 @@ class TestTheChatEndpointEnforcesIt:
         assert response.sources == []
 
     def test_a_signed_in_user_is_never_charged(self, storage, budget, monkeypatch):
-        storage.counters[self._today()] = 5000
+        storage.counters[self._today()] = settings.gemini_max_output_tokens * 4
         monkeypatch.setattr(chat, '_retrieve_evidence', self._retrieval_with_one_source())
 
         async def generation(*_args, **_kwargs):
@@ -196,7 +210,7 @@ class TestTheChatEndpointEnforcesIt:
         response = self._run(user=SimpleNamespace(id='user-1'))
         assert response.answer != guest_budget.GUEST_BUDGET_MESSAGE
         # Still exactly the seeded guest total: authenticated traffic is not billed.
-        assert storage.counters[self._today()] == 5000
+        assert storage.counters[self._today()] == settings.gemini_max_output_tokens * 4
 
     def test_a_guest_generation_is_charged_before_it_runs(
         self, storage, budget, monkeypatch,
