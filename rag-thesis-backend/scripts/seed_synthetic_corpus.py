@@ -494,7 +494,15 @@ def main() -> int:
     if existing_titles:
         print(f'already seeded : {len(existing_titles)} synthetic paper(s) — these will be skipped\n')
 
-    rng = random.Random(args.seed)
+    # NOSONAR python:S2245 - A seeded, reproducible PRNG is the requirement here,
+    # not a weakness. This script fabricates an obviously-labelled synthetic
+    # corpus for load testing (see the module docstring); `--seed` exists so the
+    # same corpus can be regenerated exactly, and the loop below is careful to
+    # keep the RNG stream identical across resumed runs for that reason. A
+    # cryptographic generator would make the corpus irreproducible and defeat
+    # the purpose. Nothing derived from this stream is a secret, a token, or an
+    # identifier used for access control.
+    rng = random.Random(args.seed)  # NOSONAR
     total_chunks = 0
     committed = []
     skipped = 0
@@ -513,13 +521,15 @@ def main() -> int:
         total_chunks += len(chunk_records)
 
         authors = ', '.join(
-            f'{rng.choice(GIVEN_INITIALS)}. {rng.choice(SURNAMES)}' for _ in range(rng.randint(2, 3))
+            # NOSONAR python:S2245 - synthetic names, see `rng` above
+            f'{rng.choice(GIVEN_INITIALS)}. {rng.choice(SURNAMES)}'  # NOSONAR
+            for _ in range(rng.randint(2, 3))  # NOSONAR
         )
         title = (
             f"{TITLE_MARKER} {topic['subject'].capitalize()} using "
             f"{topic['artifact']}"
         )
-        year = rng.randint(2019, 2026)
+        year = rng.randint(2019, 2026)  # NOSONAR python:S2245 - synthetic year, see `rng` above
         track = tracks[index % len(tracks)]
 
         if title in existing_titles:
