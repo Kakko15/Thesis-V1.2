@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { supabase } from './supabaseClient'
 import { normalizeDepartments } from './lib/catalog'
+import { isPrivilegedMfaRefusal, reportPrivilegedMfaRequired } from './lib/privilegedMfa.js'
 import { isE2ETestMode, readE2EAuthFixture } from './testing/e2eSession'
 
 const api = axios.create({
@@ -142,6 +143,14 @@ api.interceptors.response.use(
         ? `/login?returnTo=${encodeURIComponent(current)}`
         : '/login'
     }
+
+    // A privileged account whose session never reached aal2 is refused by
+    // every privileged endpoint at once, so the recovery belongs here rather
+    // than in each screen that trips over it. Announce it and let the shell
+    // offer the second factor; the call still rejects, so callers keep their
+    // own error handling.
+    if (isPrivilegedMfaRefusal(error)) reportPrivilegedMfaRequired()
+
     return Promise.reject(error)
   }
 )
@@ -390,16 +399,6 @@ export async function updateFeaturePermissions(payload) {
   return data
 }
 
-export function apiErrorMessage(error, fallback = 'Something went wrong. Please try again.') {
-  const detail = error?.response?.data?.detail;
-  if (Array.isArray(detail)) {
-    return detail.map(d => `${d.loc?.join('.') || 'Field'}: ${d.msg}`).join(', ');
-  }
-  if (typeof detail === 'string' && detail.trim()) return detail;
-  const message = error?.response?.data?.message
-  if (typeof message === 'string' && message.trim()) return message
-  if (!error?.response && typeof error?.message === 'string' && error.message.trim()) {
-    return error.message
-  }
-  return fallback
-}
+// Re-exported so every screen keeps importing error handling from `api`,
+// while the rules themselves live in a module that is pure enough to test.
+export { apiErrorMessage, apiErrorStatus, isRetryableFailure } from './lib/apiErrors.js'

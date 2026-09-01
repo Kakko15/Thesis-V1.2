@@ -187,6 +187,53 @@ class TestTokenAndRoleGuards:
         monkeypatch.setattr(auth, '_token_aal', lambda _credentials, _user_id: 'aal2')
         assert auth.require_admin(user, credentials) is user
 
+    def test_the_mfa_refusal_is_worded_identically_by_every_privileged_guard(
+        self, monkeypatch,
+    ):
+        """The browser reads this wording to distinguish "you lack the role"
+        from "this session has not reached aal2" -- only the second is fixable
+        without signing in as somebody else, and only the second should offer
+        the second factor instead of a Retry button. The literal below is the
+        contract `rag-thesis-frontend/src/lib/privilegedMfa.js` matches on; if
+        this assertion is edited, that matcher has to move with it.
+        """
+        assert auth.PRIVILEGED_MFA_REQUIRED_DETAIL == (
+            'Multi-factor authentication is required for privileged access.'
+        )
+
+        user = SimpleNamespace(id='u1')
+        credentials = HTTPAuthorizationCredentials(scheme='Bearer', credentials='token')
+        monkeypatch.setattr(auth.settings, 'require_privileged_mfa', True)
+        monkeypatch.setattr(auth, '_token_aal', lambda _credentials, _user_id: 'aal1')
+        monkeypatch.setattr(auth, 'get_role_features', lambda: {})
+
+        for guard, role in (
+            (auth.require_admin, 'admin'),
+            (auth.require_superadmin, 'superadmin'),
+            (auth.require_faculty_or_admin, 'admin'),
+            (auth.require_novelty_access, 'admin'),
+            (auth.require_upload_access, 'superadmin'),
+        ):
+            monkeypatch.setattr(auth, 'get_user_role', lambda _uid, role=role: role)
+            with pytest.raises(HTTPException) as refused:
+                guard(user, credentials)
+            assert refused.value.status_code == 403
+            assert refused.value.detail == auth.PRIVILEGED_MFA_REQUIRED_DETAIL, (
+                f'{guard.__name__} must refuse in the wording the browser reads'
+            )
+
+    def test_a_role_refusal_is_not_worded_as_an_mfa_refusal(self, monkeypatch):
+        """The inverse: a genuine privilege failure must not send the browser
+        chasing a second factor that would not help."""
+        user = SimpleNamespace(id='u1')
+        monkeypatch.setattr(auth, 'get_user_role', lambda _uid: 'student')
+        monkeypatch.setattr(auth, 'get_role_features', lambda: {})
+        for guard in (auth.require_admin, auth.require_novelty_access, auth.require_upload_access):
+            with pytest.raises(HTTPException) as refused:
+                guard(user)
+            assert refused.value.status_code == 403
+            assert refused.value.detail != auth.PRIVILEGED_MFA_REQUIRED_DETAIL
+
     @pytest.mark.parametrize('guard,allowed,denied', [
         (auth.require_admin, 'admin', 'faculty'),
         (auth.require_faculty_or_admin, 'faculty', 'student'),
