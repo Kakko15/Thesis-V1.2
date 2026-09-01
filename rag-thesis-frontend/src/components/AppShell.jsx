@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/Tooltip'
 import { Sheet } from './ui/Sheet'
 import { AppearanceDialog } from './AppearanceDialog'
 import { CommandPalette } from './CommandPalette'
+import { PrivilegedMfaGate } from './PrivilegedMfaGate'
 import { cn } from '../lib/utils'
 
 function useNavItems() {
@@ -288,6 +289,9 @@ export function AppShell({ children }) {
 
       <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} items={items} onOpenAppearance={openAppearance} onOpenProfile={user ? openProfile : null} />
       <AppearanceDialog open={appearanceOpen} onClose={() => setAppearanceOpen(false)} />
+      {/* Mounted once for the whole authenticated shell: the refusal it answers
+          can arrive from any page's request, not just the one on screen. */}
+      {user && <PrivilegedMfaGate />}
     </div>
   )
 }

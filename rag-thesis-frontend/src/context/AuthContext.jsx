@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import { getFeaturePermissions } from '../api'
 import { avatarPublicUrl } from '../lib/avatar'
 import { canUseFeature } from '../lib/permissions'
+import { onPrivilegedMfaRequired } from '../lib/privilegedMfa.js'
 import {
   clearE2EAuthFixture,
   isE2ETestMode,
@@ -33,11 +34,16 @@ export const AuthProvider = ({ children }) => {
   // express as aal2 (an emailed code). Never persisted: a fresh page load of
   // an aal1 session re-raises the challenge.
   const [mfaBypass, setMfaBypass] = useState(false)
+  // Set when the API itself has refused this session for want of aal2. The
+  // server is the only party that knows whether this deployment enforces it,
+  // so its refusal — not a guess from the role — is what raises the prompt.
+  const [privilegedMfaRequired, setPrivilegedMfaRequired] = useState(false)
 
   const checkMfa = useCallback(async (currentUser) => {
     if (!currentUser) {
       setNeedsMfa(false)
       setMfaBypass(false)
+      setPrivilegedMfaRequired(false)
       return false
     }
     try {
@@ -51,6 +57,8 @@ export const AuthProvider = ({ children }) => {
       setNeedsMfa(needed)
       // A genuine aal2 session retires any app-level pass.
       if (!needed) setMfaBypass(false)
+      // Reaching aal2 is the only thing that answers the server's refusal.
+      if (data.currentLevel === 'aal2') setPrivilegedMfaRequired(false)
       return needed
     } catch {
       setNeedsMfa(false)
@@ -167,6 +175,16 @@ export const AuthProvider = ({ children }) => {
   const department = profile?.department ?? 'CCSICT'
   const status = profile?.status ?? (user ? 'unavailable' : 'approved')
 
+  // The API refuses every privileged endpoint of an aal1 session at once. When
+  // it does, retire the app-level pass an emailed code left behind: with a
+  // verified factor on the account that re-raises the ordinary sign-in
+  // challenge, and without one the shell prompts for enrollment. Either way
+  // the reader stops facing a UI that silently cannot work.
+  useEffect(() => onPrivilegedMfaRequired(() => {
+    setPrivilegedMfaRequired(true)
+    setMfaBypass(false)
+  }), [])
+
   const value = {
     user,
     profile,
@@ -178,6 +196,7 @@ export const AuthProvider = ({ children }) => {
     profileError,
     isPending: status === 'pending',
     isRejected: status === 'rejected',
+    privilegedMfaRequired,
     refreshMfa: () => checkMfa(user),
     // Mark the second step as passed for this login when it was proven in a
     // way Supabase cannot express as aal2 (an emailed code).

@@ -7,7 +7,7 @@ import {
   ShieldCheck, FileSearch, FileText, X, History, Send,
   MessageSquareText, Sparkles, ScanSearch, AlertTriangle, Download, Info,
 } from 'lucide-react'
-import { scanDuplication, getScanHistory, scanDuplicationChat, apiErrorMessage, getDepartments } from '../api'
+import { scanDuplication, getScanHistory, scanDuplicationChat, apiErrorMessage, isRetryableFailure, getDepartments } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Button } from '../components/ui/Button'
@@ -273,6 +273,7 @@ export default function Novelty() {
     data: history = [],
     isLoading: loadingHistory,
     isError: historyError,
+    error: historyFailure,
     refetch: retryHistory,
   } = useQuery({
     queryKey: ['scan-history'],
@@ -361,8 +362,16 @@ export default function Novelty() {
             <div className="space-y-2">{HISTORY_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-16" />)}</div>
           ) : historyError ? (
             <div role="alert" className="rounded-xl bg-flame-500/10 p-3 text-xs">
-              <div className="flex items-center gap-2"><AlertTriangle size={14} /> Scan history is unavailable.</div>
-              <Button variant="ghost" size="sm" className="mt-2" onClick={() => retryHistory()}>Retry</Button>
+              {/* The server states why — a privilege or two-factor refusal is
+                  actionable, and hiding it behind a generic line leaves the
+                  reader with a broken panel and no way to know what to fix. */}
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>{apiErrorMessage(historyFailure, 'Scan history is unavailable.')}</span>
+              </div>
+              {isRetryableFailure(historyFailure) && (
+                <Button variant="ghost" size="sm" className="mt-2" onClick={() => retryHistory()}>Retry</Button>
+              )}
             </div>
           ) : history.length === 0 ? (
             <EmptyState icon={FileSearch} title="No scans yet" message="Your novelty scans will appear here." />

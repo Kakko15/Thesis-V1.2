@@ -215,6 +215,17 @@ def _token_aal(
         return 'aal1'
 
 
+# The single wording of this refusal. The browser reads it to tell an ordinary
+# authorization failure from "this session can never do privileged work until
+# it reaches aal2", and reacts by offering the second factor rather than a
+# Retry button. `rag-thesis-frontend/src/lib/privilegedMfa.js` matches on a
+# lowercase prefix of it; `tests/test_auth_authorization.py` pins the string so
+# a reworded message cannot quietly strand that side.
+PRIVILEGED_MFA_REQUIRED_DETAIL = (
+    'Multi-factor authentication is required for privileged access.'
+)
+
+
 def _require_privileged_mfa(
     credentials: HTTPAuthorizationCredentials,
     expected_user_id: str,
@@ -225,7 +236,7 @@ def _require_privileged_mfa(
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail='Multi-factor authentication is required for privileged access.',
+            detail=PRIVILEGED_MFA_REQUIRED_DETAIL,
         )
 
 
