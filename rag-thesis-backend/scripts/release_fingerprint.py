@@ -6,8 +6,10 @@ import json
 import platform
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from config import settings
+from services.gemini_pool import gateway_enabled
 from services.index_provenance import current_index_fingerprint
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +33,19 @@ def git_commit() -> str | None:
         return None
 
 
+def gateway_host() -> str | None:
+    """Host of the configured chat gateway, or None when Google is used directly.
+
+    The host, never the URL and never the credential. A base URL can carry a
+    path, a query string, or embedded userinfo, and this value is written into
+    an artifact that is committed and shown to a panel.
+    """
+    base_url = settings.llm_base_url.strip()
+    if not base_url:
+        return None
+    return urlsplit(base_url).hostname
+
+
 def build_manifest() -> dict:
     inputs = [
         ROOT / 'rag-thesis-backend' / 'requirements.txt',
@@ -45,7 +60,13 @@ def build_manifest() -> dict:
         ROOT / 'docker-compose.operations.yml',
     ]
     return {
-        'schema_version': 1,
+        # 2 adds `generation_route`. Section 3.2.1 of the paper claims every
+        # reported result is attributable to one exact configuration, and until
+        # this field existed that was not true: LLM_BASE_URL is read from the
+        # environment with an empty default, so routing every chat, extract and
+        # verdict call through a third-party gateway left this manifest
+        # byte-identical to a direct-to-Google run.
+        'schema_version': 2,
         'git_commit': git_commit(),
         'runtime': {'python': platform.python_version(), 'python_implementation': platform.python_implementation()},
         'models': {
@@ -58,6 +79,15 @@ def build_manifest() -> dict:
             'max_retries': settings.gemini_max_retries,
             'max_output_tokens': settings.gemini_max_output_tokens,
             'thinking_level': settings.gemini_thinking_level,
+        },
+        # Which provider actually served the generation calls. The embedding
+        # route is deliberately absent: it cannot be redirected (see
+        # services/gemini_pool.py), so it is always Google and recording it
+        # would imply a choice that does not exist.
+        'generation_route': {
+            'gateway_enabled': gateway_enabled(),
+            'gateway_host': gateway_host(),
+            'reserve_key_count': len(settings.gemini_reserve_key_list),
         },
         'rag_contract': {
             'chunk_size_tokens': settings.chunk_size_tokens,
