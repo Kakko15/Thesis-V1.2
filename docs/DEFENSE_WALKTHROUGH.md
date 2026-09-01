@@ -5,6 +5,10 @@ again on **2026-08-31** against a live archive and live queries.
 Every number here was measured or read from the code, not estimated. Where something is unmeasured or unfinished it says so, because the
 fastest way to lose a panel is to be caught overstating one claim.
 
+Re-read from the database on 2026-09-02: the archive holds **3** ready papers
+and 29 chunks, but only the **2** CCSICT ones (26 chunks) are reachable — the
+third sits in the inactive CAS department. See the demo-day checklist in §8.
+
 Corrected on 2026-08-31: the archive holds **2** ready papers, not 3; the
 embedding model is `gemini-embedding-001`; grounded answers measured 4.5–11.4 s
 on the currently configured route; and chat generation may now be routed through
@@ -363,12 +367,21 @@ addressed to the assistant, verified on the 40-case matrix in
       that is fixed, but the widget is unnecessary and adds a dependency.
 - [ ] Backend, frontend, **and the ingestion worker** all running. Uploads stay
       queued forever without the worker.
-- [ ] Know which project you are pointed at. Your app database has **2 ready
-      papers, 26 CCSICT chunks** (22 + 4), verified 2026-08-31. A thin archive is
-      fine; being surprised by it is not. Only one of the two is not your own
-      thesis, so demo on *Real-Time Autonomous Pedestrian Safety and Hazard
-      Detection Using YOLOv11* (Bugauisan & Respicio, 2025) — asking your own
-      paper about itself invites the obvious objection.
+- [ ] Know which project you are pointed at. Your app database holds **3 ready
+      papers and 29 chunks**, of which **2 papers and 26 CCSICT chunks** (22 + 4)
+      are reachable — read from the database on 2026-09-02. The third,
+      *The Psychological Impact of AI-Mediated Communication on Interpersonal
+      Empathy and Relational Attachment* (Fronda & Simbulan, 2026), is filed
+      under **CAS**, a standby department with `active = false`, so department
+      scoping inside `match_chunks` keeps it out of guest chat, the archive
+      filters and retrieval entirely. **Quote 3 or 2 deliberately**: three
+      manuscripts are indexed, two are answerable. A thin archive is fine; being
+      surprised by it is not.
+
+      Only one of the two CCSICT papers is not your own thesis, so demo on
+      *Real-Time Autonomous Pedestrian Safety and Hazard Detection Using
+      YOLOv11* (Bugauisan & Respicio, 2025) — asking your own paper about itself
+      invites the obvious objection.
 - [ ] One rehearsed question you know retrieves well, and one refusal example.
 - [ ] Do not demo an upload you have not rehearsed — ingestion takes minutes and
       spends provider quota.
