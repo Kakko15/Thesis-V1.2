@@ -50,8 +50,17 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from warning_filters import silence_known_third_party_warnings
+
+# Must run before the first `langchain*` import below.
+silence_known_third_party_warnings()
+
+# The filter call above has to precede these imports, so the first-party
+# import that provides it cannot sit in its usual place.
+# pylint: disable=wrong-import-order
 from fastapi import BackgroundTasks
 from langchain_google_genai import ChatGoogleGenerativeAI
+# pylint: enable=wrong-import-order
 
 from config import settings
 from models import ChatRequest

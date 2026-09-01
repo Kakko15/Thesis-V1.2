@@ -12,6 +12,10 @@ from pathlib import Path
 # Ensure the backend root is importable regardless of the pytest invocation dir
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from warning_filters import silence_known_third_party_warnings
+
+silence_known_third_party_warnings()
+
 _ISOLATED_TEST_ENV = {
     'GEMINI_API_KEY': 'test-key',
     # Provider ROUTING, not just credentials. Omitting these let a developer's
