@@ -75,6 +75,28 @@ def public_source(paper: dict, similarity: float | None = None, *, chunk: dict |
     return source
 
 
+_LINE_INITIAL_MARKER = re.compile(r'(?m)^\[(\d+)\]')
+
+
+def safe_chunk_text(content: str) -> str:
+    """Escape archived text and neutralise anything shaped like a source header.
+
+    Each evidence block is emitted as `[n] Title: ... | Authors: ...` followed by
+    the chunk body, and `html.escape` does not touch `[`. A manuscript line
+    beginning `[7] Title:` was therefore indistinguishable from a real header.
+
+    That is not only a prompt-injection surface. The Objective 2 harness parses
+    exactly this shape (`run_comparison._CONTEXT_HEADER`), so a forged header
+    also inflates the retrieved-context list that Context Precision is computed
+    over: measured, one real block plus one forged line yielded two blocks from
+    a single source. Rewriting the bracket to a parenthesis leaves the text
+    readable and the count correct.
+    """
+    return _LINE_INITIAL_MARKER.sub(
+        r'(\1)', html.escape(content or '', quote=False),
+    )
+
+
 def chunk_location(chunk: dict) -> dict:
     """Read location columns first, then legacy JSON metadata."""
     metadata = chunk.get('metadata') or {}
@@ -526,7 +548,7 @@ def get_paper_overview_context(
             meta_bits.append(f'Pages: {page_label}')
         if location['section']:
             meta_bits.append(f'Section: {location["section"]}')
-        safe_content = html.escape(chunk.get('content', ''), quote=False)
+        safe_content = safe_chunk_text(chunk.get('content', ''))
         context_parts.append(f'[{citation_id}] {" | ".join(meta_bits)}\n{safe_content}')
         sources.append(public_source(
             paper,
@@ -650,7 +672,7 @@ def search_chunks(
             meta_bits.append(f'Pages: {page_label}')
         if location['section']:
             meta_bits.append(f"Section: {location['section']}")
-        safe_content = html.escape(chunk['content'], quote=False)
+        safe_content = safe_chunk_text(chunk['content'])
         context_parts.append(f"[{n}] {' | '.join(meta_bits)}\n{safe_content}")
 
     # Sources list indexed by citation number ([1] == sources[0])

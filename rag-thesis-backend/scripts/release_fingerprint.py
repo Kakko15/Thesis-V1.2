@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from config import settings
 from services.gemini_pool import gateway_enabled
 from services.index_provenance import current_index_fingerprint
+from services.prompts import PROMPT_VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,6 +55,10 @@ def build_manifest() -> dict:
         ROOT / 'rag-thesis-backend' / 'requirements.lock',
         ROOT / 'rag-thesis-backend' / 'config.py',
         ROOT / 'rag-thesis-backend' / 'routers' / 'chat.py',
+        # The generation prompts moved out of chat.py into their own module.
+        # Hashing only chat.py would have silently stopped covering them at
+        # exactly the point where the paper claims the configuration is frozen.
+        ROOT / 'rag-thesis-backend' / 'services' / 'prompts.py',
         ROOT / 'rag-thesis-frontend' / 'package-lock.json',
         ROOT / 'rag-thesis-backend' / 'Dockerfile',
         ROOT / 'rag-thesis-frontend' / 'Dockerfile',
@@ -74,6 +79,9 @@ def build_manifest() -> dict:
             'verdict': settings.gemini_verdict_model,
             'embedding': settings.gemini_embed_model,
         },
+        # Named rather than left to the file hash, so a reader can tell which
+        # prompt contract produced a result without diffing two manifests.
+        'prompt_version': PROMPT_VERSION,
         'generation_contract': {
             'timeout_seconds': settings.gemini_timeout_seconds,
             'max_retries': settings.gemini_max_retries,

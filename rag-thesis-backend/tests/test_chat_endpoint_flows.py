@@ -263,7 +263,11 @@ class TestRetrievalAndGenerationFlow:
         )
         assert response.sources == sources
 
-    def test_model_no_evidence_discards_sources(self, monkeypatch):
+    def test_uncited_no_evidence_answer_falls_back_to_the_generic_notice(self, monkeypatch):
+        """An answer that reports no evidence AND cites nothing has nothing worth
+        keeping, so it still becomes the generic message with no sources. The
+        cited case is covered in tests/test_prompt_contracts.py.
+        """
         sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'}]
         async def retrieve(*_args): return ('[1] Evidence', sources, 0.9), None
         async def generate(*_args): return SimpleNamespace(content='I cannot verify that from the evidence.'), None

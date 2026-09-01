@@ -289,12 +289,22 @@ class TestChatImplBranches:
         async def generate(*_args):
             return SimpleNamespace(content="Hello! I'm IskAI, happy to help."), None
         response = _impl('What methods were used?', monkeypatch, retrieve=retrieve, generate=generate)
-        # The grounded fallback text begins with "I could not verify …", which
-        # the no-evidence detector then converts into the explicit no-result
-        # message — so a greeting degrades safely to "no relevant thesis".
+        # A greeting degrades to the grounded fallback, which keeps its
+        # citations. It is deliberately NOT flagged `no_relevant_thesis`:
+        # retrieval succeeded and the sources are real, exactly as
+        # `chat_notices.GROUNDED_FALLBACK_PREFIX` documents.
+        #
+        # This previously asserted the opposite, because the no-evidence
+        # phrase detector ran a second time on the fallback text and matched
+        # its own opening words -- `GROUNDED_FALLBACK_PREFIX` begins
+        # "I could not verify a direct answer" and "could not verify" is the
+        # first phrase in that list. The detector now runs once, on the
+        # model's own output, so a system-authored fallback can no longer
+        # trip it.
         assert 'hello' not in response.answer.lower()
-        assert response.no_relevant_thesis is True
-        assert response.sources == []
+        assert response.answer.startswith(chat_notices.GROUNDED_FALLBACK_PREFIX)
+        assert response.no_relevant_thesis is False
+        assert response.sources == sources
 
     def test_repair_ladder_accepts_ai_repaired_answer(self, monkeypatch):
         sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'Alpha'}]
