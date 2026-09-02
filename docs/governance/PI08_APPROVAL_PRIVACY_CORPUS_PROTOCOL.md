@@ -112,21 +112,21 @@ Validate the working structure:
 
 ```powershell
 cd rag-thesis-backend
-.\.venv312\Scripts\python.exe -m scripts.corpus_manifest validate `
+.\.venv\Scripts\python.exe -m scripts.corpus_manifest validate `
   evaluation/corpus/private/corpus_manifest.working.json
 ```
 
 After all approvals and 50 records are complete, set `status` to `approved` and run the strict gate:
 
 ```powershell
-.\.venv312\Scripts\python.exe -m scripts.corpus_manifest validate `
+.\.venv\Scripts\python.exe -m scripts.corpus_manifest validate `
   evaluation/corpus/private/corpus_manifest.working.json --lock-ready
 ```
 
 Create immutable artifacts. Neither output may already exist:
 
 ```powershell
-.\.venv312\Scripts\python.exe -m scripts.corpus_manifest lock `
+.\.venv\Scripts\python.exe -m scripts.corpus_manifest lock `
   evaluation/corpus/private/corpus_manifest.working.json `
   --manifest-output evaluation/corpus/private/corpus-2026-defense.locked.json `
   --receipt-output evaluation/results/release-2026-08-28/corpus.receipt.json
@@ -135,7 +135,7 @@ Create immutable artifacts. Neither output may already exist:
 Verify before every formal evaluation:
 
 ```powershell
-.\.venv312\Scripts\python.exe -m scripts.corpus_manifest verify `
+.\.venv\Scripts\python.exe -m scripts.corpus_manifest verify `
   evaluation/corpus/private/corpus-2026-defense.locked.json `
   evaluation/results/release-2026-08-28/corpus.receipt.json
 ```

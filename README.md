@@ -35,7 +35,7 @@ Key paper parameters enforced in code:
 - **Data cleaning pipeline** — page numbers, headers/footers, TOC and bibliography stripped; chunks with >15% non-alphanumeric characters discarded; `FIGURE REDACTED FOR SEMANTIC INDEXING` placeholders injected.
 - **Indirect access model** — private storage bucket; API responses expose citation metadata only.
 - **Knowledge isolation** — the LLM answers exclusively from retrieved CCSICT context.
-- **Current stable model defaults** — `gemini-3.6-flash` for grounded chat, `gemini-3.5-flash-lite` for bounded verdict/extraction work, and `gemini-embedding-001` at 768 dimensions. Deployment overrides must be captured in the release fingerprint.
+- **Current stable model defaults** — `gemini-3.6-flash` for grounded chat, `gemini-3.5-flash-lite` for the novelty-scan verdict and as the Ragas judge (title-page metadata extraction runs on the chat model), and `gemini-embedding-001` at 768 dimensions. Deployment overrides must be captured in the release fingerprint.
 
 ## Setup
 
@@ -376,7 +376,7 @@ The GitHub Actions workflow `.github/workflows/quality.yml` runs on every push t
 | Job | Steps |
 |---|---|
 | **Backend** | hash-verified install from `requirements.lock`, `pip check`, `pip-audit --no-deps` against the lock, PyTest with `--cov-fail-under=85`, Pylint |
-| **Frontend** | `npm audit --omit=dev`, ESLint, unit tests with coverage thresholds, production build, bundle-size budget, 21 Playwright specs including the axe accessibility matrix |
+| **Frontend** | `npm audit --omit=dev`, ESLint, unit tests with coverage thresholds, production build, bundle-size budget, 24 Playwright tests (12 critical flows, the 11-surface axe accessibility matrix, 1 visual-quality matrix) |
 | **Secret scan** | Gitleaks over full history |
 | **Containers** | build and Trivy-scan both images (CRITICAL/HIGH, fixed only), emit an SPDX SBOM per image |
 | **SonarQube** | consumes both coverage artifacts; skipped when `SONAR_TOKEN` is absent |

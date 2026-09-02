@@ -386,7 +386,7 @@ disposable-project checks also run and the totals read 677 passed / 1 skipped.
 | Frontend maintainability | ESLint 9.39.5 | 0 errors and 0 warnings | Passed |
 | Frontend production build | Vite 8.1.5 | 3,859 modules transformed; production build completed | Passed |
 | Critical browser journeys | Playwright 1.61.1 with Chromium | 21/21 passed (11 accessibility surfaces, 9 critical flows, 1 visual-quality matrix) | Passed |
-| Accessibility (WCAG 2.2 AA) | Playwright + axe-core 4.12.1 | 0 blocking (serious/critical) **and 0 advisory** findings across 11 surfaces x 4 theme states x {1280px, 360px}. The 25 advisory `heading-order` findings recorded on 2026-08-03 were five distinct problems counted across five theme/viewport states; all are closed | Passed |
+| Accessibility (WCAG 2.2 AA) | Playwright + axe-core 4.12.1 | 0 blocking (serious/critical) **and 0 advisory** findings across 55 scans: 11 surfaces x 4 theme states at 1280px, plus dark-standard at 360px (wording corrected 2026-09-03; the spec has never run every state at both widths). The 25 advisory `heading-order` findings recorded on 2026-08-03 were five distinct problems counted across five theme/viewport states; all are closed | Passed |
 | Frontend production dependency audit | `npm audit --omit=dev` | found 0 vulnerabilities | Passed |
 | Backend dependency vulnerability audit | pip-audit | Not re-run in this pass; requires network access to the advisory database. Last dated result (2026-07-25) was clean | Pending re-run |
 | Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771 | Not re-run in this pass; no SonarQube server was available. See the 2026-07-20 snapshot below and its recorded qualifications | Pending re-run |
