@@ -158,6 +158,12 @@ idempotency, and the retrieval constants (cosine 0.30, top-k 5, department-scope
 > that is what those runs actually used. Those artifacts are historical records and are
 > deliberately left unaltered; the release smoke needs re-running against
 > `gemini-embedding-001` before the final defense.
+>
+> **Done 2026-09-03.** `docs/evidence/security/pi-03-gemini-20260903-045753/` records a
+> PASS of `scripts/gemini_release_smoke.py` inside the release image built from `9cb3659`,
+> on the direct Google route: `gemini-3.6-flash` and `gemini-3.5-flash-lite` answered,
+> and `gemini-embedding-001` returned 768 finite values. The 2026-07-25 bundle is
+> superseded, not altered.
 
 ## Pass 5 - Figure 1 replaced, 2026-08-30
 

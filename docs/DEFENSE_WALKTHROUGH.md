@@ -9,6 +9,10 @@ Re-read from the database on 2026-09-02: the archive holds **3** ready papers
 and 29 chunks, but only the **2** CCSICT ones (26 chunks) are reachable — the
 third sits in the inactive CAS department. See the demo-day checklist in §8.
 
+Re-verified on **2026-09-03** against commit `9cb3659`: the quality table in §6
+carries that revision's figures, and the live index provenance was read the same
+day — all three active indexes are `gemini-embedding-001`, verified.
+
 Corrected on 2026-08-31: the archive holds **2** ready papers, not 3; the
 embedding model is `gemini-embedding-001`; grounded answers measured 4.5–11.4 s
 on the currently configured route; and chat generation may now be routed through
@@ -296,17 +300,17 @@ development host. Everything is dated in `evaluation/iso25010_evidence.md`.
 
 | Instrument | Result |
 |---|---|
-| Backend tests (PyTest, gated ≥85%) | **944 passed, 3 skipped, 91.58% coverage** (4,273 statements, 360 missed) |
+| Backend tests (PyTest, gated ≥85%) | **970 passed, 3 skipped, 91.58% coverage** (4,277 statements, 360 missed) |
 | Backend lint (Pylint) | **10.00/10** |
 | Frontend tests | **130 passed** — 95.15% lines, 90.09% branches, 95.24% functions |
 | Frontend lint (ESLint) | **0 errors, 1 warning** (`Archive.jsx` complexity 27 > 24; advisory, the gate still exits 0) |
 | Browser journeys (Playwright) | **24 passed** |
-| Reliability (SonarQube 26.7.0.124771) | Gate **PASSED** — 0 bugs, 0 vulnerabilities, 0 hotspots; Reliability **A**, Security **A**, Maintainability **A**; duplication 1.3% (2026-09-01 local scan; green in CI on `da9e931`) |
+| Reliability (SonarQube 26.7.0.124771) | Gate **PASSED** — 0 bugs, 0 vulnerabilities, 0 hotspots; Reliability **A**, Security **A**, Maintainability **A**; duplication 1.3% (2026-09-01 local scan; green in CI on `9cb3659`) |
 | Accessibility (axe-core 4.12.1, WCAG 2.2 AA) | **0 blocking, 0 advisory** over 55 scans — 11 surfaces × 4 theme/contrast states at 1280 px, plus dark-standard at 360 px |
 | Production dependency audit | **0 vulnerabilities** (npm, production tree); **0 advisories** (pip-audit over the 98-package hash-pinned lock, in CI) |
 | Dependency integrity | **98 packages hash-locked, 2,353 SHA-256 hashes**, `--require-hashes` |
-| Container images | Digest-pinned; SBOM emitted per commit |
-| CI | **6 checks, all green** on `da9e931` ([run 33658152770](https://github.com/Kakko15/Thesis-V1.2/actions/runs/33658152770)) |
+| Container images | Digest-pinned; SBOM emitted per commit; the backend image built from `9cb3659` starts with both entrypoints importing (the image from `da9e931` could not, and CI now runs that import check) |
+| CI | **6 checks, all green** on `9cb3659` ([run 33680548573](https://github.com/Kakko15/Thesis-V1.2/actions/runs/33680548573)) |
 
 If asked about defect history, the honest and impressive answer is:
 > A full audit found 20 defects. Independent passes during remediation found 17
