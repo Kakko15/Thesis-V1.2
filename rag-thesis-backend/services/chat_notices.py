@@ -32,6 +32,7 @@ import time
 from config import settings
 from services.guards import REFUSAL_MESSAGE
 from services.guest_budget import GUEST_BUDGET_MESSAGE
+from services.network_retry import mentions_http_status
 
 KIND_ANSWER = 'answer'
 KIND_NOTICE = 'notice'
@@ -96,13 +97,21 @@ NOTICE_MARKERS = (
 _CAPACITY_STATE = {'limited_until': 0.0}
 
 _TRANSIENT_CAPACITY_MARKERS = (
-    '429', 'resource_exhausted', 'quota exceeded', 'rate limit', 'too many requests',
+    'resource_exhausted', 'quota exceeded', 'rate limit', 'too many requests',
 )
+# Matched as a labelled HTTP status ("HTTP 429", "code: 429", "429 Too Many
+# Requests"), never as a bare substring: '429' also occurs inside chunk counts,
+# byte sizes and identifiers, and a false positive here trips the process-wide
+# cooldown below and rotates the key pool for nothing.
+_CAPACITY_STATUSES = ('429',)
 
 
 def is_capacity_error(error: Exception) -> bool:
     message = str(error).lower()
-    return any(marker in message for marker in _TRANSIENT_CAPACITY_MARKERS)
+    return (
+        any(marker in message for marker in _TRANSIENT_CAPACITY_MARKERS)
+        or mentions_http_status(message, _CAPACITY_STATUSES)
+    )
 
 
 def capacity_limit_is_active() -> bool:

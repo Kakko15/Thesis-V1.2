@@ -42,11 +42,22 @@ _STATUS_PATTERN = re.compile(
 )
 
 
-def _has_retryable_status(message: str) -> bool:
+def mentions_http_status(message: str, statuses: tuple[str, ...]) -> bool:
+    """True when `message` names one of `statuses` as an HTTP status.
+
+    Shared with `services.chat_notices`, whose capacity check used to look for
+    the bare substring '429' -- exactly the false-positive shape the pattern
+    above exists to exclude: a chunk count or identifier carrying those digits
+    would have tripped a 60-second provider cooldown.
+    """
     return any(
-        (match.group('labelled') or match.group('bare')) in _RETRYABLE_STATUSES
+        (match.group('labelled') or match.group('bare')) in statuses
         for match in _STATUS_PATTERN.finditer(message)
     )
+
+
+def _has_retryable_status(message: str) -> bool:
+    return mentions_http_status(message, _RETRYABLE_STATUSES)
 
 
 def is_transient_network_error(error: BaseException) -> bool:

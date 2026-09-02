@@ -312,3 +312,32 @@ class TestTheMigrationMatchesTheApplication:
         assert 'p_kind text default' in schema
         # A fresh install must write the column, not just declare it.
         assert 'duplication_alert, kind' in schema
+
+
+class TestCapacityErrorsAreRecognisedByStatusNotByDigits:
+    """'429' used to be matched as a bare substring, so any error text carrying
+    those digits -- a chunk count, a byte size, a row identifier -- tripped the
+    60-second capacity cooldown and rotated the key pool. The status is now
+    matched the way `services.network_retry` matches retryable statuses: as a
+    labelled HTTP status, or a status followed by its reason phrase."""
+
+    @pytest.mark.parametrize('message', [
+        '429 RESOURCE_EXHAUSTED: quota exceeded',
+        'HTTP 429',
+        'Error code: 429 - {"error": {"message": "You exceeded your current quota"}}',
+        'status_code=429',
+        '429 Too Many Requests',
+        'Rate limit reached for gemini-3.6-flash',
+    ])
+    def test_provider_capacity_shapes_are_recognised(self, message):
+        assert chat_notices.is_capacity_error(RuntimeError(message))
+
+    @pytest.mark.parametrize('message', [
+        'Indexed 1429 chunks for paper 7',
+        'Row 429 of 500 failed validation',
+        'Upload of 429000 bytes rejected',
+        'Job 8a429c1e could not be claimed',
+        'boom',
+    ])
+    def test_digits_inside_ordinary_text_are_not_a_capacity_signal(self, message):
+        assert not chat_notices.is_capacity_error(RuntimeError(message))
