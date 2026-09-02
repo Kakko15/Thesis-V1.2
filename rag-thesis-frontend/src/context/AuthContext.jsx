@@ -34,16 +34,18 @@ export const AuthProvider = ({ children }) => {
   // express as aal2 (an emailed code). Never persisted: a fresh page load of
   // an aal1 session re-raises the challenge.
   const [mfaBypass, setMfaBypass] = useState(false)
-  // Set when the API itself has refused this session for want of aal2. The
+  // How many times the API has refused this session for want of aal2. The
   // server is the only party that knows whether this deployment enforces it,
   // so its refusal — not a guess from the role — is what raises the prompt.
-  const [privilegedMfaRequired, setPrivilegedMfaRequired] = useState(false)
+  // A count rather than a flag, so a prompt the reader dismissed can be
+  // raised again by the next refusal instead of staying silent for good.
+  const [privilegedMfaRefusals, setPrivilegedMfaRefusals] = useState(0)
 
   const checkMfa = useCallback(async (currentUser) => {
     if (!currentUser) {
       setNeedsMfa(false)
       setMfaBypass(false)
-      setPrivilegedMfaRequired(false)
+      setPrivilegedMfaRefusals(0)
       return false
     }
     try {
@@ -58,7 +60,7 @@ export const AuthProvider = ({ children }) => {
       // A genuine aal2 session retires any app-level pass.
       if (!needed) setMfaBypass(false)
       // Reaching aal2 is the only thing that answers the server's refusal.
-      if (data.currentLevel === 'aal2') setPrivilegedMfaRequired(false)
+      if (data.currentLevel === 'aal2') setPrivilegedMfaRefusals(0)
       return needed
     } catch {
       setNeedsMfa(false)
@@ -175,15 +177,17 @@ export const AuthProvider = ({ children }) => {
   const department = profile?.department ?? 'CCSICT'
   const status = profile?.status ?? (user ? 'unavailable' : 'approved')
 
-  // The API refuses every privileged endpoint of an aal1 session at once. When
-  // it does, retire the app-level pass an emailed code left behind: with a
-  // verified factor on the account that re-raises the ordinary sign-in
-  // challenge, and without one the shell prompts for enrollment. Either way
-  // the reader stops facing a UI that silently cannot work.
-  useEffect(() => onPrivilegedMfaRequired(() => {
-    setPrivilegedMfaRequired(true)
-    setMfaBypass(false)
-  }), [])
+  // The API refuses every privileged endpoint of an aal1 session at once. Note
+  // what this deliberately does NOT do: it leaves `mfaBypass` alone. Clearing
+  // it re-raises `needsMfa`, which sends ProtectedRoute to /login — where the
+  // emailed code is offered again, produces another aal1 session, and walks
+  // the reader straight back into the same refusal. The second factor is
+  // collected in place instead, by PrivilegedMfaGate, so the reader keeps the
+  // page they were on and the loop cannot form.
+  useEffect(
+    () => onPrivilegedMfaRequired(() => setPrivilegedMfaRefusals((count) => count + 1)),
+    [],
+  )
 
   const value = {
     user,
@@ -196,7 +200,8 @@ export const AuthProvider = ({ children }) => {
     profileError,
     isPending: status === 'pending',
     isRejected: status === 'rejected',
-    privilegedMfaRequired,
+    privilegedMfaRequired: privilegedMfaRefusals > 0,
+    privilegedMfaRefusals,
     refreshMfa: () => checkMfa(user),
     // Mark the second step as passed for this login when it was proven in a
     // way Supabase cannot express as aal2 (an emailed code).

@@ -49,3 +49,23 @@ export function reportPrivilegedMfaRequired() {
 export function resetPrivilegedMfaListeners() {
   listeners.clear()
 }
+
+/**
+ * Whether the recovery prompt should stand open.
+ *
+ * `refusals` counts the API refusals this session has seen; `dismissedAt` is
+ * that count when the reader last closed the prompt. Comparing the two makes
+ * dismissal mean "not now" rather than "stop telling me this session cannot
+ * work" — a later refusal raises it again, because the reader has just walked
+ * into the same wall a second time.
+ *
+ * It stays shut while the factor lookup is still in flight (which of the two
+ * recoveries applies is not yet known) and while the enrolment dialog owns the
+ * screen (two stacked dialogs, one behind the other).
+ */
+export function shouldPromptForPrivilegedMfa({
+  refusals = 0, dismissedAt = 0, factorsLoading = false, enrolling = false,
+} = {}) {
+  if (factorsLoading || enrolling) return false
+  return refusals > dismissedAt
+}
