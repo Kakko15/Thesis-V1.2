@@ -591,3 +591,174 @@ class TestChatPersistence:
 
 async def _async_value(value):
     return value
+
+
+class TestReportedTranscriptRegressions:
+    """Two defects observed in a live 2026-09-02 guest transcript."""
+
+    REMEMBERED = 'Real-Time Autonomous Pedestrian Safety and Hazard Detection Using YOLOv11'
+    NAMED = 'A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation'
+
+    def test_a_partial_title_switches_away_from_the_remembered_thesis(self, monkeypatch):
+        """A bare partial title used to pin the previous turn's paper and report
+        that *it* contains no centralized AI-powered system -- a confident
+        answer about the wrong manuscript."""
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [
+            {'id': 'p2', 'title': self.REMEMBERED},
+        ])
+        monkeypatch.setattr(chat, 'find_papers_by_title', lambda *_args: [])
+        monkeypatch.setattr(chat, 'find_papers_by_title_fragment', lambda *_args: [
+            {'id': 'p1', 'title': self.NAMED, 'authors': 'Barlis, Gallardo'},
+        ])
+        monkeypatch.setattr(chat, 'find_papers_by_author', lambda *_args: [])
+        captured = {}
+
+        async def retrieve(question, _department, paper_id, is_overview, _category=None):
+            captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
+            return ('[1] Centralized library evidence', [{
+                'citation_id': 1, 'id': 'p1', 'chunk_id': 3, 'title': self.NAMED,
+            }], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='The library indexes CCSICT theses [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(
+                question='what about the A centralized ai powered',
+                # The prior turn is what made this a regression: with history
+                # present the ambiguous-follow-up branch pins reference_sources[0]
+                # — the YOLOv11 paper — unless the fragment resolves first.
+                guest_history=['tell me about the objectives of Real Time Autonomous'],
+                guest_source_ids=['p2'],
+            ),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert captured['paper_id'] == 'p1'
+        # A bare reference carries no question of its own, so it is treated as
+        # an overview request exactly like a numbered reference.
+        assert captured['is_overview'] is True
+        assert self.NAMED in captured['question']
+        assert response.sources[0]['id'] == 'p1'
+
+    def test_an_unresolvable_fragment_leaves_followup_handling_untouched(self, monkeypatch):
+        """The fragment path must not swallow ordinary follow-ups: when the
+        archive does not make the wording unique, the remembered paper is still
+        the right referent."""
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [
+            {'id': 'p2', 'title': self.REMEMBERED},
+        ])
+        monkeypatch.setattr(chat, 'find_papers_by_title', lambda *_args: [])
+        monkeypatch.setattr(chat, 'find_papers_by_title_fragment', lambda *_args: [])
+        # `what about their ...` also reaches the author fast path, which
+        # resolves to nothing here and falls through.
+        monkeypatch.setattr(chat, 'find_papers_by_author', lambda *_args: [])
+        captured = {}
+
+        async def retrieve(question, _department, paper_id, is_overview, _category=None):
+            captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
+            return ('[1] evidence', [{
+                'citation_id': 1, 'id': 'p2', 'chunk_id': 4, 'title': self.REMEMBERED,
+            }], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='It fused KITTI data with urban footage [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        run(chat._chat_impl(
+            ChatRequest(
+                question='what about their dataset preparation',
+                # A follow-up needs a prior turn; without one
+                # `is_ambiguous_followup` declines and nothing would be
+                # resolved against, fragment or not.
+                guest_history=['tell me about the objectives of the YOLOv11 thesis'],
+                guest_source_ids=['p2'],
+            ),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert captured['paper_id'] == 'p2'
+
+    def test_a_failed_fragment_lookup_degrades_instead_of_failing_the_turn(self, monkeypatch):
+        def unavailable(*_args):
+            raise RuntimeError('archive unavailable')
+
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [])
+        monkeypatch.setattr(chat, 'find_papers_by_title', lambda *_args: [])
+        monkeypatch.setattr(chat, 'find_papers_by_title_fragment', unavailable)
+
+        async def retrieve(_question, _department, paper_id, _is_overview, _category=None):
+            assert paper_id is None
+            return ('[1] evidence', [{
+                'citation_id': 1, 'id': 'p9', 'chunk_id': 5, 'title': 'Some thesis',
+            }], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='One archived study is relevant [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(question='what about the A centralized ai powered'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.sources[0]['id'] == 'p9'
+
+    def test_self_directed_provenance_never_searches_the_archive(self, monkeypatch):
+        async def should_not_retrieve(*_args):
+            raise AssertionError('provenance questions must not run vector retrieval')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='Who developed you?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.answer == chat.chat_notices.SYSTEM_ORIGIN_MESSAGE
+        assert response.sources == []
+        assert response.no_relevant_thesis is False
+
+    def test_this_system_is_provenance_only_when_nothing_else_can_be_meant(self, monkeypatch):
+        async def should_not_retrieve(*_args):
+            raise AssertionError('provenance questions must not run vector retrieval')
+
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [])
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='who developed this system?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.answer == chat.chat_notices.SYSTEM_ORIGIN_MESSAGE
+
+    def test_this_system_stays_a_research_question_once_a_thesis_is_on_the_table(self, monkeypatch):
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [
+            {'id': 'p2', 'title': self.REMEMBERED},
+        ])
+        captured = {}
+
+        async def retrieve(_question, _department, paper_id, _is_overview, _category=None):
+            captured.update(paper_id=paper_id)
+            return ('[1] evidence', [{
+                'citation_id': 1, 'id': 'p2', 'chunk_id': 6, 'title': self.REMEMBERED,
+            }], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='The detector was built on YOLOv11 [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(
+                question='who developed this system?',
+                guest_history=['tell me about the objectives of the YOLOv11 thesis'],
+                guest_source_ids=['p2'],
+            ),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert response.answer != chat.chat_notices.SYSTEM_ORIGIN_MESSAGE
+        # "this system" resolved to the manuscript under discussion, which is
+        # what the provenance intercept must never take away.
+        assert captured['paper_id'] == 'p2'

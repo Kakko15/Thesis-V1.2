@@ -6,12 +6,16 @@ from routers.chat import (
     _archive_inventory_response,
     _conversation_response,
     _extract_author_name,
+    _extract_thesis_title_fragment,
     _grounded_retrieval_fallback,
+    _is_ambiguous_system_origin_question,
     _is_archive_inventory_question,
     _is_archive_count_question,
     _is_model_question,
     _is_simple_conversation,
+    _is_system_origin_question,
     _looks_like_misdirected_greeting,
+    _origin_response,
     filter_cited_sources,
     get_exact_paper_prompt,
     get_exact_papers_prompt,
@@ -223,3 +227,68 @@ class TestDuplicationPercentage:
 
     def test_zero_total_chunks(self):
         assert compute_duplication_percentage(0, 0) == 0
+
+
+class TestSystemProvenanceFastPath:
+    """`who developed this system` must not be answered by semantic search.
+
+    IskAI has no evidence establishing its own authorship. Answered from the
+    archive it names whichever manuscript's system chapter ranks first, which
+    is correct only for as long as the archive is small enough for the right
+    thesis to win by accident.
+    """
+
+    def test_self_directed_provenance_questions_are_recognized(self):
+        assert _is_system_origin_question('Who developed you?')
+        assert _is_system_origin_question('who made IskAI')
+        assert _is_system_origin_question('Who created this assistant?')
+        assert _is_system_origin_question('who built this chatbot')
+
+    def test_the_ambiguous_form_is_kept_separate(self):
+        # "this system" may mean a manuscript's system, so it is answered by
+        # context in _chat_impl rather than by wording here.
+        assert _is_ambiguous_system_origin_question('who developed this system?')
+        assert _is_ambiguous_system_origin_question('Who created the platform')
+        assert not _is_system_origin_question('who developed this system?')
+
+    def test_research_questions_about_authorship_are_never_captured(self):
+        for question in (
+            'Who developed the attendance monitoring system in that thesis?',
+            'Who wrote the CNN study?',
+            'Which team built the YOLOv11 detector?',
+        ):
+            assert not _is_system_origin_question(question), question
+            assert not _is_ambiguous_system_origin_question(question), question
+
+    def test_the_reply_declines_to_name_its_own_authors(self):
+        message = _origin_response()
+        assert 'IskAI' in message
+        assert 'archived CCSICT theses' in message
+        assert 'Barlis' not in message
+        assert 'Gallardo' not in message
+
+
+class TestBareTitleReferenceCapture:
+    """The extractor is permissive on purpose: whether a fragment names a
+    thesis is decided by the archive, not by a word list here."""
+
+    def test_a_bare_reference_is_captured_verbatim(self):
+        assert _extract_thesis_title_fragment(
+            'what about the A centralized ai powered',
+        ) == 'the A centralized ai powered'
+        assert _extract_thesis_title_fragment(
+            'Tell me more about Real-Time Autonomous Pedestrian Safety?',
+        ) == 'Real-Time Autonomous Pedestrian Safety'
+        assert _extract_thesis_title_fragment(
+            'and what about the retrieval augmented generation one',
+        ) == 'the retrieval augmented generation one'
+
+    def test_short_pronoun_followups_are_not_references(self):
+        assert _extract_thesis_title_fragment('what about it?') is None
+        assert _extract_thesis_title_fragment('How about that?') is None
+
+    def test_questions_that_are_not_bare_references_are_ignored(self):
+        assert _extract_thesis_title_fragment('Who wrote the CNN study?') is None
+        assert _extract_thesis_title_fragment(
+            'What methodology did the attendance study use?',
+        ) is None

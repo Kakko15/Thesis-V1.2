@@ -207,6 +207,44 @@ def find_papers_by_ids(paper_ids: list[str], department_filter: str | None = Non
     return [public_source(by_id[paper_id]) for paper_id in unique_ids if paper_id in by_id]
 
 
+_TITLE_SELECT = 'id,title,authors,year,track,department,program_id,specialization_id'
+_TITLE_SELECT_LEGACY = 'id,title,authors,year,track,department'
+
+
+def _ready_title_candidates(
+    lookup_token: str, department_filter: str | None, limit: int,
+) -> list[dict]:
+    """Ready papers whose title contains `lookup_token`, newest schema first.
+
+    Shared by the exact-title and title-fragment lookups so the two cannot
+    drift apart on the department scope or on the legacy-column fallback. The
+    token always arrives as an `[a-z0-9]` run, so it carries no ILIKE wildcard.
+    """
+    def execute(select: str):
+        query = sb.table('papers').select(select).eq(
+            'ingestion_status', 'ready',
+        ).ilike('title', f'%{lookup_token}%')
+        if department_filter:
+            query = query.eq('department', department_filter)
+        return query.limit(limit).execute()
+
+    try:
+        return retry_transient(
+            lambda: execute(_TITLE_SELECT),
+            label='Supabase exact title lookup',
+            logger=logger,
+        ).data or []
+    except Exception as error:
+        if not _is_missing_column_error(error):
+            raise
+        # Compatibility until the optional citation-index migration is applied.
+        return retry_transient(
+            lambda: execute(_TITLE_SELECT_LEGACY),
+            label='Supabase legacy exact title lookup',
+            logger=logger,
+        ).data or []
+
+
 def find_papers_by_title(title: str, department_filter: str | None = None) -> list[dict]:
     """Resolve a user-supplied title to ready papers without semantic guessing."""
     normalized_title = _normalize_title(title)
@@ -217,38 +255,7 @@ def find_papers_by_title(title: str, department_filter: str | None = None) -> li
     # such as "Real-Time" versus "Real Time" without broadening the result.
     title_tokens = re.findall(r'[a-z0-9]+', title, flags=re.IGNORECASE)
     lookup_token = max(title_tokens, key=len)
-
-    def execute_query():
-        query = sb.table('papers').select(
-            'id,title,authors,year,track,department,program_id,specialization_id'
-        ).eq('ingestion_status', 'ready').ilike('title', f'%{lookup_token}%')
-        if department_filter:
-            query = query.eq('department', department_filter)
-        return query.limit(5).execute()
-
-    try:
-        rows = retry_transient(
-            execute_query,
-            label='Supabase exact title lookup',
-            logger=logger,
-        ).data or []
-    except Exception as error:
-        if not _is_missing_column_error(error):
-            raise
-
-        def execute_legacy_query():
-            query = sb.table('papers').select(
-                'id,title,authors,year,track,department'
-            ).eq('ingestion_status', 'ready').ilike('title', f'%{lookup_token}%')
-            if department_filter:
-                query = query.eq('department', department_filter)
-            return query.limit(5).execute()
-
-        rows = retry_transient(
-            execute_legacy_query,
-            label='Supabase legacy exact title lookup',
-            logger=logger,
-        ).data or []
+    rows = _ready_title_candidates(lookup_token, department_filter, 5)
 
     # ILIKE narrows candidates; this check prevents wildcard characters in a
     # user title from turning the exact-reference path into a broad match.
@@ -259,6 +266,76 @@ def find_papers_by_title(title: str, department_filter: str | None = None) -> li
 
 def _normalize_title(value: str) -> str:
     return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9]+', ' ', (value or '').lower())).strip()
+
+
+# A reader's article and the title's own article are two different words:
+# "what about *the* A Centralized AI-Powered ..." carries both, and leaving the
+# leading "the" in place makes the fragment match nothing. Trailing filler
+# ("... retrieval augmented generation *one*") is dropped for the same reason.
+_TITLE_FRAGMENT_LEADING = frozenset({'the', 'this', 'that', 'a', 'an'})
+_TITLE_FRAGMENT_TRAILING = frozenset({'one', 'ones', 'thesis', 'paper', 'study'})
+_TITLE_FRAGMENT_MIN_TOKENS = 3
+_TITLE_FRAGMENT_MIN_CHARS = 12
+_TITLE_FRAGMENT_MIN_TOKEN_CHARS = 4
+_TITLE_FRAGMENT_CANDIDATE_LIMIT = 25
+
+
+def normalize_title_fragment(value: str) -> str:
+    """Reduce a spoken title reference to the form a stored title compares in.
+
+    Determiners and filler are stripped repeatedly. That can only make the
+    fragment *less* selective, which is safe here: a less selective fragment
+    matches more than one paper and is therefore discarded by the caller rather
+    than guessed at.
+    """
+    tokens = _normalize_title(value).split()
+    while tokens and tokens[0] in _TITLE_FRAGMENT_LEADING:
+        tokens.pop(0)
+    while tokens and tokens[-1] in _TITLE_FRAGMENT_TRAILING:
+        tokens.pop()
+    return ' '.join(tokens)
+
+
+def find_papers_by_title_fragment(
+    fragment: str, department_filter: str | None = None,
+) -> list[dict]:
+    """Resolve a partial spoken title, and only when the archive makes it unique.
+
+    `find_papers_by_title` requires the whole normalized title, so a reader who
+    names a thesis by its opening words -- "what about the A Centralized AI
+    Powered" -- resolves to nothing there. The conversation then falls through
+    to the ambiguous-follow-up branch, which pins the *previous* turn's paper,
+    and the reply confidently describes the wrong manuscript.
+
+    Every match is returned rather than a best one, on purpose. Selectivity
+    comes from the caller requiring exactly one result, not from ranking: an
+    ambiguous fragment must resolve to nothing and leave the existing follow-up
+    handling untouched, never to whichever paper happened to sort first.
+    """
+    normalized_fragment = normalize_title_fragment(fragment)
+    tokens = normalized_fragment.split()
+    if (
+        len(tokens) < _TITLE_FRAGMENT_MIN_TOKENS
+        or len(normalized_fragment) < _TITLE_FRAGMENT_MIN_CHARS
+    ):
+        return []
+    lookup_token = max(tokens, key=len)
+    if len(lookup_token) < _TITLE_FRAGMENT_MIN_TOKEN_CHARS:
+        return []
+    rows = _ready_title_candidates(
+        lookup_token, department_filter, _TITLE_FRAGMENT_CANDIDATE_LIMIT,
+    )
+    if len(rows) >= _TITLE_FRAGMENT_CANDIDATE_LIMIT:
+        # The page is saturated, so uniqueness cannot be established from it.
+        # Treating "one of the first 25" as an exact reference is exactly the
+        # confident-but-wrong behaviour this function exists to remove.
+        return []
+    matches = [
+        paper for paper in rows
+        if normalized_fragment in _normalize_title(paper.get('title', ''))
+    ]
+    _add_academic_labels(matches)
+    return [public_source(paper) for paper in matches]
 
 
 def _add_academic_labels(papers: list[dict]) -> None:

@@ -354,3 +354,94 @@ class TestQueryDuplication:
     def test_no_duplication_returns_none(self, monkeypatch):
         monkeypatch.setattr(retriever, 'sb', _DuplicationClient([]))
         assert retriever.check_topic_duplication('topic', query_embedding=[0.1] * 768) is None
+
+
+class _TitleClient:
+    """Serves one page of `papers` rows to the shared title-candidate query."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def table(self, _name):
+        return _Query(self.rows)
+
+
+class TestTitleFragmentReference:
+    """A thesis named by its opening words must resolve to that thesis, or to
+    nothing at all — never to whichever paper the previous turn happened to
+    leave on the table."""
+
+    NAMED = 'A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation'
+    OTHER = 'Real-Time Autonomous Pedestrian Safety and Hazard Detection Using YOLOv11'
+
+    def rows(self):
+        return [
+            {'id': 'p1', 'title': self.NAMED, 'authors': 'Barlis, Gallardo',
+             'department': 'CCSICT'},
+            {'id': 'p2', 'title': self.OTHER, 'authors': 'Bugauisan, Respicio',
+             'department': 'CCSICT'},
+        ]
+
+    def test_the_readers_article_and_the_titles_article_both_come_off(self):
+        # "what about *the* *A* Centralized ..." carries two articles, and
+        # leaving either in place makes the fragment match no stored title.
+        assert retriever.normalize_title_fragment(
+            'the A Centralized AI-Powered',
+        ) == 'centralized ai powered'
+
+    def test_trailing_filler_is_dropped(self):
+        assert retriever.normalize_title_fragment(
+            'the Retrieval-Augmented Generation one',
+        ) == 'retrieval augmented generation'
+
+    def test_a_partial_title_resolves_to_the_one_paper_it_names(self, monkeypatch):
+        monkeypatch.setattr(retriever, 'sb', _TitleClient(self.rows()))
+        matches = retriever.find_papers_by_title_fragment(
+            'the A centralized ai powered', 'CCSICT',
+        )
+        assert [match['id'] for match in matches] == ['p1']
+
+    def test_a_mid_title_phrase_resolves_too(self, monkeypatch):
+        monkeypatch.setattr(retriever, 'sb', _TitleClient(self.rows()))
+        matches = retriever.find_papers_by_title_fragment(
+            'the retrieval augmented generation one', 'CCSICT',
+        )
+        assert [match['id'] for match in matches] == ['p1']
+
+    def test_ordinary_followup_wording_resolves_to_nothing(self, monkeypatch):
+        monkeypatch.setattr(retriever, 'sb', _TitleClient(self.rows()))
+        for wording in ('their methodology', 'the data mining track', 'both of them'):
+            assert retriever.find_papers_by_title_fragment(wording, 'CCSICT') == []
+
+    def test_a_fragment_too_short_to_identify_a_thesis_is_refused(self, monkeypatch):
+        monkeypatch.setattr(retriever, 'sb', _TitleClient(self.rows()))
+        assert retriever.find_papers_by_title_fragment('the yolo one', 'CCSICT') == []
+
+    def test_an_ambiguous_fragment_returns_every_match_so_the_caller_declines(self, monkeypatch):
+        monkeypatch.setattr(retriever, 'sb', _TitleClient([
+            {'id': 'p3', 'title': 'Machine Learning For Rice Disease', 'department': 'CCSICT'},
+            {'id': 'p4', 'title': 'Machine Learning For Traffic Flow', 'department': 'CCSICT'},
+        ]))
+        matches = retriever.find_papers_by_title_fragment('machine learning for', 'CCSICT')
+        assert {match['id'] for match in matches} == {'p3', 'p4'}
+
+    def test_a_saturated_candidate_page_is_never_treated_as_unique(self, monkeypatch):
+        rows = [
+            {'id': f'p{index}', 'title': f'Centralized Archive Study Number {index}',
+             'department': 'CCSICT'}
+            for index in range(retriever._TITLE_FRAGMENT_CANDIDATE_LIMIT)
+        ]
+        rows[0]['title'] = 'Centralized Archive Study Alpha'
+        monkeypatch.setattr(retriever, 'sb', _TitleClient(rows))
+        # Exactly one row matches, but the page is full, so a further match may
+        # exist beyond it and uniqueness cannot be established.
+        assert retriever.find_papers_by_title_fragment(
+            'centralized archive study alpha', 'CCSICT',
+        ) == []
+
+    def test_the_fragment_lookup_is_department_scoped_and_ready_only(self, monkeypatch):
+        query = _Query(self.rows())
+        monkeypatch.setattr(retriever, 'sb', SimpleNamespace(table=lambda _name: query))
+        retriever.find_papers_by_title_fragment('the A centralized ai powered', 'CCSICT')
+        assert ('ingestion_status', 'ready') in query.equalities
+        assert ('department', 'CCSICT') in query.equalities

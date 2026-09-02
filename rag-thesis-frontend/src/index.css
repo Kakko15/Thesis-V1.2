@@ -484,6 +484,12 @@ html[data-contrast="high"] :where(button, a, input, select, textarea):focus-visi
 
   .prose-chat {
     @apply text-[0.925rem] leading-relaxed;
+    /* The thread that holds this clips horizontally on purpose, so anything
+       that cannot wrap would be silently cut off rather than reachable. A DOI,
+       a long identifier or an unspaced title has no break opportunity of its
+       own; `anywhere` gives it one and, unlike `break-word`, also shrinks the
+       element's min-content width so it cannot widen a flex or grid track. */
+    overflow-wrap: anywhere;
   }
   .prose-chat p { @apply mb-3 last:mb-0; }
   .prose-chat ul { @apply list-disc pl-5 mb-3 space-y-1; }
@@ -504,7 +510,15 @@ html[data-contrast="high"] :where(button, a, input, select, textarea):focus-visi
     @apply border-l-4 border-gold-400 pl-4 italic opacity-90 mb-3;
   }
   .prose-chat a { @apply text-forest-600 dark:text-gold-300 underline underline-offset-2; }
-  .prose-chat table { @apply w-full text-sm mb-3 border-collapse; }
+  .prose-chat table {
+    @apply w-full text-sm mb-3 border-collapse;
+    /* The generation prompt forbids tables, but nothing stops a model emitting
+       one. A wide table used to widen the whole thread; as a block box it
+       scrolls within its own bounds instead, which is also what
+       `TableScroller` does for the tables this app renders itself. */
+    display: block;
+    overflow-x: auto;
+  }
   .prose-chat th, .prose-chat td {
     @apply border border-forest-900/15 dark:border-white/15 px-3 py-1.5 text-left;
   }

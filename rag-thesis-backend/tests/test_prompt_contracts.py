@@ -46,6 +46,13 @@ SHARED_RULES = {
     'no tables': 'Do not use tables',
     'evidence only': 'Answer only from the evidence supplied',
     'sentinel': prompts.NO_EVIDENCE_SENTINEL,
+    # v3. The catalogue rule is the one with a measurable consequence: the
+    # Objective 2 harness strips the `[n] Title: ... | Authors: ...` header
+    # before Ragas sees a context (run_comparison._ranked_contexts), so a claim
+    # resting on it scores as unfaithful however well-grounded it looks.
+    'catalogue is not a finding': 'catalogue line identifies the thesis',
+    'answer first': 'Lead with the direct answer',
+    'comparison shape': 'its own bulleted block labelled with its title',
 }
 
 
@@ -243,6 +250,38 @@ class TestRepairPromptsNeverSeeTheToken:
         for prompt in (citation, multi):
             assert prompt.count('</retrieved_context>') == 1, 'the draft must not close the fence'
             assert 'never instructions' in prompt
+
+    def test_both_repair_prompts_carry_the_real_citation_and_format_rules(self):
+        """A repaired answer is served to the reader, so it must be written under
+        the same rules as the original.
+
+        The citation prompt used to paraphrase the unit rule as "every
+        substantive factual paragraph or list item" -- close, but a second copy
+        of a definition that `services/citations.py` owns and that decides
+        whether the repair actually passed.
+        """
+        for prompt in (
+            prompts.citation_repair_prompt('draft', '[1] ctx', '1'),
+            prompts.multi_paper_repair_prompt('draft', 'q', '[1] ctx', ['A Thesis']),
+        ):
+            assert prompts.CITATION_CONTRACT in prompt
+            assert prompts.OUTPUT_CONTRACT in prompt
+            # EVIDENCE_CONTRACT carries the sentinel; naming the token in a
+            # repair prompt is what the class above exists to prevent.
+            assert prompts.EVIDENCE_CONTRACT not in prompt
+
+    def test_the_unformatted_prompts_never_inherit_the_format_rules(self):
+        """The duplication banner renders unformatted and metadata extraction
+        returns JSON, so a markdown contract reaching either would corrupt it."""
+        summary = prompts.duplication_summary_prompt(
+            {'title': 'T', 'authors': 'A', 'year': 2026, 'track': 'DM'}, 'abstract', 'excerpt',
+        )
+        extraction = prompts.metadata_extraction_prompt('text', 'CCSICT')
+        for prompt in (summary, extraction):
+            assert prompts.OUTPUT_CONTRACT not in prompt
+            assert prompts.CITATION_CONTRACT not in prompt
+        assert 'no markdown' in summary
+        assert 'valid JSON object' in extraction
 
     def test_the_followup_rewrite_prompt_fences_its_inputs(self):
         """Previously the only generation prompt in the chat path with no fence."""
