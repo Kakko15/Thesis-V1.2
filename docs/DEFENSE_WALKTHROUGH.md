@@ -286,25 +286,27 @@ in the repository's audit reports.
 
 ## 6. Quality evidence you can quote
 
-The backend, frontend unit-test, frontend lint and CI rows were re-measured
-**2026-09-02** against `dacc99b` by exit code, not by reading the printed
-summary. The rest — Playwright, SonarQube, axe, the audits, dependency integrity
-and the container images — are the 2026-09-01 figures carried forward and dated
-in `evaluation/iso25010_evidence.md`.
+Every row below was re-measured **2026-09-03** against `da9e931` by exit code,
+not by reading the printed summary: the backend and frontend suites, Pylint,
+ESLint, Playwright with its axe matrix and the npm audit locally, and the CI row
+against the GitHub check-runs API. Two rows are not local measurements and say
+so — SonarQube's detail is the 2026-09-01 local scan, green in CI since, and
+pip-audit runs only in CI here, because it cannot build `tesserocr` on the
+development host. Everything is dated in `evaluation/iso25010_evidence.md`.
 
 | Instrument | Result |
 |---|---|
-| Backend tests (PyTest, gated ≥85%) | **851 passed, 3 skipped, 91.03% coverage** (4,138 statements, 371 missed) |
+| Backend tests (PyTest, gated ≥85%) | **944 passed, 3 skipped, 91.58% coverage** (4,273 statements, 360 missed) |
 | Backend lint (Pylint) | **10.00/10** |
-| Frontend tests | **93.66% lines**, 88.09% branches, 94.29% functions |
+| Frontend tests | **130 passed** — 95.15% lines, 90.09% branches, 95.24% functions |
 | Frontend lint (ESLint) | **0 errors, 1 warning** (`Archive.jsx` complexity 27 > 24; advisory, the gate still exits 0) |
 | Browser journeys (Playwright) | **24 passed** |
-| Reliability (SonarQube 26.7.0.124771) | Gate **PASSED** — 0 bugs, 0 vulnerabilities, 0 hotspots; Reliability **A**, Security **A**, Maintainability **A**; duplication 1.3% |
-| Accessibility (axe, WCAG 2.2 AA) | **0 blocking, 0 advisory** across 11 surfaces × 4 themes × 2 widths |
-| Production dependency audit | 0 vulnerabilities (npm), 0 advisories (26 pinned Python packages) |
-| Dependency integrity | 94 packages hash-locked, 2,242 SHA-256 hashes, `--require-hashes` |
+| Reliability (SonarQube 26.7.0.124771) | Gate **PASSED** — 0 bugs, 0 vulnerabilities, 0 hotspots; Reliability **A**, Security **A**, Maintainability **A**; duplication 1.3% (2026-09-01 local scan; green in CI on `da9e931`) |
+| Accessibility (axe-core 4.12.1, WCAG 2.2 AA) | **0 blocking, 0 advisory** over 55 scans — 11 surfaces × 4 theme/contrast states at 1280 px, plus dark-standard at 360 px |
+| Production dependency audit | **0 vulnerabilities** (npm, production tree); **0 advisories** (pip-audit over the 98-package hash-pinned lock, in CI) |
+| Dependency integrity | **98 packages hash-locked, 2,353 SHA-256 hashes**, `--require-hashes` |
 | Container images | Digest-pinned; SBOM emitted per commit |
-| CI | 6 checks, all green on `dacc99b` ([run 33549370159](https://github.com/Kakko15/Thesis-V1.2/actions/runs/33549370159)) |
+| CI | **6 checks, all green** on `da9e931` ([run 33658152770](https://github.com/Kakko15/Thesis-V1.2/actions/runs/33658152770)) |
 
 If asked about defect history, the honest and impressive answer is:
 > A full audit found 20 defects. Independent passes during remediation found 17
