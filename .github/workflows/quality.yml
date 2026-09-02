@@ -122,8 +122,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # Dependabot-driven pull_request runs failed here on every branch while
+      # pushes to main passed: the action reads the PR's commits through the API
+      # and needs the workflow token to do so. Pull requests receive a read-only
+      # token, which is sufficient.
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   containers:
     name: Container vulnerability scan
