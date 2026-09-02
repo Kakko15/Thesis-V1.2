@@ -9,6 +9,7 @@ from config import settings
 from dependencies.auth import require_superadmin, sb
 from models import CatalogEntityCreate, CatalogEntityUpdate
 from routers.openapi_responses import errors
+from services.db_errors import is_unique_violation
 from services.rate_limiting import limiter
 
 router = APIRouter(prefix='/catalog', tags=['Academic catalog'])
@@ -16,18 +17,6 @@ logger = logging.getLogger(__name__)
 
 # The Supabase SDK returns an opaque user record, so Any is the honest type.
 SuperadminUser = Annotated[Any, Depends(require_superadmin)]
-
-
-_UNIQUE_VIOLATION_SQLSTATE = '23505'
-
-
-def _is_duplicate_code(error: Exception) -> bool:
-    for attribute in ('code', 'pgcode'):
-        if str(getattr(error, attribute, '') or '') == _UNIQUE_VIOLATION_SQLSTATE:
-            return True
-    details = getattr(error, 'details', None) or getattr(error, 'message', None) or str(error)
-    text = str(details).lower()
-    return _UNIQUE_VIOLATION_SQLSTATE in text or 'duplicate key value' in text
 
 
 def _inserted_row(table: str, row: dict, conflict_detail: str) -> dict:
@@ -41,7 +30,7 @@ def _inserted_row(table: str, row: dict, conflict_detail: str) -> dict:
     try:
         created = sb.table(table).insert(row).execute().data or []
     except Exception as error:
-        if _is_duplicate_code(error):
+        if is_unique_violation(error):
             raise HTTPException(status.HTTP_409_CONFLICT, conflict_detail) from error
         raise
     if not created:

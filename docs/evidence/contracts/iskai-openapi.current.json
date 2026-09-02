@@ -308,6 +308,20 @@
       },
       "DepartmentCreate": {
         "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "maxLength": 24,
+                "minLength": 2,
+                "pattern": "^[A-Z0-9-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
           "name": {
             "maxLength": 100,
             "minLength": 1,
@@ -340,6 +354,10 @@
       },
       "DepartmentOut": {
         "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
@@ -367,6 +385,7 @@
         "required": [
           "id",
           "name",
+          "code",
           "track_label",
           "tracks",
           "created_at"
@@ -1841,15 +1860,11 @@
           "400": {
             "description": "The request payload or parameters were rejected."
           },
+          "409": {
+            "description": "The request conflicts with the current state of the resource."
+          },
           "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
+            "description": "The request was well formed but failed validation."
           }
         },
         "security": [
