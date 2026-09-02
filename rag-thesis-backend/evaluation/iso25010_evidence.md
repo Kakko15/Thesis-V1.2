@@ -28,7 +28,15 @@ Unlike the 2026-09-02 pass, the browser journeys were re-run locally in this one
 | Critical browser journeys and accessibility matrix | Playwright 1.61.1 with @axe-core/playwright 4.12.1, Chromium, 24 tests including the 11-surface axe matrix | 24 passed in 2.1 min | Passed |
 | Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771 | Not re-run locally in this pass; green in CI on `da9e931` | Passed in CI |
 | Container vulnerability scan | Trivy | Not run locally in this pass; both images green in CI on `da9e931` | Passed in CI |
-| Backend dependency vulnerability audit | pip-audit | Not run in this pass | Pending re-run |
+| Backend dependency vulnerability audit | pip-audit 2.10.1 against `requirements.lock` | Cannot run on this host: `pip-audit` builds the dependency set to resolve it, and `tesserocr` has no wheel here and no Tesseract headers to build one. Green in CI on `da9e931` — see below | Passed in CI |
+
+Every earlier block records this criterion as "Pending re-run", which understated
+what was already known. `pip-audit --no-deps -r requirements.lock` has been a step
+of the CI Backend job since before the 2026-07-25 pass, with no
+`continue-on-error`, so it has passed on every green run. It audits the
+hash-pinned lock rather than `requirements.txt`, which covers transitive
+advisories too — stronger evidence than the dated local result it was being
+compared against. The rows below are left as those passes recorded them.
 
 ### CI on `da9e931`
 
