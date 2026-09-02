@@ -207,3 +207,50 @@ Applied:
   `scripts/release_fingerprint.py` now records `generation_route` (enabled flag and
   gateway host, never the credential) so a reported result cannot silently come from a
   different provider than the one described.
+
+## Pass 7 - accuracy and citation corrections, 2026-09-03
+
+Applied in commits `a1893b1` and `e717acb` through `PROSE7` in `build_corrections.py`,
+and reached `paper_CORRECTED.docx` and `.pdf` on 2026-09-03; this log had not recorded
+them until the same-day review below found the gap.
+
+- **P7-1 SonarQube memory leaks** - was: _logic flaws, unhandled exceptions, memory
+  leaks, and potential fault points_. SonarQube's Python and JavaScript analysers do not
+  detect memory leaks; the phrase is dropped.
+- **P7-2 Pylint profile** - 3.2.4 now states that scores are reported against the
+  committed `.pylintrc`: 120-character lines, the test suite excluded, and fourteen
+  message families disabled including the docstring and function-size checks.
+- **P7-3 Li et al.** - was: _literature (Li, 2025;_ in 2.1.7. APA 7 cites three or more
+  authors as "et al." at every mention.
+- **P7-4 same-family judge** - 3.2.4 now discloses that the Ragas judge is Gemini 3.5
+  Flash-Lite scoring Gemini 3.6 Flash answers, with Answer Correctness embedded by
+  `models/gemini-embedding-001`, the retriever's own model.
+- **P7-5 notices and effect size** - 3.2.5 now states that the RAG diagnostics are
+  reported for answers and for notices separately as well as pooled, and that every
+  comparison carries the mean paired difference with a 95% confidence interval and a
+  standardized effect size.
+
+## Pass 8 - dependency purposes and metric semantics, 2026-09-03
+
+Found by re-reading Tables 2-3 and 3.2.4 against the code rather than against the
+dependency lists.
+
+| Where | Was | Now | Ground truth |
+|---|---|---|---|
+| Table 3, Gemini 3.5 Flash Lite | handles bounded verdict **and metadata-extraction** work | writes novelty-scan verdict summaries and follow-ups and serves as the Ragas judge; title-page metadata extraction runs on the primary generation model | `services/gemini_pool.py` builds the EXTRACT client from `gemini_chat_model`; only VERDICT uses `gemini_verdict_model` (`routers/upload.py:620`, `routers/duplication.py:333`, `evaluation/run_comparison.py`) |
+| Table 2, cryptography | primitives for token and secret handling | encrypts the storage backups (AES-GCM under a scrypt-derived key); pinned at v50.0.0 for CVE-2026-69247 | the only first-party import is `scripts/storage_backup.py:16-34`; the pin reason is in `requirements.txt` |
+| Table 2, PyJWT | encode and verify session JWTs | verify and read Supabase-issued JWTs: the assurance level for the privileged MFA check and the user id for per-user rate limits; the backend never issues a token | `dependencies/auth.py:177-213`, `services/rate_limiting.py:18`; no `jwt.encode` in the codebase |
+| Table 2, Redis | "Redis v8.0.1" as if it were the server | "redis (Python client) v8.0.1", naming the redis 8.6.4 server from the operations compose file | `requirements.txt` pins the client; `docker-compose.operations.yml` runs the server |
+| 3.2.4 metric semantics | _These Ragas metrics are reference-based rather than reference-free_ | Answer Correctness and Context Precision are reference-based; Faithfulness is reference-free and scored against the retrieved passages alone | ragas 0.4.3: `Faithfulness.ascore(user_input, response, retrieved_contexts)` takes no reference; `ContextPrecision` is the with-reference wrapper; `run_comparison.py` calls them exactly so |
+
+The same extraction-model error was in `README.md` (model defaults bullet) and is fixed
+there in the same change.
+
+Verified after build: `word/document.xml`, `word/media/image1.png` and
+`word/media/image8.png` are the only changed zip parts; XML well-formed; the original's
+350 non-empty paragraphs become 431, of which 45 originals are reworded. No paragraph
+is deleted: the build only replaces runs, rewrites cells, and appends table rows. The
+PDF was re-exported with Word 2024 and is now 62 pages (the longer Table 2 and Table 3
+cells push one page); PyMuPDF extracts 86,389 characters, containing the Pass 8 wording
+and none of the superseded strings (`text-embedding-004`, `gemini-1.5-flash`,
+`memory leaks`, `metadata-extraction work`, `token and secret handling`).
