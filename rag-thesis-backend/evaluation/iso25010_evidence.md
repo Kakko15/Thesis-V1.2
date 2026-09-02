@@ -6,7 +6,87 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
-## Current local revalidation - 2026-09-03
+## Current local revalidation - 2026-09-03, `9cb3659`
+
+Measured on Windows 11 against commit `9cb3659` with a clean working tree, after the
+five commits of 2026-09-03 (`866d557`, `6c71278`, `145eca9`, `ce66a29`, `9cb3659`)
+landed on `main` and CI went green on that revision. Toolchain unchanged from the
+`da9e931` pass below (`.venv`, Python 3.14.6, PyTest 9.1.1, Pylint 4.0.6, Node.js
+24.18.0, ESLint 9.39.5). Every figure was read from the command's **exit code**. Backend
+counts taken without `ALLOW_DISPOSABLE_SUPABASE_TESTS` set, so the three
+disposable-project integration tests skipped as designed.
+
+| Criterion | Instrument | Observed result | Status |
+|---|---|---|---|
+| Backend dependency consistency | `pip check` | No broken requirements found | Passed |
+| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 970 passed and 3 opt-in external integration tests skipped; 91.58% coverage (4,277 statements, 360 missed) | Passed |
+| Backend maintainability | Pylint | 10.00/10 | Passed |
+| Backend container image starts | `docker build` of `rag-thesis-backend`, then `docker run ... python -c "import main, workers.ingestion_worker"` with placeholder credentials | Both entrypoints import; the image built from `da9e931` failed the same command with `ModuleNotFoundError: warning_filters` (see below) | Passed |
+| Live Gemini release smoke (PI-03) | `scripts/gemini_release_smoke.py` inside the same release image, direct Google route, synthetic input only | PASS: `gemini-3.6-flash` 1,521.93 ms, `gemini-3.5-flash-lite` 806.15 ms, `gemini-embedding-001` 514.99 ms returning 768 finite values. Evidence `docs/evidence/security/pi-03-gemini-20260903-045753/`; supersedes the 2026-07-25 bundle, which recorded `gemini-embedding-2`. Run with `docker run` and `APP_ENVIRONMENT=development` because the compose wrapper forces production, which now requires `GUEST_DAILY_TOKEN_BUDGET` | Passed |
+| Frontend unit tests and coverage | Node test runner with `--experimental-test-coverage`, gated at 85/80/85 | 130 passed; 95.15% lines, 90.09% branches, 95.24% functions | Passed |
+| Frontend maintainability | ESLint 9.39.5 | 0 errors, 1 warning (the `Archive.jsx` complexity advisory recorded on 2026-08-30, unchanged) | Passed; one advisory |
+| Frontend production build | Vite | Production build completed in 610 ms from a removed `dist/`, 3,888 modules transformed | Passed |
+| Frontend bundle budget | `npm run bundle:budget` | Eager payload 316.9 kB gzipped across 11 files against a 330 kB budget | Passed |
+| Frontend production dependency audit | `npm audit --omit=dev` | found 0 vulnerabilities | Passed |
+| Critical browser journeys and accessibility matrix | Playwright 1.61.1 with @axe-core/playwright 4.12.1, Chromium, 24 tests including the 11-surface axe matrix | 24 passed in 2.8 min | Passed |
+| Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771 | Not re-run locally in this pass; green in CI on `9cb3659` | Passed in CI |
+| Container vulnerability scan | Trivy | Not run locally in this pass; both images green in CI on `9cb3659` | Passed in CI |
+| Backend dependency vulnerability audit | pip-audit against `requirements.lock` | Cannot run on this host (`tesserocr` has no wheel here); green in CI on `9cb3659` | Passed in CI |
+
+### CI on `9cb3659`
+
+Verified against the unauthenticated GitHub Actions API, not by assumption:
+[run 33680548573](https://github.com/Kakko15/Thesis-V1.2/actions/runs/33680548573), check
+suite `91276003580`, head `9cb365999a7bd0a615d5101ab26573c190fb7e35`, started
+2026-09-02T20:39:03Z — all six check runs `completed` with conclusion `success`: Backend
+(PyTest + Pylint), Frontend (ESLint + build), Secret scan, both container vulnerability
+scans, and SonarQube.
+
+### What changed in the measured system
+
+- `866d557` — **the backend image could not start.** `main.py` and the ingestion worker
+  import `warning_filters` first, a module added on 2026-09-02 that the Dockerfile's
+  named COPY list never included. Trivy and the SBOM inspect the image without running
+  it, so every green container check since `c201b81` was taken on an image that failed
+  at import. Reproduced on the image built from `da9e931`; fixed, and guarded by
+  `tests/test_dockerfile_contents.py`, which resolves the entrypoints' first-party
+  imports against the COPY instructions.
+- `6c71278` — `is_capacity_error` matched the bare substring `429`, so any error text
+  carrying those digits tripped the 60-second provider cooldown and rotated the key
+  pool. It now matches a labelled HTTP status, sharing the pattern `network_retry`
+  already used for the same reason.
+- `145eca9` — one password rule on every reset path, a typed novelty dropzone, the
+  coverage metric labelled as coverage, and dead frontend code removed.
+- `ce66a29` — documentation only, including this file's axe-matrix wording (55 scans,
+  not every state at both widths) and the `.venv` name in the governance protocol.
+- `9cb3659` — manuscript corrections (Pass 8); no effect on the measured system.
+
+### Suite growth since `da9e931`
+
+Backend rose from **944** to **970**: 12 from `b74d872` and `3c5a121` (effect size,
+interval, rank-biserial and notice-split tests, skipped where scipy is absent), which
+landed after the `da9e931` pass and were never recorded; 11 from `6c71278` pinning the
+capacity-error shapes that must and must not match; and 3 from `866d557`. Statements
+under coverage rose from 4,273 to 4,277 with the same 360 missed, so the percentage is
+unchanged at 91.58%. Frontend unchanged at 130 tests and 95.15/90.09/95.24.
+
+### Live index provenance
+
+Read from the live project on 2026-09-03 (read-only): `paper_index_versions` holds five
+rows. The three **active** indexes, one per ready paper, are `models/gemini-embedding-001`,
+768 dimensions, `document-v1` / `token-v1`, `provenance_status = verified`. The two
+remaining rows are `models/gemini-embedding-2` / `legacy_assumed` and are inactive
+rollback versions kept by the reindex procedure by design; they are unreachable under the
+configured model, which is the intended behaviour of the model filter in `match_chunks`.
+
+### Objective 2 remains gated
+
+Unchanged from the `da9e931` pass: no formal baseline-versus-RAG result exists. All 40
+ground truths and all 40 source-thesis fields in `evaluation/golden_dataset.json` are
+still `REPLACE:` placeholders, `validated_by_faculty_panel` is `false`, and the 50-thesis
+governed corpus, its lock, its receipt and the four PI-08 approvals are outstanding.
+
+## Local revalidation - 2026-09-03, `da9e931`
 
 Measured on Windows 11 against commit `da9e931` with a clean working tree, after the
 five remediation commits of 2026-09-02/03 landed on `main` and CI went green on that
