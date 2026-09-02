@@ -5,7 +5,7 @@ import { supabase } from '../../supabaseClient'
 import { Button } from '../../components/ui/Button'
 import { StepHeader } from './StepHeader'
 import { EASE, FloatingField, formStagger, Rise, Shine, UnderlineLink, ValidTick, ErrorAlert } from './AuthFx'
-import { authOptions, friendlyAuthError, isValidEmail, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
+import { authOptions, friendlyAuthError, isStrongPassword, isValidEmail, maskEmail, retryAfterSeconds, useResendTimer } from './authUtils'
 import { OtpInput } from '../../components/ui/OtpInput'
 import { toast } from 'sonner'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
@@ -76,8 +76,8 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
 
   const updatePassword = async (e) => {
     e?.preventDefault?.()
-    if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters')
+    if (!isStrongPassword(newPassword)) {
+      setError('Use 8+ characters with uppercase, number, and symbol')
       return
     }
     setUpdating(true)
@@ -143,7 +143,7 @@ export function ForgotPasswordStep({ email, setEmail, onBack }) {
                 type="submit"
                 size="lg"
                 loading={updating}
-                disabled={newPassword.length < 6}
+                disabled={!isStrongPassword(newPassword)}
                 className="group relative w-full overflow-hidden"
               >
                 <Shine />
