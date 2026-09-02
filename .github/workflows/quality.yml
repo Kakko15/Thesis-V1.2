@@ -139,6 +139,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build ${{ matrix.name }} image
         run: docker build -t isu-thesis-${{ matrix.name }}:ci ${{ matrix.context }}
+
+      # Trivy and the SBOM inspect the image; neither starts it. The image built
+      # from da9e931 passed both and failed on `docker run` with
+      # ModuleNotFoundError, because the Dockerfile copies named modules and had
+      # not learned about warning_filters.py. Importing both entrypoints with
+      # placeholder credentials is the cheapest proof the image can start; the
+      # settings validator accepts them and nothing is contacted at import.
+      - name: Smoke-test the ${{ matrix.name }} image (entrypoints import)
+        if: matrix.name == 'backend'
+        run: >
+          docker run --rm
+          -e GEMINI_API_KEY=test-key
+          -e SUPABASE_URL=https://test-project.supabase.co
+          -e SUPABASE_KEY=test-key
+          -e APP_ENVIRONMENT=test
+          isu-thesis-backend:ci
+          python -c "import main, workers.ingestion_worker; print('backend image imports', main.app.version)"
       - name: Scan ${{ matrix.name }} image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
