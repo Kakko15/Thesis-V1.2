@@ -397,6 +397,67 @@ class TestPapersAndAnalytics:
         assert ('eq', ('department', 'CCSICT')) in activity_query.operations
 
 
+class TestPublicSummaryDeclinesRatherThanInvents:
+    """The landing strip states these four figures as fact to anonymous visitors.
+
+    `StatsStrip` already has an honest rendering for an unreadable archive --
+    four em dashes, a reconnect notice, its own retry -- and its own comment
+    says it exists to distinguish that from a genuine zero. What it cannot
+    render honestly is a fabricated 0 that looks measured. The unguarded reads
+    produced both failure modes at once: a bare 500 out of the paged paper
+    read, and a quiet, measured-looking 0 out of the sibling activity count.
+    """
+
+    class FailingAt:
+        """A client whose reads work except for one named table."""
+
+        def __init__(self, failing, responses):
+            self.failing = failing
+            self.inner = ScriptedClient(responses)
+
+        def table(self, name):
+            if name == self.failing:
+                raise RuntimeError('PostgREST unavailable')
+            return self.inner.table(name)
+
+    @staticmethod
+    def summary(monkeypatch, client):
+        monkeypatch.setattr(analytics, 'sb', client)
+        return inspect.unwrap(analytics.public_summary)(public_request('/analytics/summary'))
+
+    @pytest.mark.parametrize('failing', ['papers', 'activity_log'])
+    def test_either_unreadable_source_is_declined_as_503(self, monkeypatch, failing):
+        client = self.FailingAt(failing, {
+            'papers': [[{'id': 'p1', 'track': 'Data Mining', 'year': 2024}]],
+            'activity_log': [result(count=4)],
+        })
+        with pytest.raises(HTTPException) as refused:
+            self.summary(monkeypatch, client)
+        assert refused.value.status_code == 503
+        assert 'temporarily unavailable' in refused.value.detail
+
+    def test_a_measured_zero_is_still_published(self, monkeypatch):
+        """503 means "could not count", never "counted zero" -- an empty
+        archive is a true statement this endpoint must still be able to make."""
+        client = ScriptedClient({'papers': [[]], 'activity_log': [result(count=0)]})
+        assert self.summary(monkeypatch, client) == {
+            'total_papers': 0,
+            'total_tracks': 0,
+            'year_range': None,
+            'total_queries': 0,
+        }
+
+    def test_the_admin_dashboard_keeps_its_tolerant_count(self, monkeypatch):
+        """`overview` publishes a dozen independent figures side by side, where
+        blanking the panel over one unreadable count is the worse trade. That
+        contract stays -- only the single-figure callers changed."""
+        def unavailable(*_args, **_kwargs):
+            raise RuntimeError('PostgREST unavailable')
+
+        monkeypatch.setattr(analytics, '_exact_count', unavailable)
+        assert analytics._count('activity_log', action='chat_query') == 0
+
+
 class TestAnalyticsAdministration:
     def test_admin_activity_and_user_lists_are_department_scoped(self, monkeypatch):
         admin = SimpleNamespace(id='admin')

@@ -1281,7 +1281,7 @@
     },
     "/analytics/summary": {
       "get": {
-        "description": "Return lightweight, non-sensitive landing-page statistics.\n\nUnauthenticated by design — the landing page calls it for every anonymous\nvisitor — so it carries an explicit rate limit. Without one, only the global\ndefault applied and a trivial loop forced a full-table read per request.",
+        "description": "Return lightweight, non-sensitive landing-page statistics.\n\nUnauthenticated by design — the landing page calls it for every anonymous\nvisitor — so it carries an explicit rate limit. Without one, only the global\ndefault applied and a trivial loop forced a full-table read per request.\n\nEvery figure is published as fact to anonymous visitors, and the landing\nstrip presents the four together as one claim about the archive. So a read\nthat fails is declined rather than filled in: the client already tells\n\"unavailable\" (four em dashes, a reconnect notice, its own retry) apart\nfrom a genuine zero, and an archive of zero theses is a claim this endpoint\nshould only make when it has actually counted zero. The reads were\npreviously unguarded, which surfaced a transient Supabase failure as a bare\n500 while the sibling count quietly reported a measured-looking 0.",
         "operationId": "public_summary_analytics_summary_get",
         "responses": {
           "200": {
@@ -1291,6 +1291,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "summary": "Public Summary",
