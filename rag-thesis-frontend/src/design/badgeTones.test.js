@@ -2,12 +2,17 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
+import {
+  BADGE_TONE_ALIASES,
+  BADGE_TONE_CLASSES,
+  badgeToneClass,
+  DEFAULT_BADGE_TONE,
+} from './badgeTones.js'
 import { blend, contrastRatio } from './contrast.js'
 
 const AA_NORMAL_TEXT = 4.5
 
 const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8')
-const badge = readFileSync(new URL('../components/ui/Badge.jsx', import.meta.url), 'utf8')
 
 /** Read a `--color-*` value straight out of the stylesheet's @theme block. */
 function themeColor(name) {
@@ -47,17 +52,74 @@ test('every badge tone clears AA against the tint it is painted on', () => {
 })
 
 test('badge tones use the verified foregrounds, not the same-family defaults', () => {
-  // Scoped to the styles object: the surrounding comments name the old failing
-  // colours on purpose, and matching those would defeat the check.
-  const styles = /const styles = \{([\s\S]*?)\n\}/.exec(badge)
-  assert.ok(styles, 'Badge.jsx no longer declares a styles map')
-
+  // Reads the exported values, so no comment-scoping is needed: the prose may
+  // name the old failing colours without defeating the check.
+  const declared = Object.values(BADGE_TONE_CLASSES).join(' ')
   // text-flame-600 (4.06:1) and text-gold-600 were the measured AA failures.
-  assert.doesNotMatch(styles[1], /text-flame-600/)
-  assert.doesNotMatch(styles[1], /text-gold-600/)
+  assert.doesNotMatch(declared, /text-flame-600/)
+  assert.doesNotMatch(declared, /text-gold-600/)
   // The neutral tone used opacity-80, whose result cannot be reasoned about
   // statically because it depends on whatever is painted behind the badge.
-  assert.doesNotMatch(styles[1], /opacity-\d/)
+  assert.doesNotMatch(declared, /opacity-\d/)
+  // Every tone the AA table above measures must still exist by that name.
+  for (const { tone } of TONES) {
+    assert.ok(tone in BADGE_TONE_CLASSES, `the AA table measures unknown tone ${tone}`)
+  }
+})
+
+test('every tone resolves to real classes, and an unknown one stays visible', () => {
+  assert.ok(Object.keys(BADGE_TONE_ALIASES).length > 0, 'the alias map is empty')
+  for (const [name, target] of Object.entries(BADGE_TONE_ALIASES)) {
+    assert.ok(target in BADGE_TONE_CLASSES, `alias ${name} points at unknown tone ${target}`)
+    // The alias must render the audited tone, which is what extends that
+    // tone's measured AA ratio to the semantic name.
+    assert.equal(badgeToneClass(name), BADGE_TONE_CLASSES[target])
+  }
+  for (const [name, classes] of Object.entries(BADGE_TONE_CLASSES)) {
+    assert.equal(badgeToneClass(name), classes)
+  }
+  assert.equal(badgeToneClass(), BADGE_TONE_CLASSES[DEFAULT_BADGE_TONE])
+
+  // The defect: an unrecognised tone returned undefined, so the badge rendered
+  // with no background or text colour at all. Anything unknown must still land
+  // on a real tone.
+  const real = Object.values(BADGE_TONE_CLASSES)
+  for (const unknown of ['warn', 'danger', 'error', '', null, undefined, 0, 42, {}]) {
+    assert.ok(
+      real.includes(badgeToneClass(unknown)),
+      `tone ${JSON.stringify(unknown)} resolved to ${JSON.stringify(badgeToneClass(unknown))}`,
+    )
+  }
+})
+
+test('no admin screen passes a Badge tone that is not a tone', () => {
+  // The account-status column passed success/warning/critical when the
+  // component knew only hue names, and got nothing back.
+  const resolvable = new Set([
+    ...Object.keys(BADGE_TONE_CLASSES),
+    ...Object.keys(BADGE_TONE_ALIASES),
+  ])
+  const pages = new URL('../pages/', import.meta.url)
+  for (const file of ['admin/SystemManagementTab.jsx', 'admin/OperationsTab.jsx']) {
+    const source = readFileSync(new URL(file, pages), 'utf8')
+    const passed = [
+      // tone="neutral"
+      ...[...source.matchAll(/<Badge\s+tone="(\w+)"/g)].map(([, name]) => name),
+      // tone={cond ? 'flame' : 'forest'} — only the branch results are tones.
+      // A literal after === is the state being tested, not a colour, which is
+      // why this reads the ? and : positions rather than every quoted word.
+      ...[...source.matchAll(/<Badge\s+tone=\{([^}]*)\}/g)]
+        .flatMap(([, expression]) => [...expression.matchAll(/[?:]\s*'(\w+)'/g)])
+        .map(([, name]) => name),
+    ]
+    assert.ok(passed.length > 0, `${file} passes no Badge tone this test can read`)
+    for (const name of passed) {
+      assert.ok(
+        resolvable.has(name),
+        `${file} passes Badge tone '${name}', which resolves to nothing`,
+      )
+    }
+  }
 })
 
 test('the text-safe gold clears AA on every plain light surface', () => {

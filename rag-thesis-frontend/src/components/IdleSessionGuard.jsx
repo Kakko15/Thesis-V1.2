@@ -14,6 +14,7 @@ import {
   IDLE_SESSION_START_KEY,
   IDLE_WARNING_MS,
   idleLimitForRole,
+  loginPathWithNext,
 } from '../lib/idleSession'
 
 /* Real activity only — keystrokes, clicks, scrolls, touches. Mousemove is
@@ -76,11 +77,7 @@ export function IdleSessionGuard() {
       setSecondsLeft(null)
       await signOut()
       const here = location.pathname + location.search
-      const keepContext = here !== '/' && !here.startsWith('/login')
-      navigate(
-        keepContext ? `/login?next=${encodeURIComponent(here)}` : '/login',
-        { replace: true },
-      )
+      navigate(loginPathWithNext(here), { replace: true })
       if (reason === 'absolute') {
         toast.info('Session expired', {
           description: 'For security, sessions last 12 hours. Sign in again to continue.',

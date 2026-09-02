@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
@@ -131,4 +132,31 @@ test('an unresolved profile never forces a method', () => {
   // forced path there would hide the email option from a student mid-load.
   assert.equal(requiresAuthenticatorToSignIn(), false)
   assert.equal(requiresAuthenticatorToSignIn({ totpEnrolled: true }), false)
+})
+
+test('no screen recovers an aal1 session by sending the reader to /login', () => {
+  /* Supabase raises a session to aal2 only through an authenticator challenge.
+   * Reaching a privileged screen on an aal1 session means the app-level pass
+   * (`mfaBypass`, set by the emailed-code path) is in force, so Login sees
+   * `needsMfa` false, resolves to its success step and navigates straight
+   * back — a loop that also costs the reader the page they were on. The factor
+   * is collected in place by PrivilegedMfaGate instead. Admin.jsx's own gate
+   * fires before any API call, so the 403-driven signal never reaches the gate
+   * on its own; it has to raise it. */
+  const source = readFileSync(
+    new URL('../pages/Admin.jsx', import.meta.url), 'utf8',
+  )
+  const gate = /const content = \{([\s\S]*?)\n {2}\}\[state\]/.exec(source)
+  assert.ok(gate, 'Admin.jsx no longer builds its security-gate content map')
+  const challenge = /challenge: \{([\s\S]*?)\n {4}\},/.exec(gate[1])
+  assert.ok(challenge, 'Admin.jsx no longer handles the challenge state')
+
+  assert.match(
+    challenge[1], /reportPrivilegedMfaRequired\(\)/,
+    'the challenge state must raise PrivilegedMfaGate',
+  )
+  assert.doesNotMatch(
+    challenge[1], /navigate\(\s*['"]\/login/,
+    'the challenge state navigates to /login, which loops back to the dashboard',
+  )
 })

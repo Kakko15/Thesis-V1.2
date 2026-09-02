@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { supabase } from './supabaseClient'
 import { normalizeDepartments } from './lib/catalog'
+import { loginPathWithNext } from './lib/idleSession'
 import { isPrivilegedMfaRefusal, reportPrivilegedMfaRequired } from './lib/privilegedMfa.js'
 import { isE2ETestMode, readE2EAuthFixture } from './testing/e2eSession'
 
@@ -138,10 +139,11 @@ api.interceptors.response.use(
       // Genuinely unauthenticated: clear the session and send them to sign in,
       // remembering where they were so the trip back is possible.
       if (!isE2ETestMode) await supabase.auth.signOut()
+      // Same key and same rules as the idle logout. This used to spell the
+      // parameter its own way, which Login never read, so the trip back was
+      // silently lost and the reader landed on the dashboard.
       const current = `${window.location.pathname}${window.location.search}`
-      window.location.href = current && current !== '/login'
-        ? `/login?returnTo=${encodeURIComponent(current)}`
-        : '/login'
+      window.location.href = loginPathWithNext(current)
     }
 
     // A privileged account whose session never reached aal2 is refused by
