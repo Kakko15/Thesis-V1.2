@@ -108,19 +108,31 @@ def _fetch_all(build_query, *, label: str) -> tuple[list[dict], int]:
     return rows, total if total is not None else len(rows)
 
 
+def _exact_count(table: str, filters: dict[str, Any]) -> int:
+    """Exact row count for a filtered table. Propagates a failed read."""
+    query = sb.table(table).select('id', count='exact')
+    for column, value in filters.items():
+        query = query.eq(column, value)
+    return query.limit(1).execute().count or 0
+
+
 def _count(table: str, **filters) -> int:
+    """Tolerant count: a failed read becomes 0.
+
+    Correct for the admin dashboard, where a dozen independent figures sit
+    beside each other and one unavailable count should not blank the page. It
+    is the wrong contract for a figure published on its own as fact, because a
+    fabricated zero is indistinguishable from a measured one -- those callers
+    use `_exact_count` and decline to answer instead.
+    """
     try:
-        query = sb.table(table).select('id', count='exact')
-        for column, value in filters.items():
-            query = query.eq(column, value)
-        result = query.limit(1).execute()
-        return result.count or 0
+        return _exact_count(table, filters)
     except Exception as error:
         logger.warning('Count query failed for %s (%s)', table, type(error).__name__)
         return 0
 
 
-@router.get('/summary')
+@router.get('/summary', responses=errors(503))
 @limiter.limit(settings.rate_limit_public)
 def public_summary(request: Request):
     """Return lightweight, non-sensitive landing-page statistics.
@@ -128,27 +140,45 @@ def public_summary(request: Request):
     Unauthenticated by design — the landing page calls it for every anonymous
     visitor — so it carries an explicit rate limit. Without one, only the global
     default applied and a trivial loop forced a full-table read per request.
+
+    Every figure is published as fact to anonymous visitors, and the landing
+    strip presents the four together as one claim about the archive. So a read
+    that fails is declined rather than filled in: the client already tells
+    "unavailable" (four em dashes, a reconnect notice, its own retry) apart
+    from a genuine zero, and an archive of zero theses is a claim this endpoint
+    should only make when it has actually counted zero. The reads were
+    previously unguarded, which surfaced a transient Supabase failure as a bare
+    500 while the sibling count quietly reported a measured-looking 0.
     """
-    papers, total_papers = _fetch_all(
-        lambda: (
-            sb.table('papers')
-            .select('id,track,year', count='exact')
-            .eq('ingestion_status', 'ready')
-            .eq('department', settings.thesis_evaluation_department)
-        ),
-        label='public summary papers',
-    )
+    try:
+        papers, total_papers = _fetch_all(
+            lambda: (
+                sb.table('papers')
+                .select('id,track,year', count='exact')
+                .eq('ingestion_status', 'ready')
+                .eq('department', settings.thesis_evaluation_department)
+            ),
+            label='public summary papers',
+        )
+        total_queries = _exact_count('activity_log', {
+            'action': 'chat_query',
+            'department': settings.thesis_evaluation_department,
+        })
+    except Exception as error:
+        logger.warning(
+            'Public summary is unavailable (%s)', type(error).__name__,
+        )
+        raise HTTPException(
+            503, 'Archive statistics are temporarily unavailable.',
+        ) from error
+
     tracks = Counter(paper.get('track') or 'Uncategorized' for paper in papers)
     years = [paper['year'] for paper in papers if paper.get('year')]
     return {
         'total_papers': total_papers,
         'total_tracks': len([track for track in tracks if track != 'Uncategorized']),
         'year_range': {'from': min(years), 'to': max(years)} if years else None,
-        'total_queries': _count(
-            'activity_log',
-            action='chat_query',
-            department=settings.thesis_evaluation_department,
-        ),
+        'total_queries': total_queries,
     }
 
 
