@@ -253,25 +253,28 @@ hr{border:0;border-top:1px solid var(--line);margin:32px 0}
 <p><code>scripts/corpus_manifest.py</code> enforces the PI-08 protocol faithfully (50 unique papers, four approvals with SHA-256s, student-only, immutable receipt). The repository holds only the empty template. The protocol's own commands still reference a <code>.venv312</code> environment and a receipt path that was never created.</p>
 <p class="where">docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md · evaluation/corpus/</p>
 </div></div>
-<div class="finding warn"><div class="stripe"></div><div class="body">
-<div class="head"><span class="chip warn">Methodology</span><span class="title">Same-family judge and shared embedding model</span></div>
-<p>Ragas is driven by <code>gemini-3.5-flash-lite</code> judging <code>gemini-3.6-flash</code>, and Answer Correctness's semantic half uses the same <code>gemini-embedding-001</code> the retriever indexes with. The paper should disclose this as a limitation and, ideally, add a small human-scored subsample to anchor the automated scores.</p>
+<div class="finding ok"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip ok">Disclosed</span><span class="title">Same-family judge and shared embedding model</span></div>
+<p>Ragas is driven by <code>gemini-3.5-flash-lite</code> judging <code>gemini-3.6-flash</code>, and Answer Correctness's semantic half uses the same <code>gemini-embedding-001</code> the retriever indexes with.</p>
+<p><strong>Disclosed in the manuscript</strong> (3.2.4, through <code>build_corrections.py</code>): both models are named, the shared embedding space is stated, and it is framed as a limitation of the automated scores rather than a property of the architecture. The structural fact does not change — a cross-vendor judge would need a second provider — so the remaining mitigation, a small human-scored subsample to anchor the automated figures, is named in the text as still open.</p>
 </div></div>
 <div class="finding warn"><div class="stripe"></div><div class="body">
 <div class="head"><span class="chip warn">Methodology</span><span class="title">Answer Correctness measures data access more than hallucination</span></div>
 <p>Ground truths are derived from a private corpus the baseline cannot see, and the baseline prompt invites it to “cite specific theses if you can”. The paper's Objective 2 wording is “factual accuracy and hallucination mitigation”, but no hallucination or fabricated-citation rate is computed for the baseline, because Faithfulness needs contexts. Consider a simple manual count of fabricated citations per arm; it is cheap and it is the claim the introduction actually makes.</p>
 </div></div>
-<div class="finding warn"><div class="stripe"></div><div class="body">
-<div class="head"><span class="chip warn">Methodology</span><span class="title">Notices contaminate RAG diagnostics</span></div>
-<p>In the July smoke run, a “No relevant thesis” notice with five retrieved contexts was scored Faithfulness 0.0 and Context Precision 0.0 and averaged in. The three negative controls will behave the same whenever retrieval returns anything above 0.30. Decide before the formal run whether notices are excluded from the diagnostic means or reported separately, and write that rule into 3.2.5.</p>
+<div class="finding ok"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip ok">Fixed</span><span class="title">Notices contaminated the RAG diagnostics</span></div>
+<p>In the July smoke run, a “No relevant thesis” notice with five retrieved contexts was scored Faithfulness 0.0 and Context Precision 0.0 and averaged into means of 0.6 and 0.622. The three negative controls would have done the same whenever retrieval returned anything above 0.30.</p>
+<p><strong>Fixed in <code>b74d872</code></strong>: every row now records whether the RAG arm answered or returned a notice, classified from the response object by the same call production makes before persisting rather than by re-matching the text afterwards. The diagnostics report answers and notices separately as well as pooled, and the pooled <code>mean</code> keeps its old meaning so the earlier artifacts stay comparable. Section 3.2.5 now states that the separated figures are the ones read as grounding and retrieval quality — which is the decision this finding asked for, made in the manuscript rather than left to be discovered in the output.</p>
 </div></div>
 <div class="finding info"><div class="stripe"></div><div class="body">
 <div class="head"><span class="chip info">Design</span><span class="title">Corpus-wide frequency questions cannot be answered from five chunks</span></div>
 <p>Dataset items 3, 11, 18 and 37 ask “most commonly” or “most often”. With top-k 5 the RAG arm is structurally unable to answer them, so they will depress its score for a reason unrelated to hallucination. Either reword them as evidence questions or route them to the archive-inventory fast path and document that.</p>
 </div></div>
-<div class="finding info"><div class="stripe"></div><div class="body">
-<div class="head"><span class="chip info">Reporting</span><span class="title">No effect size or confidence interval</span></div>
-<p>The harness reports p-values and means only. With n ≈ 40 a paired Cohen's d and a 95 % CI for the mean difference cost one scipy line each and make the result far more informative than “significant at 0.05”.</p>
+<div class="finding ok"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip ok">Fixed</span><span class="title">No effect size or confidence interval</span></div>
+<p>The harness reported p-values and means only, so a result could be significant at 0.05 without a reader ever learning how large the difference was.</p>
+<p><strong>Fixed in <code>b74d872</code></strong>: every comparison now carries the signed mean paired difference with a two-sided 95 % t interval, Cohen's <em>d<sub>z</sub></em>, and the matched-pairs rank-biserial correlation for the Wilcoxon branch, where <em>d<sub>z</sub></em> is weakest. Each statistic emits its own definition string, so no one has to guess which convention produced it, and 3.2.5 commits to reporting them. The timing was the point: added after a formal run, this would have meant running the whole comparison again at two live Gemini calls per query.</p>
 </div></div>
 </div>
 
