@@ -1,5 +1,5 @@
 -- ============================================================================
--- ISU CENTRALIZED AI-POWERED THESIS LIBRARY — COMPLETE SUPABASE SCHEMA
+-- ISU CENTRALIZED AI-POWERED THESIS LIBRARY — BASE SUPABASE SCHEMA (apply every file in migrations/ afterwards)
 -- College of Computing Studies, Information and Communication Technology
 -- Isabela State University, Echague Campus
 --
@@ -1186,9 +1186,11 @@ create trigger protect_profile_security_fields
   for each row execute function public.protect_profile_security_fields();
 
 -- Papers: NO client policies — backend only (indirect access model).
--- The table stores the full extracted manuscript in `content`, so any
--- direct anon-key read would leak full thesis text and defeat the paper's
--- indirect access delimitation (Section 1.3). All metadata reads go through
+-- `papers.content` is never populated: commit_paper_ingestion receives no
+-- `content` key and the full manuscript text lives in `chunks.content`. The
+-- row still carries the abstract and the private storage path, so any direct
+-- anon-key read would defeat the paper's indirect access delimitation
+-- (Section 1.3). All metadata reads go through
 -- the backend /papers endpoint, which selects citation metadata columns
 -- only. RLS enabled with no policies = deny all for anon/authenticated.
 -- The drop below also removes the exposure from existing installations.
