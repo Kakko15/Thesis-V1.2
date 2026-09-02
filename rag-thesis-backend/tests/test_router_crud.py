@@ -80,6 +80,37 @@ def result(data=None, count=None):
     return SimpleNamespace(data=data or [], count=count)
 
 
+class UniqueViolation(Exception):
+    """Shaped like the SDK's error: SQLSTATE on `code`, detail in the message."""
+    code = '23505'
+
+
+class DuplicateCodeClient:
+    """ScriptedClient's Query can only return, so the constraint-violation path
+    needs a client whose insert raises. Reads report the name as free, which is
+    what makes the code collision the only reachable failure."""
+
+    def __init__(self, error=None):
+        self.error = error or UniqueViolation(
+            'duplicate key value violates unique constraint "departments_code_uq"',
+        )
+
+    def table(self, _name):
+        return self
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, *_args):
+        return self
+
+    def insert(self, *_args):
+        raise self.error
+
+    def execute(self):
+        return SimpleNamespace(data=[], count=None)
+
+
 class TestSessions:
     def test_session_crud_and_owner_checks(self, monkeypatch):
         user = SimpleNamespace(id='u1')
@@ -126,6 +157,92 @@ class TestDepartmentsAndSettings:
         updated = departments.update_department('d', DepartmentUpdate(name='CAS2'), SimpleNamespace(id='root'))
         assert updated['name'] == 'CAS2'
         assert departments.delete_department('d', SimpleNamespace(id='root'))['message'].startswith('Department deleted')
+
+    def _created_insert_payload(self, client):
+        """The dict handed to `.insert()` on the departments table."""
+        inserts = [
+            args[0] for name, query in client.queries if name == 'departments'
+            for operation, args in query.operations if operation == 'insert'
+        ]
+        assert len(inserts) == 1
+        return inserts[0]
+
+    def test_department_code_is_derived_from_the_name(self, monkeypatch):
+        """`departments.code` is NOT NULL from 20260725 with no default, so an
+        insert that omits it is a not-null violation surfaced as a 500."""
+        client = ScriptedClient({'departments': [
+            [], [{'id': 'd', 'name': 'CAS', 'code': 'CAS'}],
+        ]})
+        monkeypatch.setattr(departments, 'sb', client)
+        created = departments.create_department(
+            DepartmentCreate(name='CAS', track_label='Track', tracks=[]),
+            SimpleNamespace(id='root'),
+        )
+        assert created['code'] == 'CAS'
+        # Same formula as the migration's backfill, so an API-created row is
+        # indistinguishable from one the migration would have produced.
+        assert self._created_insert_payload(client)['code'] == 'CAS'
+
+    def test_derived_code_strips_punctuation_and_uppercases(self, monkeypatch):
+        client = ScriptedClient({'departments': [[], [{'id': 'd'}]]})
+        monkeypatch.setattr(departments, 'sb', client)
+        departments.create_department(
+            DepartmentCreate(name='c-c s.i/c t', track_label='Track', tracks=[]),
+            SimpleNamespace(id='root'),
+        )
+        assert self._created_insert_payload(client)['code'] == 'CCSICT'
+
+    def test_explicit_department_code_wins_over_the_derived_one(self, monkeypatch):
+        client = ScriptedClient({'departments': [[], [{'id': 'd'}]]})
+        monkeypatch.setattr(departments, 'sb', client)
+        departments.create_department(
+            DepartmentCreate(name='College of Nursing', code='CON', track_label='Track', tracks=[]),
+            SimpleNamespace(id='root'),
+        )
+        assert self._created_insert_payload(client)['code'] == 'CON'
+
+    @pytest.mark.parametrize('name', ['---', '   .   '])
+    def test_underivable_department_code_is_422(self, monkeypatch, name):
+        monkeypatch.setattr(departments, 'sb', ScriptedClient({'departments': [[]]}))
+        with pytest.raises(HTTPException) as caught:
+            departments.create_department(
+                DepartmentCreate(name=name, track_label='Track', tracks=[]),
+                SimpleNamespace(id='root'),
+            )
+        assert caught.value.status_code == 422
+        assert 'code' in caught.value.detail
+
+    def test_overlong_derived_department_code_is_422(self, monkeypatch):
+        monkeypatch.setattr(departments, 'sb', ScriptedClient({'departments': [[]]}))
+        with pytest.raises(HTTPException) as caught:
+            departments.create_department(
+                DepartmentCreate(
+                    name='College of Business, Accountancy and Public Administration',
+                    track_label='Track', tracks=[],
+                ),
+                SimpleNamespace(id='root'),
+            )
+        assert caught.value.status_code == 422
+
+    def test_duplicate_department_code_is_409_not_500(self, monkeypatch):
+        """departments_code_uq is independent of the name check, so a code
+        collision is reachable even when the requested name is free."""
+        monkeypatch.setattr(departments, 'sb', DuplicateCodeClient())
+        with pytest.raises(HTTPException) as caught:
+            departments.create_department(
+                DepartmentCreate(name='CAS', track_label='Track', tracks=[]),
+                SimpleNamespace(id='root'),
+            )
+        assert caught.value.status_code == 409
+        assert 'CAS' in caught.value.detail
+
+    def test_unrelated_insert_failure_is_not_swallowed(self, monkeypatch):
+        monkeypatch.setattr(departments, 'sb', DuplicateCodeClient(error=RuntimeError('connection reset')))
+        with pytest.raises(RuntimeError):
+            departments.create_department(
+                DepartmentCreate(name='CAS', track_label='Track', tracks=[]),
+                SimpleNamespace(id='root'),
+            )
 
     def test_department_conflict_and_missing(self, monkeypatch):
         monkeypatch.setattr(departments, 'sb', ScriptedClient({'departments': [[{'id': 'd'}]]}))

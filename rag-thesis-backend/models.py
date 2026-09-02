@@ -183,6 +183,7 @@ class UserUpdate(BaseModel):
 class DepartmentOut(BaseModel):
     id: str
     name: str
+    code: str
     track_label: str
     tracks: list[str]
     created_at: str
@@ -190,6 +191,12 @@ class DepartmentOut(BaseModel):
 
 class DepartmentCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
+    # `departments.code` is NOT NULL with no default from
+    # 20260725_normalized_academic_catalog.sql onward, and the router derives it
+    # from `name` when omitted, so existing clients that never learned about the
+    # column keep working. Same shape as the program and specialization codes in
+    # CatalogEntityCreate.
+    code: Optional[str] = Field(None, min_length=2, max_length=24, pattern=r'^[A-Z0-9-]+$')
     track_label: str = Field(default="Academic track", min_length=1, max_length=50)
     tracks: list[
         Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
