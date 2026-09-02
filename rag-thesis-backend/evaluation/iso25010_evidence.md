@@ -6,7 +6,86 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
-## Current local revalidation - 2026-09-02
+## Current local revalidation - 2026-09-03
+
+Measured on Windows 11 against commit `da9e931` with a clean working tree, after the
+five remediation commits of 2026-09-02/03 landed on `main` and CI went green on that
+revision. Toolchain unchanged from the 2026-09-02 pass (`.venv`, Python 3.14.6,
+PyTest 9.1.1, Pylint 4.0.6, Node.js 24.18.0, ESLint 9.39.5). Every figure was read from
+the command's **exit code**. Backend counts taken with `ALLOW_DISPOSABLE_SUPABASE_TESTS=0`.
+Unlike the 2026-09-02 pass, the browser journeys were re-run locally in this one.
+
+| Criterion | Instrument | Observed result | Status |
+|---|---|---|---|
+| Backend dependency consistency | `pip check` | No broken requirements found | Passed |
+| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 944 passed and 3 opt-in external integration tests skipped; 91.58% coverage (4,273 statements, 360 missed) | Passed |
+| Backend maintainability | Pylint | 10.00/10 | Passed |
+| Frontend unit tests and coverage | Node test runner with `--experimental-test-coverage`, gated at 85/80/85 | 130 passed; 95.15% lines, 90.09% branches, 95.24% functions | Passed |
+| Frontend maintainability | ESLint 9.39.5 | 0 errors, 1 warning (the `Archive.jsx` complexity advisory recorded on 2026-08-30, unchanged) | Passed; one advisory |
+| Frontend production build | Vite | Production build completed in 635 ms from a removed `dist/` | Passed |
+| Frontend bundle budget | `npm run bundle:budget` | Eager payload 316.9 kB gzipped across 11 files against a 330 kB budget | Passed |
+| Frontend production dependency audit | `npm audit --omit=dev` | found 0 vulnerabilities | Passed |
+| Critical browser journeys and accessibility matrix | Playwright 1.61.1 with @axe-core/playwright 4.12.1, Chromium, 24 tests including the 11-surface axe matrix | 24 passed in 2.1 min | Passed |
+| Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771 | Not re-run locally in this pass; green in CI on `da9e931` | Passed in CI |
+| Container vulnerability scan | Trivy | Not run locally in this pass; both images green in CI on `da9e931` | Passed in CI |
+| Backend dependency vulnerability audit | pip-audit | Not run in this pass | Pending re-run |
+
+### CI on `da9e931`
+
+Verified by polling the unauthenticated GitHub check-runs API, not by assumption:
+[run 33658152770](https://github.com/Kakko15/Thesis-V1.2/actions/runs/33658152770), check
+suite `91212170254`, head `da9e9310e5282ae1eb543744ffd3c7bd4ac62608` — all six checks
+`completed` with conclusion `success`: Backend (PyTest + Pylint), Frontend (ESLint +
+build), Secret scan, both container vulnerability scans, and SonarQube.
+
+### What changed in the measured system
+
+This pass is the first taken after the defects in
+`docs/FIDELITY_AUDIT_2026-09-02.html` were acted on, so the system under
+measurement is not the one the earlier passes measured:
+
+- `6162193` — `POST /departments/` supplied the `code` column that
+  `20260725_normalized_academic_catalog.sql` makes NOT NULL, so department creation no
+  longer fails with an unhandled 500 on a fully migrated project.
+- `fc56a23` — the post-login return path, the administrator 2FA challenge, the account
+  status badges, and the Content-Security-Policy font origins.
+- `47e8a7d` — **relevant to Objective 2.** `match_chunks` and `check_topic_duplication`
+  now set `hnsw.ef_search = 100`. Both apply six equality predicates and a similarity
+  floor after the HNSW scan has produced its candidates, and a non-iterative scan
+  produces at most `ef_search` of them (40 by default), so filtered retrieval could
+  return fewer than `match_count` rows while qualifying chunks existed. Any Context
+  Precision figure measured before this commit was taken against the narrower behaviour.
+  The change is guarded in both schema sources by
+  `test_retrieval_rpcs_raise_ef_search_above_the_default` but has **not** been verified
+  against a live database.
+- `c9160b3` — a late answer no longer lands in the conversation the reader switched to,
+  and editing a pending question no longer leaves the superseded wording behind.
+- `a1893b1` — manuscript corrections; no effect on the measured system.
+
+### Suite growth since 2026-09-02
+
+Backend rose from **874** passed (the 2026-09-02 post-rename pass recorded at the end of
+this file) to **944**, and coverage from 91.17% to 91.58%. Most of that growth is prior
+work this file never recorded: no pass was taken at `cc886e5`, eight commits after
+`dacc99b`, where the fidelity audit measured 932 passed at 91.51%. The remaining 12 are
+this pass's own — 8 from `6162193` covering derived and explicit department codes, the
+underivable and over-long cases, and the unique-violation path, and 4 from `47e8a7d`
+asserting the `ef_search` setting across two functions in both schema sources. Frontend
+rose from 116 to 130: 8 from `fc56a23` and 6 from `c9160b3`, with coverage up from
+93.66/88.09/94.29 to 95.15/90.09/95.24 because both commits moved logic out of JSX into
+pure modules the unit runner can import directly.
+
+### Objective 2 remains gated
+
+Unchanged, and restated because it is the one figure a reader will look for: no formal
+baseline-versus-RAG result exists. `evaluation/golden_dataset.json` holds 40 queries in
+which **all 40 ground truths and all 40 source-thesis fields are still `REPLACE:`
+placeholders** and `validated_by_faculty_panel` is `false`, so
+`validate_formal_dataset` refuses the run by design. The 50-thesis governed corpus, its
+lock and its receipt do not exist, and the four PI-08 approvals remain outstanding.
+Nothing in this pass changes that; the commits above are engineering remediation only.
+
+## Local revalidation - 2026-09-02
 
 Measured on Windows 11 against commit `dacc99b` with a clean working tree — the
 first pass taken at a committed, pushed and CI-green revision rather than mid-change.
@@ -60,7 +139,7 @@ is not true, and every artifact in `evaluation/results/` carries `formal_result:
 The three `comparison_20260901_*` artifacts are 3-query development smokes whose recorded
 `dataset_validation_issues` name the placeholder count and the missing faculty validators.
 
-## Current local revalidation - 2026-09-01
+## Local revalidation - 2026-09-01
 
 Measured on Windows 11 against commit `4d216ea` with the documentation and release
 fingerprint work of that day present but not yet committed. Toolchain unchanged from
@@ -171,7 +250,7 @@ new contributor to create `.venv`, while every command block in this file uses
 commands never exercise. Delete the stale `.venv` and `.venv312`, or reconcile the two
 names, before the next contributor reproduces this.
 
-## Current local revalidation - 2026-08-30
+## Local revalidation - 2026-08-30
 
 Measured on Windows 11 against commit `00e2f69`, with the paper and figure work of
 that day present in the working tree but not yet committed. No application source

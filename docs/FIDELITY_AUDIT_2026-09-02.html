@@ -131,7 +131,8 @@ hr{border:0;border-top:1px solid var(--line);margin:32px 0}
   <span>Repository HEAD <code>cc886e5</code> (2026-09-02 13:13 +08)</span>
   <span>Manuscript <code>paper/paper_CORRECTED.pdf</code>, 60 pages, built from <code>78d6b5e</code></span>
   <span>Review date 2026-09-02</span>
-  <span>Revised 2026-09-02 — embedding-provenance finding re-framed; department defect fixed in <code>6162193</code></span>
+  <span>Revised 2026-09-02 — embedding-provenance finding re-framed</span>
+  <span>Revised 2026-09-03 — remediation marked through <code>da9e931</code>; current gate figures live in <code>rag-thesis-backend/evaluation/iso25010_evidence.md</code></span>
 </div>
 
 <h2 id="verdict">Verdict</h2>
@@ -146,7 +147,7 @@ hr{border:0;border-top:1px solid var(--line);margin:32px 0}
 </div>
 
 <h2 id="measured">Measured at HEAD</h2>
-<p>Every figure in this table was produced during this review on the checked-out tree, not read from a document.</p>
+<p>Every figure in this table was produced during this review on the checked-out tree, not read from a document. They are the figures <strong>as of <code>cc886e5</code></strong> and are deliberately left as measured; the remediation commits below moved them. For the current numbers, see the 2026-09-03 block of <code>rag-thesis-backend/evaluation/iso25010_evidence.md</code>, taken at <code>da9e931</code>.</p>
 <div class="tablewrap"><table>
 <thead><tr><th>Gate</th><th>Command</th><th class="num">Result</th><th>Status</th></tr></thead>
 <tbody>
@@ -309,14 +310,16 @@ hr{border:0;border-top:1px solid var(--line);margin:32px 0}
 <p>Scope is narrower than it first appears. The backfill is <code>insert … select … from chunks</code>, so on a fresh project it inserts no rows and there is nothing to exclude. Only a project that already held chunks when <code>20260720</code> was applied is affected, and the remedy is the documented reindex in README step 1.5.</p>
 <p class="where">supabase_setup.sql:354 · migrations/20260720_index_embedding_provenance.sql:48 · services/index_provenance.py:37 · scripts/reindex_citations.py:162-180</p>
 </div></div>
-<div class="finding warn"><div class="stripe"></div><div class="body">
-<div class="head"><span class="chip warn">Retrieval</span><span class="title">HNSW post-filtering can under-return</span></div>
+<div class="finding ok"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip ok">Fixed</span><span class="title">HNSW post-filtering could under-return</span></div>
 <p><code>match_chunks</code> applies six equality filters and the threshold after an HNSW ordered scan. pgvector returns at most <code>ef_search</code> (default 40) candidates before the WHERE runs, so with a selective department or provenance filter it can return fewer than five rows, or none, while qualifying chunks exist. Nothing sets <code>hnsw.ef_search</code>. This matters directly to Context Precision.</p>
-<p class="where">supabase_setup.sql:311-312, 873-887</p>
+<p><strong>Fixed in <code>47e8a7d</code></strong>: both retrieval RPCs now carry <code>set hnsw.ef_search = 100</code>, in the base schema and in <code>20260903_hnsw_ef_search.sql</code>. <code>check_topic_duplication</code> was included as well — not flagged above, but it has the same exposure, so a manuscript above the 0.85 threshold could be missed outright. Not <code>hnsw.iterative_scan</code>, which is the cleaner fix but needs pgvector 0.8.0 while Table 3 says 0.7.0 and the live version is Supabase-managed and recorded nowhere. Guarded in both schema sources; <strong>not verified against a live database.</strong></p>
+<p class="where">supabase_setup.sql:311-312, 873-887 · migrations/20260903_hnsw_ef_search.sql</p>
 </div></div>
 <div class="finding warn"><div class="stripe"></div><div class="body">
 <div class="head"><span class="chip warn">Performance</span><span class="title">One RPC per chunk in both duplication paths</span></div>
-<p>Ingest screening and the novelty scanner call <code>match_chunks</code> once per chunk, serially. A 500-page manuscript is hundreds of round trips inside one 120-second lease, kept alive only by the heartbeat thread. A single set-returning SQL function over an array of embeddings would cut this to one call.</p>
+<p>Ingest screening and the novelty scanner call <code>match_chunks</code> once per chunk, serially. A 500-page manuscript is hundreds of round trips inside one 120-second lease, kept alive only by the heartbeat thread.</p>
+<p><strong>Deliberately not changed.</strong> This first read as a straightforward optimisation. It is not: <code>routers/duplication.py:115-127</code> already records the decision — &ldquo;batching the round trips is deliberately deferred because that would alter a scored pipeline stage&rdquo; — and <code>test_schema_consistency.py</code> gives the same reason for leaving <code>check_topic_duplication</code> alone. A <code>LATERAL</code> batch would also let the planner move from an approximate HNSW scan to an exact one, which changes output. If the wall-clock cost has to be addressed before the baseline is locked, issuing the existing per-chunk calls concurrently preserves the SQL, the plan and the results exactly.</p>
 <p class="where">services/novelty.py:91-98 · routers/duplication.py:131-138</p>
 </div></div>
 <div class="finding warn"><div class="stripe"></div><div class="body">
@@ -336,44 +339,49 @@ hr{border:0;border-top:1px solid var(--line);margin:32px 0}
 
 <h3>Frontend</h3>
 <div class="findings">
-<div class="finding warn"><div class="stripe"></div><div class="body">
-<div class="head"><span class="chip warn">Bug</span><span class="title">Return path is lost after a session expires</span></div>
-<p>The 401 handler redirects to <code>/login?returnTo=…</code>, but the login page reads only the <code>next</code> parameter that the idle guard uses. The destination is dropped and the user lands on the dashboard.</p>
+<div class="finding ok"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip ok">Fixed</span><span class="title">Return path was lost after a session expired</span></div>
+<p>The 401 handler redirected to <code>/login?returnTo=…</code>, but the login page read only the <code>next</code> parameter the idle guard writes, so the destination was dropped and the reader landed on the dashboard.</p>
+<p><strong>Fixed in <code>fc56a23</code></strong>: the key and the URL builder now live in <code>lib/idleSession.js</code> beside <code>safeNextPath</code>, and all three callers go through them.</p>
 <p class="where">src/api.js:143 · src/pages/Login.jsx:95 · src/components/IdleSessionGuard.jsx:81</p>
 </div></div>
-<div class="finding warn"><div class="stripe"></div><div class="body">
-<div class="head"><span class="chip warn">Bug</span><span class="title">Admin 2FA challenge loops back to the dashboard</span></div>
+<div class="finding ok"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip ok">Fixed</span><span class="title">Admin 2FA challenge looped back to the dashboard</span></div>
 <p>The admin page's <code>challenge</code> state navigates to <code>/login</code>, but a signed-in user with the email-code bypass resolves straight to the success step, which navigates back. The TOTP challenge is never shown. The 403-driven <code>PrivilegedMfaGate</code> that was built to avoid this never fires because the admin page blocks before any API call.</p>
+<p><strong>Fixed in <code>fc56a23</code></strong>: the challenge state now raises the same signal the 403 path raises, so <code>PrivilegedMfaGate</code> collects the code in place and its <code>invalidateQueries</code> re-runs the factor check without a reload.</p>
 <p class="where">src/pages/Admin.jsx:79 · src/pages/Login.jsx:119-123 · src/context/AuthContext.jsx:180-199</p>
 </div></div>
-<div class="finding warn"><div class="stripe"></div><div class="body">
-<div class="head"><span class="chip warn">Bug</span><span class="title">User status badges render unstyled</span></div>
-<p>The user table passes <code>warning | critical | success</code> tones; the Badge component defines only <code>forest | gold | flame | neutral</code>, so Approved, Pending and Rejected badges have no colour.</p>
+<div class="finding ok"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip ok">Fixed</span><span class="title">User status badges rendered unstyled</span></div>
+<p>The user table passed <code>warning | critical | success</code> tones; the Badge component defined only <code>forest | gold | flame | neutral</code>, so <code>styles[tone]</code> was <code>undefined</code> and Approved, Pending and Rejected had no colour at all.</p>
+<p><strong>Fixed in <code>fc56a23</code></strong>: semantic names now alias the audited tones, and an unrecognised tone falls back to neutral. The palette and the resolution moved to <code>design/badgeTones.js</code> because the logic sat in JSX the unit runner cannot import — which is why a tone resolving to nothing passed every check until someone looked at the rendered page.</p>
 <p class="where">src/pages/admin/SystemManagementTab.jsx:612 · src/components/ui/Badge.jsx:8-13</p>
 </div></div>
-<div class="finding warn"><div class="stripe"></div><div class="body">
-<div class="head"><span class="chip warn">Deployment</span><span class="title">The nginx CSP blocks the page's own webfonts</span></div>
-<p><code>index.html</code> loads Plus Jakarta Sans, Inter, JetBrains Mono and Instrument Serif from Google Fonts. The production CSP allows <code>style-src 'self' 'unsafe-inline'</code> and <code>font-src 'self' data:</code> only, so behind nginx the fonts are blocked and the interface silently falls back to system faces. The e2e suite mocks the font host, so tests never see it. <code>index.html</code> is also cacheable with no <code>no-cache</code> header.</p>
+<div class="finding ok"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip ok">Fixed</span><span class="title">The nginx CSP blocked the page's own webfonts</span></div>
+<p><code>index.html</code> loads Plus Jakarta Sans, Inter, JetBrains Mono and Instrument Serif from Google Fonts. The production CSP allowed <code>style-src 'self' 'unsafe-inline'</code> and <code>font-src 'self' data:</code> only, so behind nginx the faces were blocked and the interface fell back to system fonts. Nothing caught it: dev serves no CSP and the e2e suites stub the font host.</p>
+<p><strong>Fixed in <code>fc56a23</code></strong>: both Google origins are named, and <code>fontDelivery.test.js</code> reads <code>index.html</code> and the nginx template together so every external origin the page links must be permitted — the class of defect rather than this one instance. It also pins <code>default-src</code>, <code>object-src</code>, <code>frame-ancestors</code> and <code>script-src</code>, so widening the font origins cannot quietly widen script execution.</p>
+<p><strong>Still open:</strong> <code>index.html</code> remains cacheable with no <code>no-cache</code> header, so a client can hold a stale index pointing at purged asset hashes after a deploy.</p>
 <p class="where">rag-thesis-frontend/index.html:12-15 · nginx/default.conf.template:7</p>
 </div></div>
 <div class="finding info"><div class="stripe"></div><div class="body">
 <div class="head"><span class="chip info">Consistency</span><span class="title">Smaller items</span></div>
-<p>Switching chat sessions mid-request appends the late answer to the new transcript and flips the active session back. Editing a pending prompt leaves an orphaned bubble. Forgot-password accepts 6-character passwords while sign-up and reset require the strong policy. Live capacity and refusal notices are visually indistinguishable from answers because <code>ChatResponse</code> has no <code>kind</code>. The novelty dropzone checks size but not type. Two dead components pass lint only because <code>varsIgnorePattern: '^[A-Z_]'</code> exempts every capitalised name. Unit tests cover pure modules only; no component or hook is tested.</p>
+<p><em>Fixed in <code>c9160b3</code>:</em> switching conversations mid-request appended the late answer to the new transcript and flipped the active session back — <code>loadSession</code> now aborts the in-flight request first and carries a generation counter; and editing a pending prompt left an orphaned bubble — that trim moved to <code>pages/chat/transcript.js</code> so both abandon paths share it. <em>Still open:</em> forgot-password accepts 6-character passwords while sign-up and reset require the strong policy. Live capacity and refusal notices are visually indistinguishable from answers because <code>ChatResponse</code> has no <code>kind</code>. The novelty dropzone checks size but not type. Two dead components pass lint only because <code>varsIgnorePattern: '^[A-Z_]'</code> exempts every capitalised name. Unit tests cover pure modules only; no component or hook is tested.</p>
 </div></div>
 </div>
 
 <h2 id="manuscript">Manuscript notes</h2>
-<p>These are editorial, not substantive. The correction pipeline (<code>build_corrections.py</code>) regenerates the DOCX from the untouched original, which is exactly right; note that the PDF is exported by hand afterwards and was last exported seven hours after the DOCX, so the two can drift.</p>
+<p>These are editorial, not substantive. The correction pipeline (<code>build_corrections.py</code>) regenerates the DOCX from the untouched original, which is exactly right; the PDF is exported by hand afterwards, and it had been left a day behind the DOCX — exactly that drift. Both were regenerated together in <code>a1893b1</code> and are now 60 pages carrying the same corrections.</p>
 <ul>
-<li><strong>Reference-list “et al.”</strong> Bevara, Doliente, Gokdemir and Wong are listed as “et al.” in the reference list. APA 7 requires all authors up to twenty; “et al.” belongs in the in-text citation only.</li>
-<li><strong>Inconsistent citation.</strong> Li and colleagues are cited as “Li et al. (2025)” in 2.1.5 and as “Li, 2025” in 2.1.7 for the same six-author paper.</li>
+<li><strong>Reference-list “et al.” — still open.</strong> Bevara, Doliente, Gokdemir and Wong are listed as “et al.” in the reference list. APA 7 requires all authors up to twenty; “et al.” belongs in the in-text citation only. Deliberately not auto-corrected: the author lists have to come from the sources themselves, not from a lookup. Checking them surfaced two further problems — the Wong entry gives the wrong first-author initial (arXiv:2502.14898 is Lionel Wong, not “Wong, K.”), and the Gokdemir entry’s venue and DOI do not match the paper of that title, which publishes as PASC ’25 (10.1145/3732775.3733586) rather than CCGrid. Gokdemir also carries 24 authors, which changes the APA form again.</li>
+<li><strong>Inconsistent citation — fixed in <code>a1893b1</code>.</strong> Li and colleagues were cited as “Li et al. (2025)” in 2.1.5 and as “Li, 2025” in 2.1.7 for the same six-author paper.</li>
 <li><strong>Figures 3–5</strong> still carry internal titles “Figure 1.1 / 1.2 / 1.3” while captioned Figure 3, 4, 5 (already logged as open in <code>CORRECTIONS_APPLIED.md</code>).</li>
 <li><strong>Table 2 row order.</strong> Python v3.14.7 sits after python-dotenv; move it to the top of the backend table.</li>
 <li><strong>Table 5</strong> has a “Gap / Feasible” column with no explanation of what gap is being assessed.</li>
 <li><strong>Table 1</strong> omits the Supabase JavaScript client, which carries the entire authentication flow, while listing Framer Motion. Table 4 omits Trivy, pip-audit, npm audit and Gitleaks although 3.2.5 promises “vulnerability counts identified through security scanning”.</li>
 <li><strong>Page 12</strong> is two-thirds blank before Chapter 2.</li>
-<li><strong>3.2.4 Reliability</strong> should drop “memory leaks” from the list of what SonarQube detects.</li>
-<li><strong>3.2.1 Pylint</strong> should state the profile the 10.00 is measured under (120-column limit, complexity and docstring families disabled).</li>
+<li><strong>3.2.4 Reliability — fixed in <code>a1893b1</code>.</strong> “Memory leaks” is gone from the list of what SonarQube detects; its Python and JavaScript analysers do not detect them, and the reliability rating they produce is driven by bugs.</li>
+<li><strong>Pylint profile — fixed in <code>a1893b1</code>.</strong> The methodology now names <code>.pylintrc</code>: the line limit is raised to 120, the test suite is excluded, and exactly fourteen message families are disabled. There is no <code>fail-under</code>, so the score is informational rather than a gate.</li>
 <li><strong>Chapter 4</strong> does not exist yet; when it is written, the reporting discipline in 3.2.5 (means across iterations) should be applied to figures generated on the final commit, not to the July and August runs.</li>
 </ul>
 
@@ -385,10 +393,10 @@ hr{border:0;border-top:1px solid var(--line);margin:32px 0}
 <li><strong>Fill the Golden Dataset</strong> from that corpus, obtain the three panel sign-offs, set <code>validated_by_faculty_panel: true</code>. Reword items 3, 11, 18 and 37 or route them to the inventory path. Decide and document how notices and negative controls enter the diagnostic means.</li>
 <li><strong>Run the formal comparison</strong> on the direct Google route with <code>APP_ENVIRONMENT=development</code> and <code>GUEST_DAILY_TOKEN_BUDGET=0</code>, commit the schema-3 fingerprint, add effect size and CI to the output, and disclose the same-family judge in 3.2.4.</li>
 <li><strong>Settle the two data-layer items.</strong> Department creation is done (<code>6162193</code>). For the embedding labels, check whether the live project held chunks before <code>20260720</code>; if it did, take the API and worker offline and run <code>reindex_citations --apply --all --allow-model-change</code> per README step 1.5. Do <em>not</em> relabel the provenance rows — the stamps are accurate and the filter is a guard.</li>
-<li><strong>Regenerate every quoted figure on the final commit</strong>: pytest and coverage, JMeter provider-independent run on Python 3.14 with the thread count actually reached, SonarQube on scanner 8.0.1, Trivy, pip-audit, npm audit, the Gemini smoke on <code>gemini-embedding-001</code>. Remove or evidence the unartifacted numbers in the defense walkthrough.</li>
-<li><strong>Fix the three frontend bugs</strong> (return path, admin 2FA loop, badge tones) and add the Google Fonts origins to the nginx CSP or self-host the faces.</li>
-<li><strong>Set <code>hnsw.ef_search</code></strong> or use pgvector's iterative scan so filtered retrieval cannot under-return, then re-check Context Precision.</li>
-<li><strong>Batch the per-chunk duplication RPCs</strong> into one set-returning function.</li>
+<li><strong>Regenerate every quoted figure on the final commit.</strong> The 2026-09-03 block of <code>evaluation/iso25010_evidence.md</code> now carries the gate figures at <code>da9e931</code>; these still need it — pytest and coverage, JMeter provider-independent run on Python 3.14 with the thread count actually reached, SonarQube on scanner 8.0.1, Trivy, pip-audit, npm audit, the Gemini smoke on <code>gemini-embedding-001</code>. Remove or evidence the unartifacted numbers in the defense walkthrough.</li>
+<li><strong>Frontend bugs and the CSP — done</strong> (<code>fc56a23</code>, <code>c9160b3</code>). What remains there is smaller: the <code>no-cache</code> header on <code>index.html</code>, the forgot-password policy, and a <code>kind</code> field on <code>ChatResponse</code> so a live notice is distinguishable from an answer.</li>
+<li><strong><code>hnsw.ef_search</code> — done</strong> (<code>47e8a7d</code>), but verify it against the live project and then re-check Context Precision. If the deployed pgvector turns out to be 0.8.0 or newer, prefer <code>hnsw.iterative_scan</code> and use the rollback committed beside the migration.</li>
+<li><strong>Do not batch the per-chunk duplication RPCs</strong> before the baseline is locked; see the finding above.</li>
 <li><strong>Decide on open registration</strong> and make the paper and the trigger agree.</li>
 </ol>
 
