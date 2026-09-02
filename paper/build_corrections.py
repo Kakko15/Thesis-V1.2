@@ -379,6 +379,38 @@ PROSE6 = [
      1, 'P6-2 gateway disclosed to privacy review'),
 ]
 
+# --- accuracy and citation-style corrections (2026-09-03 audit) ----------
+PROSE7 = [
+    # SonarQube's Python and JavaScript analysers do not detect memory leaks;
+    # the reliability rating they produce is driven by bugs. The remaining
+    # three items in the list are things the scan genuinely reports.
+    ('logic flaws, unhandled exceptions, memory leaks, and potential fault points',
+     'logic flaws, unhandled exceptions, and potential fault points',
+     1, 'P7-1 SonarQube does not detect memory leaks'),
+
+    # A Pylint score is only interpretable against the profile that produced
+    # it. Ground truth: rag-thesis-backend/.pylintrc -- max-line-length=120,
+    # ignore=venv,.venv,tests, and exactly fourteen disabled message families
+    # (three docstring checks, five too-many-* checks, and six others). There
+    # is no fail-under, so the score is informational rather than a gate.
+    ('using linting tools such as Pylint for Python and ESLint for React to ensure code '
+     'modularity, adherence to standards, and reduced technical debt.',
+     'using linting tools such as Pylint for Python and ESLint for React to ensure code '
+     'modularity, adherence to standards, and reduced technical debt. Pylint scores are '
+     'reported against the configuration committed at rag-thesis-backend/.pylintrc, which '
+     'raises the line-length limit to 120 characters, excludes the test suite from '
+     'analysis, and disables fourteen message families including the docstring and '
+     'function-size checks. The reported score is therefore comparable only against that '
+     'profile.',
+     1, 'P7-2 Pylint profile disclosed'),
+
+    # APA 7: a work with three or more authors is cited as "first author et
+    # al." at every mention, including the first. Section 2.1.5 already does
+    # this for the same six-author paper; the synthesis in 2.1.7 did not.
+    ('literature (Li, 2025;', 'literature (Li et al., 2025;',
+     1, 'P7-3 Li et al. in-text citation'),
+]
+
 
 def apply_figures(xml, src, verbose=True):
     """Swap embedded figures and refit each drawing to the text width."""
@@ -407,7 +439,7 @@ def build(verbose=True):
     xml = D.replace_cell_nth(xml, 'text-embedding-004',
                              'models/gemini-embedding-001 (768 dimensions)', 0, 'T3 embed id')
     if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding')
-    for old, new, n, label in PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5 + PROSE6:
+    for old, new, n, label in PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5 + PROSE6 + PROSE7:
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')
     for anchor, label, rows in TABLE_ROWS:
