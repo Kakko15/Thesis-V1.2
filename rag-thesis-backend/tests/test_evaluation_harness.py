@@ -10,11 +10,13 @@ import pytest
 from evaluation import run_comparison
 from evaluation.run_comparison import (
     _load_checkpoint,
+    _rank_biserial_correlation,
     _ranked_contexts,
     _run_pathways,
     is_unattempted,
     sanitize_evaluation_rows,
     statistical_treatment,
+    summarize_rag_diagnostics,
     validate_formal_dataset,
 )
 from services import chat_notices
@@ -266,3 +268,153 @@ def test_a_persistent_provider_error_is_excluded_rather_than_fatal(monkeypatch):
     assert [row['id'] for row in rows] == [1, 2], 'the run continued past the failure'
     assert all(row['rag_unattempted'] for row in rows)
     assert 'ServerError' in rows[0]['failure']
+
+
+# --- A p-value alone is not a reportable result ----------------------------
+
+
+def test_the_paired_test_reports_an_effect_size_and_an_interval():
+    """Expected values computed by hand, not read back from the function.
+
+    diffs = [0.2, 0.3, 0.1, 0.4]; mean 0.25; sample sd sqrt(0.05/3) = 0.1290994.
+    d_z = 0.25 / 0.1290994 = 1.9364917. SE = 0.1290994 / 2 = 0.0645497, and
+    t(0.975, 3) = 3.182446, so the half-width is 0.2054260.
+    """
+    result = statistical_treatment([0.1, 0.2, 0.3, 0.4], [0.3, 0.5, 0.4, 0.8])
+
+    assert result['n_pairs'] == 4
+    assert result['mean_difference'] == pytest.approx(0.25)
+    assert result['effect_size']['cohens_d_z']['value'] == pytest.approx(1.9364917, abs=1e-6)
+    assert result['mean_difference_ci_95']['lower'] == pytest.approx(0.0445740, abs=1e-6)
+    assert result['mean_difference_ci_95']['upper'] == pytest.approx(0.4554260, abs=1e-6)
+    # Every reported statistic names its own definition, so a reader does not
+    # have to guess which of the several "Cohen's d" conventions was used.
+    assert 'sd(rag - baseline)' in result['effect_size']['cohens_d_z']['definition']
+    assert 'W+' in result['effect_size']['rank_biserial_correlation']['definition']
+    assert 't interval' in result['mean_difference_ci_95']['method']
+
+
+def test_the_interval_is_centred_on_the_mean_difference_and_signed_toward_rag():
+    better = statistical_treatment([0.1, 0.2, 0.3, 0.4], [0.3, 0.5, 0.4, 0.8])
+    worse = statistical_treatment([0.3, 0.5, 0.4, 0.8], [0.1, 0.2, 0.3, 0.4])
+
+    # Positive favours the RAG arm, matching the direction both tests are given.
+    assert better['mean_difference'] > 0
+    assert better['effect_size']['cohens_d_z']['value'] > 0
+    assert worse['mean_difference'] == pytest.approx(-better['mean_difference'])
+    assert worse['effect_size']['cohens_d_z']['value'] == pytest.approx(
+        -better['effect_size']['cohens_d_z']['value'],
+    )
+
+    interval = better['mean_difference_ci_95']
+    midpoint = (interval['lower'] + interval['upper']) / 2
+    assert midpoint == pytest.approx(better['mean_difference'])
+    assert interval['lower'] < better['mean_difference'] < interval['upper']
+
+
+@pytest.mark.parametrize(('diffs', 'expected'), [
+    ([0.1, 0.2, 0.3], 1.0),          # every pair favours RAG
+    ([-0.1, -0.2, -0.3], -1.0),      # every pair favours the baseline
+    ([0.1, 0.2, -0.3], 0.0),         # ranks 1 + 2 against 3: balanced
+    ([0.0, 0.0], None),              # nothing to rank
+])
+def test_rank_biserial_correlation_is_bounded_and_signed(diffs, expected):
+    """The signed-rank effect size, for the branch where d_z is weakest.
+
+    Wilcoxon is chosen precisely when the differences are not normal, and d_z
+    presumes they sit on a meaningful interval scale, so the rank-based figure
+    is the one that belongs beside that test.
+    """
+    assert _rank_biserial_correlation(diffs) == expected
+
+
+def test_a_run_too_small_to_test_reports_no_effect_size():
+    """The note must not be accompanied by statistics that were never computed."""
+    result = statistical_treatment([0.2, 0.4], [0.3, 0.5])
+
+    assert 'At least three complete score pairs' in result['note']
+    for absent in ('effect_size', 'mean_difference', 'mean_difference_ci_95', 'n_pairs'):
+        assert absent not in result
+
+
+def test_the_original_statistical_contract_is_unchanged():
+    """Section 3.2.5's own wording depends on these keys."""
+    result = statistical_treatment([0.1, 0.2, 0.3, 0.4], [0.3, 0.5, 0.4, 0.8])
+
+    assert result['test'] in ('paired-samples t-test', 'Wilcoxon Signed-Rank test')
+    assert result['shapiro_wilk']['normal'] is True
+    assert isinstance(result['significant_at_0.05'], bool)
+    assert 0.0 <= result['p_value'] <= 1.0
+
+
+# --- Notices must not be silently pooled with research answers -------------
+
+
+def _diagnostic_rows():
+    """Two research answers, one notice, and one query that never ran."""
+    rows = [
+        {'id': 1, 'rag_kind': chat_notices.KIND_ANSWER},
+        {'id': 2, 'rag_kind': chat_notices.KIND_ANSWER},
+        {'id': 3, 'rag_kind': chat_notices.KIND_NOTICE},
+        {'id': 4, 'rag_kind': None},
+    ]
+    rag_scores = [
+        {'faithfulness': 0.9, 'context_precision': 0.8},
+        {'faithfulness': 0.7, 'context_precision': 0.6},
+        # A no-evidence notice scores zero on both while still holding contexts.
+        {'faithfulness': 0.0, 'context_precision': 0.0},
+        {'faithfulness': None, 'context_precision': None},
+    ]
+    return rows, rag_scores
+
+
+def test_rag_diagnostics_report_answers_apart_from_notices():
+    summary = summarize_rag_diagnostics(*_diagnostic_rows())
+    faithfulness = summary['faithfulness']
+
+    # The whole point: pooling the notice moves the headline figure by 0.27,
+    # for a reason that is neither a retrieval nor a grounding failure.
+    assert faithfulness['mean'] == pytest.approx((0.9 + 0.7 + 0.0) / 3)
+    assert faithfulness['answers_only']['mean'] == pytest.approx(0.8)
+    assert faithfulness['answers_only']['n'] == 2
+    assert faithfulness['notices_only']['mean'] == pytest.approx(0.0)
+    assert faithfulness['notices_only']['n'] == 1
+
+    precision = summary['context_precision']
+    assert precision['answers_only']['mean'] == pytest.approx(0.7)
+    assert precision['notices_only']['mean'] == pytest.approx(0.0)
+
+
+def test_the_pooled_diagnostic_figure_is_unchanged_by_the_split():
+    """Earlier artifacts quote `mean`, so it has to keep its old meaning."""
+    summary = summarize_rag_diagnostics(*_diagnostic_rows())
+
+    for metric in ('faithfulness', 'context_precision'):
+        entry = summary[metric]
+        assert entry['n'] == 3, 'a non-finite score must stay excluded'
+        assert entry['not_applicable'] == 1
+        # A query the provider never served belongs to neither population.
+        assert entry['answers_only']['n'] + entry['notices_only']['n'] == entry['n']
+
+
+def test_a_metric_with_no_usable_scores_reports_none_rather_than_zero():
+    rows = [{'id': 1, 'rag_kind': chat_notices.KIND_ANSWER}]
+    summary = summarize_rag_diagnostics(rows, [{'faithfulness': None, 'context_precision': None}])
+
+    assert summary['faithfulness']['mean'] is None
+    assert summary['faithfulness']['n'] == 0
+    assert summary['faithfulness']['answers_only']['mean'] is None
+
+
+def test_the_row_records_whether_the_rag_arm_answered_or_only_noticed(monkeypatch):
+    """Classified from the response object, the way production classifies it."""
+    _patch_pathways(monkeypatch, ['The study reported 94.2% accuracy [1].'])
+    answered = asyncio.run(_run_pathways([QUERY]))
+    assert answered[0]['rag_kind'] == chat_notices.KIND_ANSWER
+
+    notice = f'{chat_notices.NO_RELEVANT_PREFIX} CCSICT archive for that query.'
+    _patch_pathways(monkeypatch, [notice])
+    refused = asyncio.run(_run_pathways([QUERY]))
+    # Still scored and never retried — but not a research answer.
+    assert refused[0]['rag_kind'] == chat_notices.KIND_NOTICE
+    assert refused[0]['rag_unattempted'] is False

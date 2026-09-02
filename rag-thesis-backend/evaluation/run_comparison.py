@@ -46,6 +46,7 @@ import hashlib
 import json
 import math
 import re
+import statistics
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -258,6 +259,13 @@ def _build_row(q, baseline, rag, attempts: int, unattempted: bool) -> dict:
         'rag_top_similarity': round(trace.get('top_similarity', 0.0), 4),
         'rag_end_to_end_latency_s': round(rag_latency, 3),
         'attempts': attempts,
+        # 'answer' or 'notice', classified from the response object the way
+        # production classifies it before persisting, rather than re-matching
+        # the text afterwards. A no-evidence result, a guard refusal and the
+        # grounded fallback are all correct system behaviour and are scored,
+        # but they are not research answers, so the diagnostics report them
+        # apart from answers instead of pooling the two.
+        'rag_kind': chat_notices.response_kind(rag_response),
         # True only when the provider never processed the question. Such a row
         # is excluded from the paired statistics rather than scored, because
         # scoring an outage notice against the ground truth would report the
@@ -281,6 +289,10 @@ def _unattempted_row(q: dict, detail: str) -> dict:
         'rag_top_similarity': 0.0,
         'rag_end_to_end_latency_s': 0.0,
         'attempts': _UNATTEMPTED_MAX_ATTEMPTS,
+        # Neither an answer nor a notice: the question never reached the model,
+        # so there is no response to classify. The row is excluded from scoring
+        # anyway, and `None` keeps it out of both diagnostic populations.
+        'rag_kind': None,
         'rag_unattempted': True,
         'failure': detail[:300],
     }
@@ -518,8 +530,84 @@ def score_with_ragas(rows: list[dict], checkpoint: Path | None = None) -> dict:
     return asyncio.run(_score_with_ragas(rows, checkpoint))
 
 
+def _rank_biserial_correlation(diffs: list[float]) -> float | None:
+    """Matched-pairs rank-biserial correlation: (W+ - W-) / (W+ + W-).
+
+    The signed-rank effect size that belongs beside a Wilcoxon test, since
+    Cohen's d_z presumes the differences are on a meaningful interval scale.
+    Ranges from -1 (every pair favours the baseline) to +1 (every pair favours
+    RAG). Zero differences are dropped exactly as the test drops them, and tied
+    magnitudes take their average rank, so W+ + W- is the full rank sum.
+    """
+    from scipy import stats
+
+    nonzero = [d for d in diffs if d != 0]
+    if not nonzero:
+        return None
+    ranks = stats.rankdata([abs(d) for d in nonzero])
+    positive = sum(rank for diff, rank in zip(nonzero, ranks, strict=True) if diff > 0)
+    negative = sum(rank for diff, rank in zip(nonzero, ranks, strict=True) if diff < 0)
+    total = positive + negative
+    return float((positive - negative) / total) if total else None
+
+
+def summarize_rag_diagnostics(rows: list[dict], rag_scores: list[dict]) -> dict:
+    """Faithfulness and Context Precision, pooled and split by response kind.
+
+    A no-evidence notice or a guard refusal scores 0.0 on both metrics while
+    still carrying retrieved contexts, so pooling it with research answers pulls
+    the mean down for a reason that is neither a retrieval nor a grounding
+    failure. The three negative controls do exactly this by design, whenever
+    retrieval returns anything above the threshold.
+
+    Both populations are therefore emitted and neither is privileged here:
+    `mean` stays the pooled figure so earlier artifacts remain comparable, and
+    Section 3.2.5 has to state which one it quotes. Deciding that in the
+    manuscript is cheaper than discovering it after a formal run.
+    """
+    summary = {}
+    for metric in ('faithfulness', 'context_precision'):
+        # Paired with the source rows so each score keeps the kind of response
+        # it came from. `score_with_ragas` appends one entry per row in order,
+        # which is what makes the strict zip sound.
+        scored = [
+            (source_row, float(score_row[metric]))
+            for source_row, score_row in zip(rows, rag_scores, strict=True)
+            if score_row.get(metric) is not None
+            and math.isfinite(float(score_row[metric]))
+        ]
+        values = [value for _source_row, value in scored]
+
+        def population(kind, scored=scored):
+            selected = [
+                value for source_row, value in scored
+                if source_row.get('rag_kind') == kind
+            ]
+            return {
+                'mean': statistics.fmean(selected) if selected else None,
+                'n': len(selected),
+            }
+
+        summary[metric] = {
+            'mean': statistics.fmean(values) if values else None,
+            'n': len(values),
+            'not_applicable': len(rag_scores) - len(values),
+            'answers_only': population(chat_notices.KIND_ANSWER),
+            'notices_only': population(chat_notices.KIND_NOTICE),
+        }
+    return summary
+
+
 def statistical_treatment(baseline_scores: list[float], rag_scores: list[float]) -> dict:
-    """Section 3.2.5: Shapiro-Wilk, then paired t-test or Wilcoxon (alpha=0.05)."""
+    """Section 3.2.5: Shapiro-Wilk, then paired t-test or Wilcoxon (alpha=0.05).
+
+    Reported with an effect size and an interval, not a p-value alone. A
+    p-value states only whether a difference is detectable at this n; the first
+    question a reader asks is how large it is, and at n around 40 "significant
+    at 0.05" on its own is a thin claim. Both effect sizes are always emitted so
+    the one matching the test actually chosen is present without the output
+    shape changing between runs.
+    """
     if len(baseline_scores) < 3 or len(rag_scores) < 3:
         return {'note': 'At least three complete score pairs are required for statistical testing.'}
     diffs = [r - b for r, b in zip(rag_scores, baseline_scores)]
@@ -540,12 +628,39 @@ def statistical_treatment(baseline_scores: list[float], rag_scores: list[float])
         test_name = 'Wilcoxon Signed-Rank test'
         stat, p = stats.wilcoxon(rag_scores, baseline_scores)
 
+    # The early return above guarantees at least two distinct differences, so
+    # the sample standard deviation cannot be zero here.
+    pairs = len(diffs)
+    mean_difference = statistics.fmean(diffs)
+    stdev_difference = statistics.stdev(diffs)
+    standard_error = stdev_difference / math.sqrt(pairs)
+    half_width = float(stats.t.ppf(0.975, pairs - 1)) * standard_error
+
     return {
         'shapiro_wilk': {'statistic': float(shapiro_stat), 'p_value': float(shapiro_p), 'normal': normal},
         'test': test_name,
         'statistic': float(stat),
         'p_value': float(p),
         'significant_at_0.05': bool(p < 0.05),
+        'n_pairs': pairs,
+        # Signed so that a positive difference favours the RAG arm, matching
+        # the direction both tests are given.
+        'mean_difference': mean_difference,
+        'mean_difference_ci_95': {
+            'lower': mean_difference - half_width,
+            'upper': mean_difference + half_width,
+            'method': "two-sided Student's t interval on the mean paired difference",
+        },
+        'effect_size': {
+            'cohens_d_z': {
+                'value': mean_difference / stdev_difference,
+                'definition': 'mean(rag - baseline) / sample sd(rag - baseline)',
+            },
+            'rank_biserial_correlation': {
+                'value': _rank_biserial_correlation(diffs),
+                'definition': '(W+ - W-) / (W+ + W-) over non-zero paired differences',
+            },
+        },
     }
 
 
@@ -672,18 +787,7 @@ def main():
                     # so this can legitimately be smaller than queries_total.
                     'n': len(pairs),
                 }
-        output['rag_diagnostics'] = {}
-        for metric in ('faithfulness', 'context_precision'):
-            values = [
-                float(row[metric])
-                for row in ragas_results['rag']
-                if row.get(metric) is not None and math.isfinite(float(row[metric]))
-            ]
-            output['rag_diagnostics'][metric] = {
-                'mean': sum(values) / len(values) if values else None,
-                'n': len(values),
-                'not_applicable': len(ragas_results['rag']) - len(values),
-            }
+        output['rag_diagnostics'] = summarize_rag_diagnostics(rows, ragas_results['rag'])
 
     json_path = RESULTS_DIR / f'comparison_{stamp}.json'
     json_path.write_text(
