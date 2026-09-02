@@ -15,6 +15,7 @@ import {
 import { SecurityCheck } from '../components/security/SecurityCheck'
 import { useGuestChatGate } from './chat/useGuestChatGate'
 import { messageNoticeLabel } from './chat/messageNotice'
+import { dropPendingPrompt } from './chat/transcript'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/Button'
 import { GlassCard } from '../components/ui/GlassCard'
@@ -609,6 +610,10 @@ export default function Chat() {
   const pendingQuestionRef = useRef('')
   const sendRef = useRef(null)
   const awaitingCheckRef = useRef(false)
+  // Bumped by every conversation switch, so a slower `getSessionMessages` that
+  // resolves after a later click cannot paint the wrong transcript. Same
+  // generation guard the upload poller uses.
+  const sessionLoadRef = useRef(0)
   // Runs from Turnstile's own callback, so it fires the parked question the
   // instant the token exists rather than a render later.
   const releaseParkedSend = useCallback(() => {
@@ -681,17 +686,35 @@ export default function Chat() {
       pendingQuestionRef.current = ''
       setSending(false)
       setChatError(null)
+      // `send` appends the edited question as a new bubble, so without this
+      // the superseded wording stayed above it forever.
+      setMessages(dropPendingPrompt)
     }
     if (updated === original.text && !wasPending) return
     send(updated)
   }
 
   const loadSession = async (session) => {
+    // An answer still in flight belongs to the conversation being left. Without
+    // this it arrived after the switch and was appended to the transcript now
+    // on screen, and a request that had created a new session would then set
+    // that session as active while another one's messages were displayed.
+    // `newConversation` has always done this; opening a session did not.
+    requestControllerRef.current?.abort('session-switch')
+    requestControllerRef.current = null
+    pendingQuestionRef.current = ''
+    awaitingCheckRef.current = false
+    setAwaitingCheck(false)
+    setSending(false)
+    setChatError(null)
+    const generation = sessionLoadRef.current + 1
+    sessionLoadRef.current = generation
     setSessionId(session.id)
     if (isSuperadmin && session.department) setFilterDepartment(session.department)
     setSidebarOpen(false)
     try {
       const msgs = await getSessionMessages(session.id)
+      if (sessionLoadRef.current !== generation) return
       const rebuilt = []
       msgs.forEach((m) => {
         rebuilt.push({ id: nextMessageId(), kind: 'user', text: m.question })
@@ -712,6 +735,7 @@ export default function Chat() {
       })
       setMessages(rebuilt)
     } catch (err) {
+      if (sessionLoadRef.current !== generation) return
       toast.error('Could not load conversation', { description: apiErrorMessage(err) })
     }
   }
@@ -720,6 +744,9 @@ export default function Chat() {
     requestControllerRef.current?.abort('conversation-reset')
     clearTimeout(copiedMessageTimeoutRef.current)
     setCopiedMessageId(null)
+    // Also discards a conversation load still in flight, which would otherwise
+    // paint its transcript into this empty one.
+    sessionLoadRef.current += 1
     requestControllerRef.current = null
     pendingQuestionRef.current = ''
     awaitingCheckRef.current = false
@@ -829,9 +856,7 @@ export default function Chat() {
     controller.abort('user-stop')
     requestControllerRef.current = null
     pendingQuestionRef.current = ''
-    setMessages((current) => (
-      current[current.length - 1]?.kind === 'user' ? current.slice(0, -1) : current
-    ))
+    setMessages(dropPendingPrompt)
     setChatError({
       title: 'Response stopped',
       message: 'The question is preserved here. The browser stopped waiting, while any secure server cleanup may continue.',
