@@ -1,6 +1,7 @@
 """Regression tests for the defense-critical Objective 2 evaluation harness."""
 
 import asyncio
+import importlib.util
 import json
 from copy import deepcopy
 from types import SimpleNamespace
@@ -20,6 +21,21 @@ from evaluation.run_comparison import (
     validate_formal_dataset,
 )
 from services import chat_notices
+
+# scipy is an evaluation extra, not a production dependency:
+# evaluation/requirements-eval.txt pins it and says to keep it out of the
+# image, and CI installs requirements.lock with --require-hashes so that the
+# test job holds the same bytes the container does. Adding scipy there would
+# weaken that guarantee for a dependency only the comparison harness needs.
+#
+# So the statistical helpers are exercised wherever the extras are installed --
+# which is any machine that can actually run the comparison -- and skipped
+# elsewhere, the same opt-in shape as the disposable-Supabase integration
+# tests. `find_spec` rather than an import, so collection stays cheap.
+requires_scipy = pytest.mark.skipif(
+    importlib.util.find_spec('scipy') is None,
+    reason='scipy ships with evaluation/requirements-eval.txt, not the production lock',
+)
 
 
 def _valid_dataset() -> dict:
@@ -273,6 +289,7 @@ def test_a_persistent_provider_error_is_excluded_rather_than_fatal(monkeypatch):
 # --- A p-value alone is not a reportable result ----------------------------
 
 
+@requires_scipy
 def test_the_paired_test_reports_an_effect_size_and_an_interval():
     """Expected values computed by hand, not read back from the function.
 
@@ -294,6 +311,7 @@ def test_the_paired_test_reports_an_effect_size_and_an_interval():
     assert 't interval' in result['mean_difference_ci_95']['method']
 
 
+@requires_scipy
 def test_the_interval_is_centred_on_the_mean_difference_and_signed_toward_rag():
     better = statistical_treatment([0.1, 0.2, 0.3, 0.4], [0.3, 0.5, 0.4, 0.8])
     worse = statistical_treatment([0.3, 0.5, 0.4, 0.8], [0.1, 0.2, 0.3, 0.4])
@@ -312,6 +330,7 @@ def test_the_interval_is_centred_on_the_mean_difference_and_signed_toward_rag():
     assert interval['lower'] < better['mean_difference'] < interval['upper']
 
 
+@requires_scipy
 @pytest.mark.parametrize(('diffs', 'expected'), [
     ([0.1, 0.2, 0.3], 1.0),          # every pair favours RAG
     ([-0.1, -0.2, -0.3], -1.0),      # every pair favours the baseline
@@ -337,6 +356,7 @@ def test_a_run_too_small_to_test_reports_no_effect_size():
         assert absent not in result
 
 
+@requires_scipy
 def test_the_original_statistical_contract_is_unchanged():
     """Section 3.2.5's own wording depends on these keys."""
     result = statistical_treatment([0.1, 0.2, 0.3, 0.4], [0.3, 0.5, 0.4, 0.8])
