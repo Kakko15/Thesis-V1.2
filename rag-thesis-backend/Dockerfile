@@ -50,7 +50,10 @@ RUN mkdir -p "$TIKTOKEN_CACHE_DIR" \
 # unnecessarily expand the production image's vulnerability surface.
 RUN pip uninstall --yes pip setuptools
 
-COPY main.py config.py models.py ./
+# Every root-level module the API and the worker import at startup. A module
+# added there but not here fails the image at import, and CI only builds and
+# scans the image; tests/test_dockerfile_contents.py guards this list.
+COPY main.py config.py models.py warning_filters.py ./
 COPY routers/*.py ./routers/
 COPY services/*.py ./services/
 COPY dependencies/*.py ./dependencies/
