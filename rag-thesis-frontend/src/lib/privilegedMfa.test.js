@@ -3,7 +3,8 @@ import test from 'node:test'
 
 import {
   isPrivilegedMfaRefusal, onPrivilegedMfaRequired, reportPrivilegedMfaRequired,
-  resetPrivilegedMfaListeners, shouldPromptForPrivilegedMfa,
+  resetPrivilegedMfaListeners, requiresAuthenticatorToSignIn,
+  shouldPromptForPrivilegedMfa,
 } from './privilegedMfa.js'
 
 const refusal = (status, detail) => ({ response: { status, data: { detail } } })
@@ -97,4 +98,37 @@ test('the prompt waits for the factor lookup and yields to enrolment', () => {
   // list lands, and the enrolment dialog must not open behind its own prompt.
   assert.equal(shouldPromptForPrivilegedMfa({ refusals: 1, factorsLoading: true }), false)
   assert.equal(shouldPromptForPrivilegedMfa({ refusals: 1, enrolling: true }), false)
+})
+
+test('a privileged account with an authenticator is not offered the emailed code', () => {
+  // It cannot raise the session to aal2, so choosing it signs them into a
+  // shell where every privileged endpoint refuses them.
+  assert.equal(
+    requiresAuthenticatorToSignIn({ isPrivileged: true, totpEnrolled: true }), true,
+  )
+})
+
+test('a privileged account with no factor keeps the emailed code', () => {
+  // The only method it has. Removing it would lock the account out of its own
+  // sign-in; PrivilegedMfaGate meets it inside the app and offers enrolment.
+  assert.equal(
+    requiresAuthenticatorToSignIn({ isPrivileged: true, totpEnrolled: false }), false,
+  )
+})
+
+test('an unprivileged account keeps the emailed code either way', () => {
+  // The API asks nothing of a student or faculty session's assurance level.
+  assert.equal(
+    requiresAuthenticatorToSignIn({ isPrivileged: false, totpEnrolled: true }), false,
+  )
+  assert.equal(
+    requiresAuthenticatorToSignIn({ isPrivileged: false, totpEnrolled: false }), false,
+  )
+})
+
+test('an unresolved profile never forces a method', () => {
+  // `isAdmin` is false while the profile is still loading; defaulting to the
+  // forced path there would hide the email option from a student mid-load.
+  assert.equal(requiresAuthenticatorToSignIn(), false)
+  assert.equal(requiresAuthenticatorToSignIn({ totpEnrolled: true }), false)
 })

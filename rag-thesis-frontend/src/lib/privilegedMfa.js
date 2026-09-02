@@ -69,3 +69,21 @@ export function shouldPromptForPrivilegedMfa({
   if (factorsLoading || enrolling) return false
   return refusals > dismissedAt
 }
+
+/**
+ * Whether the sign-in card should present the authenticator as the only way
+ * to finish verifying.
+ *
+ * True only when the account is privileged *and* already has a verified
+ * factor. Both halves matter. Without the first, a student or faculty member
+ * loses an emailed code that works perfectly well for them, since the API
+ * asks nothing of their assurance level. Without the second, a privileged
+ * account with no factor enrolled would be offered a method it does not have
+ * and locked out of its own sign-in — those accounts keep the emailed code
+ * and are met inside the app by `PrivilegedMfaGate`, which can enrol one.
+ */
+export function requiresAuthenticatorToSignIn({
+  isPrivileged = false, totpEnrolled = false,
+} = {}) {
+  return Boolean(isPrivileged && totpEnrolled)
+}

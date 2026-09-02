@@ -8,6 +8,7 @@ import { OtpInput } from '../../components/ui/OtpInput'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
 import { useSecurityGate } from '../../components/security/useSecurityGate'
 import { useAuth } from '../../context/AuthContext'
+import { requiresAuthenticatorToSignIn } from '../../lib/privilegedMfa.js'
 import { cn } from '../../lib/utils'
 import { StepHeader } from './StepHeader'
 import { MfaChallengeStep } from './MfaChallengeStep'
@@ -24,7 +25,7 @@ import {
  * (`satisfyMfa`) for this session only; a fresh load re-raises the challenge.
  */
 export function VerifyMethodStep({ email, totpEnrolled, onBack, onDone }) {
-  const { satisfyMfa } = useAuth()
+  const { satisfyMfa, isAdmin } = useAuth()
   const [method, setMethod] = useState(null) // null | 'email' | 'totp'
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
@@ -35,6 +36,23 @@ export function VerifyMethodStep({ email, totpEnrolled, onBack, onDone }) {
   // Gated submission that fails open when Turnstile itself is unreachable.
   const captcha = useSecurityGate()
   const [captchaReset, setCaptchaReset] = useState(0)
+
+  // An emailed code proves the address; it is not a factor Supabase can raise
+  // the session to aal2 with, and the API refuses every privileged endpoint
+  // below aal2. Offering it to an administrator who has already enrolled an
+  // authenticator therefore builds a session that signs in and then cannot
+  // work: the first privileged request 403s, and no amount of handling that
+  // afterwards makes the request itself a good idea. So when the account has
+  // the factor that does work, that is the method presented.
+  //
+  // Only forced before a choice is made. An administrator whose profile
+  // resolves mid-flow keeps the method they already picked rather than having
+  // a half-typed code pulled out from under them; PrivilegedMfaGate still
+  // covers them, as it does an administrator with no factor to offer.
+  const emailCannotSatisfy = requiresAuthenticatorToSignIn({
+    isPrivileged: isAdmin, totpEnrolled,
+  })
+  const activeMethod = method ?? (emailCannotSatisfy ? 'totp' : null)
 
   const sendCode = async () => {
     // Supabase dispatches the mail inside this request, so awaiting it before
@@ -88,11 +106,13 @@ export function VerifyMethodStep({ email, totpEnrolled, onBack, onDone }) {
     }
   }
 
-  if (method === 'totp') {
+  if (activeMethod === 'totp') {
     return (
       <MfaChallengeStep
-        switchLabel="Choose another method"
-        onUseAnotherAccount={() => { setError(''); setMethod(null) }}
+        switchLabel={emailCannotSatisfy ? 'Back to sign in' : 'Choose another method'}
+        onUseAnotherAccount={
+          emailCannotSatisfy ? onBack : () => { setError(''); setMethod(null) }
+        }
         onVerified={() => {
           // aal2 lands via AuthContext; satisfyMfa only papers over the gap.
           satisfyMfa()
