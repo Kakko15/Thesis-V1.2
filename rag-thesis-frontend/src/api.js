@@ -194,10 +194,6 @@ export async function getSessions() {
   const { data } = await api.get('/sessions')
   return data
 }
-export async function createSession(title) {
-  const { data } = await api.post('/sessions', { title })
-  return data
-}
 export async function renameSession(sessionId, title) {
   const { data } = await api.put(`/sessions/${sessionId}`, { title })
   return data
@@ -303,10 +299,6 @@ export async function getAnalyticsOverview() {
 }
 export async function getRecentActivity(limit = 25) {
   const { data } = await api.get('/analytics/activity', { params: { limit } })
-  return data
-}
-export async function getMyProfile() {
-  const { data } = await api.get('/analytics/me')
   return data
 }
 export async function updateMyProfile(payload) {

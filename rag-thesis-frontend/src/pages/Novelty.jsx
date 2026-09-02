@@ -22,6 +22,8 @@ import { contentKeys, slotKeys } from '../lib/keys'
 import { downloadNoveltyReport } from './novelty/report'
 
 const HISTORY_SKELETONS = slotKeys(4, 'novelty-history')
+// The server's /duplication/scan contract: a PDF or a plain-text manuscript.
+const SCAN_MIME_TYPES = ['application/pdf', 'application/x-pdf', 'text/plain', 'application/octet-stream']
 
 /* ------------------------------------------------------------------ */
 function ScanDropzone({ onScan, scanning }) {
@@ -31,6 +33,13 @@ function ScanDropzone({ onScan, scanning }) {
   const handle = useCallback((files) => {
     const f = files?.[0]
     if (!f) return
+    const name = f.name.toLowerCase()
+    const validName = name.endsWith('.pdf') || name.endsWith('.txt')
+    const validMime = !f.type || SCAN_MIME_TYPES.includes(f.type)
+    if (!validName || !validMime) {
+      toast.error('Unsupported file', { description: 'Please upload a PDF or plain-text manuscript.' })
+      return
+    }
     if (f.size > 25 * 1024 * 1024) {
       toast.error('File too large', { description: 'Maximum size is 25 MB.' })
       return

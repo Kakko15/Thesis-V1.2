@@ -50,16 +50,6 @@ function activityDetail(action, detail) {
   return 'Details available in system logs'
 }
 
-function ChartTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="glass-strong rounded-xl px-3.5 py-2 text-xs">
-      <div className="font-bold">{label ?? payload[0].name}</div>
-      <div className="opacity-70">{payload[0].value} theses</div>
-    </div>
-  )
-}
-
 function StatCard({ icon: Icon, label, value }) {
   return (
     <motion.div variants={staggerItem}>
@@ -206,7 +196,7 @@ export default function AdminOverview() {
               </span>
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-sm text-ink-muted">Flagged (&gt;=50%)</span>
+              <span className="text-sm text-ink-muted">High overlap (coverage ≥50%)</span>
               <span className="font-display text-xl font-extrabold text-flame-500">
                 {overview?.usage?.flagged_scans ?? 0}
               </span>

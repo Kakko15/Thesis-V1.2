@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   motion, useMotionValueEvent, useScroll, useSpring, useTransform,
 } from 'framer-motion'
@@ -10,6 +10,7 @@ import { SectionHeading } from './SectionHeading'
 import { cn } from '../../lib/utils'
 import { slotKeys } from '../../lib/keys'
 import { usePreferences } from '../../context/PreferencesContext'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 
 const CHUNK_BARS = slotKeys(18, 'chunk-bar')
 
@@ -271,17 +272,6 @@ function StackedPipeline() {
 }
 
 /* ---- Section ------------------------------------------------------- */
-
-function useMediaQuery(query) {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
-  useEffect(() => {
-    const mq = window.matchMedia(query)
-    const onChange = (e) => setMatches(e.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [query])
-  return matches
-}
 
 export function HowItWorks() {
   const { reducedMotion: reduced } = usePreferences()
