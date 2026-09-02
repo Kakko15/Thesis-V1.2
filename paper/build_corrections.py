@@ -171,13 +171,13 @@ TABLE_ROWS = [
         ('pydantic-settings', 'v2.14.2', 'Will load and validate server configuration from environment variables at startup.'),
         ('Uvicorn', 'v0.51.0', 'Will run the ASGI server hosting the FastAPI application.'),
         ('SlowAPI', 'v0.1.10', 'Will enforce per-route and default rate limits that protect the API from abuse and runaway cost.'),
-        ('Redis', 'v8.0.1', 'Will provide the shared store backing rate limiting and short-lived operational state.'),
-        ('cryptography', 'v50.0.0', 'Will supply the cryptographic primitives used for token and secret handling.'),
-        ('PyJWT', 'v2.13.0', 'Will encode and verify the JSON Web Tokens used for authenticated sessions.'),
+        ('redis (Python client)', 'v8.0.1', 'Will connect the API to the Redis server (redis 8.6.4 in the operations compose file) that backs rate limiting and the shared daily guest token allowance.'),
+        ('cryptography', 'v50.0.0', 'Will encrypt the storage backups written by scripts/storage_backup.py, using AES-GCM under a scrypt-derived key; pinned at v50.0.0 to clear CVE-2026-69247.'),
+        ('PyJWT', 'v2.13.0', 'Will verify and read the Supabase-issued JSON Web Tokens: the assurance level behind the privileged multi-factor check and the user identity behind per-user rate limits. Tokens are issued by Supabase Auth, never by the backend.'),
         ('HTTPX', 'v0.28.1', 'Will perform outbound HTTP calls to Supabase and the Gemini API.'),
     ]),
     ('models/gemini-embedding-001 (768 dimensions)', 'Table 3 AI/RAG', [
-        ('Gemini 3.5 Flash Lite', 'gemini-3.5-flash-lite', 'Will handle bounded verdict and metadata-extraction work that does not require the primary generation model.'),
+        ('Gemini 3.5 Flash Lite', 'gemini-3.5-flash-lite', 'Will write the advisory verdict summaries and follow-up answers of novelty scans and serve as the Ragas judge in the Objective 2 evaluation; title-page metadata extraction runs on the primary generation model.'),
         ('langchain-core', 'v1.5.1', 'Will provide the Runnable and prompt abstractions that compose the retrieval-to-generation chain.'),
         ('langchain-text-splitters', 'v1.1.2', 'Will supply the RecursiveCharacterTextSplitter used to chunk extracted manuscript text.'),
         ('langchain-openai', 'v1.4.1', 'Will provide the OpenAI-compatible chat client used only when generation is routed through a gateway; embeddings are never routed through it.'),
@@ -451,6 +451,25 @@ PROSE7 = [
 ]
 
 
+# --- Pass 8: dependency purposes and metric semantics (2026-09-03) ----------
+# The Table 2 and Table 3 purpose cells are corrected in TABLE_ROWS above,
+# because those rows are appended by this build and never existed in the
+# original. The one prose fix: in Ragas 0.4.3 Faithfulness.ascore takes
+# user_input, response and retrieved_contexts and no reference, so calling all
+# three metrics reference-based was wrong. Only Answer Correctness and Context
+# Precision (the with-reference variant) consume the ground truth. Ground
+# truth: evaluation/run_comparison.py scoring calls and
+# ragas.metrics.collections signatures.
+PROSE8 = [
+    ('These Ragas metrics are reference-based rather than reference-free, since Answer '
+     'Correctness consumes the faculty ground truth directly.',
+     'Answer Correctness and Context Precision are reference-based, since both consume the '
+     'faculty ground truth directly, while Faithfulness is reference-free and is scored '
+     'against the retrieved passages alone.',
+     1, 'P8-1 which metrics use the reference'),
+]
+
+
 def apply_figures(xml, src, verbose=True):
     """Swap embedded figures and refit each drawing to the text width."""
     media = {}
@@ -478,7 +497,9 @@ def build(verbose=True):
     xml = D.replace_cell_nth(xml, 'text-embedding-004',
                              'models/gemini-embedding-001 (768 dimensions)', 0, 'T3 embed id')
     if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding')
-    for old, new, n, label in PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5 + PROSE6 + PROSE7:
+    for old, new, n, label in (
+        PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5 + PROSE6 + PROSE7 + PROSE8
+    ):
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')
     for anchor, label, rows in TABLE_ROWS:
