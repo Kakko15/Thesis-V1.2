@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import {
   isPrivilegedMfaRefusal, onPrivilegedMfaRequired, reportPrivilegedMfaRequired,
-  resetPrivilegedMfaListeners,
+  resetPrivilegedMfaListeners, shouldPromptForPrivilegedMfa,
 } from './privilegedMfa.js'
 
 const refusal = (status, detail) => ({ response: { status, data: { detail } } })
@@ -77,4 +77,24 @@ test('a subscriber that unsubscribes during the walk cannot disturb it', () => {
   reportPrivilegedMfaRequired()
   assert.equal(tail, 1)
   resetPrivilegedMfaListeners()
+})
+
+test('dismissing the prompt silences that refusal, not the next one', () => {
+  // Closing it means "not now". Walking into the same wall again has to be
+  // allowed to say so, or the reader is back to a UI that fails silently.
+  assert.equal(shouldPromptForPrivilegedMfa({ refusals: 1, dismissedAt: 0 }), true)
+  assert.equal(shouldPromptForPrivilegedMfa({ refusals: 1, dismissedAt: 1 }), false)
+  assert.equal(shouldPromptForPrivilegedMfa({ refusals: 2, dismissedAt: 1 }), true)
+})
+
+test('no refusal, no prompt', () => {
+  assert.equal(shouldPromptForPrivilegedMfa({ refusals: 0, dismissedAt: 0 }), false)
+  assert.equal(shouldPromptForPrivilegedMfa(), false)
+})
+
+test('the prompt waits for the factor lookup and yields to enrolment', () => {
+  // Which recovery applies — challenge or enrol — is unknown until the factor
+  // list lands, and the enrolment dialog must not open behind its own prompt.
+  assert.equal(shouldPromptForPrivilegedMfa({ refusals: 1, factorsLoading: true }), false)
+  assert.equal(shouldPromptForPrivilegedMfa({ refusals: 1, enrolling: true }), false)
 })

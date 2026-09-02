@@ -14,8 +14,12 @@ import { friendlyAuthError } from './authUtils'
  * Second factor: verify a rotating TOTP code from the user's authenticator
  * app. Success upgrades the session to aal2 — AuthContext clears `needsMfa`
  * and the orchestrator proceeds.
+ *
+ * Also embedded outside the sign-in card by `PrivilegedMfaGate`, to collect
+ * the factor without sending the reader back to /login; `showHeader={false}`
+ * suppresses the lockup there, since the surrounding dialog carries its own.
  */
-export function MfaChallengeStep({ onUseAnotherAccount, onVerified, switchLabel = 'Use a different account' }) {
+export function MfaChallengeStep({ onUseAnotherAccount, onVerified, switchLabel = 'Use a different account', showHeader = true }) {
   const [factorId, setFactorId] = useState(null)
   const [factorError, setFactorError] = useState('')
   const [code, setCode] = useState('')
@@ -57,11 +61,13 @@ export function MfaChallengeStep({ onUseAnotherAccount, onVerified, switchLabel 
 
   return (
     <div>
-      <StepHeader
-        icon={Fingerprint}
-        title="Two-factor authentication"
-        subtitle="Enter the 6-digit code from your authenticator app to finish signing in."
-      />
+      {showHeader && (
+        <StepHeader
+          icon={Fingerprint}
+          title="Two-factor authentication"
+          subtitle="Enter the 6-digit code from your authenticator app to finish signing in."
+        />
+      )}
 
       {!factorId && !factorError ? (
         <div className="flex justify-center py-8">
