@@ -22,10 +22,10 @@ jobs:
         working-directory: rag-thesis-backend
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           # Kept in step with the interpreter assertion in
           # rag-thesis-backend/Dockerfile. Moved 3.14.6 -> 3.14.7 on 2026-08-25
@@ -61,7 +61,7 @@ jobs:
         run: pylint --rcfile=.pylintrc routers services dependencies workers main.py config.py models.py
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: rag-thesis-backend/coverage.xml
@@ -74,10 +74,10 @@ jobs:
         working-directory: rag-thesis-frontend
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24.18.0'
           cache: npm
@@ -96,7 +96,7 @@ jobs:
         run: npm run test:coverage
 
       - name: Upload frontend coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-coverage
           path: rag-thesis-frontend/coverage/lcov.info
@@ -119,11 +119,11 @@ jobs:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
 
   containers:
     name: Container vulnerability scan
@@ -136,7 +136,7 @@ jobs:
           - name: frontend
             context: rag-thesis-frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build ${{ matrix.name }} image
         run: docker build -t isu-thesis-${{ matrix.name }}:ci ${{ matrix.context }}
 
@@ -187,7 +187,7 @@ jobs:
     needs: [backend, frontend]
     steps:
       - name: Checkout (full history for accurate blame data)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -205,21 +205,21 @@ jobs:
 
       - name: Download backend coverage
         if: steps.sonar.outputs.enabled == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: backend-coverage
           path: rag-thesis-backend
 
       - name: Download frontend coverage
         if: steps.sonar.outputs.enabled == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: frontend-coverage
           path: rag-thesis-frontend/coverage
 
       - name: SonarQube scan
         if: steps.sonar.outputs.enabled == 'true'
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
