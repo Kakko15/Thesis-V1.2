@@ -1,0 +1,399 @@
+<title>IskAI Fidelity Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F5F6F2; --surface:#FFFFFF; --surface-2:#EEF1EA; --line:#D7DDD3; --line-strong:#B9C3B7;
+  --ink:#16211C; --ink-2:#3E4B44; --muted:#66746C;
+  --forest:#1F5A42; --forest-ink:#123A2A; --forest-tint:rgba(31,90,66,.10);
+  --gold:#B8860B; --gold-tint:rgba(184,134,11,.14);
+  --flame:#B23A2A; --flame-tint:rgba(178,58,42,.12);
+  --ok:#2E7D4F; --ok-tint:rgba(46,125,79,.12);
+  --code-bg:#EDF0E9;
+  --display:"Plus Jakarta Sans",ui-sans-serif,system-ui,"Segoe UI",sans-serif;
+  --body:"Inter",ui-sans-serif,system-ui,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,"SF Mono",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1512; --surface:#161D19; --surface-2:#1C2520; --line:#2A3630; --line-strong:#3B4A42;
+    --ink:#E6ECE7; --ink-2:#C2CCC5; --muted:#8B988F;
+    --forest:#6FBF98; --forest-ink:#A9E0C3; --forest-tint:rgba(111,191,152,.14);
+    --gold:#E0B347; --gold-tint:rgba(224,179,71,.16);
+    --flame:#F08C7C; --flame-tint:rgba(240,140,124,.14);
+    --ok:#7CCB9C; --ok-tint:rgba(124,203,156,.14);
+    --code-bg:#121915;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1512; --surface:#161D19; --surface-2:#1C2520; --line:#2A3630; --line-strong:#3B4A42;
+  --ink:#E6ECE7; --ink-2:#C2CCC5; --muted:#8B988F;
+  --forest:#6FBF98; --forest-ink:#A9E0C3; --forest-tint:rgba(111,191,152,.14);
+  --gold:#E0B347; --gold-tint:rgba(224,179,71,.16);
+  --flame:#F08C7C; --flame-tint:rgba(240,140,124,.14);
+  --ok:#7CCB9C; --ok-tint:rgba(124,203,156,.14);
+  --code-bg:#121915;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--forest);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.page{max-width:1160px;margin:0 auto;padding:40px 24px 96px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px}
+@media (max-width:900px){.page{grid-template-columns:minmax(0,1fr);gap:24px}}
+nav.toc{position:sticky;top:24px;align-self:start;font-size:13px}
+@media (max-width:900px){nav.toc{position:static}}
+nav.toc .eyebrow{margin-bottom:10px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+nav.toc a{color:var(--ink-2);display:block;padding:3px 0 3px 10px;border-left:2px solid var(--line)}
+nav.toc a:hover{border-left-color:var(--forest);color:var(--forest);text-decoration:none}
+main{min-width:0;max-width:78ch}
+.eyebrow{font-family:var(--display);font-size:11.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(30px,4vw,40px);line-height:1.1;letter-spacing:-.02em;margin:8px 0 12px;text-wrap:balance}
+h2{font-family:var(--display);font-weight:700;font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:56px 0 14px;padding-top:20px;border-top:1px solid var(--line);text-wrap:balance}
+h3{font-family:var(--display);font-weight:600;font-size:17px;margin:28px 0 8px;text-wrap:balance}
+p{margin:0 0 14px}
+.lede{font-size:17.5px;color:var(--ink-2);max-width:66ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--muted);margin:14px 0 26px}
+.meta code{font-size:12.5px}
+code,kbd{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:1px 5px;border-radius:4px;color:var(--ink)}
+pre{font-family:var(--mono);font-size:13px;line-height:1.55;background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:12px 14px;overflow-x:auto;margin:10px 0 16px}
+pre code{background:none;padding:0}
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:22px 0 8px}
+.verdict .cell{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.verdict .k{font-family:var(--display);font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.verdict .v{font-family:var(--display);font-size:20px;font-weight:800;margin-top:6px;line-height:1.2}
+.verdict .s{font-size:13px;color:var(--ink-2);margin-top:4px}
+.chip{display:inline-block;font-family:var(--display);font-weight:700;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid transparent;white-space:nowrap;vertical-align:middle}
+.chip.ok{background:var(--ok-tint);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.chip.warn{background:var(--gold-tint);color:var(--gold);border-color:color-mix(in srgb,var(--gold) 40%,transparent)}
+.chip.crit{background:var(--flame-tint);color:var(--flame);border-color:color-mix(in srgb,var(--flame) 40%,transparent)}
+.chip.info{background:var(--forest-tint);color:var(--forest);border-color:color-mix(in srgb,var(--forest) 35%,transparent)}
+.chip.mute{background:var(--surface-2);color:var(--muted);border-color:var(--line)}
+.tablewrap{overflow-x:auto;margin:12px 0 18px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{font-family:var(--display);font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);background:var(--surface-2)}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:13px}
+td code{white-space:nowrap}
+.findings{display:flex;flex-direction:column;gap:10px;margin:14px 0 20px}
+.finding{display:grid;grid-template-columns:6px minmax(0,1fr);gap:0 14px;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.finding .stripe{background:var(--line-strong)}
+.finding.crit .stripe{background:var(--flame)}
+.finding.warn .stripe{background:var(--gold)}
+.finding.info .stripe{background:var(--forest)}
+.finding.ok .stripe{background:var(--ok)}
+.finding .body{padding:12px 14px 12px 6px}
+.finding .head{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin-bottom:6px}
+.finding .title{font-family:var(--display);font-weight:700;font-size:15px}
+.finding p{margin:0 0 6px;font-size:14.5px;color:var(--ink-2)}
+.finding p:last-child{margin-bottom:0}
+.finding .where{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+ul,ol{padding-left:22px;margin:0 0 14px}
+li{margin-bottom:6px}
+li::marker{color:var(--muted)}
+.callout{border-left:3px solid var(--forest);background:var(--forest-tint);padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0}
+.callout.warn{border-left-color:var(--gold);background:var(--gold-tint)}
+.callout.crit{border-left-color:var(--flame);background:var(--flame-tint)}
+.callout p:last-child{margin-bottom:0}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:12px 0 18px}
+.flow .step{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13.5px}
+.flow .step b{display:block;font-family:var(--display);font-size:13px;margin-bottom:3px}
+.flow .step span{color:var(--muted);font-family:var(--mono);font-size:12px}
+.small{font-size:13px;color:var(--muted)}
+hr{border:0;border-top:1px solid var(--line);margin:32px 0}
+@media (prefers-reduced-motion:no-preference){a{transition:color .12s}}
+</style>
+
+<div class="page">
+<nav class="toc" aria-label="Contents">
+  <div class="eyebrow">Contents</div>
+  <ol>
+    <li><a href="#verdict">Verdict</a></li>
+    <li><a href="#measured">Measured at HEAD</a></li>
+    <li><a href="#architecture">System as built</a></li>
+    <li><a href="#fidelity">Paper ↔ system fidelity</a></li>
+    <li><a href="#objective2">Objective 2 readiness</a></li>
+    <li><a href="#evidence">Evidence currency</a></li>
+    <li><a href="#defects">Defects and risks</a></li>
+    <li><a href="#manuscript">Manuscript notes</a></li>
+    <li><a href="#plan">Priority plan</a></li>
+    <li><a href="#method">How this was checked</a></li>
+  </ol>
+</nav>
+
+<main>
+<div class="eyebrow">Principal Architect · Research Adviser review</div>
+<h1>IskAI Fidelity Audit</h1>
+<p class="lede">A joint engineering and academic review of <em>A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation</em> (Barlis &amp; Gallardo, BSCS Data Mining, ISU Echague) against the Thesis-V1 repository that implements it.</p>
+<div class="meta">
+  <span>Repository HEAD <code>cc886e5</code> (2026-09-02 13:13 +08)</span>
+  <span>Manuscript <code>paper/paper_CORRECTED.pdf</code>, 60 pages, built from <code>78d6b5e</code></span>
+  <span>Review date 2026-09-02</span>
+  <span>Revised 2026-09-02 — embedding-provenance finding re-framed; department defect fixed in <code>6162193</code></span>
+</div>
+
+<h2 id="verdict">Verdict</h2>
+<p>The software is in unusually good shape for an undergraduate thesis. The RAG pipeline implements every numeric and structural claim the manuscript makes, the quality gates the paper names all run and all pass at HEAD, and the version tables are exact to the pinned dependency files. The paper, after six correction passes, is faithful to the system it describes.</p>
+<p>The research is not yet in the same state. Objective 2, the baseline-versus-RAG comparison that is the thesis's central empirical claim, has an excellent instrument and <strong>no formal result</strong>. The Golden Dataset is forty placeholders, the faculty panel has not validated anything, the 50-thesis governed corpus does not exist, and the only Ragas-scored artifact is a three-query smoke test from July run under a superseded configuration. Everything below sorts into “protect what is already right” and “close the research gap before the defense”.</p>
+
+<div class="verdict">
+  <div class="cell"><div class="k">Objective 1 · RAG model</div><div class="v"><span class="chip ok">Implemented</span></div><div class="s">800/100 tokens, cosine 0.30, top-k 5, 0.85 guard, LongContextReorder, cleaning pipeline all present and tested.</div></div>
+  <div class="cell"><div class="k">Objective 2 · Comparison</div><div class="v"><span class="chip crit">No formal result</span></div><div class="s">Harness complete; dataset, corpus, approvals and panel validation outstanding.</div></div>
+  <div class="cell"><div class="k">Objective 3 · Web system</div><div class="v"><span class="chip ok">Production-grade</span></div><div class="s">Async leased ingestion, MFA, RLS, rate limits, malware scan, CI with SBOM and Trivy.</div></div>
+  <div class="cell"><div class="k">Objective 4 · ISO 25010</div><div class="v"><span class="chip warn">Gates pass, evidence lags</span></div><div class="s">All tools green at HEAD; the quotable JMeter and security figures date from July.</div></div>
+</div>
+
+<h2 id="measured">Measured at HEAD</h2>
+<p>Every figure in this table was produced during this review on the checked-out tree, not read from a document.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Gate</th><th>Command</th><th class="num">Result</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>Backend unit and API tests</td><td><code>pytest</code> (Python 3.14.6 venv)</td><td class="num">932 passed · 3 skipped · 14.7 s</td><td><span class="chip ok">Pass</span></td></tr>
+<tr><td>Backend coverage gate</td><td><code>pytest --cov … --cov-fail-under=85</code></td><td class="num">91.51 % (4,250 stmts, 361 missed)</td><td><span class="chip ok">Pass</span></td></tr>
+<tr><td>Backend maintainability</td><td><code>pylint --rcfile=.pylintrc</code></td><td class="num">10.00 / 10</td><td><span class="chip ok">Pass</span></td></tr>
+<tr><td>Frontend lint</td><td><code>eslint .</code></td><td class="num">0 errors · 1 warning</td><td><span class="chip ok">Pass</span></td></tr>
+<tr><td>Frontend unit tests</td><td><code>node --test</code></td><td class="num">116 passed · 7 suites</td><td><span class="chip ok">Pass</span></td></tr>
+<tr><td>Frontend production build</td><td><code>vite build</code></td><td class="num">built in 10.97 s</td><td><span class="chip ok">Pass</span></td></tr>
+<tr><td>Eager bundle budget</td><td><code>check-bundle-budget.mjs</code></td><td class="num">316.8 / 330 kB gz</td><td><span class="chip ok">Pass</span></td></tr>
+</tbody></table></div>
+<p class="small">The single ESLint warning is cyclomatic complexity 27 in <code>src/pages/Archive.jsx:185</code> (limit 24). Pylint's 10.00 is under a relaxed profile: fourteen message families are disabled, including <code>too-many-*</code>, <code>duplicate-code</code> and all docstring checks, and there is no <code>fail-under</code>. The paper should say so when it reports the score. The local virtual environment runs Python 3.14.6 while CI, the container and the paper state 3.14.7.</p>
+
+<h2 id="architecture">System as built</h2>
+<p>Two services and a worker share one Supabase project. FastAPI (<code>rag-thesis-backend</code>) uses the service-role key, so <strong>no RLS policy constrains the backend</strong>; every authorization decision is made in Python. The React SPA (<code>rag-thesis-frontend</code>) holds only the anon key, and the effective RLS surface for it is the user's own <code>profiles</code> row plus the avatar bucket. The PDF bucket is private and carries a restrictive deny-all policy for anon and authenticated roles.</p>
+
+<h3>Ingestion path</h3>
+<div class="flow">
+  <div class="step"><b>Validate</b><span>routers/upload.py</span> extension, MIME, <code>%PDF-</code>, page count ≤ 500, ≤ 25 MB, UUID Idempotency-Key, SHA-256</div>
+  <div class="step"><b>Stage + queue</b><span>reserve_upload_job</span> private bucket, HTTP 202, durable <code>upload_jobs</code> row</div>
+  <div class="step"><b>Claim lease</b><span>workers/ingestion_worker.py</span> <code>for update skip locked</code>, 120 s lease, 30 s heartbeat, 3 attempts</div>
+  <div class="step"><b>Scan + extract</b><span>malware.py · document_processor.py</span> ClamAV INSTREAM; PyMuPDF; tesserocr when a page has &lt; 40 chars</div>
+  <div class="step"><b>Clean + redact</b><span>document_processor.py</span> headers/footers, page numbers, TOC, bibliography, 15 % noise rule, figure placeholder, PII regexes</div>
+  <div class="step"><b>Chunk</b><span>chunker.py</span> RecursiveCharacterTextSplitter, cl100k_base, 800 / 100 tokens, page+section tagged</div>
+  <div class="step"><b>Embed</b><span>embedder.py</span> gemini-embedding-001 at 768 dims, batches of 64</div>
+  <div class="step"><b>Screen</b><span>novelty.py</span> per-chunk nearest neighbour at 0.85, coverage verdict</div>
+  <div class="step"><b>Commit</b><span>commit_upload_ingestion</span> atomic paper + provenance + chunks, then <code>ready</code></div>
+</div>
+
+<h3>Query path</h3>
+<div class="flow">
+  <div class="step"><b>Guards</b><span>routers/chat.py</span> Turnstile for guests, guest token budget, prompt-injection and content-generation refusal regexes</div>
+  <div class="step"><b>Fast paths</b><span>chat.py</span> greetings, identity, archive inventory, author lookup, exact or fragment title, numbered follow-ups</div>
+  <div class="step"><b>Retrieve</b><span>retriever.py → match_chunks</span> cosine ≥ 0.30, top-k 5, department + provenance filtered; duplication RPC at 0.85 in parallel</div>
+  <div class="step"><b>Reorder</b><span>long_context_reorder</span> most relevant to first and last positions</div>
+  <div class="step"><b>Generate</b><span>prompts.py · gemini_pool.py</span> LCEL prompt→model, gemini-3.6-flash, thinking low, 2,000 tokens; gateway → primary → reserve keys</div>
+  <div class="step"><b>Validate</b><span>citations.py · llm_output.py</span> sentinel, truncation check, marker range + coverage, one AI repair, deterministic repair, grounded fallback</div>
+</div>
+<p>The chat endpoint alone is 1,521 lines and carries a large deterministic layer around the model: a no-evidence sentinel, a truncation detector that reads the provider's stop reason, a citation validator that checks marker range and per-unit coverage, and a repair ladder that falls back to an honest “I could not verify a direct answer” notice. Notices are classified at write time (<code>chat_messages.kind</code>) so they are never replayed as conversational context. This is careful engineering and it is what makes the Faithfulness figures the paper will eventually report defensible.</p>
+
+<h3>Roles and reach</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Role</th><th>Reach</th><th>Enforced by</th></tr></thead>
+<tbody>
+<tr><td>Guest</td><td>Landing, CCSICT-scoped chat, no history</td><td><code>get_optional_user</code>, Turnstile, guest daily token budget</td></tr>
+<tr><td>Student</td><td>Chat with sessions, dashboard, archive metadata</td><td>Feature matrix defaults <code>{chat, archive}</code></td></tr>
+<tr><td>Faculty</td><td>Student reach + novelty scan and history</td><td>Matrix default adds <code>novelty</code>; pending until approved</td></tr>
+<tr><td>Admin</td><td>Upload, delete, analytics, users, own department</td><td><code>require_admin</code>, department scoping, AAL2 when enforced</td></tr>
+<tr><td>Superadmin</td><td>All departments, operations console, catalog, matrix</td><td><code>require_superadmin</code>, AAL2 when enforced</td></tr>
+</tbody></table></div>
+
+<h2 id="fidelity">Paper ↔ system fidelity</h2>
+<p>Each row is a claim the corrected manuscript makes, the code that carries it, and whether they agree. Rows marked “Matches” were verified by reading the implementation, not by trusting the README.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Paper claim (section)</th><th>Where it lives</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>800-token chunks, 100-token overlap, cl100k_base proxy (3.2.3 P2)</td><td><code>config.py</code> <code>Literal[800]</code>/<code>Literal[100]</code>; <code>chunker.py:81-91</code></td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Cosine threshold 0.30, top-k 5 (3.2.3 P3, 3.3)</td><td><code>config.py:76-77</code>; <code>match_chunks</code> <code>1 - (embedding &lt;=&gt; q) &gt;= threshold</code></td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>85 % duplication threshold on new submissions and on queries (1.3, 3.2.3)</td><td>Ingest screen, <code>/duplication/scan</code>, query-time <code>check_topic_duplication</code></td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Two figures reported, coverage verdict clear / review_suggested &lt; 50 / high_overlap ≥ 50, advisory only (1.3)</td><td><code>services/novelty.py:31-36</code>; verdict prompt forbids accept/reject</td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>LongContextReorder re-implemented (3.2.3 P3)</td><td><code>retriever.py:long_context_reorder</code></td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Strip page numbers, headers/footers, TOC, bibliography; discard chunks &gt; 15 % non-alphanumeric; figure placeholder (3.2.3 P1)</td><td><code>document_processor.py:61-74, 125-135, 160-238, 252-256</code></td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Metadata tagging title/author/track/year per chunk (3.2.3 P2)</td><td><code>chunker.py:build_chunk_metadata</code> (plus department, pages, section, tokenizer)</td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Deterministic PII redaction at ingestion (3.2.6)</td><td><code>document_processor.py:_PII_RULES</code>; counts in <code>papers.redaction_stats</code></td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Indirect access: no full text or PDF exposed (1.3, 1.4)</td><td><code>public_source()</code> metadata only; frontend renders no URL or chunk text; private bucket</td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Models: gemini-3.6-flash, gemini-3.5-flash-lite, gemini-embedding-001 at 768 (Tables 3, Fig 1, Fig 8)</td><td><code>config.py:16-21</code></td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Every version in Tables 1–4</td><td><code>package.json</code>, <code>requirements.txt</code></td><td><span class="chip ok">All 38 rows match</span></td></tr>
+<tr><td>Async leased ingestion, atomic commit, malware scan, MFA, RLS, rate limiting (3.3)</td><td><code>upload_jobs</code> lease RPCs, <code>commit_upload_ingestion</code>, ClamAV, AAL2 guards, SlowAPI</td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Release fingerprint records model set and generation route (3.2.1)</td><td><code>scripts/release_fingerprint.py</code> schema 3</td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Ragas Answer Correctness paired; Faithfulness and Context Precision RAG-only (3.2.4, 3.2.5)</td><td><code>run_comparison.py:464-505, 653</code></td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Shapiro-Wilk, then paired t-test or Wilcoxon at α = 0.05 (3.2.5)</td><td><code>run_comparison.py:521-549</code>, two-sided scipy</td><td><span class="chip ok">Matches</span></td></tr>
+<tr><td>Ground truths validated by three CCSICT faculty (3.2.1)</td><td><code>golden_dataset.json</code>: <code>validated_by_faculty_panel: false</code>, panel names empty</td><td><span class="chip crit">Not done</span></td></tr>
+<tr><td>Fifty-thesis corpus, purposive, proportional across tracks (1.3, 3.1.3, 3.2.1)</td><td>Only <code>corpus_manifest.template.json</code>; live archive holds 2–3 papers</td><td><span class="chip crit">Not done</span></td></tr>
+<tr><td>Four written approvals before digitization (3.2.6)</td><td>PI-08 register: all four <code>Pending / BLOCKED-EXTERNAL</code></td><td><span class="chip crit">Not done</span></td></tr>
+<tr><td>Query-time duplication “alerts the user” when a <em>query</em> reaches 85 % (1.3)</td><td>Implemented, but a short question embedding rarely reaches 0.85 against an 800-token chunk; the load-bearing instrument is chunk-to-chunk screening</td><td><span class="chip warn">True but weak</span></td></tr>
+<tr><td>SonarQube detects “memory leaks” (3.2.4)</td><td>SonarQube's Python and JS analysers do not detect memory leaks</td><td><span class="chip warn">Overclaim</span></td></tr>
+<tr><td>Redis v8.0.1 “will provide the shared store” (Table 2)</td><td>8.0.1 is the Python client; the server in <code>docker-compose.operations.yml</code> is redis 8.6.4</td><td><span class="chip warn">Ambiguous</span></td></tr>
+<tr><td>pgvector v0.7.0 (Table 3)</td><td>Supabase-managed, not recorded anywhere in the repository</td><td><span class="chip mute">Unverified</span></td></tr>
+<tr><td>Apache JMeter v5.6.3 (Table 4)</td><td>No retained JMeter version string in <code>evaluation/results</code></td><td><span class="chip mute">Unverified</span></td></tr>
+<tr><td>Both models process queries “simultaneously” (3.2.1)</td><td>Concurrent via <code>asyncio.gather</code>, not literally simultaneous</td><td><span class="chip info">Acceptable wording</span></td></tr>
+</tbody></table></div>
+
+<div class="callout">
+<p><strong>What the fidelity matrix means for the defense.</strong> A panel member who opens the code will find the numbers the paper states. The remaining gaps are all in the research protocol, not in the engineering, and they are the same three items: dataset, corpus, approvals.</p>
+</div>
+
+<h2 id="objective2">Objective 2 readiness</h2>
+<p>The comparison harness (<code>evaluation/run_comparison.py</code>) calls the RAG path in-process through <code>_chat_impl</code>, runs the baseline with the identical model, timeout, retry and thinking settings, routes both arms through the same key pool, checkpoints every query so an interrupted run resumes, and excludes provider outages instead of scoring them as wrong answers. It refuses to mark a result <code>formal_result: true</code> unless the dataset has 30–50 items, no placeholders, and three named panel members with ISO dates. That gate is currently doing its job by failing.</p>
+
+<div class="findings">
+<div class="finding crit"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip crit">Blocking</span><span class="title">The Golden Dataset is 40 questions and 80 placeholders</span></div>
+<p>Every <code>ground_truth</code> and every <code>source_thesis</code> begins with <code>REPLACE:</code>. Category counts match the catalog exactly (Data Mining 9, WMAD 8, NETSEC 6, BSDSA 6, BSIS 4, Cross-track 3, Negative control 3, BLIS 1), so the instrument is designed; it is not filled.</p>
+<p class="where">rag-thesis-backend/evaluation/golden_dataset.json</p>
+</div></div>
+<div class="finding crit"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip crit">Blocking</span><span class="title">No formal Objective 2 artifact exists</span></div>
+<p>The only Ragas-scored file is <code>comparison_20260728_140718.json</code>: three synthetic smoke queries, baseline Answer Correctness 0.143 vs RAG 0.380, paired t-test p = 0.208, run on <code>gemini-embedding-2</code> with a 500-token output cap. The three September runs used <code>--skip-ragas</code>, and one of them was served through the third-party gateway the paper says a formal run must not use.</p>
+<p class="where">rag-thesis-backend/evaluation/results/</p>
+</div></div>
+<div class="finding crit"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip crit">Blocking</span><span class="title">The 50-thesis governed corpus, its lock and its approvals do not exist</span></div>
+<p><code>scripts/corpus_manifest.py</code> enforces the PI-08 protocol faithfully (50 unique papers, four approvals with SHA-256s, student-only, immutable receipt). The repository holds only the empty template. The protocol's own commands still reference a <code>.venv312</code> environment and a receipt path that was never created.</p>
+<p class="where">docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md · evaluation/corpus/</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Methodology</span><span class="title">Same-family judge and shared embedding model</span></div>
+<p>Ragas is driven by <code>gemini-3.5-flash-lite</code> judging <code>gemini-3.6-flash</code>, and Answer Correctness's semantic half uses the same <code>gemini-embedding-001</code> the retriever indexes with. The paper should disclose this as a limitation and, ideally, add a small human-scored subsample to anchor the automated scores.</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Methodology</span><span class="title">Answer Correctness measures data access more than hallucination</span></div>
+<p>Ground truths are derived from a private corpus the baseline cannot see, and the baseline prompt invites it to “cite specific theses if you can”. The paper's Objective 2 wording is “factual accuracy and hallucination mitigation”, but no hallucination or fabricated-citation rate is computed for the baseline, because Faithfulness needs contexts. Consider a simple manual count of fabricated citations per arm; it is cheap and it is the claim the introduction actually makes.</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Methodology</span><span class="title">Notices contaminate RAG diagnostics</span></div>
+<p>In the July smoke run, a “No relevant thesis” notice with five retrieved contexts was scored Faithfulness 0.0 and Context Precision 0.0 and averaged in. The three negative controls will behave the same whenever retrieval returns anything above 0.30. Decide before the formal run whether notices are excluded from the diagnostic means or reported separately, and write that rule into 3.2.5.</p>
+</div></div>
+<div class="finding info"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip info">Design</span><span class="title">Corpus-wide frequency questions cannot be answered from five chunks</span></div>
+<p>Dataset items 3, 11, 18 and 37 ask “most commonly” or “most often”. With top-k 5 the RAG arm is structurally unable to answer them, so they will depress its score for a reason unrelated to hallucination. Either reword them as evidence questions or route them to the archive-inventory fast path and document that.</p>
+</div></div>
+<div class="finding info"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip info">Reporting</span><span class="title">No effect size or confidence interval</span></div>
+<p>The harness reports p-values and means only. With n ≈ 40 a paired Cohen's d and a 95 % CI for the mean difference cost one scipy line each and make the result far more informative than “significant at 0.05”.</p>
+</div></div>
+</div>
+
+<h2 id="evidence">Evidence currency</h2>
+<p>The ISO/IEC 25010 evidence file is honest and well dated, but the figures the defense walkthrough quotes were produced under earlier configurations. Anything in the “Recorded” column should be regenerated on the final commit before it appears in Chapter 4.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Figure</th><th>Recorded</th><th>Under</th><th>Current at HEAD</th></tr></thead>
+<tbody>
+<tr><td>PyTest / coverage</td><td>874 passed · 91.17 %</td><td>2026-09-02, commit <code>dacc99b</code>, before 8 more commits</td><td>932 passed · 91.51 % (this review)</td></tr>
+<tr><td>Provider-independent JMeter, the figure the README says to quote</td><td>p95 204 ms · 10.1 req/s · 0 % error</td><td>2026-07-19, Python 3.12-era app, observed max concurrency 2 of 20 threads</td><td>Never re-run on 3.14 or on current code</td></tr>
+<tr><td>End-to-end <code>/chat</code> load</td><td>10 and 20 users: 0 answered, all capacity notices</td><td>2026-08-04, synthetic 10-thesis corpus, free tier</td><td>Not re-measured after key pool and gateway</td></tr>
+<tr><td>SonarQube</td><td>Gate passed, A/A/A, 330 smells, 1.3 % duplication, 48.1 % whole-repo coverage</td><td>2026-09-01 local, scanner 7.3.0</td><td>Paper Table 4 says scanner 8.0.1.6346</td></tr>
+<tr><td>Trivy, pip-audit, npm audit</td><td>0 High / 0 Critical; 0 advisories</td><td>2026-07-25</td><td>Every later evidence block says “Pending re-run”</td></tr>
+<tr><td>Live Gemini smoke, PI-03 verification</td><td>768 dims confirmed</td><td>2026-07-25 on <code>gemini-embedding-2</code></td><td>Config is <code>gemini-embedding-001</code>; smoke not re-run</td></tr>
+<tr><td>Release fingerprint</td><td>Schema 1 and 2 only</td><td>July and 1 Sep runs</td><td>Code emits schema 3 with gateway fields; no schema-3 artifact retained</td></tr>
+<tr><td>Hash lock size in defense walkthrough</td><td>94 packages · 2,242 hashes</td><td>—</td><td>98 pins · 2,353 hashes in <code>requirements.lock</code></td></tr>
+<tr><td>axe accessibility matrix</td><td>0 / 0 across 11 surfaces × 4 themes × 2 widths</td><td>2026-08-04</td><td>Walkthrough table implies 09-01</td></tr>
+</tbody></table></div>
+<div class="callout warn"><p>The defense walkthrough also cites “4.5 to 11.4 s across four live queries”, a five-key latency check, a 1,920-of-1,996 reasoning-token measurement, and an audit of “47 defects fixed”. None of these has a retained artifact in the repository. Either commit the artifacts or remove the numbers.</p></div>
+
+<h2 id="defects">Defects and risks</h2>
+<p>Sorted by consequence. Each was confirmed by reading the cited lines during this review.</p>
+
+<h3>Backend and data layer</h3>
+<div class="findings">
+<div class="finding ok"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip ok">Fixed</span><span class="title">Creating a department failed on every schema past 2026-07-25</span></div>
+<p><code>POST /departments/</code> inserted only <code>name, track_label, tracks</code>. Migration <code>20260725</code> adds <code>departments.code</code> as NOT NULL with no default and a unique index, so on any project built the documented way every create was a not-null violation surfaced as an unhandled 500. <code>DepartmentCreate</code> carried neither <code>code</code> nor <code>active</code>; only <code>code</code> broke the insert, since <code>active</code> defaults to true in the column.</p>
+<p><strong>Fixed in <code>6162193</code></strong> on <code>fix/department-create-code-column</code>, after this review. <code>code</code> is now an optional field — the admin UI sends only the three original fields — and is otherwise derived with the migration's own formula, so an API-created row matches a migrated one. An underivable or over-long derived code is a 422, and a collision on <code>departments_code_uq</code> is a 409 rather than a second 500.</p>
+<p class="where">routers/departments.py:43-48 · migrations/20260725_normalized_academic_catalog.sql:6-9</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Data</span><span class="title">Legacy papers stay invisible until they are re-embedded</span></div>
+<p>The provenance backfill labels every pre-provenance index <code>models/gemini-embedding-2</code>, while <code>match_chunks</code> filters on the configured <code>gemini-embedding-001</code>, so legacy papers do not appear in retrieval or duplication.</p>
+<p><strong>The label is not the bug, and must not be “corrected”.</strong> Those vectors really were produced by <code>gemini-embedding-2</code> — the PI-03 smoke of 2026-07-25 certifies exactly that model — so the stamp is accurate provenance and the exclusion is a working guard. Cosine similarity between a <code>-2</code> vector and an <code>001</code> query vector is meaningless; relabelling the rows would make stale-space vectors retrievable and silently corrupt the scores, Context Precision among them. <code>.env.example:33-35</code> states this intent, and <code>apply_paper</code> enforces it: it refuses an index built by another model unless <code>--allow-model-change</code> is passed, then <em>re-embeds</em> rather than relabels. The four tests that name <code>gemini-embedding-2</code> are correct as written; <code>test_migration_and_reindex.py:94</code> is the guard on this behaviour, not a stale string.</p>
+<p>Scope is narrower than it first appears. The backfill is <code>insert … select … from chunks</code>, so on a fresh project it inserts no rows and there is nothing to exclude. Only a project that already held chunks when <code>20260720</code> was applied is affected, and the remedy is the documented reindex in README step 1.5.</p>
+<p class="where">supabase_setup.sql:354 · migrations/20260720_index_embedding_provenance.sql:48 · services/index_provenance.py:37 · scripts/reindex_citations.py:162-180</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Retrieval</span><span class="title">HNSW post-filtering can under-return</span></div>
+<p><code>match_chunks</code> applies six equality filters and the threshold after an HNSW ordered scan. pgvector returns at most <code>ef_search</code> (default 40) candidates before the WHERE runs, so with a selective department or provenance filter it can return fewer than five rows, or none, while qualifying chunks exist. Nothing sets <code>hnsw.ef_search</code>. This matters directly to Context Precision.</p>
+<p class="where">supabase_setup.sql:311-312, 873-887</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Performance</span><span class="title">One RPC per chunk in both duplication paths</span></div>
+<p>Ingest screening and the novelty scanner call <code>match_chunks</code> once per chunk, serially. A 500-page manuscript is hundreds of round trips inside one 120-second lease, kept alive only by the heartbeat thread. A single set-returning SQL function over an array of embeddings would cut this to one call.</p>
+<p class="where">services/novelty.py:91-98 · routers/duplication.py:131-138</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Schema</span><span class="title">Nine migrations are not wrapped in a transaction</span></div>
+<p>Run in a SQL editor that auto-commits per statement, a mid-file failure leaves a partial migration. <code>20260819_isu_academic_catalog</code> also hard-depends on <code>20260725</code> with nothing but filename order enforcing it. The README's replay warning about <code>20260718</code> is confirmed and is actually broader: replaying either <code>20260717</code> file also downgrades <code>activate_paper_index</code> and <code>prune_inactive_indexes</code>.</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Policy</span><span class="title">Anyone can self-register and immediately use chat and the archive</span></div>
+<p><code>handle_new_user</code> has been defined four times; the authoritative <code>20260828</code> version approves any email address as <code>student</code>, reverting the institutional-domain hold from <code>20260803</code>. The paper's scope is CCSICT; the paper should either state open registration or the trigger should return to domain-gated approval.</p>
+<p class="where">migrations/20260828_allow_any_email_signup.sql · supabase_setup.sql:47-67</p>
+</div></div>
+<div class="finding info"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip info">Consistency</span><span class="title">Smaller items</span></div>
+<p><code>upload_jobs.thesis_category</code> is never written and always reads <code>student</code>; only <code>request_payload</code> is real. Role and feature caches are process-local, so a demotion lags up to 60 s on other replicas. <code>GET /papers</code> is unbounded and returns every abstract. <code>GET /departments/</code> returns inactive colleges unlike <code>/catalog/departments</code>. <code>_token_aal</code> decodes the JWT unsigned when no HS256 secret is configured, relying on the earlier <code>get_user</code> call for safety. <code>models.CCSICT_TRACKS</code> still lists the five retired track names.</p>
+</div></div>
+</div>
+
+<h3>Frontend</h3>
+<div class="findings">
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Bug</span><span class="title">Return path is lost after a session expires</span></div>
+<p>The 401 handler redirects to <code>/login?returnTo=…</code>, but the login page reads only the <code>next</code> parameter that the idle guard uses. The destination is dropped and the user lands on the dashboard.</p>
+<p class="where">src/api.js:143 · src/pages/Login.jsx:95 · src/components/IdleSessionGuard.jsx:81</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Bug</span><span class="title">Admin 2FA challenge loops back to the dashboard</span></div>
+<p>The admin page's <code>challenge</code> state navigates to <code>/login</code>, but a signed-in user with the email-code bypass resolves straight to the success step, which navigates back. The TOTP challenge is never shown. The 403-driven <code>PrivilegedMfaGate</code> that was built to avoid this never fires because the admin page blocks before any API call.</p>
+<p class="where">src/pages/Admin.jsx:79 · src/pages/Login.jsx:119-123 · src/context/AuthContext.jsx:180-199</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Bug</span><span class="title">User status badges render unstyled</span></div>
+<p>The user table passes <code>warning | critical | success</code> tones; the Badge component defines only <code>forest | gold | flame | neutral</code>, so Approved, Pending and Rejected badges have no colour.</p>
+<p class="where">src/pages/admin/SystemManagementTab.jsx:612 · src/components/ui/Badge.jsx:8-13</p>
+</div></div>
+<div class="finding warn"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip warn">Deployment</span><span class="title">The nginx CSP blocks the page's own webfonts</span></div>
+<p><code>index.html</code> loads Plus Jakarta Sans, Inter, JetBrains Mono and Instrument Serif from Google Fonts. The production CSP allows <code>style-src 'self' 'unsafe-inline'</code> and <code>font-src 'self' data:</code> only, so behind nginx the fonts are blocked and the interface silently falls back to system faces. The e2e suite mocks the font host, so tests never see it. <code>index.html</code> is also cacheable with no <code>no-cache</code> header.</p>
+<p class="where">rag-thesis-frontend/index.html:12-15 · nginx/default.conf.template:7</p>
+</div></div>
+<div class="finding info"><div class="stripe"></div><div class="body">
+<div class="head"><span class="chip info">Consistency</span><span class="title">Smaller items</span></div>
+<p>Switching chat sessions mid-request appends the late answer to the new transcript and flips the active session back. Editing a pending prompt leaves an orphaned bubble. Forgot-password accepts 6-character passwords while sign-up and reset require the strong policy. Live capacity and refusal notices are visually indistinguishable from answers because <code>ChatResponse</code> has no <code>kind</code>. The novelty dropzone checks size but not type. Two dead components pass lint only because <code>varsIgnorePattern: '^[A-Z_]'</code> exempts every capitalised name. Unit tests cover pure modules only; no component or hook is tested.</p>
+</div></div>
+</div>
+
+<h2 id="manuscript">Manuscript notes</h2>
+<p>These are editorial, not substantive. The correction pipeline (<code>build_corrections.py</code>) regenerates the DOCX from the untouched original, which is exactly right; note that the PDF is exported by hand afterwards and was last exported seven hours after the DOCX, so the two can drift.</p>
+<ul>
+<li><strong>Reference-list “et al.”</strong> Bevara, Doliente, Gokdemir and Wong are listed as “et al.” in the reference list. APA 7 requires all authors up to twenty; “et al.” belongs in the in-text citation only.</li>
+<li><strong>Inconsistent citation.</strong> Li and colleagues are cited as “Li et al. (2025)” in 2.1.5 and as “Li, 2025” in 2.1.7 for the same six-author paper.</li>
+<li><strong>Figures 3–5</strong> still carry internal titles “Figure 1.1 / 1.2 / 1.3” while captioned Figure 3, 4, 5 (already logged as open in <code>CORRECTIONS_APPLIED.md</code>).</li>
+<li><strong>Table 2 row order.</strong> Python v3.14.7 sits after python-dotenv; move it to the top of the backend table.</li>
+<li><strong>Table 5</strong> has a “Gap / Feasible” column with no explanation of what gap is being assessed.</li>
+<li><strong>Table 1</strong> omits the Supabase JavaScript client, which carries the entire authentication flow, while listing Framer Motion. Table 4 omits Trivy, pip-audit, npm audit and Gitleaks although 3.2.5 promises “vulnerability counts identified through security scanning”.</li>
+<li><strong>Page 12</strong> is two-thirds blank before Chapter 2.</li>
+<li><strong>3.2.4 Reliability</strong> should drop “memory leaks” from the list of what SonarQube detects.</li>
+<li><strong>3.2.1 Pylint</strong> should state the profile the 10.00 is measured under (120-column limit, complexity and docstring families disabled).</li>
+<li><strong>Chapter 4</strong> does not exist yet; when it is written, the reporting discipline in 3.2.5 (means across iterations) should be applied to figures generated on the final commit, not to the July and August runs.</li>
+</ul>
+
+<h2 id="plan">Priority plan</h2>
+<p>In order. The first four are the difference between a proposal and a defensible study; the rest protect the engineering claims already made.</p>
+<ol>
+<li><strong>Secure the four approvals</strong> and record them in the corpus manifest. Nothing downstream can be formal without them.</li>
+<li><strong>Assemble and lock the 50-thesis corpus</strong> with <code>corpus_manifest.py lock</code>; commit the receipt under <code>evaluation/results/release-*</code>.</li>
+<li><strong>Fill the Golden Dataset</strong> from that corpus, obtain the three panel sign-offs, set <code>validated_by_faculty_panel: true</code>. Reword items 3, 11, 18 and 37 or route them to the inventory path. Decide and document how notices and negative controls enter the diagnostic means.</li>
+<li><strong>Run the formal comparison</strong> on the direct Google route with <code>APP_ENVIRONMENT=development</code> and <code>GUEST_DAILY_TOKEN_BUDGET=0</code>, commit the schema-3 fingerprint, add effect size and CI to the output, and disclose the same-family judge in 3.2.4.</li>
+<li><strong>Settle the two data-layer items.</strong> Department creation is done (<code>6162193</code>). For the embedding labels, check whether the live project held chunks before <code>20260720</code>; if it did, take the API and worker offline and run <code>reindex_citations --apply --all --allow-model-change</code> per README step 1.5. Do <em>not</em> relabel the provenance rows — the stamps are accurate and the filter is a guard.</li>
+<li><strong>Regenerate every quoted figure on the final commit</strong>: pytest and coverage, JMeter provider-independent run on Python 3.14 with the thread count actually reached, SonarQube on scanner 8.0.1, Trivy, pip-audit, npm audit, the Gemini smoke on <code>gemini-embedding-001</code>. Remove or evidence the unartifacted numbers in the defense walkthrough.</li>
+<li><strong>Fix the three frontend bugs</strong> (return path, admin 2FA loop, badge tones) and add the Google Fonts origins to the nginx CSP or self-host the faces.</li>
+<li><strong>Set <code>hnsw.ef_search</code></strong> or use pgvector's iterative scan so filtered retrieval cannot under-return, then re-check Context Precision.</li>
+<li><strong>Batch the per-chunk duplication RPCs</strong> into one set-returning function.</li>
+<li><strong>Decide on open registration</strong> and make the paper and the trigger agree.</li>
+</ol>
+
+<h2 id="method">How this was checked</h2>
+<p>The full 60-page corrected PDF was extracted and read. The backend's configuration, models, main application, chat router, retriever, prompts, citation validator, guards, notices, duplication router, novelty service, embedder, output normaliser and provider pool were read in full. The database schema, all 25 migrations, auth dependency, upload router, queue, worker, document processor and chunker were audited line by line; the React application's routing, auth context, API client, chat, upload, novelty and admin pages, e2e suites and nginx template likewise. The evaluation harness, golden dataset, ISO evidence file, JMeter plans, governance protocol and every retained result artifact were cross-checked against the paper's claims. PyTest, coverage, Pylint, ESLint, the Node test runner, the Vite build and the bundle budget were executed on the checked-out tree. Every file-and-line finding above was confirmed against the source before publication; nothing was taken from documentation alone.</p>
+<p class="small">Not checked: the live Supabase project (pgvector version, applied migrations, HNSW behaviour on real data), the Playwright suite, and SonarQube, which need a running server or browser.</p>
+</main>
+</div>
