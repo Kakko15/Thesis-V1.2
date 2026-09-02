@@ -858,6 +858,15 @@ returns table (
   similarity float
 )
 language plpgsql
+-- Six equality predicates and the similarity floor below are applied after the
+-- HNSW index has produced its candidates, and a non-iterative scan produces at
+-- most `hnsw.ef_search` of them (default 40). With selective filters, or while
+-- a reindex holds the previous index version for its rollback window, fewer
+-- than `match_count` rows can survive even though qualifying chunks exist --
+-- retrieval silently returns a short context. See
+-- migrations/20260903_hnsw_ef_search.sql for the full reasoning and why this is
+-- not `hnsw.iterative_scan`.
+set hnsw.ef_search = 100
 as $$
 begin
   return query
@@ -933,6 +942,10 @@ returns table (
   similarity float
 )
 language plpgsql
+-- Same HNSW post-filtering exposure as match_chunks: a duplicate above the
+-- threshold has to be inside the candidate list before the department and
+-- provenance predicates run.
+set hnsw.ef_search = 100
 as $$
 begin
   return query

@@ -186,6 +186,30 @@ class TestGuaranteesThatMustHoldInBothFiles:
         assert 'upload cancellation was requested' in collapsed
 
     @pytest.mark.parametrize('source', ['base', 'migration'])
+    @pytest.mark.parametrize('function', ['match_chunks', 'check_topic_duplication'])
+    def test_retrieval_rpcs_raise_ef_search_above_the_default(self, source, function):
+        """Both RPCs filter after the HNSW scan has produced its candidates.
+
+        A non-iterative scan yields at most `hnsw.ef_search` rows, 40 by
+        default, and six equality predicates plus the similarity floor are
+        applied to those. Losing this setting means retrieval can return fewer
+        than `match_count` rows while qualifying chunks exist, and nothing
+        surfaces it: the query succeeds, just with a shorter context.
+        """
+        if source == 'base':
+            body = function_definitions(BASE_SCHEMA)[function][-1]
+        else:
+            body = newest_migration_definition()[function][1]
+        collapsed = re.sub(r'\s+', ' ', re.sub(r'--[^\n]*', '', body)).lower()
+        setting = re.search(r'set hnsw\.ef_search = (\d+)', collapsed)
+        assert setting, f'the {source} copy of {function} no longer sets hnsw.ef_search'
+        # Above pgvector's default, and comfortably above retrieval_match_count.
+        assert int(setting.group(1)) > 40, (
+            f'the {source} copy of {function} sets ef_search to '
+            f'{setting.group(1)}, at or below the default that caused the bug'
+        )
+
+    @pytest.mark.parametrize('source', ['base', 'migration'])
     def test_commit_paper_ingestion_requires_verified_provenance(self, source):
         """The version predating index provenance writes no
         paper_index_versions row, so every chunk insert then violates its
