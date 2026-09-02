@@ -4,6 +4,7 @@ import { ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../supabaseClient'
+import { reportPrivilegedMfaRequired } from '../lib/privilegedMfa.js'
 import { isE2ETestMode } from '../testing/e2eSession'
 import { Button } from '../components/ui/Button'
 import { GlassCard } from '../components/ui/GlassCard'
@@ -56,7 +57,7 @@ function adminSecurityState(isAdmin, query) {
   return query.data?.assurance?.currentLevel === 'aal2' ? 'ready' : 'challenge'
 }
 
-function AdminSecurityGate({ state, query, navigate, refreshMfa }) {
+function AdminSecurityGate({ state, query, navigate }) {
   // While the 2FA session check runs, keep showing the same full-page admin
   // skeleton the route gates render, so the load is one continuous skeleton
   // state instead of flashing a second, differently-shaped one.
@@ -75,8 +76,15 @@ function AdminSecurityGate({ state, query, navigate, refreshMfa }) {
     challenge: {
       tone: 'text-gold-500', title: 'Verify your administrator session',
       message: 'Your account has 2FA enabled, but this session has not completed the authenticator challenge.',
-      label: 'Continue to 2FA verification',
-      action: async () => { await refreshMfa(); navigate('/login') },
+      label: 'Verify with authenticator',
+      // Raises PrivilegedMfaGate, which collects the code here and upgrades
+      // the live session. Sending anyone to /login instead could not work:
+      // reaching this screen at all means `mfaBypass` is set, so Login sees
+      // `needsMfa` false, resolves to the success step and navigates straight
+      // back — the loop PrivilegedMfaGate exists to prevent. On success the
+      // gate invalidates every query, so the factor check below re-runs and
+      // this page opens without a reload.
+      action: () => reportPrivilegedMfaRequired(),
     },
   }[state]
   return (
@@ -93,7 +101,7 @@ function AdminSecurityGate({ state, query, navigate, refreshMfa }) {
 
 export default function Admin() {
   const {
-    displayName, role, department, isAdmin, isSuperadmin, refreshMfa,
+    displayName, role, department, isAdmin, isSuperadmin,
   } = useAuth()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('overview')
@@ -118,7 +126,6 @@ export default function Admin() {
         state={securityState}
         query={mfaFactors}
         navigate={navigate}
-        refreshMfa={refreshMfa}
       />
     )
   }

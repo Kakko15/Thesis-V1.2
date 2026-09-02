@@ -4,7 +4,13 @@ server {
   root /usr/share/nginx/html;
   index index.html;
 
-  add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ${SUPABASE_ORIGIN}; font-src 'self' data:; connect-src 'self' ${API_ORIGIN} ${SUPABASE_ORIGIN} ${SUPABASE_WS_ORIGIN} https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; upgrade-insecure-requests" always;
+  # index.html links its four typefaces from Google Fonts: the stylesheet from
+  # fonts.googleapis.com and the .woff2 files it references from
+  # fonts.gstatic.com. Both origins have to be named or the faces are blocked
+  # here and only here, and the interface falls back to system fonts behind
+  # this proxy while looking correct in every dev and e2e run. Keep these two
+  # in step with the <link> tags in index.html.
+  add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: ${SUPABASE_ORIGIN}; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ${API_ORIGIN} ${SUPABASE_ORIGIN} ${SUPABASE_WS_ORIGIN} https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; upgrade-insecure-requests" always;
   add_header X-Frame-Options "DENY" always;
   add_header X-Content-Type-Options "nosniff" always;
   add_header Referrer-Policy "strict-origin-when-cross-origin" always;

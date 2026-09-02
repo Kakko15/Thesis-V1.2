@@ -21,7 +21,7 @@ import { ForgotPasswordStep } from './auth/ForgotPasswordStep'
 import { ResetPasswordStep } from './auth/ResetPasswordStep'
 import { SuccessStep } from './auth/SuccessStep'
 import { useIdleReady } from '../hooks/useIdleReady'
-import { safeNextPath } from '../lib/idleSession'
+import { LOGIN_NEXT_PARAM, safeNextPath } from '../lib/idleSession'
 
 const AuthScene = lazy(() => import('../components/three/AuthScene'))
 
@@ -90,9 +90,10 @@ export default function Login() {
   const [awaitingVerify, setAwaitingVerify] = useState(false)
   const { user, needsMfa, displayName } = useAuth()
   const navigate = useNavigate()
-  // Idle logout preserves the route as ?next= so re-login lands back there.
+  // An idle logout and the 401 handler both preserve the route under this key
+  // so re-login lands back there.
   const [searchParams] = useSearchParams()
-  const postLoginDestination = safeNextPath(searchParams.get('next'))
+  const postLoginDestination = safeNextPath(searchParams.get(LOGIN_NEXT_PARAM))
   const show3D = useAuthScene()
   const sceneReady = useIdleReady(show3D)
   const cardRef = useRef(null)
