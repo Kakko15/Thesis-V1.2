@@ -127,7 +127,7 @@ export function AskDemo() {
           </div>
 
           {/* Conversation — fixed height, scrolls internally */}
-          <div ref={threadRef} className="h-[24rem] space-y-6 overflow-y-auto px-4 py-6 sm:px-6">
+          <div ref={threadRef} className="h-[24rem] space-y-6 overflow-x-hidden overflow-y-auto px-4 py-6 sm:px-6">
             {/* User bubble — current style: avatarless, accent corner */}
             {phase >= 2 && (
               <motion.div

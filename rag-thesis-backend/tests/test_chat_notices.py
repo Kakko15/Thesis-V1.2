@@ -38,6 +38,16 @@ NOTICE_BACKFILL = (
 )
 
 
+# Notices introduced *after* the backfill migrations shipped. A backfill exists
+# to relabel rows an earlier build wrote, so a message no earlier build could
+# emit has nothing to relabel and must not be added to a migration as dead
+# text. Listed explicitly rather than left to coincidence: SYSTEM_ORIGIN_MESSAGE
+# shares its opening clause with the greeting, so the substring check in
+# TestTheMigrationMatchesTheApplication would otherwise pass without anyone
+# having decided anything.
+MARKERS_WITHOUT_HISTORICAL_ROWS = frozenset({chat_notices.SYSTEM_ORIGIN_MESSAGE})
+
+
 class TestNoticesAreClassifiedAtTheSource:
     """Every notice the system can return must classify as one."""
 
@@ -45,6 +55,7 @@ class TestNoticesAreClassifiedAtTheSource:
         chat_notices.CAPACITY_MESSAGE,
         REFUSAL_MESSAGE,
         GUEST_BUDGET_MESSAGE,
+        chat_notices.SYSTEM_ORIGIN_MESSAGE,
     ])
     def test_each_notice_constant_is_a_notice(self, answer):
         response = ChatResponse(answer=answer, sources=[])
@@ -215,6 +226,18 @@ class TestTheTextMatcherSurvivesAsDefenceInDepth:
         assert chat_notices.is_stored_non_answer(REFUSAL_MESSAGE)
         assert chat_notices.is_stored_non_answer(GUEST_BUDGET_MESSAGE)
         assert chat_notices.is_stored_non_answer(chat.get_no_relevant_message('CCSICT'))
+        assert chat_notices.is_stored_non_answer(chat_notices.SYSTEM_ORIGIN_MESSAGE)
+
+    def test_the_provenance_notice_does_not_shadow_the_greeting(self):
+        """Both open by naming IskAI, and `is_stored_non_answer` matches on a
+        60-character prefix, so a careless wording would make one swallow the
+        other and leave the greeting reaching the model as context."""
+        assert not chat_notices.CONVERSATION_MESSAGE.startswith(
+            chat_notices.SYSTEM_ORIGIN_MESSAGE[:60],
+        )
+        assert not chat_notices.SYSTEM_ORIGIN_MESSAGE.startswith(
+            chat_notices.CONVERSATION_MESSAGE[:60],
+        )
 
     def test_a_real_answer_is_not_recognized_as_a_notice(self):
         assert not chat_notices.is_stored_non_answer(
@@ -249,10 +272,17 @@ class TestTheMigrationMatchesTheApplication:
             r'\s+', ' ', migration_sql + '\n' + NOTICE_BACKFILL.read_text(encoding='utf-8'),
         )
         for marker in chat_notices.NOTICE_MARKERS:
+            if marker in MARKERS_WITHOUT_HISTORICAL_ROWS:
+                continue
             # SQL doubles embedded single quotes, so double them here too rather
             # than truncating the fragment at the first apostrophe.
             fragment = re.sub(r'\s+', ' ', marker)[:48].replace("'", "''")
             assert fragment in normalized_sql, marker
+
+    def test_the_exemption_list_only_holds_real_markers(self):
+        """A reworded constant must not leave a stale exemption silently
+        excusing the marker that replaced it."""
+        assert MARKERS_WITHOUT_HISTORICAL_ROWS <= set(chat_notices.NOTICE_MARKERS)
 
     def test_the_backfill_only_relabels_rows_it_has_not_already_seen(self, migration_sql):
         assert "set kind = 'notice'" in migration_sql

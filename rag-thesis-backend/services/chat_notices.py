@@ -54,6 +54,24 @@ CONVERSATION_MESSAGE = (
     'Ask me about archived thesis topics, methodologies, findings, or related literature.'
 )
 
+# The answer to "who developed you". IskAI must not name its own authors:
+# nothing in its evidence establishes them. Asked as a research question, the
+# nearest semantic match is whichever manuscript happens to describe a system
+# in the wording the reader used -- correct only for as long as the archive is
+# small enough for the right thesis to win by accident, and confidently wrong
+# once it is not.
+#
+# Lives here for the same reason CONVERSATION_MESSAGE does: it is a system
+# message about the system, so the classifier below and the text it classifies
+# must not be able to drift apart, and it must never be replayed to the model
+# as conversational context.
+SYSTEM_ORIGIN_MESSAGE = (
+    "I'm IskAI, the research assistant for the ISU Thesis AI Library. I answer only from "
+    'archived CCSICT theses, so I do not report on my own development. If you meant a '
+    'system described in an archived thesis, name that thesis and I will summarize what '
+    'the manuscript says about it.'
+)
+
 # Opening of the grounded retrieval fallback, which reports that no direct
 # answer could be verified and then points at the closest archived studies. It
 # carries citations, so it is deliberately NOT flagged `no_relevant_thesis`:
@@ -71,6 +89,7 @@ NOTICE_MARKERS = (
     GUEST_BUDGET_MESSAGE,
     NO_RELEVANT_PREFIX,
     CONVERSATION_MESSAGE,
+    SYSTEM_ORIGIN_MESSAGE,
     GROUNDED_FALLBACK_PREFIX,
 )
 
@@ -131,6 +150,7 @@ def response_kind(response) -> str:
     answer = getattr(response, 'answer', '') or ''
     if answer in (
         CAPACITY_MESSAGE, REFUSAL_MESSAGE, GUEST_BUDGET_MESSAGE, CONVERSATION_MESSAGE,
+        SYSTEM_ORIGIN_MESSAGE,
     ):
         return KIND_NOTICE
     if answer.startswith((NO_RELEVANT_PREFIX, GROUNDED_FALLBACK_PREFIX)):

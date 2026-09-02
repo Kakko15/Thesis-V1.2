@@ -55,6 +55,7 @@ from services.retriever import (
     find_papers_by_author,
     find_papers_by_ids,
     find_papers_by_title,
+    find_papers_by_title_fragment,
     get_paper_overview_context,
     list_archive_papers,
     search_chunks,
@@ -91,6 +92,34 @@ _MODEL_QUESTIONS = {
     'which ai model are you', 'what model do you use', 'which model do you use',
     'what ai model do you use', 'which ai model do you use',
 }
+# Provenance questions. Kept out of `_IDENTITY_QUESTIONS` because the greeting
+# is not an answer to them, and split in two because the two forms are not
+# equally clear about what "this" refers to.
+_ORIGIN_VERB = r'(?:developed|made|created|built|designed|programmed|coded|wrote)'
+# Unambiguously about IskAI itself, so it needs no conversational context.
+_SELF_ORIGIN_QUESTION = re.compile(
+    rf'who\s+{_ORIGIN_VERB}\s+(?:you|iskai|this\s+(?:ai|assistant|chatbot|bot))',
+    re.IGNORECASE,
+)
+# The same question aimed at "this system". Inside a conversation about an
+# archived manuscript this means *that manuscript's* system and must stay a
+# retrieval question, so `_chat_impl` answers it as provenance only when the
+# conversation holds no archived source for "this" to refer to.
+_AMBIGUOUS_ORIGIN_QUESTION = re.compile(
+    rf'who\s+{_ORIGIN_VERB}\s+(?:this|the)\s+'
+    r'(?:system|app|application|website|site|platform|project|tool|program|software)',
+    re.IGNORECASE,
+)
+# A thesis named by its opening words rather than in full or in quotes.
+# Only the reference itself is captured: anything qualifying it ("what about
+# the *objectives of* ...") stays in the fragment, fails the title match in
+# `find_papers_by_title_fragment`, and correctly falls through to retrieval.
+_LOOSE_TITLE_REFERENCE = re.compile(
+    r'\s*(?:(?:and|so|ok|okay|but)\s+)?'
+    r'(?:what|how)\s+about\s+(.{6,300}?)\s*[?.!]*\s*'
+    r'|\s*tell\s+me(?:\s+more)?\s+about\s+(.{6,300}?)\s*[?.!]*\s*',
+    re.IGNORECASE,
+)
 _GREETING_ADDRESSEES = {
     'dear', 'friend', 'my friend', 'iskai', 'dear iskai',
 }
@@ -135,6 +164,27 @@ def _is_simple_conversation(question: str) -> bool:
 def _is_model_question(question: str) -> bool:
     normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
     return normalized in _MODEL_QUESTIONS
+
+
+def _normalized_short_question(question: str) -> str:
+    return re.sub(r'\s+', ' ', _normalize_short_query(question or '')).strip()
+
+
+def _is_system_origin_question(question: str) -> bool:
+    """A self-directed question about who built IskAI itself."""
+    return bool(_SELF_ORIGIN_QUESTION.fullmatch(_normalized_short_question(question)))
+
+
+def _is_ambiguous_system_origin_question(question: str) -> bool:
+    """`who developed this system` — IskAI, or a system described in a thesis?"""
+    return bool(_AMBIGUOUS_ORIGIN_QUESTION.fullmatch(_normalized_short_question(question)))
+
+
+def _origin_response() -> str:
+    # Defined in chat_notices for the same reason the greeting is: a reworded
+    # copy here would stop being recognized as a notice and start being replayed
+    # to the model as conversational context.
+    return chat_notices.SYSTEM_ORIGIN_MESSAGE
 
 
 def _model_response() -> str:
@@ -594,6 +644,22 @@ def _extract_explicit_thesis_title(question: str) -> str | None:
     return unquoted.group(1).strip() if unquoted else None
 
 
+def _extract_thesis_title_fragment(question: str) -> str | None:
+    """Capture what a bare `what about <X>` reference names, without judging it.
+
+    Whether the fragment is a thesis is decided by the archive, not here: the
+    caller acts only when it resolves to exactly one ready paper. So this stays
+    permissive on purpose, and `what about their methodology` costs one lookup
+    that finds nothing rather than being excluded by a word list that would
+    also exclude real titles.
+    """
+    match = _LOOSE_TITLE_REFERENCE.fullmatch(question or '')
+    if not match:
+        return None
+    fragment = (match.group(1) or match.group(2) or '').strip()
+    return fragment or None
+
+
 def _resolve_specific_paper_followup(question: str, source: dict) -> str:
     """Make a referenced-paper follow-up standalone without another AI call."""
     return (
@@ -902,6 +968,23 @@ async def _chat_impl(
             session_id=req.session_id,
         )
 
+    # "Who built you" is about IskAI, never about a manuscript, so it needs no
+    # conversational context and is answered here with the other self-directed
+    # questions. The "this system" phrasing is handled further down, where the
+    # conversation's own sources are known.
+    if _is_system_origin_question(req.question):
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': 0,
+            'duplication_flagged': False,
+            'fast_path': 'system_origin',
+        })
+        return ChatResponse(
+            answer=_origin_response(),
+            sources=[],
+            session_id=req.session_id,
+        )
+
     blocked_reason = prohibited_reason(req.question)
     if blocked_reason:
         background_tasks.add_task(log_activity, user.id if user else None, 'chat_query_blocked', {
@@ -1000,6 +1083,25 @@ async def _chat_impl(
             archive_current=True,
         )
 
+    # `who developed this system` resolves by context, not by wording. With an
+    # archived source already on the table, "this system" is that manuscript's
+    # system and the question stays a retrieval question. With none, there is
+    # nothing for "this" to point at but IskAI, and answering it from semantic
+    # search means naming whichever team's system chapter happens to rank
+    # first -- right only while the archive is small enough to get lucky.
+    if not reference_sources and _is_ambiguous_system_origin_question(req.question):
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': 0,
+            'duplication_flagged': False,
+            'fast_path': 'system_origin',
+        })
+        return ChatResponse(
+            answer=_origin_response(),
+            sources=[],
+            session_id=req.session_id,
+        )
+
     async def try_author_fast_path(question: str) -> ChatResponse | None:
         """Resolve person-name variants locally before any Gemini or embedding call."""
         author_name = _extract_author_name(question)
@@ -1064,9 +1166,42 @@ async def _chat_impl(
             ) from error
         if len(title_matches) == 1:
             referenced_paper_id = title_matches[0].get('id')
+
+    # A thesis named by its opening words. Resolved only on a unique archive
+    # match, so an ordinary follow-up ("what about their methodology") finds
+    # nothing here and reaches the branches below unchanged.
+    fragment_source = None
+    if not referenced_paper_id and not explicit_title:
+        title_fragment = _extract_thesis_title_fragment(req.question)
+        if title_fragment:
+            try:
+                fragment_matches = await asyncio.to_thread(
+                    find_papers_by_title_fragment,
+                    title_fragment,
+                    effective_department,
+                )
+            except Exception as error:
+                # A guess, not a stated reference, so an unavailable lookup
+                # degrades to the existing follow-up handling instead of
+                # failing the turn. Retrieval below raises 503 on its own if
+                # the archive really is down.
+                logger.warning(
+                    'Thesis title fragment lookup failed; continuing (%s)',
+                    type(error).__name__,
+                )
+                fragment_matches = []
+            if len(fragment_matches) == 1:
+                fragment_source = fragment_matches[0]
+
     numbered_source = _resolve_numbered_thesis_reference(req.question, reference_sources)
     if referenced_paper_id:
         pass
+    elif fragment_source:
+        # A bare title reference carries no question of its own, so it is
+        # treated exactly like “number 2”: an overview of that one manuscript.
+        effective_question = _overview_question_for_source(fragment_source)
+        referenced_paper_id = fragment_source.get('id')
+        is_overview_followup = True
     elif numbered_source:
         # The source order is server-verified from the preceding response, so
         # “number 2” cannot be misread as an objective number during semantic search.

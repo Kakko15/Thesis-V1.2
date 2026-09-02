@@ -193,7 +193,7 @@ function SourceCard({ sources, index }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.15 + index * 0.08, duration: 0.4 }}
-      className="glass flex w-full items-start gap-3 rounded-2xl p-3.5 text-left"
+      className="glass flex w-full min-w-0 items-start gap-3 rounded-2xl p-3.5 text-left"
     >
       <div className="flex max-w-16 shrink-0 flex-wrap gap-1">
         {citationIds.map((citationId) => (
@@ -206,7 +206,7 @@ function SourceCard({ sources, index }) {
         ))}
       </div>
       <div className="min-w-0">
-        <div className="text-sm font-semibold leading-snug">{source.title}</div>
+        <div className="break-words text-sm font-semibold leading-snug">{source.title}</div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
           {source.authors && <span>{source.authors}</span>}
           {source.year && <span>· {source.year}</span>}
@@ -1004,7 +1004,7 @@ export default function Chat() {
         )}
 
         {/* Messages */}
-        <div className="flex-1 space-y-6 overflow-y-auto px-4 py-6 sm:px-6">
+        <div className="flex-1 space-y-6 overflow-x-hidden overflow-y-auto px-4 py-6 sm:px-6">
           {messages.length === 0 && !sending ? (
             <div className="flex h-full flex-col items-center justify-center">
               <EmptyState
