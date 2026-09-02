@@ -37,6 +37,14 @@ export function VerifyMethodStep({ email, totpEnrolled, onBack, onDone }) {
   const [captchaReset, setCaptchaReset] = useState(0)
 
   const sendCode = async () => {
+    // Supabase dispatches the mail inside this request, so awaiting it before
+    // revealing the input made the visitor watch a spinner for the whole SMTP
+    // round trip — around ten seconds — during which the code they are waiting
+    // for had not been sent yet. The wait is Supabase's and cannot be shortened
+    // from here; being made to watch it can. Show the input first, report a
+    // failure if one comes, and let them go read their inbox meanwhile.
+    const advanced = method !== 'email'
+    if (advanced) setMethod('email')
     setSending(true)
     setError('')
     try {
@@ -45,12 +53,14 @@ export function VerifyMethodStep({ email, totpEnrolled, onBack, onDone }) {
         options: authOptions({ shouldCreateUser: false }, captcha.token),
       })
       if (err) throw err
-      setMethod('email')
       setCooldown(60)
     } catch (err) {
       setError(friendlyAuthError(err))
       const wait = retryAfterSeconds(err)
       if (wait) setCooldown(wait)
+      // Nothing is coming, so six empty boxes would be a lie. A failed *resend*
+      // keeps its screen: an earlier code may still be sitting in the inbox.
+      if (advanced) setMethod(null)
     } finally {
       setSending(false)
       captcha.onToken(null)
@@ -120,7 +130,7 @@ export function VerifyMethodStep({ email, totpEnrolled, onBack, onDone }) {
           method === 'email'
             ? (
               <>
-                Enter the 6-digit code we sent to{' '}
+                {sending ? 'Sending a 6-digit code to' : 'Enter the 6-digit code we sent to'}{' '}
                 <span className="font-semibold">{maskEmail(email)}</span>.
               </>
             )
@@ -213,17 +223,25 @@ export function VerifyMethodStep({ email, totpEnrolled, onBack, onDone }) {
 
         {method === 'email' && (
           <Rise className="text-center text-xs text-ink-muted">
-            Nothing arrived?{' '}
-            {cooldown > 0 ? (
-              <span className="font-semibold tabular-nums">Resend in {cooldown}s</span>
+            {sending ? (
+              // "Nothing arrived? Sending…" reads as a contradiction while the
+              // first send is still in flight, which is now the common case.
+              <span className="font-semibold">Sending your code…</span>
             ) : (
-              <UnderlineLink
-                onClick={sendCode}
-                disabled={sending || captcha.blocked}
-                className="text-forest-700 disabled:opacity-50 dark:text-gold-300"
-              >
-                {sending ? 'Sending…' : 'Resend code'}
-              </UnderlineLink>
+              <>
+                Nothing arrived?{' '}
+                {cooldown > 0 ? (
+                  <span className="font-semibold tabular-nums">Resend in {cooldown}s</span>
+                ) : (
+                  <UnderlineLink
+                    onClick={sendCode}
+                    disabled={captcha.blocked}
+                    className="text-forest-700 disabled:opacity-50 dark:text-gold-300"
+                  >
+                    Resend code
+                  </UnderlineLink>
+                )}
+              </>
             )}
           </Rise>
         )}
