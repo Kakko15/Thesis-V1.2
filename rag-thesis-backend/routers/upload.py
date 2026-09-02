@@ -95,6 +95,31 @@ def _extract_title_page_metadata(text: str, departments: list[str]) -> dict[str,
     }
 
 
+def _as_text(value, fallback: str = '') -> str:
+    """Flatten one extracted metadata field to the text the upload form expects.
+
+    The prompt asks for JSON strings, but a reply is not bound by the ask, and
+    the authors of a multi-author thesis come back as an array often enough to
+    matter. `str()` on a list yields its Python repr -- brackets and quotes and
+    all -- which was pre-filled into the form, submitted unchanged, stored, and
+    rendered on the archive card as ['A. Author', 'B. Author']. Joining instead
+    matches what `_extract_title_page_metadata` already produces for the local
+    path, so both routes agree on the shape.
+
+    Anything that is not text, a number, or a sequence of those has no sensible
+    rendering here, so it yields the caller's fallback rather than a repr.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+    elif isinstance(value, (list, tuple)):
+        text = ', '.join(part for part in (_as_text(item) for item in value) if part)
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        text = str(value)
+    else:
+        text = ''
+    return text or fallback
+
+
 def _sanitize_filename(filename: str | None) -> str:
     """Return a storage-safe PDF filename without client path components."""
     return sanitize_filename(filename, default_stem='thesis', force_suffix='pdf')
@@ -611,14 +636,14 @@ async def extract_metadata(
         )
         data = json.loads(strip_code_fence(coerce_text(result)))
 
-        ai_year = str(data.get('year', '') or '').strip()
+        ai_year = _as_text(data.get('year'))
         if ai_year and not re.search(rf'\b{re.escape(ai_year)}\b', title_page_text):
             ai_year = ''
         return {
-            'title': str(data.get('title', '') or local_data['title']),
-            'authors': str(data.get('authors', '') or local_data['authors']),
+            'title': _as_text(data.get('title'), local_data['title']),
+            'authors': _as_text(data.get('authors'), local_data['authors']),
             'year': local_data['year'] or ai_year,
-            'department': str(data.get('department', '') or local_data['department']),
+            'department': _as_text(data.get('department'), local_data['department']),
         }
     except HTTPException:
         raise
