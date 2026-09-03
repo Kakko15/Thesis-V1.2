@@ -470,10 +470,150 @@ PROSE8 = [
 ]
 
 
+# --- P9: layout anchoring, table completeness, reference accuracy --------
+# Chapter and reference headings were positioned with runs of empty
+# paragraphs, which only hold while nothing above them moves. Eight passes of
+# added rows and prose moved all three: page 12 was two-thirds blank before
+# Chapter 2, while Chapter 3 and References had slid up into the middle of a
+# page. Each heading is anchored to a page break instead, and the hand-typed
+# spacers that were doing the job are removed.
+PAGE_BREAKS = ['Chapter 1', 'Chapter 2', 'Chapter 3', 'References']
+DROP_SPACERS = ['Chapter 2', 'Chapter 3', 'References']
+
+# Two drawings were never refitted. Figure 2 sat at 7.58 in and Figure 7 at
+# 7.73 in on a page whose text is 6.27 in wide, so both bled past the right
+# margin and out to the left of the left one; Figure 7 was squashed as well,
+# carrying a 1.99 aspect against the image's native 2.14. This is the fitting
+# Figures 1 and 8 already receive, applied without replacing the artwork.
+REFIT = [
+    ('media/image2.png', 'P9-2 Figure 2 LLM errors'),
+    ('media/image7.png', 'P9-2 Figure 7 iterative model'),
+]
+
+# Table 1 listed the animation library but not the client that carries the
+# entire authentication flow (`supabase.auth` in AuthContext.jsx, api.js,
+# MfaEnrollDialog.jsx and the password-reset pages). Table 4 named no security
+# scanner at all although 3.2.5 promises "vulnerability counts identified
+# through security scanning"; these four run on every push and pull request in
+# .github/workflows/quality.yml.
+TABLE_ROWS9 = [
+    ('Framer Motion', 'P9-5 Table 1 auth client', [
+        ('@supabase/supabase-js', 'v2.110.8',
+         'Will provide the browser client for Supabase authentication, session refresh and '
+         'multi-factor enrolment, on which the sign-in, sign-up and password-reset flows depend.'),
+    ]),
+    ('SonarScanner CLI', 'P9-6 Table 4 scanners', [
+        ('Trivy', 'trivy-action v0.36.0',
+         'Will scan both container images on every push and fail the pipeline on a CRITICAL or '
+         'HIGH vulnerability that already has a fix available.'),
+        ('Gitleaks', 'gitleaks-action v2',
+         'Will scan the full commit history for committed credentials on every push and pull request.'),
+        ('pip-audit', 'installed at run time',
+         'Will audit the pinned Python dependency lock against the Python Packaging Advisory Database.'),
+        ('npm audit', 'bundled with Node.js v24.18.0',
+         'Will audit the production JavaScript dependency tree and fail on a high-severity advisory.'),
+    ]),
+]
+
+PROSE9 = [
+    # Table 5's third column is headed "Gap" and filled with "Feasible", with
+    # nothing in the text saying what is being assessed against what.
+    ('The table below lists the primary hardware used in this study.',
+     'The table below lists the primary hardware used in this study. Its Gap column records the '
+     'researchers’ readiness against each requirement: a component marked Feasible is already '
+     'available on the development workstation, so nothing has to be procured before '
+     'implementation begins.',
+     1, 'P9-4 Table 5 Gap column explained'),
+]
+
+# Reference entries, each verified against the source itself rather than a
+# lookup of the citation: Crossref's deposited record for the two DOIs, the
+# arXiv listings, the article PDF for Doliente, and the ISSN register for the
+# journal title. Five entries abbreviated author lists with "et al.", which
+# APA 7 allows only in the in-text citation. Two carried worse than a style
+# error - a fabricated author, and a DOI belonging to a different paper - so
+# each edit is scoped to the one entry and stays inside a single run, which is
+# what keeps the italic journal title beside it italic.
+REFERENCES9 = [
+    # Information Technology and Libraries 44(2); seven authors on the record.
+    ('Bevara, R. V. K.',
+     ', R. V. K., et al. (2025).',
+     ', R. V. K., Lund, B. D., Mannuru, N. R., Karedla, S. P., Mohammed, Y., Kolapudi, S. T., '
+     '& Mannuru, A. (2025).',
+     'P9-7 Bevara authors'),
+    # Five authors on the article's title page; the printed title ends "in the
+    # Learning Common", and ISSN 2278-3083 registers the journal as *Applied*,
+    # which its own masthead and Crossref record both use - only the running
+    # header inside the PDF says "Advanced". Pages 29-37 were missing.
+    ('Doliente, C. J. O.',
+     ', C. J. O., et al. (2023).',
+     ', C. J. O., Tual, D.-X., Paglinawan, Z. B., Naparan, J. A., & Facunla, H. L. (2023).',
+     'P9-8 Doliente authors'),
+    ('Doliente, C. J. O.',
+     'in the learning commons.',
+     'in the learning common.',
+     'P9-8 Doliente title'),
+    ('Doliente, C. J. O.',
+     'International Journal of Science and Advanced Information Technology, 12',
+     'International Journal of Science and Applied Information Technology, 12',
+     'P9-8 Doliente journal'),
+    ('Doliente, C. J. O.',
+     '(4).',
+     '(4), 29–37.',
+     'P9-8 Doliente pages'),
+    # "Dibia, V." is not an author of arXiv:2312.10997; the survey has ten.
+    ('Dibia',
+     'Gao, Y., Xiong, Y., Dibia, V., et al. (2024).',
+     'Gao, Y., Xiong, Y., Gao, X., Jia, K., Pan, J., Bi, Y., Dai, Y., Sun, J., Wang, M., '
+     '& Wang, H. (2024).',
+     'P9-9 Gao authors'),
+    # HiPerRAG has 24 authors, so APA 7 lists the first 19 and the last. The
+    # DOI in the entry, 10.1109/ccgrid64434.2025.00035, resolves to "Evaluating
+    # Energy Efficiency of AI Accelerators Using Two MLPerf Benchmarks" by
+    # Ferdaus and colleagues - a different paper at a different conference.
+    ('Gokdemir, O.,',
+     'Gokdemir, O., et al. (2025). ',
+     'Gokdemir, O., Siebenschuh, C., Brace, A., Wells, A., Hsu, B., Hippe, K., Setty, P., '
+     'Ajith, A., Pauloski, J. G., Sastry, V., Foreman, S., Zheng, H., Ma, H., Kale, B., '
+     'Chia, N., Gibbs, T., Papka, M., Brettin, T., Alexander, F., . . . Ramanathan, A. (2025). ',
+     'P9-10 Gokdemir authors'),
+    ('Gokdemir, O.,',
+     'Proceedings of the 2025 IEEE/ACM International Symposium on Cluster, Cloud and '
+     'Internet Computing (CCGrid)',
+     'Proceedings of the Platform for Advanced Scientific Computing Conference (PASC 2025)',
+     'P9-10 HiPerRAG venue'),
+    ('Gokdemir, O.,',
+     'https://doi.org/10.1109/ccgrid64434.2025.00035',
+     'https://doi.org/10.1145/3732775.3733586',
+     'P9-10 HiPerRAG DOI'),
+    # arXiv:2502.14898 is by Lionel Wong and five colleagues, not "Wong, K.".
+    ('Wong, K.',
+     'Wong, K., et al. (2025).',
+     'Wong, L., Ali, A., Xiong, R., Shen, S. Z., Kim, Y., & Agrawal, M. (2025).',
+     'P9-11 Wong authors'),
+]
+
+# The displayed URL and the live hyperlink are stored separately; changing the
+# text alone would leave the link still pointing at the wrong paper.
+REL_TARGETS = [
+    ('https://doi.org/10.1109/ccgrid64434.2025.00035',
+     'https://doi.org/10.1145/3732775.3733586', 'P9-10 HiPerRAG link target'),
+]
+
+
 def apply_figures(xml, src, verbose=True):
     """Swap embedded figures and refit each drawing to the text width."""
     media = {}
     width_emu = D.text_width_emu(xml)
+    for target, label in REFIT:
+        pixels_w, pixels_h = D.png_pixels_bytes(D.media_bytes(src, target))
+        cy = round(width_emu * pixels_h / pixels_w)
+        rid = D.media_rid(src, target)
+        xml = D.set_drawing_extent(xml, rid, width_emu, cy, label=label)
+        xml = D.set_drawing_offset(xml, rid, 0, label=label)
+        if verbose:
+            print(f'  refit  {label:26s} ({pixels_w}x{pixels_h} px -> '
+                  f'{width_emu/914400:.2f}x{cy/914400:.2f} in)')
     for target, source, label in FIGURES:
         payload = open(source, 'rb').read()
         pixels_w, pixels_h = D.png_pixels(source)
@@ -481,6 +621,7 @@ def apply_figures(xml, src, verbose=True):
         cy = round(width_emu * pixels_h / pixels_w)
         rid = D.media_rid(src, target)
         xml = D.set_drawing_extent(xml, rid, cx, cy, label=label)
+        xml = D.set_drawing_offset(xml, rid, 0, label=label)
         media['word/' + target] = payload
         if verbose:
             print(f'  figure {label:26s} {source} '
@@ -498,18 +639,37 @@ def build(verbose=True):
                              'models/gemini-embedding-001 (768 dimensions)', 0, 'T3 embed id')
     if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding')
     for old, new, n, label in (
-        PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5 + PROSE6 + PROSE7 + PROSE8
+        PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5 + PROSE6 + PROSE7 + PROSE8 + PROSE9
     ):
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')
-    for anchor, label, rows in TABLE_ROWS:
+    for anchor, label, rows in TABLE_ROWS + TABLE_ROWS9:
         xml, ncells = D.append_table_rows(xml, anchor, rows, label=label)
         if verbose: print(f'  rows   {label:18s} +{len(rows)} rows x {ncells} cells')
+    # After the rows are in: the runtime was appended to the bottom of Table 2,
+    # below python-dotenv, where a reader looks last for it.
+    xml = D.move_table_row(xml, 'python-multipart', 'Python', 'FastAPI',
+                           label='P9-3 Table 2 row order')
+    if verbose: print(f'  order  {"Table 2 backend":18s} Python above FastAPI')
+    for anchor, old, new, label in REFERENCES9:
+        xml = D.replace_in_paragraph(xml, anchor, old, new, expect=1, label=label)
+        if verbose: print(f'  ref    {label}')
+    for text in DROP_SPACERS:
+        xml, dropped = D.drop_blank_paragraphs_before(xml, text, label=f'P9-1 {text} spacers')
+        if verbose: print(f'  layout {text:18s} -{dropped} spacer paragraphs')
+    for text in PAGE_BREAKS:
+        xml = D.set_page_break_before(xml, text, label=f'P9-1 {text} page break')
+        if verbose: print(f'  layout {text:18s} starts a page')
     return xml
 
 
 if __name__ == '__main__':
     xml = build()
     xml, media = apply_figures(xml, SRC)
-    D.replace_parts(SRC, DST, {D.DOC: xml.encode('utf8'), **media})
+    rels = D.read_xml(SRC, D.RELS)
+    for old, new, label in REL_TARGETS:
+        rels = D.set_rel_target(rels, old, new, label=label)
+        print(f'  link   {label}')
+    D.replace_parts(SRC, DST, {D.DOC: xml.encode('utf8'),
+                               D.RELS: rels.encode('utf8'), **media})
     print(f'\nwrote {DST}')

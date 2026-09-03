@@ -9,6 +9,7 @@ preserved exactly, including the 8 embedded images.
 import re, shutil, zipfile, html
 
 DOC = 'word/document.xml'
+RELS = 'word/_rels/document.xml.rels'
 
 def read_xml(path, part=DOC):
     with zipfile.ZipFile(path) as z:
@@ -387,3 +388,154 @@ def text_width_emu(xml):
         raise LookupError('could not read page size or margins')
     twips = int(page.group(1)) - int(mar.group(1)) - int(mar.group(2))
     return twips * 635  # 1 twip = 635 EMU
+
+
+# --- Pass 9 helpers: page anchoring, row order, scoped edits, link targets ---
+
+def find_paragraph(xml, anchor, label=''):
+    """The one paragraph whose visible text contains `anchor`."""
+    hits = [p for p in paragraphs(xml) if anchor in ptext(p[2])]
+    if len(hits) != 1:
+        raise AssertionError(
+            f'{label or anchor!r}: matched {len(hits)} paragraphs, need exactly 1')
+    return hits[0]
+
+
+def replace_in_paragraph(xml, anchor, old, new, expect=1, label=''):
+    """`replace_runs`, scoped to the single paragraph holding `anchor`.
+
+    Reference entries repeat short fragments - "(4).", ", et al. (2025)." -
+    across the list, so a document-wide needle cannot address one of them. An
+    anchor that is unique to the entry lets each needle stay inside a single
+    run, which is what preserves the italic journal title sitting beside it:
+    `replace_runs` puts the whole replacement into the first run it overlaps.
+    """
+    start, end, para = find_paragraph(xml, anchor, label)
+    return xml[:start] + replace_runs(para, old, new, expect=expect, label=label) + xml[end:]
+
+
+def _blank_paragraph(pxml):
+    return not ptext(pxml).strip() and '<w:drawing' not in pxml and '<w:pict' not in pxml
+
+
+def set_page_break_before(xml, text, label=''):
+    """Anchor the paragraph whose whole text is `text` to the top of a page.
+
+    The manuscript separates chapters with runs of empty paragraphs, so every
+    heading drifts as soon as anything above it grows: page 12 was two-thirds
+    blank before Chapter 2 while Chapter 3 and References had slid up into the
+    middle of a page. A pageBreakBefore property holds each one in place
+    whatever the corrections do to the text above it.
+    """
+    hits = [p for p in paragraphs(xml) if ptext(p[2]).strip() == text]
+    if len(hits) != 1:
+        raise AssertionError(
+            f'{label or text!r}: matched {len(hits)} paragraphs, need exactly 1')
+    start, end, para = hits[0]
+    if '<w:pageBreakBefore' in para:
+        raise AssertionError(f'{label or text!r}: already carries a page break')
+    if '<w:pPr>' in para:
+        # CT_PPr fixes the child order: pStyle, keepNext, keepLines, then
+        # pageBreakBefore. Landing anywhere else makes Word repair the file.
+        head = re.match(r'.*?<w:pPr>(?:<w:pStyle [^>]*/>)?(?:<w:keepNext [^>]*/>)?'
+                        r'(?:<w:keepLines [^>]*/>)?', para, re.S)
+        return xml[:start] + para[:head.end()] + '<w:pageBreakBefore/>' + para[head.end():] + xml[end:]
+    at = para.index('>') + 1
+    return (xml[:start] + para[:at] + '<w:pPr><w:pageBreakBefore/></w:pPr>'
+            + para[at:] + xml[end:])
+
+
+def drop_blank_paragraphs_before(xml, text, label=''):
+    """Delete the run of blank paragraphs directly above a paragraph."""
+    paras = paragraphs(xml)
+    idx = [i for i, p in enumerate(paras) if ptext(p[2]).strip() == text]
+    if len(idx) != 1:
+        raise AssertionError(
+            f'{label or text!r}: matched {len(idx)} paragraphs, need exactly 1')
+    target = idx[0]
+    first = target
+    while first > 0 and _blank_paragraph(paras[first - 1][2]):
+        first -= 1
+    if first == target:
+        return xml, 0
+    span = xml[paras[first][0]:paras[target][0]]
+    if span != ''.join(paras[j][2] for j in range(first, target)):
+        raise AssertionError(f'{label or text!r}: unexpected markup between the blanks')
+    return xml[:paras[first][0]] + xml[paras[target][0]:], target - first
+
+
+def move_table_row(xml, table_anchor, row_head, before_head, label=''):
+    """Move a row inside one table so it sits directly above another row.
+
+    Rows are matched on the exact text of their first cell, so `Python` cannot
+    be confused with `python-dotenv` or `python-multipart`.
+    """
+    tables = [m for m in _TBL_RE.finditer(xml)
+              if table_anchor in ''.join(html.unescape(t) for t in re.findall(
+                  r'<w:t(?: [^>]*)?>(.*?)</w:t>', m.group(0), re.S))]
+    if len(tables) != 1:
+        raise AssertionError(
+            f'{label or table_anchor!r}: matched {len(tables)} tables, need exactly 1')
+    tbl = tables[0]
+
+    def row(head):
+        found = [m for m in _TR_RE.finditer(tbl.group(0))
+                 if ptext(_TC_RE.findall(m.group(0))[0]).strip() == head]
+        if len(found) != 1:
+            raise AssertionError(
+                f'{label or head!r}: {len(found)} rows begin with {head!r}, need exactly 1')
+        return found[0]
+
+    moving, before = row(row_head), row(before_head)
+    if moving.start() < before.start():
+        raise AssertionError(f'{label}: {row_head!r} already precedes {before_head!r}')
+    body = tbl.group(0)
+    body = body[:moving.start()] + body[moving.end():]
+    at = body.index(before.group(0))
+    body = body[:at] + moving.group(0) + body[at:]
+    return xml[:tbl.start()] + body + xml[tbl.end():]
+
+
+def set_rel_target(rels, old, new, label=''):
+    """Repoint one external relationship - the live target of a reference link."""
+    needle = f'Target="{old}"'
+    if rels.count(needle) != 1:
+        raise AssertionError(
+            f'{label or old!r}: matched {rels.count(needle)} relationships, need exactly 1')
+    return rels.replace(needle, f'Target="{new}"')
+
+
+def media_bytes(src, target):
+    """Raw bytes of a word/media entry, e.g. 'media/image2.png'."""
+    with zipfile.ZipFile(src) as z:
+        return z.read('word/' + target)
+
+
+def png_pixels_bytes(payload):
+    """(width, height) from a PNG IHDR already in memory."""
+    if payload[1:4] != b'PNG':
+        raise ValueError('not a PNG')
+    return int.from_bytes(payload[16:20], 'big'), int.from_bytes(payload[20:24], 'big')
+
+
+def set_drawing_offset(xml, rid, emu, label=''):
+    """Set the horizontal offset of the one anchored drawing that embeds `rid`.
+
+    These pictures are floating anchors, not inline runs, and each carries an
+    absolute posOffset that was tuned to make an over-wide drawing look centred
+    by pulling it left of the margin - up to -0.76 in. Resizing alone leaves
+    that offset in place, so a correctly sized figure still hangs into the left
+    margin. The uncorrected figures sit at an offset of roughly zero, which is
+    the value that puts a text-width drawing flush with the text.
+    """
+    anchor = xml.index(f'r:embed="{rid}"')
+    start = xml.rindex('<w:drawing>', 0, anchor)
+    end = xml.index('</w:drawing>', anchor) + len('</w:drawing>')
+    block = xml[start:end]
+    block, n = re.subn(
+        r'(<wp:positionH [^>]*>\s*<wp:posOffset>)-?\d+(</wp:posOffset>)',
+        lambda m: m.group(1) + str(emu) + m.group(2), block,
+    )
+    if n != 1:
+        raise ValueError(f'{label}: expected one horizontal posOffset, found {n}')
+    return xml[:start] + block + xml[end:]
