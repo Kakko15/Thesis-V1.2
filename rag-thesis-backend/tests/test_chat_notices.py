@@ -45,7 +45,16 @@ NOTICE_BACKFILL = (
 # shares its opening clause with the greeting, so the substring check in
 # TestTheMigrationMatchesTheApplication would otherwise pass without anyone
 # having decided anything.
-MARKERS_WITHOUT_HISTORICAL_ROWS = frozenset({chat_notices.SYSTEM_ORIGIN_MESSAGE})
+MARKERS_WITHOUT_HISTORICAL_ROWS = frozenset({
+    chat_notices.SYSTEM_ORIGIN_MESSAGE,
+    # Added 2026-09-04 with their fast paths; no earlier build could emit
+    # either text, so there are no rows for a backfill to relabel. (Capability
+    # questions previously received CONVERSATION_MESSAGE, whose rows the
+    # 20260825 backfill already covers; courtesy turns previously received the
+    # no-relevant notice, covered by the same backfill via its prefix.)
+    chat_notices.CAPABILITIES_MESSAGE,
+    chat_notices.COURTESY_MESSAGE,
+})
 
 
 class TestNoticesAreClassifiedAtTheSource:

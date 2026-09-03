@@ -49,7 +49,7 @@ class TestEarlyChatPaths:
         assert blocked.answer == chat.REFUSAL_MESSAGE
 
     def test_model_identity_does_not_search_the_archive(self, monkeypatch):
-        async def should_not_retrieve(*_args):
+        async def should_not_retrieve(*_args, **_kwargs):
             raise AssertionError('model identity must not run vector retrieval')
         monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
         response = run(chat._chat_impl(
@@ -92,7 +92,7 @@ class TestEarlyChatPaths:
         ]
         monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
         monkeypatch.setattr(chat, 'list_archive_papers', lambda *_args: (len(papers), papers))
-        async def should_not_retrieve(*_args):
+        async def should_not_retrieve(*_args, **_kwargs):
             raise AssertionError('inventory requests must not run vector retrieval')
         monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
 
@@ -112,7 +112,7 @@ class TestEarlyChatPaths:
         monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
         monkeypatch.setattr(chat, 'list_archive_papers', lambda *_args: (len(papers), papers))
 
-        async def should_not_retrieve(*_args):
+        async def should_not_retrieve(*_args, **_kwargs):
             raise AssertionError('count follow-ups must list the live archive, not retrieve a manuscript')
 
         monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
@@ -137,7 +137,7 @@ class TestEarlyChatPaths:
         monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
         monkeypatch.setattr(chat, 'list_archive_papers', lambda *_args: (len(papers), papers))
 
-        async def should_not_retrieve(*_args):
+        async def should_not_retrieve(*_args, **_kwargs):
             raise AssertionError('count confirmations must read live metadata, not a manuscript')
 
         monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
@@ -157,7 +157,7 @@ class TestEarlyChatPaths:
 
 class TestRetrievalAndGenerationFlow:
     def test_no_context_returns_explicit_no_result(self, monkeypatch):
-        async def retrieve(*_args): return ('', [], 0.0), None
+        async def retrieve(*_args, **_kwargs): return ('', [], 0.0), None
         monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
         response = run(chat._chat_impl(
             ChatRequest(question='What quantum theses exist?'),
@@ -171,7 +171,7 @@ class TestRetrievalAndGenerationFlow:
             {'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'},
             {'citation_id': 2, 'id': 'p2', 'chunk_id': 2, 'title': 'Two'},
         ]
-        async def retrieve(*_args): return ('[1] Evidence\n[2] Other', sources, 0.9), None
+        async def retrieve(*_args, **_kwargs): return ('[1] Evidence\n[2] Other', sources, 0.9), None
         async def generate(*_args): return SimpleNamespace(content='The study used RAG [1].'), None
         monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
         monkeypatch.setattr(chat, '_invoke_generation', generate)
@@ -186,7 +186,7 @@ class TestRetrievalAndGenerationFlow:
     def test_repeated_question_uses_newly_available_current_evidence(self, monkeypatch):
         calls = 0
 
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             nonlocal calls
             calls += 1
             paper_id = 'p1' if calls == 1 else 'p2'
@@ -216,7 +216,7 @@ class TestRetrievalAndGenerationFlow:
 
     def test_invalid_answer_repairs_once(self, monkeypatch):
         sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'}]
-        async def retrieve(*_args): return ('[1] Evidence', sources, 0.9), None
+        async def retrieve(*_args, **_kwargs): return ('[1] Evidence', sources, 0.9), None
         async def generate(*_args): return SimpleNamespace(content='An uncited factual answer.'), None
         async def repair(*_args): return 'A repaired factual answer [1].'
         monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
@@ -233,7 +233,7 @@ class TestRetrievalAndGenerationFlow:
             {'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'},
             {'citation_id': 2, 'id': 'p1', 'chunk_id': 2, 'title': 'One'},
         ]
-        async def retrieve(*_args): return ('[1] Scope\n[2] Limitations', sources, 0.9), None
+        async def retrieve(*_args, **_kwargs): return ('[1] Scope\n[2] Limitations', sources, 0.9), None
         async def generate(*_args): return SimpleNamespace(content='An uncited scope answer.'), None
         async def repair(*_args): return 'The study has defined scope and limitations [1, 2].'
         monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
@@ -248,7 +248,7 @@ class TestRetrievalAndGenerationFlow:
 
     def test_incomplete_ai_repair_gets_deterministic_coverage(self, monkeypatch):
         sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 5, 'title': 'One'}]
-        async def retrieve(*_args): return ('[1] Scope and delimitations', sources, 0.9), None
+        async def retrieve(*_args, **_kwargs): return ('[1] Scope and delimitations', sources, 0.9), None
         async def generate(*_args): return SimpleNamespace(content='An uncited answer.'), None
         async def repair(*_args): return 'The scope covers CCSICT [1].\n\nExternal studies are excluded.'
         monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
@@ -269,7 +269,7 @@ class TestRetrievalAndGenerationFlow:
         cited case is covered in tests/test_prompt_contracts.py.
         """
         sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'}]
-        async def retrieve(*_args): return ('[1] Evidence', sources, 0.9), None
+        async def retrieve(*_args, **_kwargs): return ('[1] Evidence', sources, 0.9), None
         async def generate(*_args): return SimpleNamespace(content='I cannot verify that from the evidence.'), None
         monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
         monkeypatch.setattr(chat, '_invoke_generation', generate)
@@ -287,7 +287,7 @@ class TestRetrievalAndGenerationFlow:
         captured = {}
         monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: references)
 
-        async def retrieve(question, _department, paper_id, is_overview, _category=None):
+        async def retrieve(question, _department, paper_id, is_overview, _category=None, per_paper_cap=None):
             captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
             return ('[1] Second thesis evidence', [{
                 'citation_id': 1, 'id': 'p2', 'chunk_id': 1, 'title': 'Second Thesis',
@@ -316,7 +316,7 @@ class TestRetrievalAndGenerationFlow:
         captured = {}
         monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: references)
 
-        async def retrieve(question, _department, paper_id, is_overview, _category=None):
+        async def retrieve(question, _department, paper_id, is_overview, _category=None, per_paper_cap=None):
             captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
             return ('[1] First objective\n[2] Second objective', [
                 {'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'First Thesis'},
@@ -349,7 +349,7 @@ class TestRetrievalAndGenerationFlow:
         ]
         monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: references)
 
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('[1] First evidence\n[2] Second evidence', [
                 {'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'First Thesis'},
                 {'citation_id': 2, 'id': 'p2', 'chunk_id': 2, 'title': 'Second Thesis'},
@@ -385,7 +385,7 @@ class TestRetrievalAndGenerationFlow:
         }])
         captured = {}
 
-        async def retrieve(question, _department, paper_id, is_overview, _category=None):
+        async def retrieve(question, _department, paper_id, is_overview, _category=None, per_paper_cap=None):
             captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
             return ('[1] YOLOv11 evidence', [{
                 'citation_id': 1, 'id': 'p2', 'chunk_id': 2, 'title': title,
@@ -423,7 +423,7 @@ class TestRetrievalAndGenerationFlow:
         }])
         monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: references)
 
-        async def retrieve(_question, _department, paper_id, is_overview, _category=None):
+        async def retrieve(_question, _department, paper_id, is_overview, _category=None, per_paper_cap=None):
             captured.update(paper_id=paper_id, is_overview=is_overview)
             return ('[1] Second thesis evidence', [{
                 'citation_id': 1, 'id': 'p2', 'chunk_id': 1, 'title': 'Second Thesis',
@@ -458,7 +458,7 @@ class TestRetrievalAndGenerationFlow:
 
         monkeypatch.setattr(chat, 'find_papers_by_ids', find_references)
 
-        async def retrieve(_question, _department, paper_id, is_overview, _category=None):
+        async def retrieve(_question, _department, paper_id, is_overview, _category=None, per_paper_cap=None):
             captured.update(paper_id=paper_id, is_overview=is_overview)
             return ('[1] Latest thesis evidence', [{
                 'citation_id': 1, 'id': 'p2', 'chunk_id': 1, 'title': 'Latest Thesis',
@@ -613,7 +613,7 @@ class TestReportedTranscriptRegressions:
         monkeypatch.setattr(chat, 'find_papers_by_author', lambda *_args: [])
         captured = {}
 
-        async def retrieve(question, _department, paper_id, is_overview, _category=None):
+        async def retrieve(question, _department, paper_id, is_overview, _category=None, per_paper_cap=None):
             captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
             return ('[1] Centralized library evidence', [{
                 'citation_id': 1, 'id': 'p1', 'chunk_id': 3, 'title': self.NAMED,
@@ -657,7 +657,7 @@ class TestReportedTranscriptRegressions:
         monkeypatch.setattr(chat, 'find_papers_by_author', lambda *_args: [])
         captured = {}
 
-        async def retrieve(question, _department, paper_id, is_overview, _category=None):
+        async def retrieve(question, _department, paper_id, is_overview, _category=None, per_paper_cap=None):
             captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
             return ('[1] evidence', [{
                 'citation_id': 1, 'id': 'p2', 'chunk_id': 4, 'title': self.REMEMBERED,
@@ -690,7 +690,7 @@ class TestReportedTranscriptRegressions:
         monkeypatch.setattr(chat, 'find_papers_by_title', lambda *_args: [])
         monkeypatch.setattr(chat, 'find_papers_by_title_fragment', unavailable)
 
-        async def retrieve(_question, _department, paper_id, _is_overview, _category=None):
+        async def retrieve(_question, _department, paper_id, _is_overview, _category=None, per_paper_cap=None):
             assert paper_id is None
             return ('[1] evidence', [{
                 'citation_id': 1, 'id': 'p9', 'chunk_id': 5, 'title': 'Some thesis',
@@ -708,7 +708,7 @@ class TestReportedTranscriptRegressions:
         assert response.sources[0]['id'] == 'p9'
 
     def test_self_directed_provenance_never_searches_the_archive(self, monkeypatch):
-        async def should_not_retrieve(*_args):
+        async def should_not_retrieve(*_args, **_kwargs):
             raise AssertionError('provenance questions must not run vector retrieval')
 
         monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
@@ -721,7 +721,7 @@ class TestReportedTranscriptRegressions:
         assert response.no_relevant_thesis is False
 
     def test_this_system_is_provenance_only_when_nothing_else_can_be_meant(self, monkeypatch):
-        async def should_not_retrieve(*_args):
+        async def should_not_retrieve(*_args, **_kwargs):
             raise AssertionError('provenance questions must not run vector retrieval')
 
         monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [])
@@ -738,7 +738,7 @@ class TestReportedTranscriptRegressions:
         ])
         captured = {}
 
-        async def retrieve(_question, _department, paper_id, _is_overview, _category=None):
+        async def retrieve(_question, _department, paper_id, _is_overview, _category=None, per_paper_cap=None):
             captured.update(paper_id=paper_id)
             return ('[1] evidence', [{
                 'citation_id': 1, 'id': 'p2', 'chunk_id': 6, 'title': self.REMEMBERED,
@@ -762,3 +762,154 @@ class TestReportedTranscriptRegressions:
         # "this system" resolved to the manuscript under discussion, which is
         # what the provenance intercept must never take away.
         assert captured['paper_id'] == 'p2'
+
+
+class TestTheResponseCarriesItsKindLive:
+    """The `kind` field on ChatResponse (stamped by `_chat_impl`).
+
+    Before it, a live capacity apology or refusal was visually identical to a
+    research answer: `chat_messages.kind` classified the row only at persist
+    time, so the distinction appeared after a reload and never for guests.
+    The stamp uses the same classifier persistence uses, so the live field and
+    the stored column can never disagree.
+    """
+
+    def test_a_grounded_answer_is_stamped_as_an_answer(self, monkeypatch):
+        sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'}]
+        async def retrieve(*_args, **_kwargs): return ('[1] Evidence', sources, 0.9), None
+        async def generate(*_args): return SimpleNamespace(content='The study used RAG [1].'), None
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(question='What method did the study use?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.kind == 'answer'
+
+    def test_fast_path_notices_are_stamped_as_notices(self):
+        # The model-identity reply is deliberately absent: it is a dynamic
+        # string, not a notice constant, so persistence stores it as an
+        # answer, and the live stamp must agree with persistence exactly.
+        for question in ('Hello', 'Write my entire thesis methodology chapter'):
+            response = run(chat._chat_impl(
+                ChatRequest(question=question),
+                _NoRequest(), BackgroundTasks(), None,
+            ))
+            assert response.kind == 'notice', question
+
+    def test_an_empty_retrieval_is_stamped_as_a_notice(self, monkeypatch):
+        async def retrieve(*_args, **_kwargs): return ('', [], 0.0), None
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='What methods were used?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.no_relevant_thesis is True
+        assert response.kind == 'notice'
+
+    def test_the_stamp_matches_what_persistence_would_store(self, monkeypatch):
+        from services import chat_notices
+        sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'}]
+        async def retrieve(*_args, **_kwargs): return ('[1] Evidence', sources, 0.9), None
+        async def generate(*_args): return SimpleNamespace(content='Grounded [1].'), None
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(question='What method did the study use?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.kind == chat_notices.response_kind(response)
+
+    def test_the_model_defaults_to_answer_for_old_payloads(self):
+        assert ChatResponse(answer='x').kind == 'answer'
+
+
+class TestQuestionTypeReachesRetrievalAndPrompt:
+    """An aggregate question samples distinct theses and gets its TASK block."""
+
+    def test_aggregate_question_caps_one_chunk_per_paper(self, monkeypatch):
+        captured = {}
+
+        async def retrieve(question, department, referenced, is_overview,
+                           category=None, per_paper_cap=None):
+            captured['per_paper_cap'] = per_paper_cap
+            sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'}]
+            return ('[1] Evidence', sources, 0.9), None
+
+        async def generate(prompt_template, *_args):
+            captured['system'] = prompt_template.messages[0].prompt.template
+            return SimpleNamespace(content='Of the retrieved studies, one uses CNN [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        run(chat._chat_impl(
+            ChatRequest(question='Which technique is most commonly used in the theses?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert captured['per_paper_cap'] == 1
+        from services import prompts
+        assert prompts.QUESTION_TYPE_TASKS['aggregate'] in captured['system']
+
+    def test_a_plain_question_keeps_the_untyped_pipeline(self, monkeypatch):
+        captured = {}
+
+        async def retrieve(question, department, referenced, is_overview,
+                           category=None, per_paper_cap=None):
+            captured['per_paper_cap'] = per_paper_cap
+            sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'}]
+            return ('[1] Evidence', sources, 0.9), None
+
+        async def generate(prompt_template, *_args):
+            captured['system'] = prompt_template.messages[0].prompt.template
+            return SimpleNamespace(content='The study used RAG [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        run(chat._chat_impl(
+            ChatRequest(question='Tell me about thesis research on flood prediction.'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert captured['per_paper_cap'] is None
+        assert 'TASK:' not in captured['system']
+
+
+class TestCapabilityAndCourtesyFastPaths:
+    """Both answer deterministically: no retrieval, no generation, kind='notice'."""
+
+    def test_capability_question_answers_without_rag(self, monkeypatch):
+        from services import chat_notices
+        async def should_not_retrieve(*_args, **_kwargs):
+            raise AssertionError('capability questions must not run vector retrieval')
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='What can you do?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.answer == chat_notices.CAPABILITIES_MESSAGE
+        assert response.sources == []
+        assert response.kind == 'notice'
+
+    def test_courtesy_message_answers_without_rag(self, monkeypatch):
+        from services import chat_notices
+        async def should_not_retrieve(*_args, **_kwargs):
+            raise AssertionError('a thank-you must not run vector retrieval')
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='Thank you!'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.answer == chat_notices.COURTESY_MESSAGE
+        assert response.sources == []
+        assert response.kind == 'notice'
+
+    def test_a_research_question_mentioning_help_still_retrieves(self, monkeypatch):
+        called = {}
+        async def retrieve(*_args, **_kwargs):
+            called['yes'] = True
+            return ('', [], 0.0), None
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        run(chat._chat_impl(
+            ChatRequest(question='help me find theses about OCR accuracy'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert called.get('yes') is True

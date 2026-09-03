@@ -124,7 +124,12 @@ class TestChunkRetrieval:
         client = _RetrieverClient()
         monkeypatch.setattr(retriever, 'sb', client)
         context, sources, top = retriever.search_chunks('query', 'CCSICT', [0.1] * 768)
-        assert client.rpc_args['match_count'] == retriever.settings.retrieval_match_count
+        # The RPC fetches the candidate pool; the final context still holds
+        # exactly retrieval_match_count blocks (selection happens in Python).
+        assert client.rpc_args['match_count'] == max(
+            retriever.settings.retrieval_candidate_pool,
+            retriever.settings.retrieval_match_count,
+        )
         assert client.rpc_args['match_threshold'] == retriever.settings.retrieval_threshold
         assert client.rpc_args['p_department'] == 'CCSICT'
         assert client.rpc_args['p_embedding_model'] == retriever.settings.gemini_embed_model
@@ -445,3 +450,142 @@ class TestTitleFragmentReference:
         retriever.find_papers_by_title_fragment('the A centralized ai powered', 'CCSICT')
         assert ('ingestion_status', 'ready') in query.equalities
         assert ('department', 'CCSICT') in query.equalities
+
+
+class TestHybridRerank:
+    """The candidate-pool rerank: cosine-dominant, lexically informed."""
+
+    @staticmethod
+    def _chunk(chunk_id, similarity, content='', section=''):
+        return {
+            'id': chunk_id, 'paper_id': f'p{chunk_id}', 'chunk_index': 1,
+            'content': content, 'similarity': similarity,
+            'page_start': 1, 'page_end': 1, 'section': section,
+        }
+
+    def test_matching_terms_lift_a_marginally_lower_cosine(self):
+        # 0.75*0.86 = 0.645 beats 0.75*0.88 + 0 = 0.66? No: 0.645 < 0.66,
+        # so the lexical term must contribute: full lexical weight 0.25
+        # lifts the on-topic chunk to 0.895, past the off-topic 0.66.
+        on_topic = self._chunk(1, 0.86, content='attendance monitoring attendance system')
+        off_topic = self._chunk(2, 0.88, content='rice disease classification imagery')
+        ranked = retriever.rerank_candidates([off_topic, on_topic], 'attendance monitoring')
+        assert [c['id'] for c in ranked] == [1, 2]
+
+    def test_section_title_matches_weigh_triple(self):
+        method_section = self._chunk(1, 0.80, content='the study design', section='Methodology')
+        plain = self._chunk(2, 0.80, content='the study design', section='Results')
+        ranked = retriever.rerank_candidates([plain, method_section], 'what methodology was used')
+        assert [c['id'] for c in ranked] == [1, 2]
+
+    def test_no_query_terms_falls_back_to_pure_cosine(self):
+        # Every token is a stopword or too short, so the blend cannot run.
+        lower = self._chunk(1, 0.70, content='anything at all')
+        higher = self._chunk(2, 0.90, content='nothing relevant')
+        ranked = retriever.rerank_candidates([lower, higher], 'who is it by')
+        assert [c['id'] for c in ranked] == [2, 1]
+
+    def test_ties_break_by_cosine_then_chunk_id_deterministically(self):
+        a = self._chunk(3, 0.80)
+        b = self._chunk(1, 0.80)
+        c = self._chunk(2, 0.85)
+        first = retriever.rerank_candidates([a, b, c], 'unmatched terms here')
+        second = retriever.rerank_candidates([b, c, a], 'unmatched terms here')
+        assert [x['id'] for x in first] == [x['id'] for x in second] == [2, 1, 3]
+
+    def test_a_repeated_word_saturates_instead_of_dominating(self):
+        # 40 repetitions of one query term saturate at 4; two hits each on
+        # three query terms score 6 and win despite equal cosine.
+        stuffed = self._chunk(1, 0.60, content='attendance ' * 40)
+        varied = self._chunk(
+            2, 0.60,
+            content='biometric attendance monitoring with biometric capture '
+                    'of attendance during monitoring')
+        ranked = retriever.rerank_candidates(
+            [stuffed, varied], 'biometric attendance monitoring')
+        assert ranked[0]['id'] == 2
+
+
+class TestPaperDiversityCap:
+    """Per-paper cap with backfill; rank order survives selection."""
+
+    @staticmethod
+    def _chunk(chunk_id, paper_id):
+        return {'id': chunk_id, 'paper_id': paper_id}
+
+    def test_the_cap_binds_when_another_paper_qualifies(self):
+        ranked = [self._chunk(1, 'a'), self._chunk(2, 'a'), self._chunk(3, 'a'),
+                  self._chunk(4, 'a'), self._chunk(5, 'b'), self._chunk(6, 'c')]
+        selected = retriever.apply_paper_diversity(ranked, 5, 3)
+        assert [c['id'] for c in selected] == [1, 2, 3, 5, 6]
+
+    def test_a_single_paper_archive_backfills_to_the_full_context(self):
+        ranked = [self._chunk(i, 'only') for i in range(1, 7)]
+        selected = retriever.apply_paper_diversity(ranked, 5, 3)
+        assert [c['id'] for c in selected] == [1, 2, 3, 4, 5]
+
+    def test_backfilled_chunks_return_in_rank_order(self):
+        # Chunk 2 is over-cap at first pass and backfilled; it must still sit
+        # at its rank position so citation [2] means rank 2.
+        ranked = [self._chunk(1, 'a'), self._chunk(2, 'a'), self._chunk(3, 'b')]
+        selected = retriever.apply_paper_diversity(ranked, 3, 1)
+        assert [c['id'] for c in selected] == [1, 2, 3]
+
+    def test_cap_one_samples_distinct_papers(self):
+        ranked = [self._chunk(1, 'a'), self._chunk(2, 'a'), self._chunk(3, 'b'),
+                  self._chunk(4, 'b'), self._chunk(5, 'c'), self._chunk(6, 'd'),
+                  self._chunk(7, 'e'), self._chunk(8, 'f')]
+        selected = retriever.apply_paper_diversity(ranked, 5, 1)
+        assert [c['paper_id'] for c in selected] == ['a', 'b', 'c', 'd', 'e']
+
+    def test_search_chunks_keeps_exactly_match_count_blocks(self, monkeypatch):
+        pool = [
+            {'id': i, 'paper_id': f'p{(i % 3) + 1}', 'chunk_index': i,
+             'content': f'evidence {i}', 'similarity': 0.9 - i * 0.01,
+             'page_start': i, 'page_end': i, 'section': 'Results'}
+            for i in range(1, 13)
+        ]
+        papers = [
+            {'id': f'p{n}', 'title': f'Thesis {n}', 'authors': 'Author',
+             'year': 2026, 'track': 'Data Mining', 'department': 'CCSICT'}
+            for n in (1, 2, 3)
+        ]
+
+        class _PoolClient(_RetrieverClient):
+            def table(self, name):
+                assert name == 'papers'
+                return _Query(papers)
+
+        client = _PoolClient(chunks=pool)
+        monkeypatch.setattr(retriever, 'sb', client)
+        context, sources, top = retriever.search_chunks('evidence query', 'CCSICT', [0.1] * 768)
+        assert len(sources) == retriever.settings.retrieval_match_count
+        assert [s['citation_id'] for s in sources] == [1, 2, 3, 4, 5]
+        assert context.count('] Title:') == retriever.settings.retrieval_match_count
+        # Best cosine over the whole pool, whatever selection kept.
+        assert abs(top - 0.89) < 1e-12
+
+    def test_per_paper_cap_override_reaches_selection(self, monkeypatch):
+        pool = [
+            {'id': i, 'paper_id': 'p1' if i <= 4 else f'p{i}', 'chunk_index': i,
+             'content': 'evidence', 'similarity': 0.9 - i * 0.01,
+             'page_start': i, 'page_end': i, 'section': 'Results'}
+            for i in range(1, 10)
+        ]
+        papers = [{'id': c['paper_id'], 'title': f"T{c['paper_id']}", 'authors': 'A',
+                   'year': 2026, 'track': 'Data Mining', 'department': 'CCSICT'}
+                  for c in pool]
+
+        class _PoolClient(_RetrieverClient):
+            def table(self, name):
+                assert name == 'papers'
+                return _Query(papers)
+
+        monkeypatch.setattr(retriever, 'sb', _PoolClient(chunks=pool))
+        _, sources, _ = retriever.search_chunks(
+            'evidence query', 'CCSICT', [0.1] * 768, per_paper_cap=1)
+        paper_ids = [s['id'] for s in sources]
+        # One chunk from p1, then the distinct papers; never two from p1
+        # while other papers qualify.
+        assert paper_ids.count('p1') == 1
+        assert len(paper_ids) == retriever.settings.retrieval_match_count

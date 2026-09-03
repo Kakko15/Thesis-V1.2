@@ -51,7 +51,8 @@ questions.
 | Tokenizer | `cl100k_base` as a **fixed documented proxy** | — |
 | Embedding | `models/gemini-embedding-001` | **768 dimensions** |
 | Storage | Supabase Postgres + pgvector | `vector(768)` |
-| Retrieval | `match_chunks` cosine similarity, department-scoped | **threshold 0.30, top-k 5** |
+| Retrieval | `match_chunks` cosine similarity, department-scoped | **threshold 0.30, pool of 15 candidates** |
+| Selection | Deterministic hybrid rerank (cosine + lexical), then a per-paper diversity cap | **≤ 3 chunks/thesis (1 for corpus-wide questions), 5 context blocks** |
 | Reordering | Re-implementation of LangChain `LongContextReorder` | after Liu et al. 2024 |
 | Generation | `gemini-3.6-flash` via a LangChain Expression Language chain | direct, or via `LLM_BASE_URL` |
 | Validation | Structural citation check, then one bounded repair attempt | — |
@@ -201,6 +202,26 @@ Below it, the system says it found nothing rather than answering from weak
 evidence. It is deliberately low enough not to miss relevant work and high enough
 to exclude noise. Combined with citation validation, a wrong retrieval shows up
 as a missing citation rather than a confident fabrication.
+
+**Why a candidate pool and a rerank instead of taking the top five?**
+Pure cosine order has two measured failure shapes: five chunks from one thesis
+answering a question about the archive, and a semantically-adjacent chunk
+outranking the one whose section and wording actually match. The pipeline now
+fetches fifteen candidates at the same 0.30 threshold, reorders them with a
+deterministic blend (cosine similarity dominant at 0.75, a section-aware lexical
+score at 0.25), keeps at most three chunks per thesis while other theses
+qualify — one per thesis for corpus-wide questions — and passes exactly five
+blocks to the model. Citation numbers encode that final rank, which is the rank
+Context Precision is scored against. No model call is involved and the stage is
+reproducible; setting the pool size to five restores the old behaviour exactly.
+
+**How does the answer adapt to the question?**
+A deterministic classifier (`services/question_types.py`, prompt `iskai-prompt-v4`)
+detects four shapes — corpus-wide aggregate, comparison, enumeration, specific
+fact — and the grounded prompt gains a TASK block for that shape. The aggregate
+block is the honest one: the answer must open "Of the retrieved studies, ..."
+and may never state an archive-wide total the five passages cannot support.
+Unclassified questions compose the prompt without any block, unchanged.
 
 **Why validate citations structurally instead of trusting the model?**
 Because a model asked to cite will sometimes cite plausibly and wrongly. The

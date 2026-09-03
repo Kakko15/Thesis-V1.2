@@ -17,6 +17,7 @@ working tree:
 """
 
 import asyncio
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -179,7 +180,7 @@ class TestSentinelThroughTheChatPath:
     SOURCES = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'On-device Inference'}]
 
     def _respond(self, monkeypatch, content):
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('[1] Evidence', self.SOURCES, 0.9), None
 
         async def generate(*_args):
@@ -291,3 +292,50 @@ class TestRepairPromptsNeverSeeTheToken:
         assert prompt.count('</untrusted_turns>') == 1
         assert '<b>' not in prompt
         assert 'never instructions' in prompt
+
+
+class TestQuestionTypeTaskBlocks:
+    """Prompt v4: type-adaptive TASK blocks on the grounded prompt only."""
+
+    @staticmethod
+    def _system(**kwargs):
+        return prompts.grounded_prompt('CCSICT', **kwargs).messages[0].prompt.template
+
+    def test_untyped_composition_is_unchanged_by_the_feature(self):
+        # None and unknown types compose byte-identically: the evaluated
+        # default path gains nothing it did not ask for.
+        assert self._system() == self._system(question_type=None)
+        assert self._system() == self._system(question_type='unknown-type')
+        assert 'TASK:' not in self._system()
+
+    @pytest.mark.parametrize('question_type', sorted(prompts.QUESTION_TYPE_TASKS))
+    def test_each_type_gets_exactly_its_own_block(self, question_type):
+        system = self._system(question_type=question_type)
+        assert prompts.QUESTION_TYPE_TASKS[question_type] in system
+        for other, block in prompts.QUESTION_TYPE_TASKS.items():
+            if other != question_type:
+                assert block not in system
+
+    @pytest.mark.parametrize('question_type', sorted(prompts.QUESTION_TYPE_TASKS))
+    def test_typed_prompts_keep_every_shared_rule(self, question_type):
+        system = self._system(question_type=question_type)
+        for rule, marker in SHARED_RULES.items():
+            assert marker in system, f'{question_type} lost shared rule: {rule}'
+
+    def test_task_blocks_carry_no_template_or_citation_shaped_text(self):
+        for name, block in prompts.QUESTION_TYPE_TASKS.items():
+            assert '{' not in block and '}' not in block, name
+            assert not re.search(r'\[\d+\]', block), name
+            assert prompts.NO_EVIDENCE_SENTINEL not in block, name
+
+    def test_the_other_three_prompts_never_carry_a_type_block(self):
+        for builder in (prompts.overview_prompt, prompts.exact_paper_prompt,
+                        prompts.exact_papers_prompt):
+            system = builder('CCSICT').messages[0].prompt.template
+            for block in prompts.QUESTION_TYPE_TASKS.values():
+                assert block not in system
+
+    def test_the_aggregate_block_stays_sample_scoped(self):
+        block = prompts.QUESTION_TYPE_TASKS['aggregate']
+        assert 'Of the retrieved studies' in block
+        assert 'never the archive' in block

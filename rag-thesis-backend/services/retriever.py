@@ -635,23 +635,124 @@ def get_paper_overview_context(
     return '\n\n'.join(context_parts), sources, 1.0
 
 
+# Blend weights for the candidate rerank. Cosine similarity stays dominant --
+# it is the signal the 0.30 threshold and the paper's pipeline description are
+# defined on -- and the lexical term is a tiebreaker-plus: strong enough to
+# lift a chunk whose section and wording actually match the question over a
+# semantically-adjacent one, never enough to promote a chunk cosine ranked far
+# below it. The lexical score is normalized to the pool's own maximum, so the
+# second term contributes at most 0.25 regardless of question length.
+_RERANK_SIMILARITY_WEIGHT = 0.75
+_RERANK_LEXICAL_WEIGHT = 0.25
+
+
+def _lexical_evidence_score(chunk: dict, query_terms: list[str]) -> int:
+    """The exact-paper path's section-aware signal, generalized cross-paper.
+
+    Same caps as rank_paper_chunks: content hits saturate at 4 per term so one
+    repeated word cannot dominate, and a section-title hit is worth triple
+    because a question that names a section almost always wants that section.
+    """
+    location = chunk_location(chunk)
+    content_terms = _search_terms(chunk.get('content', ''))
+    section_terms = _search_terms(location.get('section') or '')
+    unique_terms = set(query_terms)
+    return (
+        sum(min(content_terms.count(term), 4) for term in unique_terms)
+        + 3 * sum(min(section_terms.count(term), 2) for term in unique_terms)
+    )
+
+
+def rerank_candidates(chunks: list[dict], question: str) -> list[dict]:
+    """Order a candidate pool by blended cosine + lexical evidence.
+
+    Deterministic: ties break by cosine similarity, then chunk id, via the
+    stable pre-sort. With no usable query terms (an all-stopword question) or a
+    single candidate the pool is returned in pure cosine order, which is also
+    the exact legacy behavior.
+    """
+    by_similarity = sorted(
+        chunks,
+        key=lambda c: (-(c.get('similarity') or 0.0), c.get('id') or 0),
+    )
+    query_terms = _search_terms(question)
+    if not query_terms or len(chunks) <= 1:
+        return by_similarity
+    lexical = {
+        id(chunk): _lexical_evidence_score(chunk, query_terms) for chunk in by_similarity
+    }
+    max_lexical = max(lexical.values()) or 1
+
+    def blended(chunk: dict) -> float:
+        return (
+            _RERANK_SIMILARITY_WEIGHT * (chunk.get('similarity') or 0.0)
+            + _RERANK_LEXICAL_WEIGHT * (lexical[id(chunk)] / max_lexical)
+        )
+
+    return sorted(by_similarity, key=lambda chunk: -blended(chunk))
+
+
+def apply_paper_diversity(
+    ranked: list[dict], final_count: int, per_paper_cap: int,
+) -> list[dict]:
+    """Select `final_count` chunks, capping chunks per paper while others qualify.
+
+    Two properties hold: the context is never shorter than the archive can make
+    it (over-cap chunks backfill when too few papers qualify), and the returned
+    list is re-sorted into the incoming rank order, so citation numbers assigned
+    afterwards still encode the rank the rerank asserted -- a backfilled rank-2
+    chunk cites as [2], not as whatever position the backfill placed it in.
+    """
+    selected: list[dict] = []
+    deferred: list[dict] = []
+    per_paper: dict = {}
+    for chunk in ranked:
+        paper_id = chunk.get('paper_id')
+        if len(selected) < final_count and per_paper.get(paper_id, 0) < per_paper_cap:
+            selected.append(chunk)
+            per_paper[paper_id] = per_paper.get(paper_id, 0) + 1
+        else:
+            deferred.append(chunk)
+    for chunk in deferred:
+        if len(selected) >= final_count:
+            break
+        selected.append(chunk)
+    rank_order = {id(chunk): index for index, chunk in enumerate(ranked)}
+    selected.sort(key=lambda chunk: rank_order[id(chunk)])
+    return selected
+
+
 def search_chunks(
     question: str,
     department_filter: str | None = None,
     query_embedding: list[float] | None = None,
     thesis_category: str | None = None,
+    per_paper_cap: int | None = None,
 ):
-    """Return (context, sources, top_similarity) for a natural-language query."""
+    """Return (context, sources, top_similarity) for a natural-language query.
+
+    Selection happens in two stages. The RPC fetches a candidate pool
+    (`retrieval_candidate_pool`) at the frozen 0.30 threshold; a deterministic
+    hybrid rerank plus a per-paper cap then choose exactly
+    `retrieval_match_count` chunks for the context. Citation numbers are
+    assigned to that final selection in rank order BEFORE LongContextReorder,
+    so sorted marker order == the post-rerank quality rank the system asserts
+    -- the invariant `run_comparison._ranked_contexts` and Context Precision
+    are defined on. `per_paper_cap` overrides the configured cap (the
+    aggregate-question path passes 1 to sample distinct theses).
+    """
     q_embedding = query_embedding if query_embedding is not None else embed_text(question)
+    final_count = settings.retrieval_match_count
+    pool_size = max(settings.retrieval_candidate_pool, final_count)
     rpc_params = {
         'query_embedding': q_embedding,
-        'match_count': settings.retrieval_match_count,
+        'match_count': pool_size,
         'match_threshold': settings.retrieval_threshold,
         'p_department': department_filter,
         **retrieval_provenance_params(),
     }
     # Omit the key entirely when no category scope was requested, so the
-    # unfiltered call stays identical to the frozen evaluated pipeline.
+    # unfiltered call stays identical to the evaluated pipeline.
     if thesis_category:
         rpc_params['p_thesis_category'] = thesis_category
     result = retry_transient(
@@ -659,12 +760,26 @@ def search_chunks(
         label='Supabase chunk retrieval',
         logger=logger,
     )
-    chunks = result.data or []
-    if not chunks:
+    pool = result.data or []
+    if not pool:
         return '', [], 0.0
 
+    # The best cosine seen for the query, over the whole pool: the honest
+    # "how close did the archive get" trace value whatever selection keeps.
+    top_similarity = max(c.get('similarity', 0.0) for c in pool)
+
+    if pool_size == final_count:
+        # Rollback lever: a pool no larger than the final context disables the
+        # selection stage and reproduces the pure cosine-order pipeline.
+        chunks = sorted(pool, key=lambda item: item.get('similarity', 0.0), reverse=True)
+    else:
+        ranked_pool = rerank_candidates(pool, question)
+        effective_cap = per_paper_cap if per_paper_cap is not None else settings.retrieval_per_paper_cap
+        chunks = apply_paper_diversity(ranked_pool, final_count, effective_cap)
+
     # Legacy indexes store page/section locations in JSON metadata because
-    # the page-aware columns may not exist yet.
+    # the page-aware columns may not exist yet. Looked up for the final
+    # selection only, so the pool does not triple the round-trip size.
     if any(not chunk.get('page_start') and not chunk.get('section') for chunk in chunks):
         chunk_ids = [chunk['id'] for chunk in chunks if chunk.get('id') is not None]
         metadata_rows = retry_transient(
@@ -678,9 +793,7 @@ def search_chunks(
             for chunk in chunks
         ]
 
-    top_similarity = max(c.get('similarity', 0.0) for c in chunks)
-
-    # Fetch paper metadata for the retrieved chunks
+    # Fetch paper metadata for the selected chunks only.
     paper_ids = list({c['paper_id'] for c in chunks})
     try:
         papers_res = retry_transient(
@@ -709,9 +822,11 @@ def search_chunks(
     _add_academic_labels(papers)
     paper_lookup = {p['id']: p for p in papers}
 
-    # Rank individual evidence chunks, assign stable citations, then reorder.
-    ranked = sorted(chunks, key=lambda item: item.get('similarity', 0.0), reverse=True)
-    cited_chunks = [{**chunk, 'citation_id': index + 1} for index, chunk in enumerate(ranked)]
+    # `chunks` is already in quality-rank order (blended rank from the
+    # selection stage, or pure cosine on the rollback path). Citation numbers
+    # are assigned in that order BEFORE LongContextReorder, so sorted marker
+    # order always recovers the asserted rank.
+    cited_chunks = [{**chunk, 'citation_id': index + 1} for index, chunk in enumerate(chunks)]
     reordered = long_context_reorder(cited_chunks)
 
     context_parts: list[str] = []

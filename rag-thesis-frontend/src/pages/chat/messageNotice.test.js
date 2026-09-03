@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   messageNoticeLabel,
   NO_EVIDENCE_LABEL,
@@ -41,4 +42,24 @@ test('missing or partial messages do not throw', () => {
   assert.equal(messageNoticeLabel(undefined), null)
   assert.equal(messageNoticeLabel(null), null)
   assert.equal(messageNoticeLabel({}), null)
+})
+
+test('the live append carries the API kind under messageKind', () => {
+  /* Chat.jsx spreads the response and then overwrites `kind` with the local
+   * 'user' | 'ai' role, so the API's answer/notice classification only reaches
+   * messageNoticeLabel if it is copied under messageKind — the same name the
+   * loadSession restore path uses. Without it, a live capacity apology or
+   * refusal renders exactly like a research answer until the page reloads. */
+  const chat = readFileSync(new URL('../Chat.jsx', import.meta.url), 'utf8')
+  assert.match(
+    chat, /\.\.\.res, kind: 'ai', messageKind: res\.kind/,
+    'Chat.jsx no longer carries the live response kind under messageKind',
+  )
+})
+
+test('a live notice response labels as a system message', () => {
+  assert.equal(
+    messageNoticeLabel({ messageKind: 'notice', no_relevant_thesis: false }),
+    SYSTEM_NOTICE_LABEL,
+  )
 })
