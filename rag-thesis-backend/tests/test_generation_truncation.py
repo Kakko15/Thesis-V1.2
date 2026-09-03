@@ -45,7 +45,7 @@ def reply(content: str, reason: str | None):
 
 @pytest.fixture
 def retrieval(monkeypatch):
-    async def retrieve(*_args):
+    async def retrieve(*_args, **_kwargs):
         return ('[1] Evidence one\n[2] Evidence two', SOURCES, 0.9), None
     monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
 

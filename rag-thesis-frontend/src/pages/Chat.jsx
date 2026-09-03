@@ -814,8 +814,11 @@ export default function Chat() {
       // `kind` is this list's own 'user' | 'ai' role and must outlive the spread.
       // The API has its own `kind` concept now (chat_messages.kind, B14), so a
       // response field of that name would otherwise overwrite the role and
-      // break every render that branches on it.
-      setMessages((m) => [...m, { id: nextMessageId(), ...res, kind: 'ai', isNew: true }])
+      // break every render that branches on it. The API's classification is
+      // carried under `messageKind` instead — the same name the loadSession
+      // path uses — so a live capacity apology or refusal gets the system
+      // notice chip immediately, not only after a reload.
+      setMessages((m) => [...m, { id: nextMessageId(), ...res, kind: 'ai', messageKind: res.kind, isNew: true }])
       if (user && res.history_saved === false) {
         toast.warning('Answer received, but chat history was not saved', {
           description: 'Copy anything important and try again after the archive connection recovers.',

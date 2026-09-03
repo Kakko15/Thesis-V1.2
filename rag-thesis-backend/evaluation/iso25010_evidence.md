@@ -6,6 +6,62 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## RAG accuracy and prompt-adaptivity pass - 2026-09-04, uncommitted on top of `c2deb06`
+
+Owner-approved improvement pass, applied BEFORE the formal Objective 2 run (the golden
+dataset is still placeholder, so no formal result is invalidated; the improved pipeline is
+the system the formal run will evaluate). Four changes, all deterministic, no new model
+calls:
+
+1. **Two-stage retrieval selection.** `match_chunks` now fetches a candidate pool
+   (`retrieval_candidate_pool = 15`, same 0.30 threshold), a deterministic hybrid rerank
+   orders it (cosine x 0.75 + pool-normalized section-aware lexical score x 0.25, the
+   exact-paper path's signal generalized), at most `retrieval_per_paper_cap = 3` chunks
+   per thesis survive while other theses qualify, and exactly `retrieval_match_count = 5`
+   blocks reach the prompt. Setting the pool to 5 reproduces the old pipeline byte for
+   byte. **Rank-invariant redefinition recorded here for Context Precision:** citation
+   marker order now encodes the post-rerank, diversity-selected quality rank (previously:
+   pure cosine rank). `run_comparison._ranked_contexts` is unchanged and correct either
+   way, since it recovers whatever rank the citation numbers assert.
+2. **Question-type classifier** (`services/question_types.py`) + prompt
+   `iskai-prompt-v4`: aggregate / comparison / enumeration / factual questions gain a
+   TASK block on the grounded prompt; aggregates also retrieve with a per-paper cap of 1
+   so a corpus-wide question samples five distinct theses. Unclassified questions compose
+   the prompt unchanged. This addresses the audit finding that golden items 3/11/18/37
+   were structurally unanswerable.
+3. **`ChatResponse.kind`** (`answer` | `notice`), stamped by `_chat_impl` with the same
+   classifier persistence uses, so live capacity/refusal notices are distinguishable in
+   the UI and the harness reads the field instead of re-classifying.
+4. **Capabilities and courtesy fast paths** (`CAPABILITIES_MESSAGE`, `COURTESY_MESSAGE`),
+   both notices, both answered without retrieval or generation.
+
+Release fingerprint `schema_version` 3 -> 4: `rag_contract` gains both selection
+parameters, and `services/retriever.py` + `services/question_types.py` are now hashed
+into `input_sha256` (previously unhashed - a change to selection was invisible to the
+manifest). The OpenAPI contract (`docs/evidence/contracts/iskai-openapi.current.json`)
+was regenerated for the additive `kind` field.
+
+| Criterion | Instrument | Observed result | Status |
+|---|---|---|---|
+| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 1,035 passed and 3 opt-in external integration tests skipped; 91.82% coverage (4,374 statements, 358 missed) | Passed |
+| Backend maintainability | Pylint on the nine changed/new modules | 10.00/10 | Passed |
+| Frontend unit tests | Node test runner | 132 passed (two new: live `messageKind` mapping) | Passed |
+| Frontend maintainability | ESLint 9.39.5 | 0 errors, 1 warning (the pre-existing `Archive.jsx` complexity advisory) | Passed |
+| Harness contract smoke | `evaluation/run_comparison.py --skip-ragas --allow-unvalidated --fresh` on `dev_smoke_dataset.json`, direct Google route (`LLM_BASE_URL` empty, `APP_ENVIRONMENT=development`) | 3/3 attempted, 0 unattempted; artifact `evaluation/results/comparison_20260903_200643.json` records `schema_version: 4`, `prompt_version: iskai-prompt-v4`, both new `rag_contract` fields, `gateway_enabled: false`; grounded rows `rag_kind: answer` with 5 in-range citations; the inventory fast path answered the archive-listing item deterministically in 0.29 s | Passed |
+| Documentation parity | `tests/test_readme_accuracy.py` after the README/walkthrough updates | 32 passed | Passed |
+
+New/updated pinned suites: `tests/test_question_types.py` (new, 31 cases),
+`TestHybridRerank` + `TestPaperDiversityCap` in `tests/test_retriever.py`,
+`TestQuestionTypeTaskBlocks` in `tests/test_prompt_contracts.py` (SHARED_RULES parity
+matrix passes unchanged for every typed prompt), `TestTheResponseCarriesItsKindLive` and
+`TestCapabilityAndCourtesyFastPaths` in `tests/test_chat_endpoint_flows.py`. The
+per-paper duplication RPC pattern is untouched, per the standing audit warning.
+
+Manuscript deltas deferred to a paper Pass 10 (not yet applied): Section 3.2.3 pipeline
+description (top-5-by-cosine -> pool 15 / rerank / <=3 per thesis / 5 blocks), prompt
+version mentions, and the aggregate-question sample-scoped behaviour where limitations
+are discussed.
+
 ## Current local revalidation - 2026-09-03, `9cb3659`
 
 Measured on Windows 11 against commit `9cb3659` with a clean working tree, after the

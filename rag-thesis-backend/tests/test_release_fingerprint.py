@@ -24,6 +24,8 @@ def test_release_manifest_captures_exact_models_index_and_locks():
         'chunk_overlap_tokens': settings.chunk_overlap_tokens,
         'retrieval_threshold': settings.retrieval_threshold,
         'retrieval_match_count': settings.retrieval_match_count,
+        'retrieval_candidate_pool': settings.retrieval_candidate_pool,
+        'retrieval_per_paper_cap': settings.retrieval_per_paper_cap,
         'duplication_threshold': settings.duplication_threshold,
         'evaluation_department': settings.thesis_evaluation_department,
     }
@@ -55,7 +57,7 @@ def test_the_manifest_records_which_provider_served_generation(monkeypatch):
     # Adding a field changed the artifact's shape, so the version has to move
     # with it; a reader comparing two manifests must be able to tell which
     # schema each one was written under.
-    assert routed['schema_version'] == 3
+    assert routed['schema_version'] == 4
 
 
 def test_the_manifest_records_the_bounds_that_decide_a_severed_reply(monkeypatch):

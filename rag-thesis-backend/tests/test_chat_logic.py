@@ -54,7 +54,23 @@ class TestConversationFastPath:
         assert _is_simple_conversation('hello dear')
         assert _is_simple_conversation('Hey, IskAI!')
         assert _is_simple_conversation('hello.. who are you?')
-        assert _is_simple_conversation('What can you do?')
+        # "What can you do?" moved to the capabilities fast path: the greeting
+        # says who IskAI is, not what to ask it.
+        assert not _is_simple_conversation('What can you do?')
+
+    def test_capability_and_courtesy_questions_are_local(self):
+        from routers.chat import _is_capability_question, _is_courtesy_message
+        assert _is_capability_question('What can you do?')
+        assert _is_capability_question('how does this work')
+        assert _is_capability_question('hello what can you help me with')
+        assert _is_capability_question('Help')
+        assert not _is_capability_question('How does the attendance system work?')
+        assert not _is_capability_question('help me find theses about OCR')
+        assert _is_courtesy_message('Thank you!')
+        assert _is_courtesy_message('ok thanks')
+        assert _is_courtesy_message('Goodbye')
+        assert not _is_courtesy_message('thanks for the summary of the attendance thesis')
+        assert not _is_courtesy_message('thank the authors in my acknowledgements')
 
     def test_research_question_still_uses_rag(self):
         assert not _is_simple_conversation('Hello, what theses used machine learning?')

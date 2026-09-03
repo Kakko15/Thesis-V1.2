@@ -275,6 +275,15 @@
             "title": "History Saved",
             "type": "boolean"
           },
+          "kind": {
+            "default": "answer",
+            "enum": [
+              "answer",
+              "notice"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "no_relevant_thesis": {
             "default": false,
             "title": "No Relevant Thesis",

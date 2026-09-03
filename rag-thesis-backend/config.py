@@ -77,6 +77,16 @@ class Settings(BaseSettings):
     retrieval_match_count: int = Field(default=5, ge=1, le=20)
     duplication_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     thesis_evaluation_department: str = Field(default='CCSICT', min_length=1)
+    # Candidate-selection stage in front of the frozen constants above: the RPC
+    # fetches a pool of candidates (same 0.30 threshold), a deterministic
+    # hybrid rerank orders them, at most `retrieval_per_paper_cap` chunks per
+    # thesis are kept while other theses qualify, and exactly
+    # `retrieval_match_count` context blocks reach the prompt. Setting the pool
+    # to `retrieval_match_count` disables the stage and reproduces the pure
+    # cosine-order pipeline byte for byte. The pool ceiling of 20 stays well
+    # inside the hnsw.ef_search = 100 candidate window set by match_chunks.
+    retrieval_candidate_pool: int = Field(default=15, ge=5, le=20)
+    retrieval_per_paper_cap: int = Field(default=3, ge=1, le=5)
 
     # --- Production hardening ---
     app_environment: Literal['development', 'test', 'production'] = 'development'

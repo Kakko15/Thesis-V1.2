@@ -1,4 +1,4 @@
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -55,6 +55,11 @@ class ChatResponse(BaseModel):
     # Set only when this response was read from the current ready-paper index.
     # Historical chat rows intentionally remain snapshots of their original run.
     archive_current: bool = False
+    # Same vocabulary as chat_messages.kind (chat_notices.KIND_ANSWER/KIND_NOTICE),
+    # stamped by _chat_impl so a live capacity apology or refusal is
+    # distinguishable from a research answer without waiting for a reload.
+    # Plain literals rather than an import: models stays free of service code.
+    kind: Literal['answer', 'notice'] = 'answer'
 
 
 class MetadataExtractionResponse(BaseModel):

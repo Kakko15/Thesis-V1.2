@@ -259,13 +259,14 @@ def _build_row(q, baseline, rag, attempts: int, unattempted: bool) -> dict:
         'rag_top_similarity': round(trace.get('top_similarity', 0.0), 4),
         'rag_end_to_end_latency_s': round(rag_latency, 3),
         'attempts': attempts,
-        # 'answer' or 'notice', classified from the response object the way
-        # production classifies it before persisting, rather than re-matching
-        # the text afterwards. A no-evidence result, a guard refusal and the
-        # grounded fallback are all correct system behaviour and are scored,
-        # but they are not research answers, so the diagnostics report them
-        # apart from answers instead of pooling the two.
-        'rag_kind': chat_notices.response_kind(rag_response),
+        # 'answer' or 'notice', read from the field _chat_impl stamps with
+        # production's own classifier before persisting, rather than
+        # re-matching the text afterwards. A no-evidence result, a guard
+        # refusal and the grounded fallback are all correct system behaviour
+        # and are scored, but they are not research answers, so the
+        # diagnostics report them apart from answers instead of pooling the
+        # two. The re-classification fallback keeps old checkpoints readable.
+        'rag_kind': getattr(rag_response, 'kind', None) or chat_notices.response_kind(rag_response),
         # True only when the provider never processed the question. Such a row
         # is excluded from the paired statistics rather than scored, because
         # scoring an outage notice against the ground truth would report the

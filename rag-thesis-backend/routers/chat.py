@@ -48,6 +48,7 @@ from services.guards import (
 )
 from services.llm_output import TruncatedGeneration, coerce_text, is_truncated
 from services.observability import safe_trace
+from services.question_types import AGGREGATE, classify_question
 from services.rate_limiting import ip_rate_limit_key, limiter
 from services.retriever import (
     _author_name_matches,
@@ -85,7 +86,23 @@ _GREETINGS = {
 }
 _IDENTITY_QUESTIONS = {
     'who are you', 'what are you', 'who is iskai', 'what is iskai',
-    'tell me about yourself', 'what can you do',
+    'tell me about yourself',
+}
+# Capability questions get their own answer: the greeting says who IskAI is,
+# not what to ask it. Exact normalized phrases only, like the sets above, so
+# the guard matrix and real research questions can never be intercepted.
+_CAPABILITY_QUESTIONS = {
+    'what can you do', 'what do you do', 'what can you help me with',
+    'what can you help with', 'how do i use this', 'how do you work',
+    'how does this work', 'what should i ask', 'what should i ask you', 'help',
+}
+# Thanks and goodbyes. Without this set they run semantic retrieval and
+# usually earn "No relevant thesis was found" as a reply to "thank you".
+_COURTESY = {
+    'thanks', 'thank you', 'thank you so much', 'thanks a lot', 'thank you very much',
+    'many thanks', 'ty', 'ok thanks', 'okay thanks', 'ok thank you', 'okay thank you',
+    'got it thanks', 'bye', 'goodbye', 'good bye', 'see you', 'thats all',
+    'that is all', 'thats all for now',
 }
 _MODEL_QUESTIONS = {
     'what model are you', 'which model are you', 'what ai model are you',
@@ -159,6 +176,26 @@ def _is_simple_conversation(question: str) -> bool:
             remainder = normalized[len(greeting) + 1:]
             return remainder in _IDENTITY_QUESTIONS or remainder in _GREETING_ADDRESSEES
     return False
+
+
+def _is_capability_question(question: str) -> bool:
+    """Exact-phrase capability/help questions, with an optional greeting prefix."""
+    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
+    if len(normalized) > 80:
+        return False
+    if normalized in _CAPABILITY_QUESTIONS:
+        return True
+    for greeting in _GREETINGS:
+        if normalized.startswith(f'{greeting} '):
+            return normalized[len(greeting) + 1:] in _CAPABILITY_QUESTIONS
+    return False
+
+
+def _is_courtesy_message(question: str) -> bool:
+    """Exact-phrase thanks/goodbyes. Length-capped so 'thanks for the summary
+    of the attendance thesis, now compare it with...' stays a research turn."""
+    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
+    return len(normalized) <= 40 and normalized in _COURTESY
 
 
 def _is_model_question(question: str) -> bool:
@@ -773,6 +810,7 @@ async def _retrieve_evidence(
     referenced_paper_id: str | list[str] | None,
     is_overview_followup: bool,
     thesis_category: str | None = None,
+    per_paper_cap: int | None = None,
 ):
     """Run the current-evidence retrieval path under one traceable boundary."""
     if isinstance(referenced_paper_id, list):
@@ -836,7 +874,10 @@ async def _retrieve_evidence(
             )
 
     result, alert = await asyncio.gather(
-        asyncio.to_thread(search_chunks, question, department, query_embedding, thesis_category),
+        asyncio.to_thread(
+            search_chunks, question, department, query_embedding, thesis_category,
+            per_paper_cap,
+        ),
         check_duplication(),
     )
     return result, alert
@@ -921,6 +962,28 @@ async def _chat_impl(
     user,
     evaluation_trace: dict | None = None,
     resolved_department: str | None = None,
+) -> ChatResponse:
+    """Run the chat pipeline and stamp `ChatResponse.kind` on the way out.
+
+    The pipeline body has ~12 return statements; classifying here once means
+    every one of them, the route wrapper, and the evaluation harness (which
+    calls this function directly) all see the same classification the
+    persistence layer stores in `chat_messages.kind`.
+    """
+    response = await _chat_impl_unstamped(
+        req, request, background_tasks, user, evaluation_trace, resolved_department,
+    )
+    response.kind = chat_notices.response_kind(response)
+    return response
+
+
+async def _chat_impl_unstamped(
+    req: ChatRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user,
+    evaluation_trace: dict | None = None,
+    resolved_department: str | None = None,
 ):  # pylint: disable=too-many-return-statements
     # `resolve_effective_department` reads `profiles`, and for a superadmin also
     # validates the request against `departments`. The route wrapper needs the
@@ -951,6 +1014,34 @@ async def _chat_impl(
         })
         return ChatResponse(
             answer=_model_response(),
+            sources=[],
+            session_id=req.session_id,
+        )
+
+    # Capability questions come before the greeting check: "what can you do"
+    # deserves the answer to that question, not an introduction.
+    if _is_capability_question(req.question):
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': 0,
+            'duplication_flagged': False,
+            'fast_path': 'capabilities',
+        })
+        return ChatResponse(
+            answer=chat_notices.CAPABILITIES_MESSAGE,
+            sources=[],
+            session_id=req.session_id,
+        )
+
+    if _is_courtesy_message(req.question):
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': 0,
+            'duplication_flagged': False,
+            'fast_path': 'courtesy',
+        })
+        return ChatResponse(
+            answer=chat_notices.COURTESY_MESSAGE,
             sources=[],
             session_id=req.session_id,
         )
@@ -1238,6 +1329,12 @@ async def _chat_impl(
         if author_response:
             return author_response
 
+    # Question shape, classified on the resolved wording (a rewritten
+    # follow-up is the question retrieval actually answers). Aggregates sample
+    # at most one chunk per thesis so a corpus-wide question sees distinct
+    # studies instead of five chunks from whichever thesis ranked first.
+    question_type = classify_question(effective_question)
+
     # 1. Retrieval phase (cosine similarity within the enforced department)
     try:
         async with safe_trace('rag.retrieval', metadata={
@@ -1245,6 +1342,7 @@ async def _chat_impl(
             'question_length': len(effective_question),
             'exact_paper': bool(referenced_paper_id),
             'embedding_model': settings.gemini_embed_model,
+            'question_type': question_type,
         }) as retrieval_run:
             retrieval_result, alert_data = await _retrieve_evidence(
                 effective_question,
@@ -1252,6 +1350,7 @@ async def _chat_impl(
                 referenced_paper_id,
                 is_overview_followup,
                 req.thesis_category_filter,
+                per_paper_cap=1 if question_type == AGGREGATE else None,
             )
         context, sources, _top_similarity = retrieval_result
         if evaluation_trace is not None:
@@ -1327,7 +1426,7 @@ async def _chat_impl(
         elif referenced_paper_id:
             prompt_template = get_exact_paper_prompt(effective_department)
         else:
-            prompt_template = get_rag_prompt(effective_department)
+            prompt_template = get_rag_prompt(effective_department, question_type)
         generation_input = (
             {'context': context, 'question': effective_question}
             if referenced_paper_id
@@ -1342,6 +1441,7 @@ async def _chat_impl(
             'department': effective_department,
             'source_count': len(sources),
             'model': settings.gemini_chat_model,
+            'question_type': question_type,
         }) as generation_run:
             result, duplication_summary = await _invoke_generation(
                 prompt_template, generation_input, alert_data,
@@ -1509,6 +1609,7 @@ async def _chat_impl(
         'duplication_flagged': bool(duplication_alert),
         'citation_repaired': citation_repaired,
         'department': effective_department,
+        'question_type': question_type,
     })
 
     return ChatResponse(

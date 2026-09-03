@@ -42,7 +42,9 @@ from langchain_core.prompts import ChatPromptTemplate
 
 # Bumped whenever any wording below changes. Recorded in the release manifest so
 # a prompt change is legible in evidence rather than inferred from a file hash.
-PROMPT_VERSION = 'iskai-prompt-v3'
+# v4: question-type TASK blocks on the grounded prompt (aggregate, comparison,
+# enumeration, factual); contracts unchanged.
+PROMPT_VERSION = 'iskai-prompt-v4'
 
 # Emitted by the model, on its own line, when the retrieved evidence cannot
 # answer the question. Replaces a ~25-phrase English heuristic that also had to
@@ -243,12 +245,60 @@ _HUMAN_EVIDENCE_ONLY = """<retrieved_context>
 {question_label}: {question}"""
 
 
-def grounded_prompt(department: str | None = None) -> ChatPromptTemplate:
-    """The main retrieval prompt: open question against semantic search results."""
+# Task framing per detected question shape, composed into the grounded prompt
+# only. Each block narrows HOW to answer; none of them relaxes a contract, and
+# the classifier's DEFAULT adds no block at all, so an untyped call composes
+# exactly the pre-v4 prompt plus nothing. The aggregate block is the
+# load-bearing one: retrieval samples at most one chunk per thesis for these
+# questions, and the block keeps the answer honest about being a sample.
+# No literal braces anywhere in these blocks (ChatPromptTemplate parsing).
+QUESTION_TYPE_TASKS = {
+    'aggregate': (
+        'TASK: CORPUS-WIDE QUESTION\n'
+        'The question asks about the archive as a whole, but the evidence is only the few '
+        'passages that ranked highest for it - a ranked sample, never the archive.\n'
+        '- Open with the sample-scoped finding: "Of the retrieved studies, ..." - never an '
+        'archive-wide total, percentage or ranking the passages cannot support.\n'
+        '- Count and compare only what the passages show, one marker per counted study.\n'
+        '- Close with one short line noting the answer covers the retrieved studies only, '
+        'and that asking to list the archived theses gives the full inventory.'
+    ),
+    'comparison': (
+        'TASK: COMPARISON\n'
+        'The question asks how studies relate. Name the axis it asks about - method, '
+        'dataset, scope, result - in your first sentence, then give each thesis its own '
+        'bulleted block labelled with its title. End by saying plainly where the evidence '
+        'covers one side and not the other.'
+    ),
+    'enumeration': (
+        'TASK: ENUMERATION\n'
+        'The question asks for a list. Answer as a bulleted list, one item per thesis, '
+        'each item carrying its marker. If the evidence may not cover everything that '
+        'qualifies, say so in one closing line rather than presenting the list as complete.'
+    ),
+    'factual': (
+        'TASK: SPECIFIC FACT\n'
+        'The question asks for a specific value, name or date. Lead with exactly that in '
+        'your first sentence, with its marker. Two to four sentences total; do not survey '
+        'the archive around it.'
+    ),
+}
+
+
+def grounded_prompt(
+    department: str | None = None, question_type: str | None = None,
+) -> ChatPromptTemplate:
+    """The main retrieval prompt: open question against semantic search results.
+
+    `question_type` selects an optional TASK block from QUESTION_TYPE_TASKS;
+    None or an unknown type composes the prompt without one, byte-identical to
+    the untyped form.
+    """
     system = _compose(
         identity(department),
         'Greetings and chatbot-identity questions are handled before this prompt, so treat '
         'this as a research request. Do not introduce yourself and do not return a greeting.',
+        QUESTION_TYPE_TASKS.get(question_type or '') or '',
         EVIDENCE_CONTRACT,
         CITATION_CONTRACT,
         SYNTHESIS_CONTRACT,

@@ -73,6 +73,27 @@ SYSTEM_ORIGIN_MESSAGE = (
     'the manuscript says about it.'
 )
 
+# The capabilities reply ("what can you do", "how do I use this"). Previously
+# these questions fell into the greeting, which says who IskAI is but not what
+# to ask it. A system message about the system, so it lives beside the
+# classifier like the others and is never replayed as model context.
+CAPABILITIES_MESSAGE = (
+    'I can help you research the archived CCSICT theses. Ask me to: find studies by '
+    'topic, title, author, year, or category; summarize one thesis; compare two or more '
+    'theses; list or count what the archive holds; or check how close a proposed topic '
+    'sits to existing work. Every factual answer cites the archived passages it came '
+    'from. I answer only from the indexed archive, and I do not write thesis chapters, '
+    'literature reviews, or other academic content.'
+)
+
+# The courtesy reply (thanks / goodbye). Without it, "thank you" runs semantic
+# retrieval and usually returns "No relevant thesis was found" -- a correct
+# pipeline output and a terrible goodbye.
+COURTESY_MESSAGE = (
+    "You're welcome! Ask me anytime about archived thesis topics, methods, "
+    'findings, or authors.'
+)
+
 # Opening of the grounded retrieval fallback, which reports that no direct
 # answer could be verified and then points at the closest archived studies. It
 # carries citations, so it is deliberately NOT flagged `no_relevant_thesis`:
@@ -91,6 +112,8 @@ NOTICE_MARKERS = (
     NO_RELEVANT_PREFIX,
     CONVERSATION_MESSAGE,
     SYSTEM_ORIGIN_MESSAGE,
+    CAPABILITIES_MESSAGE,
+    COURTESY_MESSAGE,
     GROUNDED_FALLBACK_PREFIX,
 )
 
@@ -159,7 +182,7 @@ def response_kind(response) -> str:
     answer = getattr(response, 'answer', '') or ''
     if answer in (
         CAPACITY_MESSAGE, REFUSAL_MESSAGE, GUEST_BUDGET_MESSAGE, CONVERSATION_MESSAGE,
-        SYSTEM_ORIGIN_MESSAGE,
+        SYSTEM_ORIGIN_MESSAGE, CAPABILITIES_MESSAGE, COURTESY_MESSAGE,
     ):
         return KIND_NOTICE
     if answer.startswith((NO_RELEVANT_PREFIX, GROUNDED_FALLBACK_PREFIX)):

@@ -226,7 +226,7 @@ class TestChatImplBranches:
             raise RuntimeError('archive down')
         monkeypatch.setattr(chat, 'find_papers_by_ids', broken_lookup)
 
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('', [], 0.0), None
         response = _impl(
             'What theses discuss networks?', monkeypatch, retrieve=retrieve,
@@ -248,21 +248,21 @@ class TestChatImplBranches:
         assert 'could not verify Ana Cruz' in response.answer
 
     def test_retrieval_capacity_error_starts_cooldown(self, monkeypatch):
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             raise RuntimeError('429 quota exceeded')
         response = _impl('What methods were used?', monkeypatch, retrieve=retrieve)
         assert 'usage limit' in response.answer.lower()
         assert chat._capacity_limit_is_active() is True
 
     def test_retrieval_generic_error_is_503(self, monkeypatch):
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             raise RuntimeError('database exploded')
         with pytest.raises(HTTPException) as caught:
             _impl('What methods were used?', monkeypatch, retrieve=retrieve)
         assert caught.value.status_code == 503
 
     def test_generation_capacity_error_starts_cooldown(self, monkeypatch):
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('[1] Evidence', [{'citation_id': 1, 'id': 'p1'}], 0.9), None
 
         async def generate(*_args):
@@ -271,7 +271,7 @@ class TestChatImplBranches:
         assert 'usage limit' in response.answer.lower()
 
     def test_generation_generic_error_is_502(self, monkeypatch):
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('[1] Evidence', [{'citation_id': 1, 'id': 'p1'}], 0.9), None
 
         async def generate(*_args):
@@ -283,7 +283,7 @@ class TestChatImplBranches:
     def test_misdirected_greeting_never_reaches_the_user(self, monkeypatch):
         sources = [{'citation_id': 1, 'id': 'p1', 'title': 'Alpha Study'}]
 
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('[1] Evidence', sources, 0.9), None
 
         async def generate(*_args):
@@ -309,7 +309,7 @@ class TestChatImplBranches:
     def test_repair_ladder_accepts_ai_repaired_answer(self, monkeypatch):
         sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'Alpha'}]
 
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('[1] Evidence', sources, 0.9), None
 
         async def generate(*_args):
@@ -324,7 +324,7 @@ class TestChatImplBranches:
     def test_repair_ladder_uses_deterministic_coverage_when_ai_repair_fails(self, monkeypatch):
         sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'Alpha'}]
 
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('[1] Evidence', sources, 0.9), None
 
         async def generate(*_args):
@@ -340,7 +340,7 @@ class TestChatImplBranches:
     def test_repair_ladder_falls_back_when_everything_fails(self, monkeypatch):
         sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'Alpha'}]
 
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('[1] Evidence', sources, 0.9), None
 
         async def generate(*_args):
@@ -356,7 +356,7 @@ class TestChatImplBranches:
     def test_repair_ladder_survives_repair_exceptions(self, monkeypatch):
         sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'Alpha'}]
 
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('[1] Evidence', sources, 0.9), None
 
         async def generate(*_args):
@@ -374,7 +374,7 @@ class TestChatImplBranches:
         monkeypatch.setattr(chat, 'is_ambiguous_followup', lambda *_: True)
         captured = {}
 
-        async def retrieve(question, _dept, referenced_paper_id, is_overview, _category=None):
+        async def retrieve(question, _dept, referenced_paper_id, is_overview, _category=None, per_paper_cap=None):
             captured['question'] = question
             captured['paper_id'] = referenced_paper_id
             captured['overview'] = is_overview
@@ -426,7 +426,7 @@ class TestChatImplBranches:
         ])
         seen_history = {}
 
-        async def retrieve(*_args):
+        async def retrieve(*_args, **_kwargs):
             return ('', [], 0.0), None
         response = _impl(
             'What theses discuss robotics?', monkeypatch, retrieve=retrieve,

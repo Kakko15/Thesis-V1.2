@@ -59,12 +59,24 @@ def build_manifest() -> dict:
         # Hashing only chat.py would have silently stopped covering them at
         # exactly the point where the paper claims the configuration is frozen.
         ROOT / 'rag-thesis-backend' / 'services' / 'prompts.py',
+        # Retrieval selection (candidate pool, rerank, diversity cap) and the
+        # question-type classifier decide what evidence reaches the prompt and
+        # which task block frames it. Unhashed, a change to either would be
+        # invisible to the manifest the paper's reproducibility claim rests on.
+        ROOT / 'rag-thesis-backend' / 'services' / 'retriever.py',
+        ROOT / 'rag-thesis-backend' / 'services' / 'question_types.py',
         ROOT / 'rag-thesis-frontend' / 'package-lock.json',
         ROOT / 'rag-thesis-backend' / 'Dockerfile',
         ROOT / 'rag-thesis-frontend' / 'Dockerfile',
         ROOT / 'docker-compose.operations.yml',
     ]
     return {
+        # 4 adds the retrieval selection stage (candidate pool, hybrid rerank,
+        # per-paper cap) to `rag_contract`, and hashes services/retriever.py
+        # and services/question_types.py: selection now decides which chunks
+        # reach the prompt, so two runs differing only in it are not the same
+        # retrieval configuration and must not fingerprint alike.
+        #
         # 3 adds the gateway's own reasoning and output bounds to
         # `generation_route`. They decide whether a reply on that route is
         # complete or severed, so two runs differing only in them are not the
@@ -76,7 +88,7 @@ def build_manifest() -> dict:
         # environment with an empty default, so routing every chat, extract and
         # verdict call through a third-party gateway left this manifest
         # byte-identical to a direct-to-Google run.
-        'schema_version': 3,
+        'schema_version': 4,
         'git_commit': git_commit(),
         'runtime': {'python': platform.python_version(), 'python_implementation': platform.python_implementation()},
         'models': {
@@ -117,6 +129,8 @@ def build_manifest() -> dict:
             'chunk_overlap_tokens': settings.chunk_overlap_tokens,
             'retrieval_threshold': settings.retrieval_threshold,
             'retrieval_match_count': settings.retrieval_match_count,
+            'retrieval_candidate_pool': settings.retrieval_candidate_pool,
+            'retrieval_per_paper_cap': settings.retrieval_per_paper_cap,
             'duplication_threshold': settings.duplication_threshold,
             'evaluation_department': settings.thesis_evaluation_department,
         },
