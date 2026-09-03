@@ -108,19 +108,21 @@ page and the methodological framing in 2.1.8, both correct as written.
 1. ~~**Figure 1 must be redrawn.**~~ **Closed 2026-08-30 (Pass 5 below).** Figure 1 is
    now generated and applied by the build, exactly like Figure 8.
 
-2. **Figures 3, 4 and 5 carry internal titles** reading "Figure 1.1", "Figure 1.2" and
-   "Figure 1.3" while the paper captions them Figure 3, 4 and 5. Cosmetic.
+2. ~~**Figures 3, 4 and 5 carry internal titles.**~~ **Closed 2026-09-03 (Pass 9 below).**
+   True of the image files, not of the document: a Word crop removes the title band from
+   all three, in the original and in the corrected file alike. Nothing to change.
 3. **`pgvector v0.7.0`** in Table 3 is unverified - Supabase-managed and not recorded in
    the repository. Confirm in the dashboard.
-4. **Row order in Table 2.** `Python v3.14.7` was appended and sits after `python-dotenv`.
-   One drag in Word.
+4. ~~**Row order in Table 2.**~~ **Closed 2026-09-03 (Pass 9 below).** The build moves the
+   row above `FastAPI` itself, so a rebuild cannot put it back at the bottom.
 5. **Chapter 4 does not exist yet**, so the reporting-discipline revision applies when you
    write it.
 
 Not verifiable from the repository, left as written: the Gemini API no-training
 deployment terms (2.1.6) and the per-thesis size estimates (3.1.3).
 
-**The file has not been opened in Word.** Verification here is structural.
+Verification in this section is structural. From Pass 4 onwards the DOCX is opened in Word
+on every rebuild to export the PDF, and the Pass 9 export raised no repair prompt.
 
 ## Pass 4 - Figure 8 replaced, 2026-08-30
 
@@ -260,3 +262,117 @@ PDF was re-exported with Word 2024 and is now 62 pages (the longer Table 2 and T
 cells push one page); PyMuPDF extracts 86,389 characters, containing the Pass 8 wording
 and none of the superseded strings (`text-embedding-004`, `gemini-1.5-flash`,
 `memory leaks`, `metadata-extraction work`, `token and secret handling`).
+
+## Pass 9 - layout, table completeness and reference accuracy, 2026-09-03
+
+Everything the fidelity audit still listed under manuscript notes, except the two items
+that cannot be settled from the repository: the deployed pgvector version, and Chapter 4,
+which is not written yet.
+
+### P9-1 Chapter and reference headings anchored to a page
+
+The manuscript separated chapters with runs of empty paragraphs, which hold only while
+nothing above them moves. Eight passes of added rows and prose had moved all three:
+
+| Heading | Before Pass 9 | After |
+|---|---|---|
+| Chapter 2 | page 12, starting 61% down a two-thirds blank page | page 12, at the top |
+| Chapter 3 | page 30, below the tail of Chapter 2 | page 29, at the top |
+| References | page 57, below Figure 8 | page 57, at the top |
+
+Each heading now carries a `pageBreakBefore` property, and the 24 spacer paragraphs that
+were doing that job by hand (18 before Chapter 2, 4 before Chapter 3, 2 before References)
+are deleted. Chapter 1 already sat at the top of page 2 and is anchored the same way, so
+a later correction cannot push it off. The deletion is guarded: the build refuses to run
+if it finds anything other than blank paragraphs in the span it is about to remove.
+
+The PDF is **61 pages**, one shorter than Pass 8.
+
+### P9-2 Figures 2 and 7 fitted to the text column
+
+Both were still at their original size on a page whose text is 6.27 in wide:
+
+| Figure | Was | Now |
+|---|---|---|
+| Figure 2 (2.1.2, LLM errors) | 7.58 x 4.77 in | 6.27 x 3.95 in |
+| Figure 7 (3.2.2, iterative model) | 7.73 x 3.89 in, aspect 1.99 against the image's native 2.14 | 6.27 x 2.93 in, native aspect restored |
+
+Fitting them surfaced a second fault that Passes 4 and 5 had left behind. These drawings
+are floating anchors, and each carried an absolute horizontal offset - between -0.57 and
+-0.76 in - tuned to make an over-wide picture look centred by pulling it out past the left
+margin. Resizing alone leaves that offset in place, so **Figures 1 and 8 had been hanging
+into the left margin ever since they were replaced.** All four offsets are now reset to
+zero by the build. Measured in the exported PDF, all eight figures span x = 72.0 to
+523.3 pt, exactly the text column, matching the four figures that were never resized.
+
+### P9-3 Table 2 row order
+
+`Python v3.14.7` was appended at the bottom, below `python-dotenv`. The build now moves the
+row above `FastAPI` rather than relying on a drag in Word, so a rebuild cannot undo it.
+Rows are matched on the exact text of their first cell, so `Python` cannot be confused with
+`python-dotenv` or `python-multipart`.
+
+### P9-4 Table 5's Gap column explained
+
+The third column was headed "Gap" and filled with "Feasible", with nothing saying what was
+being assessed. Section 3.1.2 now states it: a component marked Feasible is already
+available on the development workstation, so nothing has to be procured before
+implementation begins.
+
+### P9-5 Table 1 gains the authentication client
+
+Table 1 listed Framer Motion but not `@supabase/supabase-js` (v2.110.8), which carries the
+whole authentication flow - `supabase.auth` in `AuthContext.jsx`, `api.js`,
+`MfaEnrollDialog.jsx`, `useMfaStatus.js` and the password-reset pages.
+
+### P9-6 Table 4 gains the security scanners
+
+Section 3.2.5 promises "vulnerability counts identified through security scanning" while
+Table 4 named no scanner at all. Four rows added, each of which runs on every push in
+`.github/workflows/quality.yml`: Trivy (`trivy-action v0.36.0`), Gitleaks
+(`gitleaks-action v2`), pip-audit (installed at run time, so no version is pinned) and
+`npm audit` (bundled with Node.js v24.18.0).
+
+### P9-7 to P9-11 The reference list
+
+Five entries abbreviated their author lists with "et al.", which APA 7 allows in an in-text
+citation and not in the reference list. Every author list below comes from the source
+itself - the publisher's deposited record, the arXiv listing, or the article PDF - never
+from a lookup of the citation. **Two of the five carried more than a style error.**
+
+- **P9-7 Bevara** - seven authors (Bevara, Lund, Mannuru, Karedla, Mohammed, Kolapudi,
+  Mannuru), from the Crossref record for `10.5860/ital.v44i2.17361`.
+- **P9-8 Doliente** - five authors (Doliente, Tual, Paglinawan, Naparan, Facunla), read off
+  the article's own title page. Three further corrections came with them: the printed title
+  ends "in the Learning Common", not "commons"; the journal is the *International Journal
+  of Science and **Applied** Information Technology*, which is what the journal's masthead,
+  its Crossref record and the ISSN 2278-3083 register all say - only the running header
+  inside the PDF says "Advanced"; and the page range, 29-37, was missing.
+- **P9-9 Gao** - the entry read "Gao, Y., Xiong, Y., Dibia, V., et al." **There is no author
+  named Dibia on arXiv:2312.10997.** The survey has ten authors, now all listed.
+- **P9-10 Gokdemir** - HiPerRAG has 24 authors, so APA 7 gives the first 19 and the last.
+  Worse, the DOI in the entry, `10.1109/ccgrid64434.2025.00035`, **resolves to a different
+  paper** - "Evaluating Energy Efficiency of AI Accelerators Using Two MLPerf Benchmarks" by
+  Ferdaus and colleagues, at CCGrid. HiPerRAG was published at PASC '25:
+  `10.1145/3732775.3733586`. The venue, the printed DOI and the live hyperlink target in
+  `word/_rels/document.xml.rels` are all corrected; changing the text alone would have left
+  the link still pointing at the wrong paper.
+- **P9-11 Wong** - "Wong, K." is the wrong initial. arXiv:2502.14898 is by Lionel Wong,
+  Ali, Xiong, Shen, Kim and Agrawal. Kept in its preprint form; it has since appeared at
+  ICML 2025, which a later pass could cite instead.
+
+No "et al." remains anywhere in the reference list. Every edit is scoped to the single
+paragraph holding the entry and stays inside one run, so the italic journal titles beside
+them are untouched - verified run by run in the rebuilt DOCX.
+
+### Verified, no change needed: the Figure 3-5 internal titles
+
+Item 2 of "Still open" was wrong about the document, though right about the files.
+`media/image3.png`, `image4.png` and `image5.png` do carry internal titles reading
+"Figure 1.1: Objective 1 - Foundational Architecture", "Figure 1.2: Objective 2 -
+Comparative Performance Analysis" and "Figure 1.3: Objective 3 - System Integration". But
+each of those three drawings carries a Word crop (`srcRect t="12248"`, `t="11777"`,
+`t="12719"`) that removes the top 11.8-12.7% of the image - exactly the title band - in the
+original and in the corrected file alike. Confirmed by extracting the three PNGs and
+rendering only the strip the crop discards. Nothing reaches the page, and nothing was
+changed.
