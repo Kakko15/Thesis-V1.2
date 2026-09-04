@@ -103,7 +103,8 @@ jobs:
       # too rather than passing an unverified tree.
       - name: Audit production dependencies
         run: |
-          for attempt in 1 2 3; do
+          backoff="20 40 60 0"
+          for attempt in 1 2 3 4; do
             if report=$(npm audit --omit=dev --audit-level=high --fetch-timeout=45000 --fetch-retries=1 2>&1); then
               echo "$report"
               exit 0
@@ -113,10 +114,11 @@ jobs:
               echo "::error::High or critical advisories in production dependencies."
               exit 1
             fi
-            echo "npm's advisory endpoint was unreachable (attempt $attempt/3)."
-            if [ "$attempt" -lt 3 ]; then sleep 15; fi
+            echo "npm's advisory endpoint was unreachable (attempt $attempt/4)."
+            wait_for=$(cut -d' ' -f"$attempt" <<<"$backoff")
+            if [ "$wait_for" -gt 0 ]; then sleep "$wait_for"; fi
           done
-          echo "::error::npm audit could not reach the advisory endpoint after 3 attempts."
+          echo "::error::npm audit could not reach the advisory endpoint after 4 attempts."
           exit 1
 
   frontend:
