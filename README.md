@@ -379,7 +379,8 @@ The GitHub Actions workflow `.github/workflows/quality.yml` runs on every push t
 | Job | Steps |
 |---|---|
 | **Backend** | hash-verified install from `requirements.lock`, `pip check`, `pip-audit --no-deps` against the lock, PyTest with `--cov-fail-under=85`, Pylint |
-| **Frontend** | `npm audit --omit=dev`, ESLint, unit tests with coverage thresholds, production build, bundle-size budget, 24 Playwright tests (12 critical flows, the 11-surface axe accessibility matrix, 1 visual-quality matrix) |
+| **Frontend dependency audit** | `npm audit --omit=dev --audit-level=high`, resolved from `package-lock.json` and retried when npm's advisory endpoint is unreachable; a separate job so a registry outage cannot take the build checks down with it |
+| **Frontend** | ESLint, unit tests with coverage thresholds, production build, bundle-size budget, 24 Playwright tests (12 critical flows, the 11-surface axe accessibility matrix, 1 visual-quality matrix) |
 | **Secret scan** | Gitleaks over full history |
 | **Containers** | build and Trivy-scan both images (CRITICAL/HIGH, fixed only), emit an SPDX SBOM per image |
 | **SonarQube** | consumes both coverage artifacts; skipped when `SONAR_TOKEN` is absent |
