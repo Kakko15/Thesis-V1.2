@@ -38,13 +38,42 @@ subprocess.check_call([
 & docker run --rm --entrypoint python -v $mount $BackendImage -c $auditCode
 $pipExit = $LASTEXITCODE
 
+# `npm audit --json` answers a registry failure with a valid JSON body that
+# carries no `metadata` block -- {"message": "request to ... failed", "error":
+# {...}} -- and with the same exit code 1 it uses for real findings. Reading the
+# counts out of that payload gives 0 High and 0 Critical, so an unreachable
+# advisory endpoint was recorded as a PASS on a tree that had never been
+# audited. A response therefore counts only when it actually carries
+# `metadata.vulnerabilities`; anything else is a failed audit, retried up to
+# three times and then reported as a failure. npm's bulk endpoint timed out
+# repeatedly on 2026-09-04, which is how this was found.
+$npmReport = Join-Path $evidenceDir "npm-audit.json"
+$npmStderr = Join-Path $evidenceDir "npm-audit.stderr.txt"
+$npmJson = $null
+$npmExit = $null
+
 Push-Location (Join-Path $repoRoot "rag-thesis-frontend")
 try {
-    $npmStderr = Join-Path $evidenceDir "npm-audit.stderr.txt"
-    $npmOutput = & npm.cmd audit --omit=dev --audit-level=high --json 2> $npmStderr
-    $npmExit = $LASTEXITCODE
-    $npmOutput -join [Environment]::NewLine |
-        Set-Content -Encoding utf8 (Join-Path $evidenceDir "npm-audit.json")
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $npmOutput = & npm.cmd audit --omit=dev --audit-level=high --json `
+            --fetch-timeout=45000 --fetch-retries=1 2> $npmStderr
+        $npmExit = $LASTEXITCODE
+        $npmText = $npmOutput -join [Environment]::NewLine
+        # Retained whatever it is: an error payload is evidence of the failure.
+        $npmText | Set-Content -Encoding utf8 $npmReport
+
+        $parsed = $null
+        if (-not [string]::IsNullOrWhiteSpace($npmText)) {
+            try { $parsed = $npmText | ConvertFrom-Json } catch { $parsed = $null }
+        }
+        if ($null -ne $parsed -and $null -ne $parsed.metadata.vulnerabilities) {
+            $npmJson = $parsed
+            break
+        }
+
+        Write-Warning "npm audit returned no vulnerability report (attempt $attempt/3, exit $npmExit)."
+        if ($attempt -lt 3) { Start-Sleep -Seconds 15 }
+    }
 } finally {
     Pop-Location
 }
@@ -56,12 +85,19 @@ if (-not (Test-Path $pipReport)) {
 }
 
 $pipJson = Get-Content -Raw $pipReport | ConvertFrom-Json
+if ($null -eq $pipJson -or $null -eq $pipJson.dependencies) {
+    throw "pip-audit produced no dependency report (exit $pipExit). The Python environment was NOT audited; see $pipReport."
+}
+
+if ($null -eq $npmJson) {
+    throw "npm audit returned no vulnerability report after 3 attempts (exit $npmExit). The production dependency tree was NOT audited; see $npmReport and $npmStderr."
+}
+
 $pipVulnerabilities = @(
     $pipJson.dependencies |
         ForEach-Object { @($_.vulns) } |
         Where-Object { $_ }
 )
-$npmJson = Get-Content -Raw (Join-Path $evidenceDir "npm-audit.json") | ConvertFrom-Json
 $npmHigh = [int]$npmJson.metadata.vulnerabilities.high
 $npmCritical = [int]$npmJson.metadata.vulnerabilities.critical
 $npmTotalHighCritical = $npmHigh + $npmCritical

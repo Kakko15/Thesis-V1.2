@@ -99,6 +99,18 @@ GHSA-px8p-9vwx-vf98) and zero high or critical, so the tree passes the gate's ow
 only; a genuine high or critical advisory still fails it on the first attempt, and an
 endpoint that stays unreachable fails it too rather than passing an unverified tree.
 
+The same endpoint failure was worse in `scripts/verify-pi03-dependencies.ps1`, and is
+fixed there too. `npm audit --json` answers a registry failure with a valid JSON body that
+carries no `metadata` block and with the same exit code 1 it uses for real findings, so
+`[int]$npmJson.metadata.vulnerabilities.high` evaluated to 0 and the script wrote a **PASS**
+SUMMARY.md reporting "0 High, 0 Critical" for a tree it had never audited. A response now
+counts only when it actually carries `metadata.vulnerabilities`; anything else is retried
+three times and then raises, with the error payload retained as evidence. The pip-audit
+report is validated the same way instead of only being tested for existence. The retained
+artifact from the recorded 2026-07-25 PI-03 run
+(`docs/evidence/security/pi-03-dependencies-20260725-045627/npm-audit.json`) carries
+`auditReportVersion` and populated counts, so that result was a real audit and stands.
+
 Manuscript deltas deferred to a paper Pass 10 (not yet applied): Section 3.2.3 pipeline
 description (top-5-by-cosine -> pool 15 / rerank / <=3 per thesis / 5 blocks), prompt
 version mentions, and the aggregate-question sample-scoped behaviour where limitations
