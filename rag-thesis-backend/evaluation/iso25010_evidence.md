@@ -6,12 +6,12 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
-## RAG accuracy and prompt-adaptivity pass - 2026-09-04, uncommitted on top of `c2deb06`
+## RAG accuracy and prompt-adaptivity pass - 2026-09-04, items 1-4 in `7392544`, items 5-6 on top of it
 
 Owner-approved improvement pass, applied BEFORE the formal Objective 2 run (the golden
 dataset is still placeholder, so no formal result is invalidated; the improved pipeline is
-the system the formal run will evaluate). Four changes, all deterministic, no new model
-calls:
+the system the formal run will evaluate). Six changes, all deterministic, no new model
+calls. The measurement table below reports the whole set as it stands after item 6:
 
 1. **Two-stage retrieval selection.** `match_chunks` now fetches a candidate pool
    (`retrieval_candidate_pool = 15`, same 0.30 threshold), a deterministic hybrid rerank
@@ -34,18 +34,49 @@ calls:
    the UI and the harness reads the field instead of re-classifying.
 4. **Capabilities and courtesy fast paths** (`CAPABILITIES_MESSAGE`, `COURTESY_MESSAGE`),
    both notices, both answered without retrieval or generation.
+5. **Numbered references inside a question** (found in a live transcript the same day,
+   after the pass above landed). After an inventory listing two theses, "what are the
+   objectives of number 2" answered about thesis [1] and read "number 2" as its second
+   objective: the numbered-reference matcher accepted only a bare "number 2", so the
+   question fell to the generic follow-up branch, which pinned the *first* prior source
+   and left the numeral in the wording. `_resolve_inline_thesis_reference` now recognizes
+   "of number N" / "the Nth thesis" inside a longer question, selects the Nth source of
+   the previous answer, and substitutes the thesis title for the reference, so no numeral
+   reaches the model; "objective number 2" and similar in-document positions are excluded.
+   Separately, an ambiguous follow-up after an answer that showed several theses now
+   answers for each of them, labelled, instead of silently choosing the first. Pinned by
+   `TestNumberedReferenceInsideAQuestion` (the transcript reproduced verbatim) and
+   `TestInlineThesisReferences`.
+6. **Conversational turns answer what was asked.** Greetings, identity questions
+   (`IDENTITY_MESSAGE`), thanks (`COURTESY_MESSAGES`) and goodbyes (`FAREWELL_MESSAGES`)
+   are now distinct fast paths instead of one greeting, and each pool cycles through its
+   variants by least-recent use (`varied_message`, deterministic given the replies the
+   browser already shows) so a repeated "thank you" does not return identical copy.
+   `SYSTEM_ORIGIN_MESSAGE` now states the application's own documented provenance rather
+   than declining, which is repository fact and not a retrieval claim. A one-word prompt
+   whose token appears nowhere in the selected evidence is answered with
+   `UNCLEAR_TOPIC_MESSAGE` instead of unrelated studies that an embedding matched by
+   accident (`_is_unsupported_single_token_query`; acronyms under four characters are left
+   to retrieval). All of these carry `kind='notice'`, and the additive `notice_type`
+   presentation hint - derived from the canonical text, so it needs no database column and
+   restored transcripts render consistently - lets the UI show routine conversation without
+   the system-message banner reserved for refusals, outages, and no-evidence results.
+   Authenticated prompt editing (`edit_from_turn`) rebuilds the branch: the old turn and
+   everything after it are discarded only once the replacement answer has completed.
 
 Release fingerprint `schema_version` 3 -> 4: `rag_contract` gains both selection
 parameters, and `services/retriever.py` + `services/question_types.py` are now hashed
 into `input_sha256` (previously unhashed - a change to selection was invisible to the
 manifest). The OpenAPI contract (`docs/evidence/contracts/iskai-openapi.current.json`)
-was regenerated for the additive `kind` field.
+was regenerated for the additive `kind` field, and again for `notice_type`,
+`edit_from_turn`, and `conversation_replies`.
 
 | Criterion | Instrument | Observed result | Status |
 |---|---|---|---|
-| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 1,035 passed and 3 opt-in external integration tests skipped; 91.82% coverage (4,374 statements, 358 missed) | Passed |
-| Backend maintainability | Pylint on the nine changed/new modules | 10.00/10 | Passed |
-| Frontend unit tests | Node test runner | 132 passed (two new: live `messageKind` mapping) | Passed |
+| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 1,061 passed and 3 opt-in external integration tests skipped; 91.92% coverage (4,469 statements, 361 missed) | Passed |
+| Backend maintainability | Pylint, the CI command (`routers services dependencies workers main.py config.py models.py`) | 10.00/10 | Passed |
+| Frontend unit tests | Node test runner | 142 passed | Passed |
+| Frontend critical flows | Playwright (Chromium) | 24 passed; production build and bundle-size budget both clean | Passed |
 | Frontend maintainability | ESLint 9.39.5 | 0 errors, 1 warning (the pre-existing `Archive.jsx` complexity advisory) | Passed |
 | Harness contract smoke | `evaluation/run_comparison.py --skip-ragas --allow-unvalidated --fresh` on `dev_smoke_dataset.json`, direct Google route (`LLM_BASE_URL` empty, `APP_ENVIRONMENT=development`) | 3/3 attempted, 0 unattempted; artifact `evaluation/results/comparison_20260903_200643.json` records `schema_version: 4`, `prompt_version: iskai-prompt-v4`, both new `rag_contract` fields, `gateway_enabled: false`; grounded rows `rag_kind: answer` with 5 in-range citations; the inventory fast path answered the archive-listing item deterministically in 0.29 s | Passed |
 | Documentation parity | `tests/test_readme_accuracy.py` after the README/walkthrough updates | 32 passed | Passed |

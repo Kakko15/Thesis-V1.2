@@ -23,9 +23,9 @@ function useNavItems() {
   return [
     { to: '/dashboard', label: 'Dashboard', shortLabel: 'Home', icon: LayoutDashboard, show: !!user },
     { to: '/chat', label: 'Ask IskAI', shortLabel: 'IskAI', icon: MessageSquareText, show: !user || canChat !== false },
-    { to: '/archive', label: 'Thesis library', shortLabel: 'Library', icon: Library, show: !!user && canArchive !== false },
-    { to: '/novelty', label: 'Novelty review', shortLabel: 'Novelty', icon: ShieldCheck, show: !!user && canScan !== false },
-    { to: '/upload', label: 'Ingest thesis', shortLabel: 'Upload', icon: UploadCloud, show: !!user && canUpload !== false },
+    { to: '/archive', label: 'Thesis Library', shortLabel: 'Library', icon: Library, show: !!user && canArchive !== false },
+    { to: '/novelty', label: 'Novelty Review', shortLabel: 'Novelty', icon: ShieldCheck, show: !!user && canScan !== false },
+    { to: '/upload', label: 'Ingest Thesis', shortLabel: 'Upload', icon: UploadCloud, show: !!user && canUpload !== false },
     { to: '/admin', label: 'Operations', shortLabel: 'Admin', icon: BarChart3, show: isAdmin },
   ].filter((item) => item.show)
 }

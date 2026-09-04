@@ -46,6 +46,11 @@ NOTICE_BACKFILL = (
 # TestTheMigrationMatchesTheApplication would otherwise pass without anyone
 # having decided anything.
 MARKERS_WITHOUT_HISTORICAL_ROWS = frozenset({
+    # These exact texts replace the longer historical greeting. Existing rows
+    # retain the old text already covered by the shipped backfill; no stored row
+    # can contain either new response before this build emits it.
+    chat_notices.CONVERSATION_MESSAGE,
+    chat_notices.IDENTITY_MESSAGE,
     chat_notices.SYSTEM_ORIGIN_MESSAGE,
     # Added 2026-09-04 with their fast paths; no earlier build could emit
     # either text, so there are no rows for a backfill to relabel. (Capability
@@ -54,7 +59,22 @@ MARKERS_WITHOUT_HISTORICAL_ROWS = frozenset({
     # no-relevant notice, covered by the same backfill via its prefix.)
     chat_notices.CAPABILITIES_MESSAGE,
     chat_notices.COURTESY_MESSAGE,
+    chat_notices.FAREWELL_MESSAGE,
+    chat_notices.UNCLEAR_TOPIC_MESSAGE,
+    *chat_notices.CONVERSATION_MESSAGES[1:],
+    *chat_notices.COURTESY_MESSAGES[1:],
+    *chat_notices.FAREWELL_MESSAGES[1:],
 })
+
+
+def test_conversation_variants_exhaust_the_pool_before_repeating():
+    replies = []
+    for _ in chat_notices.FAREWELL_MESSAGES:
+        replies.append(chat_notices.varied_message(chat_notices.FAREWELL_MESSAGES, replies))
+
+    assert tuple(replies) == chat_notices.FAREWELL_MESSAGES
+    assert chat_notices.varied_message(chat_notices.FAREWELL_MESSAGES, replies) == replies[0]
+    assert replies[-1] != replies[0]
 
 
 class TestNoticesAreClassifiedAtTheSource:
@@ -247,6 +267,13 @@ class TestTheTextMatcherSurvivesAsDefenceInDepth:
         assert not chat_notices.SYSTEM_ORIGIN_MESSAGE.startswith(
             chat_notices.CONVERSATION_MESSAGE[:60],
         )
+
+    def test_an_old_saved_greeting_keeps_the_quiet_presentation(self):
+        old_greeting = (
+            "Hello! I'm IskAI, the research assistant for the ISU Thesis AI Library. "
+            'Ask me about archived thesis topics, methodologies, findings, or related literature.'
+        )
+        assert chat_notices.notice_type(old_greeting) == 'conversation'
 
     def test_a_real_answer_is_not_recognized_as_a_notice(self):
         assert not chat_notices.is_stored_non_answer(

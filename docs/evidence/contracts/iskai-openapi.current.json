@@ -179,6 +179,16 @@
       },
       "ChatRequest": {
         "properties": {
+          "conversation_replies": {
+            "items": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Conversation Replies",
+            "type": "array"
+          },
           "department_filter": {
             "anyOf": [
               {
@@ -191,6 +201,18 @@
               }
             ],
             "title": "Department Filter"
+          },
+          "edit_from_turn": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edit From Turn"
           },
           "guest_history": {
             "items": {
@@ -288,6 +310,18 @@
             "default": false,
             "title": "No Relevant Thesis",
             "type": "boolean"
+          },
+          "notice_type": {
+            "anyOf": [
+              {
+                "const": "conversation",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Type"
           },
           "session_id": {
             "anyOf": [

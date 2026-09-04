@@ -7,7 +7,8 @@ import { toast } from 'sonner'
 import {
   Send, Plus, MessageSquareText, Trash2, PencilLine,
   AlertTriangle, BookMarked, History, Info, GraduationCap, Loader2, Square, X,
-  Copy, Check,
+  Copy, Check, RotateCcw, MoreHorizontal, Volume2, VolumeX, FileDown,
+  MessageCircleQuestion, ListTree, BookCopy,
 } from 'lucide-react'
 import {
   chatQuery, getSessions, getSessionMessages, renameSession, deleteSession, apiErrorMessage, getDepartments, getPublicSettings
@@ -15,7 +16,11 @@ import {
 import { SecurityCheck } from '../components/security/SecurityCheck'
 import { useGuestChatGate } from './chat/useGuestChatGate'
 import { messageNoticeLabel } from './chat/messageNotice'
-import { dropPendingPrompt } from './chat/transcript'
+import { branchBeforePrompt, dropPendingPrompt } from './chat/transcript'
+import {
+  copyText, downloadResearchNote, plainResponseText, responseDetails,
+  responseWithSources,
+} from './chat/responseActions'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/ui/Button'
 import { GlassCard } from '../components/ui/GlassCard'
@@ -307,25 +312,27 @@ function MaterialEditIcon({ size = 13 }) {
   )
 }
 
-/** Google/Gemini-style icon action: the label appears as a small dark tooltip
-    pill below the icon on hover (and on keyboard focus), with a short delay. */
-function PromptAction({ label, onClick, children }) {
+/** Google/Gemini-style icon action with an immediate, lightweight tooltip. */
+function PromptAction({ label, onClick, children, disabled = false, hideTooltip = false }) {
   return (
     <span className="group/prompt-action relative">
       <button
         type="button"
         onClick={onClick}
         aria-label={label}
-        className="flex h-7 w-7 items-center justify-center rounded-full text-ink-faint transition hover:bg-forest-900/8 hover:text-forest-700 dark:hover:bg-white/10 dark:hover:text-forest-300"
+        disabled={disabled}
+        className="flex h-7 w-7 items-center justify-center rounded-full text-ink-faint transition hover:bg-forest-900/8 hover:text-forest-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 dark:hover:text-forest-300"
       >
         {children}
       </button>
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute top-full left-1/2 z-20 mt-1 -translate-x-1/2 rounded-lg bg-[#20221f]/95 px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white opacity-0 shadow-lg transition-opacity duration-150 delay-300 group-hover/prompt-action:opacity-100 group-hover/prompt-action:delay-500 group-focus-within/prompt-action:opacity-100"
-      >
-        {label}
-      </span>
+      {!hideTooltip && (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute top-full left-1/2 z-20 mt-1 origin-top -translate-x-1/2 -translate-y-0.5 scale-95 rounded-lg bg-[#20221f] px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white opacity-0 shadow-lg ring-1 ring-black/10 transition-[opacity,transform] duration-100 ease-out group-hover/prompt-action:translate-y-0 group-hover/prompt-action:scale-100 group-hover/prompt-action:opacity-100 group-focus-within/prompt-action:translate-y-0 group-focus-within/prompt-action:scale-100 group-focus-within/prompt-action:opacity-100 dark:bg-[#f4f6f1] dark:text-[#182019] dark:ring-white/15"
+        >
+          {label}
+        </span>
+      )}
     </span>
   )
 }
@@ -434,7 +441,170 @@ function AiAvatar() {
   )
 }
 
-function AiBubble({ message, animate }) {
+function ResponseMenuItem({ icon: Icon, children, onClick }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-forest-900/8 focus-visible:bg-forest-900/8 focus-visible:outline-none dark:hover:bg-white/10 dark:focus-visible:bg-white/10"
+    >
+      <Icon size={16} className="shrink-0 text-forest-700 dark:text-forest-300" />
+      {children}
+    </button>
+  )
+}
+
+function DetailRow({ label, value }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-forest-900/8 py-3 last:border-0 dark:border-white/8">
+      <dt className="text-sm text-ink-muted">{label}</dt>
+      <dd className="text-right text-sm font-semibold">{value}</dd>
+    </div>
+  )
+}
+
+function AiResponseActions({ message, onRegenerate, onFollowUp, disabled }) {
+  const [copied, setCopied] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [listening, setListening] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const menuRef = useRef(null)
+  const copiedTimerRef = useRef(null)
+  const details = responseDetails(message)
+
+  useEffect(() => {
+    if (!menuOpen) return undefined
+    const dismiss = (event) => {
+      if (event.key === 'Escape' || !menuRef.current?.contains(event.target)) setMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', dismiss)
+    document.addEventListener('keydown', dismiss)
+    return () => {
+      document.removeEventListener('pointerdown', dismiss)
+      document.removeEventListener('keydown', dismiss)
+    }
+  }, [menuOpen])
+
+  useEffect(() => () => {
+    clearTimeout(copiedTimerRef.current)
+    if (listening) window.speechSynthesis?.cancel()
+  }, [listening])
+
+  const copyResponse = async () => {
+    try {
+      await copyText(message.answer)
+      setCopied(true)
+      clearTimeout(copiedTimerRef.current)
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 1600)
+    } catch {
+      toast.error('Could not copy the response')
+    }
+  }
+
+  const toggleListen = () => {
+    if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
+      toast.error('Text-to-speech is not available in this browser')
+      return
+    }
+    if (listening) {
+      window.speechSynthesis.cancel()
+      setListening(false)
+      return
+    }
+    window.speechSynthesis.cancel()
+    const utterance = new window.SpeechSynthesisUtterance(plainResponseText(message.answer))
+    utterance.onend = () => setListening(false)
+    utterance.onerror = () => setListening(false)
+    setListening(true)
+    window.speechSynthesis.speak(utterance)
+    setMenuOpen(false)
+  }
+
+  return (
+    <>
+      <div className="mt-1.5 flex items-center gap-1 px-1">
+        <PromptAction label="Redo response" onClick={onRegenerate} disabled={disabled}>
+          <RotateCcw size={14} />
+        </PromptAction>
+        <PromptAction label={copied ? 'Copied' : 'Copy response'} onClick={copyResponse}>
+          {copied ? <Check size={14} className="text-forest-600" /> : <Copy size={14} />}
+        </PromptAction>
+        <span ref={menuRef} className="relative">
+          <PromptAction
+            label="More response actions"
+            onClick={() => setMenuOpen((open) => !open)}
+            hideTooltip={menuOpen}
+          >
+            <MoreHorizontal size={16} />
+          </PromptAction>
+          {menuOpen && (
+            <div
+              role="menu"
+              aria-label="Response actions"
+              className="surface-glass absolute bottom-full left-0 z-40 mb-2 w-60 rounded-2xl p-2 shadow-2xl ring-1 ring-forest-900/10 dark:ring-white/10"
+            >
+              <ResponseMenuItem icon={listening ? VolumeX : Volume2} onClick={toggleListen}>
+                {listening ? 'Stop listening' : 'Listen'}
+              </ResponseMenuItem>
+              <ResponseMenuItem icon={BookCopy} onClick={async () => {
+                try {
+                  await copyText(responseWithSources(message))
+                  toast.success('Response and sources copied')
+                } catch {
+                  toast.error('Could not copy the response and sources')
+                }
+                setMenuOpen(false)
+              }}>
+                Copy with sources
+              </ResponseMenuItem>
+              <ResponseMenuItem icon={FileDown} onClick={() => {
+                downloadResearchNote(message)
+                setMenuOpen(false)
+                toast.success('Research note downloaded')
+              }}>
+                Download research note
+              </ResponseMenuItem>
+              <ResponseMenuItem icon={MessageCircleQuestion} onClick={() => {
+                onFollowUp()
+                setMenuOpen(false)
+              }}>
+                Ask a follow-up
+              </ResponseMenuItem>
+              <ResponseMenuItem icon={ListTree} onClick={() => {
+                setDetailsOpen(true)
+                setMenuOpen(false)
+              }}>
+                See response details
+              </ResponseMenuItem>
+            </div>
+          )}
+        </span>
+      </div>
+      <Modal
+        open={detailsOpen}
+        onClose={() => setDetailsOpen(false)}
+        title="Response details"
+        description="Technical provenance for this answer. Hidden reasoning and manuscript text are never exposed."
+        size="sm"
+      >
+        <dl>
+          <DetailRow label="Response type" value={details.type} />
+          <DetailRow label="Generation path" value={details.generation} />
+          <DetailRow label="Citations" value={details.citations} />
+          <DetailRow label="Evidence passages" value={details.passages} />
+          <DetailRow label="Archived studies" value={details.studies} />
+          <DetailRow label="Archive basis" value={details.archive} />
+          {details.createdAt && (
+            <DetailRow label="Created" value={new Date(details.createdAt).toLocaleString()} />
+          )}
+        </dl>
+      </Modal>
+    </>
+  )
+}
+
+function AiBubble({ message, animate, onRegenerate, onFollowUp, disabled }) {
   const groupedSources = groupEvidenceSources(message.sources)
   const noticeLabel = messageNoticeLabel(message)
   return (
@@ -475,6 +645,12 @@ function AiBubble({ message, animate }) {
           </div>
         )}
         <DuplicationBanner alert={message.duplication_alert} />
+        <AiResponseActions
+          message={message}
+          onRegenerate={onRegenerate}
+          onFollowUp={onFollowUp}
+          disabled={disabled}
+        />
       </motion.div>
     </div>
   )
@@ -688,10 +864,46 @@ export default function Chat() {
       setChatError(null)
       // `send` appends the edited question as a new bubble, so without this
       // the superseded wording stayed above it forever.
-      setMessages(dropPendingPrompt)
+      const branch = dropPendingPrompt(messages)
+      setMessages(branch)
+      send(updated, { baseMessages: branch })
+      return
     }
     if (updated === original.text && !wasPending) return
-    send(updated)
+    const branch = branchBeforePrompt(messages, original.id)
+    if (branch.turn === null) return
+    setMessages(branch.messages)
+    send(updated, {
+      baseMessages: branch.messages,
+      editFromTurn: user && sessionId ? branch.turn : null,
+    })
+  }
+
+  const regenerateResponse = (answerMessage) => {
+    if (sending) return
+    const answerIndex = messages.findIndex((message) => message.id === answerMessage.id)
+    const prompt = messages[answerIndex - 1]
+    if (answerIndex < 1 || prompt?.kind !== 'user') {
+      toast.error('The original prompt is unavailable')
+      return
+    }
+    const branch = branchBeforePrompt(messages, prompt.id)
+    if (branch.turn === null) return
+    setMessages(branch.messages)
+    send(prompt.text, {
+      baseMessages: branch.messages,
+      editFromTurn: user && sessionId ? branch.turn : null,
+      conversationReplies: [
+        ...branch.messages
+          .filter((message) => message.kind === 'ai' && message.notice_type === 'conversation')
+          .map((message) => message.answer),
+        answerMessage.answer,
+      ].filter(Boolean).slice(-30),
+    })
+  }
+
+  const startFollowUp = () => {
+    inputRef.current?.focus()
   }
 
   const loadSession = async (session) => {
@@ -731,6 +943,8 @@ export default function Chat() {
           // answer. Carried under its own name because the local `kind` above
           // is the message's 'user' | 'ai' role, a different thing entirely.
           messageKind: m.kind,
+          notice_type: m.notice_type,
+          createdAt: m.created_at,
         })
       })
       setMessages(rebuilt)
@@ -760,7 +974,7 @@ export default function Chat() {
     inputRef.current?.focus()
   }
 
-  const send = async (text) => {
+  const send = async (text, options = {}) => {
     const question = (text ?? input).trim()
     if (!question || requestControllerRef.current) return
     // Guests wait on a one-time check. Park the question in the composer so it
@@ -778,7 +992,8 @@ export default function Chat() {
     setAwaitingCheck(false)
     setInput('')
     setChatError(null)
-    setMessages((m) => [...m, { id: nextMessageId(), kind: 'user', text: question }])
+    const baseMessages = options.baseMessages ?? messages
+    setMessages([...baseMessages, { id: nextMessageId(), kind: 'user', text: question }])
     setSending(true)
     const controller = new AbortController()
     requestControllerRef.current = controller
@@ -786,13 +1001,13 @@ export default function Chat() {
     try {
       const guestHistory = user
         ? []
-        : messages
+        : baseMessages
           .filter((message) => message.kind === 'user')
           .slice(-5)
           .map((message) => message.text)
       const latestGuestSources = user
         ? []
-        : [...messages]
+        : [...baseMessages]
           .reverse()
           .find((message) => message.kind === 'ai' && message.sources?.length)
           ?.sources
@@ -808,6 +1023,12 @@ export default function Chat() {
         controller.signal,
         guestGate.tokenForRequest(),
         filterCategory || null,
+        options.editFromTurn ?? null,
+        options.conversationReplies ?? baseMessages
+          .filter((message) => message.kind === 'ai' && message.notice_type === 'conversation')
+          .map((message) => message.answer)
+          .filter(Boolean)
+          .slice(-30),
       )
       if (controller.signal.aborted) return
       guestGate.markPassed()
@@ -818,7 +1039,10 @@ export default function Chat() {
       // carried under `messageKind` instead — the same name the loadSession
       // path uses — so a live capacity apology or refusal gets the system
       // notice chip immediately, not only after a reload.
-      setMessages((m) => [...m, { id: nextMessageId(), ...res, kind: 'ai', messageKind: res.kind, isNew: true }])
+      setMessages((m) => [...m, {
+        id: nextMessageId(), ...res, kind: 'ai', messageKind: res.kind,
+        createdAt: new Date().toISOString(), isNew: true,
+      }])
       if (user && res.history_saved === false) {
         toast.warning('Answer received, but chat history was not saved', {
           description: 'Copy anything important and try again after the archive connection recovers.',
@@ -1067,7 +1291,16 @@ export default function Chat() {
                     onUpdate={(updated) => updatePrompt(m, updated)}
                   />
                 )
-                : <AiBubble key={m.id} message={m} animate={m.isNew} />,
+                : (
+                  <AiBubble
+                    key={m.id}
+                    message={m}
+                    animate={m.isNew}
+                    disabled={sending}
+                    onRegenerate={() => regenerateResponse(m)}
+                    onFollowUp={startFollowUp}
+                  />
+                ),
             )
           )}
           {isAwaitingAnswer && <TypingIndicator />}

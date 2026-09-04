@@ -45,16 +45,25 @@ const TAB_META = {
   signup: { label: 'Create account', icon: UserPlus },
 }
 
+/* Softer and slightly heavier than the old 400/32: the pill settles in one
+   motion with no visible overshoot at the end of the travel. */
+const AUTH_PILL_SPRING = { type: 'spring', stiffness: 320, damping: 34, mass: 0.7 }
+
+/* Step transitions. Deliberately short and blur-free: the old 0.4s in/out with
+   a 6px blur ran back-to-back under `mode="wait"`, so a tab switch left the
+   card visibly empty for most of a second before the fields even began their
+   own stagger. Travel is smaller too — a long slide reads as lag, not polish. */
+const STEP_IN = { duration: 0.22, ease: EASE }
+const STEP_OUT = { duration: 0.13, ease: 'easeIn' }
+
 const stepVariants = {
   enter: (dir) =>
-    dir === 0
-      ? { opacity: 0, y: 18, filter: 'blur(6px)' }
-      : { opacity: 0, x: 44 * dir, filter: 'blur(6px)' },
-  center: { opacity: 1, x: 0, y: 0, filter: 'blur(0px)' },
+    dir === 0 ? { opacity: 0, y: 10 } : { opacity: 0, x: 24 * dir },
+  center: { opacity: 1, x: 0, y: 0, transition: STEP_IN },
   exit: (dir) =>
     dir === 0
-      ? { opacity: 0, y: -14, filter: 'blur(6px)' }
-      : { opacity: 0, x: -44 * dir, filter: 'blur(6px)' },
+      ? { opacity: 0, y: -8, transition: STEP_OUT }
+      : { opacity: 0, x: -24 * dir, transition: STEP_OUT },
 }
 
 const cardVariants = {
@@ -64,12 +73,12 @@ const cardVariants = {
     y: 0,
     scale: 1,
     filter: 'blur(0px)',
-    transition: { duration: 0.7, ease: EASE, staggerChildren: 0.09, delayChildren: 0.12 },
+    transition: { duration: 0.45, ease: EASE, staggerChildren: 0.05, delayChildren: 0.06 },
   },
 }
 const cardItem = {
-  hidden: { opacity: 0, y: 14 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.55, ease: EASE } },
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: EASE } },
 }
 
 /* Mount the 3D constellation only where it earns its keep. The rule is shared
@@ -299,37 +308,71 @@ export default function Login() {
             <div className="font-display text-lg font-extrabold">ISU Thesis AI Library</div>
           </motion.div>
 
-          {/* Mode switch */}
+          {/* Mode switch. The pill is one shared layout element, so switching
+              tabs glides it across instead of cross-fading two backgrounds —
+              and `layout` on the label lets the icon and text settle with it. */}
           {showTabs && (
-            <motion.div variants={cardItem} className="glass relative mb-8 grid grid-cols-2 rounded-2xl p-1">
+            <motion.div
+              variants={cardItem}
+              role="tablist"
+              aria-label="Authentication mode"
+              className={cn(
+                'relative mb-8 grid grid-cols-2 rounded-full p-1',
+                // A recessed track, not another raised card: `.glass` brought
+                // its own border and 32px drop shadow, which made the switch
+                // read as a white slab floating over the auth card.
+                'bg-forest-900/[0.06] dark:bg-black/25',
+                'shadow-[inset_0_1px_2px_rgba(4,42,24,0.10)] dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.45)]',
+              )}
+            >
               {TABS.map((m) => {
                 const { label, icon: Icon } = TAB_META[m]
+                const selected = effectiveStep === m
                 return (
                   <button
                     key={m}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
                     onClick={() => setStep(m)}
                     className={cn(
-                      'relative z-10 rounded-xl py-2.5 text-sm font-semibold transition-colors duration-300',
-                      effectiveStep === m ? 'text-white' : 'text-ink-muted hover:text-ink',
+                      'group relative z-10 rounded-full py-2.5 text-sm font-semibold outline-none',
+                      'transition-[color,transform] duration-300 ease-out active:scale-[0.97]',
+                      'focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent',
+                      selected ? 'text-white' : 'text-ink-muted hover:text-ink',
                     )}
                   >
-                    {effectiveStep === m && (
-                      <motion.div
+                    {selected && (
+                      <motion.span
                         layoutId="auth-pill"
-                        transition={{ type: 'spring', stiffness: 400, damping: 32 }}
-                        className="absolute inset-0 rounded-xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-md"
+                        transition={AUTH_PILL_SPRING}
+                        className={cn(
+                          'absolute inset-0 rounded-full bg-gradient-to-br from-forest-600 via-forest-700 to-forest-800',
+                          // Hairline top highlight + tinted drop shadow give the
+                          // pill depth without another DOM layer.
+                          'shadow-[0_6px_16px_-6px_rgba(4,42,24,0.7),inset_0_1px_0_rgba(255,255,255,0.25)]',
+                        )}
                       />
                     )}
-                    <span className="relative inline-flex items-center justify-center gap-1.5">
+                    {/* Idle hover wash, suppressed while this tab owns the pill. */}
+                    {!selected && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-0 rounded-full bg-forest-900/0 transition-colors duration-300 group-hover:bg-forest-900/[0.07] dark:group-hover:bg-white/10"
+                      />
+                    )}
+                    <motion.span layout className="relative inline-flex items-center justify-center gap-1.5">
                       <Icon
                         size={14}
                         className={cn(
-                          'transition-colors duration-300',
-                          effectiveStep === m && 'text-gold-300',
+                          'transition-[color,transform] duration-300 ease-out',
+                          selected
+                            ? 'text-gold-300 scale-105'
+                            : 'group-hover:-translate-y-px',
                         )}
                       />
                       {label}
-                    </span>
+                    </motion.span>
                   </button>
                 )
               })}
@@ -345,7 +388,6 @@ export default function Login() {
                 initial="enter"
                 animate="center"
                 exit="exit"
-                transition={{ duration: 0.4, ease: EASE }}
               >
                 {renderStep()}
               </motion.div>

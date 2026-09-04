@@ -130,7 +130,9 @@ class TestSessions:
         assert sessions.create_session(SessionCreate(title='New'), user)['id'] == 's2'
         assert sessions.update_session('s1', SessionUpdate(title='Renamed'), user)['title'] == 'Renamed'
         assert sessions.delete_session('s1', user) == {'deleted': True}
-        assert sessions.get_session_messages('s1', user) == [{'id': 'm1'}]
+        # Saved rows are returned with the derived presentation hint; a stored
+        # research answer carries no conversational notice type.
+        assert sessions.get_session_messages('s1', user) == [{'id': 'm1', 'notice_type': None}]
 
     def test_missing_session_is_404(self, monkeypatch):
         monkeypatch.setattr(sessions, 'sb', ScriptedClient({'chat_sessions': [[]]}))

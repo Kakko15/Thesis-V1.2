@@ -32,6 +32,16 @@ class ChatRequest(BaseModel):
     guest_source_ids: list[
         Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
     ] = Field(default_factory=list, max_length=10)
+    # Zero-based saved turn replaced by an authenticated prompt edit. The
+    # server discards this turn and everything after it only once the new answer
+    # has completed, preserving the old branch if generation fails.
+    edit_from_turn: Optional[int] = Field(None, ge=0)
+    # Assistant replies already visible in this browser transcript. Used only
+    # to avoid repeating local conversational variants; never used as evidence
+    # or model context, and authenticated history is still server-owned.
+    conversation_replies: list[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+    ] = Field(default_factory=list, max_length=30)
 
 
 class DuplicationAlert(BaseModel):
@@ -60,6 +70,10 @@ class ChatResponse(BaseModel):
     # distinguishable from a research answer without waiting for a reload.
     # Plain literals rather than an import: models stays free of service code.
     kind: Literal['answer', 'notice'] = 'answer'
+    # Optional presentation hint for non-research replies. Persistence still
+    # relies on `kind`; this only lets the live UI render routine conversation
+    # more quietly than refusals, outages, and no-evidence notices.
+    notice_type: Optional[Literal['conversation']] = None
 
 
 class MetadataExtractionResponse(BaseModel):

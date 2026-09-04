@@ -429,3 +429,44 @@ class TestDepartmentResolution:
         with pytest.raises(HTTPException) as error:
             auth.resolve_effective_department(self.USER, 'UNKNOWN')
         assert error.value.status_code == 422
+
+
+class TestInlineThesisReferences:
+    SOURCES = [
+        {'id': 'p1', 'title': 'First Thesis', 'authors': 'A'},
+        {'id': 'p2', 'title': 'Second Thesis', 'authors': 'B'},
+    ]
+
+    def test_number_inside_a_question_selects_the_source_and_names_it(self):
+        source, standalone = chat._resolve_inline_thesis_reference(
+            'what are the objectives of number 2', self.SOURCES)
+        assert source is self.SOURCES[1]
+        assert standalone == 'what are the objectives of the archived thesis titled "Second Thesis"'
+
+    @pytest.mark.parametrize('question', [
+        'what is the methodology of the second thesis?',
+        'How did paper #2 collect its data?',
+        'summarize the findings of thesis no. 2',
+        'what dataset did the 2nd one use',
+    ])
+    def test_variants_resolve_to_the_second_source(self, question):
+        resolved = chat._resolve_inline_thesis_reference(question, self.SOURCES)
+        if question.startswith('what dataset'):
+            # "2nd" is not a supported form; it must fall through, not misfire.
+            assert resolved is None
+            return
+        assert resolved is not None and resolved[0] is self.SOURCES[1]
+        assert 'Second Thesis' in resolved[1]
+
+    @pytest.mark.parametrize('question', [
+        'what is objective number 2 of the study?',
+        'explain chapter 2 of the thesis',
+        'what does the second objective say?',
+        'what are the objectives of number 3',
+        'what were the results in 2024?',
+    ])
+    def test_in_document_positions_and_out_of_range_never_resolve(self, question):
+        assert chat._resolve_inline_thesis_reference(question, self.SOURCES) is None
+
+    def test_no_prior_sources_means_no_reference(self):
+        assert chat._resolve_inline_thesis_reference('objectives of number 2', []) is None

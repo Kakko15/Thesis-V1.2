@@ -52,6 +52,7 @@ class TestConversationFastPath:
     def test_greeting_and_identity_question_are_local(self):
         assert _is_simple_conversation('Hello!')
         assert _is_simple_conversation('hello dear')
+        assert _is_simple_conversation('Hello sdad')
         assert _is_simple_conversation('Hey, IskAI!')
         assert _is_simple_conversation('hello.. who are you?')
         # "What can you do?" moved to the capabilities fast path: the greeting
@@ -59,7 +60,9 @@ class TestConversationFastPath:
         assert not _is_simple_conversation('What can you do?')
 
     def test_capability_and_courtesy_questions_are_local(self):
-        from routers.chat import _is_capability_question, _is_courtesy_message
+        from routers.chat import (
+            _is_capability_question, _is_courtesy_message, _is_farewell_message,
+        )
         assert _is_capability_question('What can you do?')
         assert _is_capability_question('how does this work')
         assert _is_capability_question('hello what can you help me with')
@@ -69,11 +72,17 @@ class TestConversationFastPath:
         assert _is_courtesy_message('Thank you!')
         assert _is_courtesy_message('ok thanks')
         assert _is_courtesy_message('Goodbye')
+        assert _is_courtesy_message("That's all")
+        assert not _is_farewell_message('Thank you!')
+        assert _is_farewell_message('Goodbye')
+        assert _is_farewell_message("That's all")
+        assert _is_farewell_message("That's all for now")
         assert not _is_courtesy_message('thanks for the summary of the attendance thesis')
         assert not _is_courtesy_message('thank the authors in my acknowledgements')
 
     def test_research_question_still_uses_rag(self):
         assert not _is_simple_conversation('Hello, what theses used machine learning?')
+        assert not _is_simple_conversation('Hello machine learning')
         assert not _is_simple_conversation('Hello dear, what theses used machine learning?')
         assert not _is_simple_conversation('Who are the authors of the CNN study?')
 
@@ -91,6 +100,31 @@ class TestConversationFastPath:
         assert 'Gemini Embedding' in response
         assert 'models/' not in response
         assert 'citation-backed answers' in response
+
+
+class TestUnsupportedSingleTokenQuery:
+    def test_opaque_token_is_rejected_when_evidence_has_no_lexical_support(self):
+        from routers.chat import _is_unsupported_single_token_query
+
+        assert _is_unsupported_single_token_query(
+            'dsadasd',
+            '[1] Real-time pedestrian hazard detection with YOLO.',
+            [{'title': 'Pedestrian Safety', 'track': 'Data Mining'}],
+        )
+
+    def test_real_single_word_topic_remains_searchable(self):
+        from routers.chat import _is_unsupported_single_token_query
+
+        assert not _is_unsupported_single_token_query(
+            'blockchain',
+            '[1] A blockchain-based credential verification system.',
+            [{'title': 'Credential Verification'}],
+        )
+
+    def test_short_acronym_is_left_to_semantic_retrieval(self):
+        from routers.chat import _is_unsupported_single_token_query
+
+        assert not _is_unsupported_single_token_query('OCR', 'optical character recognition', [])
 
 
 class TestArchiveInventoryFastPath:
@@ -276,12 +310,12 @@ class TestSystemProvenanceFastPath:
             assert not _is_system_origin_question(question), question
             assert not _is_ambiguous_system_origin_question(question), question
 
-    def test_the_reply_declines_to_name_its_own_authors(self):
+    def test_the_reply_uses_documented_project_provenance(self):
         message = _origin_response()
         assert 'IskAI' in message
-        assert 'archived CCSICT theses' in message
-        assert 'Barlis' not in message
-        assert 'Gallardo' not in message
+        assert 'Ahron John F. Barlis' in message
+        assert 'Carlo Rossi P. Gallardo' in message
+        assert 'Isabela State University Echague' in message
 
 
 class TestBareTitleReferenceCapture:

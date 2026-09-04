@@ -29,6 +29,7 @@ export const SYSTEM_NOTICE_LABEL = 'System message · not a research answer.'
 export function messageNoticeLabel(message) {
   if (!message) return null
   if (message.no_relevant_thesis) return NO_EVIDENCE_LABEL
+  if (message.notice_type === 'conversation') return null
   if (message.messageKind === 'notice') return SYSTEM_NOTICE_LABEL
   return null
 }
