@@ -95,9 +95,17 @@ npm's bulk advisory endpoint timed out (`npm error audit endpoint returned an er
 Querying that endpoint directly for all 341 production packages in `package-lock.json`
 returns one **moderate** advisory (fflate 0.6.0-0.6.10 under `three-stdlib`,
 GHSA-px8p-9vwx-vf98) and zero high or critical, so the tree passes the gate's own
-`--audit-level=high` threshold. The step now retries up to three times on endpoint errors
-only; a genuine high or critical advisory still fails it on the first attempt, and an
-endpoint that stays unreachable fails it too rather than passing an unverified tree.
+`--audit-level=high` threshold. The step retries on endpoint errors only; a genuine high or
+critical advisory still fails it on the first attempt, and an endpoint that never answers
+fails it too rather than passing an unverified tree.
+
+The endpoint turned out to be **slow rather than unavailable**, which the first diagnosis
+got wrong: a direct POST returned 503 at one point, but later the same day a one-package
+POST answered 200 after 131 s and the real 341-package payload after 294 s. A short client
+timeout converts that into a hard failure, so the audit now allows five minutes per attempt
+and disables npm's own retry, which would only multiply the wait on a slow request. Run
+under those settings the audit completed in 294 s and reported the single moderate advisory.
+The job carries `timeout-minutes: 20` so a permanently hanging endpoint cannot idle a runner.
 
 The same endpoint failure was worse in `scripts/verify-pi03-dependencies.ps1`, and is
 fixed there too. `npm audit --json` answers a registry failure with a valid JSON body that
@@ -124,8 +132,8 @@ the SBOM, and a reused layer could make the scan attest a package set the image 
 contains.
 
 The dependency audit is now its own job. On the first run after the caching change npm's
-advisory endpoint stayed unreachable through all three attempts, and because the audit sat
-early in the frontend job it took ESLint, the unit tests, the build, the bundle budget and
+advisory endpoint failed to answer within the client timeout on all three attempts, and
+because the audit sat early in the frontend job it took ESLint, the unit tests, the build, the bundle budget and
 Playwright down with it - and a failed job also discards the caches it would have saved,
 so the caching could never take effect. `npm audit` resolves its tree from
 `package-lock.json`, verified to report the same counts with no `node_modules` present, so
