@@ -25,3 +25,17 @@ export function dropPendingPrompt(messages) {
   const list = Array.isArray(messages) ? messages : []
   return list[list.length - 1]?.kind === 'user' ? list.slice(0, -1) : list
 }
+
+/**
+ * The transcript branch before the prompt being edited, plus its zero-based
+ * user-turn position for the saved-history API.
+ */
+export function branchBeforePrompt(messages, promptId) {
+  const list = Array.isArray(messages) ? messages : []
+  const index = list.findIndex((message) => message.id === promptId && message.kind === 'user')
+  if (index < 0) return { messages: list, turn: null }
+  return {
+    messages: list.slice(0, index),
+    turn: list.slice(0, index).filter((message) => message.kind === 'user').length,
+  }
+}

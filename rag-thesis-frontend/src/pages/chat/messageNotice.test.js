@@ -25,6 +25,13 @@ test('a restored answer row is left alone', () => {
   assert.equal(messageNoticeLabel({ messageKind: 'answer' }), null)
 })
 
+test('routine conversation remains a notice but does not show a warning chip', () => {
+  assert.equal(
+    messageNoticeLabel({ messageKind: 'notice', notice_type: 'conversation' }),
+    null,
+  )
+})
+
 test('the specific label wins when both signals are present', () => {
   assert.equal(
     messageNoticeLabel({ no_relevant_thesis: true, messageKind: 'notice' }),
@@ -55,6 +62,11 @@ test('the live append carries the API kind under messageKind', () => {
     chat, /\.\.\.res, kind: 'ai', messageKind: res\.kind/,
     'Chat.jsx no longer carries the live response kind under messageKind',
   )
+})
+
+test('the restored transcript carries the notice presentation type', () => {
+  const chat = readFileSync(new URL('../Chat.jsx', import.meta.url), 'utf8')
+  assert.match(chat, /notice_type: m\.notice_type/)
 })
 
 test('a live notice response labels as a system message', () => {

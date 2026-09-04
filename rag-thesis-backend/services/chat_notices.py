@@ -36,6 +36,14 @@ from services.network_retry import mentions_http_status
 
 KIND_ANSWER = 'answer'
 KIND_NOTICE = 'notice'
+NOTICE_TYPE_CONVERSATION = 'conversation'
+
+# Rows saved before the conversational copy was shortened retain this wording.
+# Keep recognizing them as routine conversation so a restored transcript does
+# not show a warning banner merely because the response predates the new copy.
+LEGACY_CONVERSATION_PREFIX = (
+    "Hello! I'm IskAI, the research assistant for the ISU Thesis AI Library."
+)
 
 CAPACITY_MESSAGE = (
     'IskAI has reached the research AI service usage limit, so your question could not '
@@ -44,33 +52,47 @@ CAPACITY_MESSAGE = (
 
 NO_RELEVANT_PREFIX = 'No relevant thesis was found in the'
 
-# The greeting/identity reply. Lives here rather than in routers/chat.py for the
+# The greeting reply. Lives here rather than in routers/chat.py for the
 # same reason NO_RELEVANT_PREFIX does: it is a system message about the system,
 # so the classifier and the text it classifies must not be able to drift apart.
 # It was previously stored as an answer, which meant the history loader replayed
 # "AI: Hello! I'm IskAI..." to the model as conversational context on the next
 # turn -- exactly what B14 exists to prevent.
-CONVERSATION_MESSAGE = (
-    "Hello! I'm IskAI, the research assistant for the ISU Thesis AI Library. "
-    'Ask me about archived thesis topics, methodologies, findings, or related literature.'
+CONVERSATION_MESSAGES = (
+    "Hello! I'm IskAI. What CCSICT thesis topic would you like to explore?",
+    'Hi! What topic, title, author, or methodology would you like to search in the CCSICT archive?',
+    'Welcome back. Tell me what CCSICT research you want to explore today.',
+    'Hello! I can help you discover and compare archived CCSICT studies. Where should we begin?',
+    'Hi there! Ask me a research question, or give me a thesis topic to search.',
+    'Good to see you! What would you like to learn from the CCSICT thesis archive?',
+    'Welcome! We can explore a research topic, study, author, method, or finding.',
+    'Hello again. Which area of CCSICT research can I help you investigate?',
+    'Hi! Share a topic or question, and I will look for supporting archived studies.',
+    'Greetings! What research would you like to discover or compare today?',
+)
+CONVERSATION_MESSAGE = CONVERSATION_MESSAGES[0]
+
+# Identity questions are distinct from greetings so the assistant answers what
+# was asked instead of repeating its welcome message.
+IDENTITY_MESSAGE = (
+    "I'm IskAI, the research assistant for the ISU Thesis AI Library. I retrieve "
+    'information from archived CCSICT theses and provide citation-backed answers '
+    'without exposing full manuscripts.'
 )
 
-# The answer to "who developed you". IskAI must not name its own authors:
-# nothing in its evidence establishes them. Asked as a research question, the
-# nearest semantic match is whichever manuscript happens to describe a system
-# in the wording the reader used -- correct only for as long as the archive is
-# small enough for the right thesis to win by accident, and confidently wrong
-# once it is not.
+# The answer to "who developed you". This is application provenance documented
+# by the repository itself, not a claim inferred from whichever manuscript
+# happens to rank nearest to the question.
 #
 # Lives here for the same reason CONVERSATION_MESSAGE does: it is a system
 # message about the system, so the classifier below and the text it classifies
 # must not be able to drift apart, and it must never be replayed to the model
 # as conversational context.
 SYSTEM_ORIGIN_MESSAGE = (
-    "I'm IskAI, the research assistant for the ISU Thesis AI Library. I answer only from "
-    'archived CCSICT theses, so I do not report on my own development. If you meant a '
-    'system described in an archived thesis, name that thesis and I will summarize what '
-    'the manuscript says about it.'
+    'IskAI was developed by Ahron John F. Barlis and Carlo Rossi P. Gallardo '
+    'for their BSCS Data Mining thesis, "A Centralized AI-Powered Thesis Library '
+    'Using Retrieval-Augmented Generation," at Isabela State University Echague. '
+    'If you meant a system described in another archived thesis, name that thesis.'
 )
 
 # The capabilities reply ("what can you do", "how do I use this"). Previously
@@ -89,9 +111,58 @@ CAPABILITIES_MESSAGE = (
 # The courtesy reply (thanks / goodbye). Without it, "thank you" runs semantic
 # retrieval and usually returns "No relevant thesis was found" -- a correct
 # pipeline output and a terrible goodbye.
-COURTESY_MESSAGE = (
-    "You're welcome! Ask me anytime about archived thesis topics, methods, "
-    'findings, or authors.'
+COURTESY_MESSAGES = (
+    "You're welcome! Ask me anytime about archived thesis topics, methods, findings, or authors.",
+    'Happy to help. Let me know if you want to explore another CCSICT study.',
+    'Anytime! I am ready for your next archive research question.',
+    'Glad I could help. You can continue with a topic, title, author, or comparison.',
+    'My pleasure. Ask another question whenever you are ready.',
+    'You are welcome. I can help again whenever you want to examine another study.',
+    'Glad that helped. Feel free to continue exploring the CCSICT archive.',
+    'No problem! Send another research question whenever one comes to mind.',
+    'Happy to assist. We can look into another topic whenever you are ready.',
+    'You are very welcome. I am here if you need another evidence-backed answer.',
+)
+COURTESY_MESSAGE = COURTESY_MESSAGES[0]
+
+FAREWELL_MESSAGES = (
+    'Goodbye! Your saved conversation will be here when you return.',
+    'See you next time. Come back whenever you want to explore more CCSICT research.',
+    'Take care! IskAI will be ready when you have another research question.',
+    'Until next time. Your thesis research conversation is saved here.',
+    'Thanks for using IskAI. Have a good day!',
+    'Farewell for now. Return anytime to continue exploring the thesis archive.',
+    'See you again soon. Your CCSICT research trail will remain available.',
+    'Have a great day! I will be here when you are ready to continue your research.',
+    'Take care, and come back anytime you need another archive-backed answer.',
+    'Goodbye for now. I look forward to helping with your next research question.',
+)
+FAREWELL_MESSAGE = FAREWELL_MESSAGES[0]
+
+
+def varied_message(messages: tuple[str, ...], prior_replies: list[str]) -> str:
+    """Choose the least recently used variant, deterministically.
+
+    Each unused message is selected once before the pool cycles. On later
+    cycles, the message whose latest appearance is oldest wins, guaranteeing no
+    immediate repeat while keeping tests and transcripts reproducible.
+    """
+    latest = {
+        message: max(
+            (index for index, reply in enumerate(prior_replies) if reply == message),
+            default=-1,
+        )
+        for message in messages
+    }
+    return min(messages, key=lambda message: latest[message])
+
+# A single opaque token can receive a misleadingly high embedding similarity
+# despite sharing no language with the retrieved text. Ask for a usable topic
+# instead of presenting unrelated studies as evidence.
+UNCLEAR_TOPIC_MESSAGE = (
+    "I couldn't identify a thesis topic or research question in that message. "
+    'Try a topic such as "artificial intelligence," or ask me to search by title, '
+    'author, methodology, or finding.'
 )
 
 # Opening of the grounded retrieval fallback, which reports that no direct
@@ -110,10 +181,13 @@ NOTICE_MARKERS = (
     REFUSAL_MESSAGE,
     GUEST_BUDGET_MESSAGE,
     NO_RELEVANT_PREFIX,
-    CONVERSATION_MESSAGE,
+    *CONVERSATION_MESSAGES,
+    IDENTITY_MESSAGE,
     SYSTEM_ORIGIN_MESSAGE,
     CAPABILITIES_MESSAGE,
-    COURTESY_MESSAGE,
+    *COURTESY_MESSAGES,
+    *FAREWELL_MESSAGES,
+    UNCLEAR_TOPIC_MESSAGE,
     GROUNDED_FALLBACK_PREFIX,
 )
 
@@ -179,12 +253,29 @@ def response_kind(response) -> str:
     """
     if getattr(response, 'no_relevant_thesis', False):
         return KIND_NOTICE
+    if getattr(response, 'notice_type', None) == NOTICE_TYPE_CONVERSATION:
+        return KIND_NOTICE
     answer = getattr(response, 'answer', '') or ''
     if answer in (
-        CAPACITY_MESSAGE, REFUSAL_MESSAGE, GUEST_BUDGET_MESSAGE, CONVERSATION_MESSAGE,
-        SYSTEM_ORIGIN_MESSAGE, CAPABILITIES_MESSAGE, COURTESY_MESSAGE,
+        CAPACITY_MESSAGE, REFUSAL_MESSAGE, GUEST_BUDGET_MESSAGE, *CONVERSATION_MESSAGES,
+        IDENTITY_MESSAGE,
+        SYSTEM_ORIGIN_MESSAGE, CAPABILITIES_MESSAGE, *COURTESY_MESSAGES,
+        *FAREWELL_MESSAGES,
+        UNCLEAR_TOPIC_MESSAGE,
     ):
         return KIND_NOTICE
     if answer.startswith((NO_RELEVANT_PREFIX, GROUNDED_FALLBACK_PREFIX)):
         return KIND_NOTICE
     return KIND_ANSWER
+
+
+def notice_type(answer: str) -> str | None:
+    """Presentation subtype for routine, non-research conversation."""
+    if (answer or '').startswith(LEGACY_CONVERSATION_PREFIX):
+        return NOTICE_TYPE_CONVERSATION
+    if answer in (
+        *CONVERSATION_MESSAGES, IDENTITY_MESSAGE, SYSTEM_ORIGIN_MESSAGE,
+        CAPABILITIES_MESSAGE, *COURTESY_MESSAGES, *FAREWELL_MESSAGES,
+    ):
+        return NOTICE_TYPE_CONVERSATION
+    return None

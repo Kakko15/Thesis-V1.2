@@ -85,4 +85,10 @@ def get_session_messages(session_id: str, user: CurrentUser):
         .order('created_at', desc=False)
         .execute()
     )
-    return res.data or []
+    messages = res.data or []
+    # `notice_type` is a presentation hint derived from canonical backend text;
+    # it needs no database column and old conversations render consistently.
+    from services.chat_notices import notice_type
+    for message in messages:
+        message['notice_type'] = notice_type(message.get('answer', ''))
+    return messages

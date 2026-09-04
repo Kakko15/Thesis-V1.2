@@ -35,6 +35,12 @@ class TestEarlyChatPaths:
     def test_greeting_and_blocked_generation(self):
         greeting = run(chat._chat_impl(ChatRequest(question='Hello'), _NoRequest(), BackgroundTasks(), None))
         assert 'IskAI' in greeting.answer and greeting.sources == []
+        identity = run(chat._chat_impl(
+            ChatRequest(question='Who are you?'), _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert identity.answer != greeting.answer
+        assert 'citation-backed answers' in identity.answer
+        assert greeting.notice_type == identity.notice_type == 'conversation'
         friendly_greeting = run(chat._chat_impl(
             ChatRequest(question='hello dear'),
             _NoRequest(), BackgroundTasks(), None,
@@ -156,6 +162,28 @@ class TestEarlyChatPaths:
 
 
 class TestRetrievalAndGenerationFlow:
+    def test_opaque_single_token_does_not_present_unrelated_evidence(self, monkeypatch):
+        from services import chat_notices
+
+        sources = [{'id': 'p1', 'title': 'Pedestrian Safety', 'citation_id': 1}]
+
+        async def retrieve(*_args, **_kwargs):
+            return ('[1] YOLO pedestrian hazard detection.', sources, 0.62), None
+
+        async def should_not_generate(*_args, **_kwargs):
+            raise AssertionError('an opaque token must not reach generation')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', should_not_generate)
+        response = run(chat._chat_impl(
+            ChatRequest(question='dsadasd'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert response.answer == chat_notices.UNCLEAR_TOPIC_MESSAGE
+        assert response.sources == []
+        assert response.kind == 'notice'
+
     def test_no_context_returns_explicit_no_result(self, monkeypatch):
         async def retrieve(*_args, **_kwargs): return ('', [], 0.0), None
         monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
@@ -520,6 +548,75 @@ class TestTracingBoundaries:
 
 
 class TestChatPersistence:
+    def test_edit_truncates_saved_branch_before_persisting_replacement(self, monkeypatch):
+        user = SimpleNamespace(id='user-1')
+        response = ChatResponse(answer='Replacement [1].', sources=[{'id': 'p1'}])
+        calls = []
+
+        monkeypatch.setattr(chat, 'ensure_guest_chat_verification', lambda *_: asyncio.sleep(0))
+        monkeypatch.setattr(chat, 'safe_trace', no_trace)
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_: 'CCSICT')
+
+        async def answer(*_args, **_kwargs):
+            return response
+
+        monkeypatch.setattr(chat, '_chat_impl', answer)
+        monkeypatch.setattr(
+            chat,
+            '_truncate_session_from_turn',
+            lambda session, owner, department, turn: calls.append(
+                ('truncate', session, owner, department, turn)
+            ),
+        )
+        monkeypatch.setattr(
+            chat,
+            '_persist_chat_exchange',
+            lambda *_: calls.append(('persist',)) or 'session-1',
+        )
+
+        run(chat.chat.__wrapped__.__wrapped__(
+            ChatRequest(question='Edited first prompt', session_id='session-1', edit_from_turn=0),
+            request(), BackgroundTasks(), user,
+        ))
+
+        assert calls == [
+            ('truncate', 'session-1', 'user-1', 'CCSICT', 0),
+            ('persist',),
+        ]
+
+    def test_edit_generation_excludes_the_replaced_and_later_history(self, monkeypatch):
+        captured = {}
+        history = [
+            {'question': 'first', 'answer': 'first answer', 'sources': []},
+            {'question': 'second', 'answer': 'second answer', 'sources': []},
+        ]
+
+        monkeypatch.setattr(chat, '_ensure_session_owner', lambda *_: None)
+        monkeypatch.setattr(chat, '_load_chat_history', lambda *_: history)
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_: 'CCSICT')
+        original_format = chat._format_chat_history
+
+        def capture_history(messages):
+            captured['history_messages'] = messages
+            return original_format(messages)
+
+        monkeypatch.setattr(chat, '_format_chat_history', capture_history)
+
+        async def retrieve(question, *_args, **_kwargs):
+            captured['question'] = question
+            return ('', [], 0.0), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        run(chat._chat_impl(
+            ChatRequest(
+                question='edited second', session_id='session-1', edit_from_turn=1,
+            ),
+            _NoRequest(), BackgroundTasks(), SimpleNamespace(id='user-1'),
+        ))
+
+        assert captured['question'] == 'edited second'
+        assert captured['history_messages'] == history[:1]
+
     def test_session_department_mismatch_is_rejected(self, monkeypatch):
         class Query:
             def select(self, *_args): return self
@@ -888,6 +985,7 @@ class TestCapabilityAndCourtesyFastPaths:
         assert response.answer == chat_notices.CAPABILITIES_MESSAGE
         assert response.sources == []
         assert response.kind == 'notice'
+        assert response.notice_type == 'conversation'
 
     def test_courtesy_message_answers_without_rag(self, monkeypatch):
         from services import chat_notices
@@ -901,6 +999,57 @@ class TestCapabilityAndCourtesyFastPaths:
         assert response.answer == chat_notices.COURTESY_MESSAGE
         assert response.sources == []
         assert response.kind == 'notice'
+        assert response.notice_type == 'conversation'
+
+    def test_farewell_has_a_distinct_local_response(self, monkeypatch):
+        from services import chat_notices
+        async def should_not_retrieve(*_args, **_kwargs):
+            raise AssertionError('a goodbye must not run vector retrieval')
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='Goodbye'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.answer == chat_notices.FAREWELL_MESSAGE
+        assert response.answer != chat_notices.COURTESY_MESSAGE
+        assert response.sources == []
+        assert response.kind == 'notice'
+        assert response.notice_type == 'conversation'
+
+    def test_repeated_farewells_rotate_without_generation(self, monkeypatch):
+        from services import chat_notices
+        async def should_not_retrieve(*_args, **_kwargs):
+            raise AssertionError('a goodbye must not run vector retrieval')
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+
+        first = run(chat._chat_impl(
+            ChatRequest(question='Goodbye'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        second = run(chat._chat_impl(
+            ChatRequest(question='Goodbye', conversation_replies=[first.answer]),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert first.answer == chat_notices.FAREWELL_MESSAGES[0]
+        assert second.answer == chat_notices.FAREWELL_MESSAGES[1]
+        assert first.answer != second.answer
+
+    def test_apostrophe_farewell_never_searches_the_archive(self, monkeypatch):
+        from services import chat_notices
+        async def should_not_retrieve(*_args, **_kwargs):
+            raise AssertionError("that's all must not run vector retrieval")
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+
+        response = run(chat._chat_impl(
+            ChatRequest(question="That's all"),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert response.answer in chat_notices.FAREWELL_MESSAGES
+        assert response.sources == []
+        assert response.kind == 'notice'
+        assert response.notice_type == 'conversation'
 
     def test_a_research_question_mentioning_help_still_retrieves(self, monkeypatch):
         called = {}
@@ -913,3 +1062,67 @@ class TestCapabilityAndCourtesyFastPaths:
             _NoRequest(), BackgroundTasks(), None,
         ))
         assert called.get('yes') is True
+
+
+class TestNumberedReferenceInsideAQuestion:
+    """The 2026-09-04 transcript: after an inventory listing two theses, "what
+    are the objectives of number 2" answered about thesis [1] and read
+    "number 2" as its second objective. The reference must select thesis [2]
+    and vanish from the wording the model sees."""
+
+    REFERENCES = [
+        {'id': 'p1', 'title': 'A Centralized AI-Powered Thesis Library Using RAG',
+         'authors': 'Ahron John F. Barlis, Carlo Rossi P. Gallardo'},
+        {'id': 'p2', 'title': 'Real-Time Autonomous Pedestrian Safety and Hazard Detection Using YOLOv11',
+         'authors': 'Franklyn Bugauisan, William Respicio'},
+    ]
+
+    def _run(self, monkeypatch, question):
+        captured = {}
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: self.REFERENCES)
+        monkeypatch.setattr(chat, 'find_papers_by_title', lambda *_args: [])
+        monkeypatch.setattr(chat, 'find_papers_by_title_fragment', lambda *_args: [])
+        monkeypatch.setattr(chat, 'find_papers_by_author', lambda *_args: [])
+
+        async def retrieve(q, _department, paper_id, is_overview, _category=None, per_paper_cap=None):
+            captured.update(question=q, paper_id=paper_id, is_overview=is_overview)
+            return ('[1] Evidence', [{'citation_id': 1, 'id': 'p2', 'chunk_id': 1, 'title': 'x'}], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content='The objectives are stated [1].'), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        run(chat._chat_impl(
+            ChatRequest(question=question, guest_history=['what are the theses on this system?'],
+                        guest_source_ids=['p1', 'p2']),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        return captured
+
+    def test_the_transcript_question_selects_the_second_listed_thesis(self, monkeypatch):
+        captured = self._run(monkeypatch, 'what are the objectives of number 2')
+        assert captured['paper_id'] == 'p2'
+        assert captured['is_overview'] is False, 'a specific question, not an overview'
+        assert 'YOLOv11' in captured['question']
+        assert 'number 2' not in captured['question'].lower()
+        assert 'Centralized' not in captured['question']
+
+    def test_an_ordinal_inside_a_question_resolves_the_same_way(self, monkeypatch):
+        captured = self._run(monkeypatch, 'What methodology did the second thesis use?')
+        assert captured['paper_id'] == 'p2'
+        assert 'YOLOv11' in captured['question']
+        assert 'second thesis' not in captured['question'].lower()
+
+    def test_an_ambiguous_followup_after_several_theses_answers_for_each(self, monkeypatch):
+        # No thesis singled out: answer for both, labelled, rather than
+        # silently picking the first.
+        captured = self._run(monkeypatch, 'what are the objectives?')
+        assert captured['paper_id'] == ['p1', 'p2']
+        assert captured['question'] == 'what are the objectives?'
+
+    def test_what_is_that_thesis_about_after_several_gives_each_an_overview(self, monkeypatch):
+        captured = self._run(monkeypatch, 'what is that thesis about?')
+        assert captured['paper_id'] == ['p1', 'p2']
+        assert captured['is_overview'] is True
+        assert 'YOLOv11' in captured['question'] and 'Centralized' in captured['question']

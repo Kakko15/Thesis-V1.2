@@ -147,6 +147,8 @@ class TestValidation:
             'thesis_category_filter': None,
             'guest_history': [],
             'guest_source_ids': [],
+            'edit_from_turn': None,
+            'conversation_replies': [],
         }
 
     def test_guest_history_is_bounded_and_each_question_is_validated(self):

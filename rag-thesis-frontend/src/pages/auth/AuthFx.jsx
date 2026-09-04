@@ -13,13 +13,16 @@ import {
 export const EASE = [0.2, 0, 0, 1]
 
 /** Parent/child variants — fields cascade in as each step mounts. */
+/* Kept brisk on purpose: this cascade replays on every tab switch, so a long
+   per-field duration compounds with the step transition and the card reads as
+   slow to appear rather than considered. */
 export const formStagger = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.055, delayChildren: 0.04 } },
+  show: { transition: { staggerChildren: 0.03, delayChildren: 0 } },
 }
 export const fieldRise = {
-  hidden: { opacity: 0, y: 14, filter: 'blur(3px)' },
-  show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.5, ease: EASE } },
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.26, ease: EASE } },
 }
 
 /** Cascade item pre-wired with the rise variants (use inside formStagger). */
@@ -229,7 +232,10 @@ export function FloatingField({
           placeholder={placeholder}
           aria-invalid={error ? 'true' : undefined}
           className={cn(
-            'peer h-14 w-full rounded-2xl border bg-[var(--surface-1)] px-4 pb-2 pt-6 text-base text-[var(--foreground)] caret-[var(--primary)] outline-none',
+            // --surface-0, not --surface-1: the auth card already sits on a
+            // tinted glass panel, so the darker step read as a filled grey
+            // block instead of an input interior.
+            'peer h-14 w-full rounded-2xl border bg-[var(--surface-0)] px-4 pb-2 pt-6 text-base text-[var(--foreground)] caret-[var(--primary)] outline-none',
             `transition-[border-color,box-shadow,background-color] duration-300 ${FLOAT_EASE}`,
             endAdornment && 'pr-11',
             error

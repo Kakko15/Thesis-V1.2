@@ -173,6 +173,8 @@ export const chatQuery = async (
   signal = undefined,
   turnstileToken = null,
   thesis_category_filter = null,
+  edit_from_turn = null,
+  conversation_replies = [],
 ) => {
   const { data } = await api.post('/chat', {
     question: query,
@@ -181,6 +183,8 @@ export const chatQuery = async (
     thesis_category_filter,
     guest_history,
     guest_source_ids,
+    edit_from_turn,
+    conversation_replies,
   }, {
     signal,
     // One-time guest verification when the backend Turnstile guard is enabled.

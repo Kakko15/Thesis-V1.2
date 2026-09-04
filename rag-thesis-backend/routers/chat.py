@@ -96,13 +96,17 @@ _CAPABILITY_QUESTIONS = {
     'what can you help with', 'how do i use this', 'how do you work',
     'how does this work', 'what should i ask', 'what should i ask you', 'help',
 }
-# Thanks and goodbyes. Without this set they run semantic retrieval and
-# usually earn "No relevant thesis was found" as a reply to "thank you".
-_COURTESY = {
+# Thanks and goodbyes stay separate so the response fits the user's intent.
+# Without these sets they run semantic retrieval and usually earn a no-evidence
+# result for ordinary conversation.
+_THANKS = {
     'thanks', 'thank you', 'thank you so much', 'thanks a lot', 'thank you very much',
     'many thanks', 'ty', 'ok thanks', 'okay thanks', 'ok thank you', 'okay thank you',
-    'got it thanks', 'bye', 'goodbye', 'good bye', 'see you', 'thats all',
-    'that is all', 'thats all for now',
+    'got it thanks',
+}
+_FAREWELLS = {
+    'bye', 'goodbye', 'good bye', 'see you', 'thats all', 'that s all',
+    'that is all', 'thats all for now', 'that s all for now',
 }
 _MODEL_QUESTIONS = {
     'what model are you', 'which model are you', 'what ai model are you',
@@ -158,6 +162,30 @@ _ORDINAL_POSITIONS = {
     'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
     'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9, 'tenth': 10,
 }
+# The same reference embedded in a longer question: "what are the objectives
+# of number 2", "the methodology of the second thesis". The whole-question
+# forms above run first; these run when they fail. Before this existed, such a
+# question fell to the generic follow-up branch, which pinned the FIRST prior
+# source and left "number 2" in the wording -- so the 2026-09-04 transcript
+# answered about thesis [1] and read "number 2" as its second objective.
+_THESIS_NOUN = r'(?:thesis|theses|study|paper|title|item|source|result|entry|one)'
+_INLINE_NUMBERED_REFERENCE = re.compile(
+    r'(?<![\w#])(?:(?:the\s+)?' + _THESIS_NOUN + r'\s+)?'
+    r'(?:number|no\.?|#)\s*(\d{1,2})\b(?:\s+' + _THESIS_NOUN + r'\b)?',
+    re.IGNORECASE,
+)
+_INLINE_ORDINAL_REFERENCE = re.compile(
+    r'\b(?:the\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+'
+    + _THESIS_NOUN + r'\b',
+    re.IGNORECASE,
+)
+# A count noun directly before "number N" makes it a position inside a
+# manuscript, not a position in the prior answer: "objective number 2".
+_IN_DOCUMENT_COUNTABLE = re.compile(
+    r'\b(?:objective|chapter|section|figure|table|page|question|hypothesis|hypotheses'
+    r'|phase|step|goal|aim|rq|so|finding|recommendation)\s*$',
+    re.IGNORECASE,
+)
 
 
 def _normalize_short_query(question: str) -> str:
@@ -174,8 +202,55 @@ def _is_simple_conversation(question: str) -> bool:
     for greeting in _GREETINGS:
         if normalized.startswith(f'{greeting} '):
             remainder = normalized[len(greeting) + 1:]
-            return remainder in _IDENTITY_QUESTIONS or remainder in _GREETING_ADDRESSEES
+            # A single trailing word is normally a name or mistyped addressee
+            # ("hello iskai", "hello sdad"), not a research question. Longer
+            # wording still falls through to RAG so "hello machine learning"
+            # cannot silently lose a topic query.
+            return (
+                remainder in _IDENTITY_QUESTIONS
+                or remainder in _GREETING_ADDRESSEES
+                or len(remainder.split()) == 1
+            )
     return False
+
+
+def _is_identity_question(question: str) -> bool:
+    """Whether a local conversational turn asks what IskAI is."""
+    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
+    if normalized in _IDENTITY_QUESTIONS:
+        return True
+    return any(
+        normalized == f'{greeting} {identity}'
+        for greeting in _GREETINGS
+        for identity in _IDENTITY_QUESTIONS
+    )
+
+
+def _is_unsupported_single_token_query(
+    question: str,
+    context: str,
+    sources: list[dict],
+) -> bool:
+    """Reject opaque one-word prompts that embeddings matched by accident.
+
+    Real one-word topics remain valid when their normalized text occurs in the
+    selected evidence or source metadata. Short acronyms such as AI and OCR are
+    left to retrieval because compact substring matching is too noisy for them.
+    """
+    tokens = re.findall(r'[a-z0-9]+', (question or '').lower())
+    if len(tokens) != 1 or len(tokens[0]) < 4:
+        return False
+    token = tokens[0]
+    evidence_text = ' '.join([
+        context,
+        *(
+            str(source.get(field) or '')
+            for source in sources
+            for field in ('title', 'authors', 'track', 'section_title')
+        ),
+    ]).lower()
+    compact_evidence = re.sub(r'[^a-z0-9]+', '', evidence_text)
+    return token not in compact_evidence
 
 
 def _is_capability_question(question: str) -> bool:
@@ -195,7 +270,12 @@ def _is_courtesy_message(question: str) -> bool:
     """Exact-phrase thanks/goodbyes. Length-capped so 'thanks for the summary
     of the attendance thesis, now compare it with...' stays a research turn."""
     normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
-    return len(normalized) <= 40 and normalized in _COURTESY
+    return len(normalized) <= 40 and normalized in (_THANKS | _FAREWELLS)
+
+
+def _is_farewell_message(question: str) -> bool:
+    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
+    return len(normalized) <= 40 and normalized in _FAREWELLS
 
 
 def _is_model_question(question: str) -> bool:
@@ -232,11 +312,16 @@ def _model_response() -> str:
     )
 
 
-def _conversation_response() -> str:
+def _conversation_response(question: str = '', prior_replies: list[str] | None = None) -> str:
     # Defined in chat_notices so the notice classifier and this message cannot
     # drift apart; a reworded greeting would otherwise stop being recognized as
     # a notice and start being replayed to the model as conversational context.
-    return chat_notices.CONVERSATION_MESSAGE
+    if _is_identity_question(question):
+        return chat_notices.IDENTITY_MESSAGE
+    return chat_notices.varied_message(
+        chat_notices.CONVERSATION_MESSAGES,
+        prior_replies or [],
+    )
 
 
 def _is_archive_inventory_question(question: str, prior_questions: list[str] | None = None) -> bool:
@@ -555,6 +640,26 @@ def _ensure_session_owner(session_id: str, user_id: str, department: str) -> Non
         )
 
 
+def _truncate_session_from_turn(
+    session_id: str,
+    user_id: str,
+    department: str,
+    turn: int,
+) -> None:
+    """Delete the edited saved turn and every later branch turn."""
+    _ensure_session_owner(session_id, user_id, department)
+    rows = (
+        sb.table('chat_messages')
+        .select('id')
+        .eq('session_id', session_id)
+        .order('created_at', desc=False)
+        .execute()
+    ).data or []
+    stale_ids = [row['id'] for row in rows[turn:] if row.get('id')]
+    if stale_ids:
+        sb.table('chat_messages').delete().in_('id', stale_ids).execute()
+
+
 def _persist_chat_exchange(req: ChatRequest, response: ChatResponse, user, department: str) -> str:
     alert = response.duplication_alert.model_dump() if response.duplication_alert else None
     result = sb.rpc('save_chat_exchange', {
@@ -635,6 +740,49 @@ def _resolve_numbered_thesis_reference(question: str, prior_sources: list[dict])
     if not position or position > len(prior_sources):
         return None
     return prior_sources[position - 1]
+
+
+def _resolve_inline_thesis_reference(
+    question: str, prior_sources: list[dict],
+) -> tuple[dict, str] | None:
+    """Find a numbered or ordinal thesis reference inside a longer question.
+
+    Returns the referenced prior source and the question with the reference
+    phrase replaced by the thesis title, so "what are the objectives of
+    number 2" becomes "what are the objectives of the archived thesis titled
+    "..."" and no numeral is left for the model to reinterpret. None when the
+    question carries no such reference, the position is out of range, or the
+    number counts something inside a manuscript ("objective number 2").
+    """
+    if not prior_sources:
+        return None
+    text = question or ''
+    position = None
+    match = _INLINE_NUMBERED_REFERENCE.search(text)
+    if match and not _IN_DOCUMENT_COUNTABLE.search(text[:match.start()].rstrip()):
+        position = int(match.group(1))
+    else:
+        match = _INLINE_ORDINAL_REFERENCE.search(text)
+        if match:
+            position = _ORDINAL_POSITIONS.get(match.group(1).lower())
+    if not match or not position or position > len(prior_sources):
+        return None
+    source = prior_sources[position - 1]
+    title = source.get('title', 'Untitled thesis')
+    standalone = f'{text[:match.start()]}the archived thesis titled "{title}"{text[match.end():]}'
+    return source, re.sub(r'\s+', ' ', standalone).strip()
+
+
+def _overview_question_for_sources(sources: list[dict]) -> str:
+    """Overview intent for every thesis shown in the previous answer."""
+    titles = '; '.join(
+        f'"{source.get("title", "Untitled thesis")}"' for source in sources
+    )
+    return (
+        'For each of the archived theses titled ' + titles + ', explain the central research '
+        'problem, proposed system, technical scope, and evaluation approach, addressing each '
+        'thesis separately under its own title. Summarize only details supported by that thesis.'
+    )
 
 
 def _is_plural_source_followup(question: str, prior_sources: list[dict]) -> bool:
@@ -931,6 +1079,16 @@ async def chat(
         )
         if user:
             try:
+                if req.edit_from_turn is not None:
+                    if not req.session_id:
+                        raise HTTPException(status_code=400, detail='A prompt edit requires a saved session.')
+                    await asyncio.to_thread(
+                        _truncate_session_from_turn,
+                        req.session_id,
+                        user.id,
+                        department,
+                        req.edit_from_turn,
+                    )
                 session_id = await asyncio.to_thread(
                     _persist_chat_exchange,
                     req,
@@ -1016,6 +1174,7 @@ async def _chat_impl_unstamped(
             answer=_model_response(),
             sources=[],
             session_id=req.session_id,
+            notice_type='conversation',
         )
 
     # Capability questions come before the greeting check: "what can you do"
@@ -1031,19 +1190,26 @@ async def _chat_impl_unstamped(
             answer=chat_notices.CAPABILITIES_MESSAGE,
             sources=[],
             session_id=req.session_id,
+            notice_type='conversation',
         )
 
     if _is_courtesy_message(req.question):
+        farewell = _is_farewell_message(req.question)
+        variants = (
+            chat_notices.FAREWELL_MESSAGES if farewell
+            else chat_notices.COURTESY_MESSAGES
+        )
         background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
             'question_length': len(req.question),
             'sources_cited': 0,
             'duplication_flagged': False,
-            'fast_path': 'courtesy',
+            'fast_path': 'farewell' if farewell else 'thanks',
         })
         return ChatResponse(
-            answer=chat_notices.COURTESY_MESSAGE,
+            answer=chat_notices.varied_message(variants, req.conversation_replies),
             sources=[],
             session_id=req.session_id,
+            notice_type='conversation',
         )
 
     if _is_simple_conversation(req.question):
@@ -1054,9 +1220,10 @@ async def _chat_impl_unstamped(
             'fast_path': 'conversation',
         })
         return ChatResponse(
-            answer=_conversation_response(),
+            answer=_conversation_response(req.question, req.conversation_replies),
             sources=[],
             session_id=req.session_id,
+            notice_type='conversation',
         )
 
     # "Who built you" is about IskAI, never about a manuscript, so it needs no
@@ -1074,6 +1241,7 @@ async def _chat_impl_unstamped(
             answer=_origin_response(),
             sources=[],
             session_id=req.session_id,
+            notice_type='conversation',
         )
 
     blocked_reason = prohibited_reason(req.question)
@@ -1100,6 +1268,8 @@ async def _chat_impl_unstamped(
     reference_sources: list[dict] = []
     if req.session_id:
         history_messages = await asyncio.to_thread(_load_chat_history, req.session_id, user.id)
+        if req.edit_from_turn is not None:
+            history_messages = history_messages[:req.edit_from_turn]
         history_messages = [
             message for message in history_messages
             if not prohibited_reason(message.get('question', ''))
@@ -1285,6 +1455,10 @@ async def _chat_impl_unstamped(
                 fragment_source = fragment_matches[0]
 
     numbered_source = _resolve_numbered_thesis_reference(req.question, reference_sources)
+    inline_reference = (
+        None if numbered_source
+        else _resolve_inline_thesis_reference(req.question, reference_sources)
+    )
     if referenced_paper_id:
         pass
     elif fragment_source:
@@ -1299,21 +1473,39 @@ async def _chat_impl_unstamped(
         effective_question = _overview_question_for_source(numbered_source)
         referenced_paper_id = numbered_source.get('id')
         is_overview_followup = True
+    elif inline_reference:
+        # "what are the objectives of number 2": the reference names the thesis
+        # and the rest of the sentence is the question about it. A specific
+        # question, not an overview, and the numeral is gone from the wording.
+        inline_source, effective_question = inline_reference
+        referenced_paper_id = inline_source.get('id')
     elif _is_plural_source_followup(req.question, reference_sources):
         referenced_paper_id = [
             source['id'] for source in reference_sources if source.get('id')
         ]
     elif not explicit_title and is_ambiguous_followup(req.question, prior_questions):
-        effective_question = _resolve_referenced_thesis(req.question, reference_sources)
-        is_overview_followup = bool(effective_question)
-        if reference_sources:
-            referenced_paper_id = reference_sources[0].get('id')
-        if not effective_question:
-            effective_question = (
-                _resolve_specific_paper_followup(req.question, reference_sources[0])
-                if reference_sources
-                else await _rewrite_followup(req.question, prior_questions, reference_sources)
-            )
+        if len(reference_sources) >= 2:
+            # The previous answer showed several theses and this follow-up does
+            # not single one out. Pinning the first silently answered about the
+            # wrong thesis; answering for each shown thesis, labelled with its
+            # title, is what the reader can actually check.
+            referenced_paper_id = [
+                source['id'] for source in reference_sources if source.get('id')
+            ]
+            if _resolve_referenced_thesis(req.question, reference_sources):
+                effective_question = _overview_question_for_sources(reference_sources)
+                is_overview_followup = True
+        else:
+            effective_question = _resolve_referenced_thesis(req.question, reference_sources)
+            is_overview_followup = bool(effective_question)
+            if reference_sources:
+                referenced_paper_id = reference_sources[0].get('id')
+            if not effective_question:
+                effective_question = (
+                    _resolve_specific_paper_followup(req.question, reference_sources[0])
+                    if reference_sources
+                    else await _rewrite_followup(req.question, prior_questions, reference_sources)
+                )
         rewritten_block = prohibited_reason(effective_question)
         if rewritten_block:
             background_tasks.add_task(log_activity, user.id if user else None, 'chat_query_blocked', {
@@ -1395,6 +1587,20 @@ async def _chat_impl_unstamped(
             session_id=req.session_id,
             no_relevant_thesis=True,
             archive_current=True,
+        )
+
+    if _is_unsupported_single_token_query(req.question, context, sources):
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': 0,
+            'duplication_flagged': False,
+            'fast_path': 'unclear_topic',
+        })
+        return ChatResponse(
+            answer=chat_notices.UNCLEAR_TOPIC_MESSAGE,
+            sources=[],
+            session_id=req.session_id,
+            kind='notice',
         )
 
     # S2: book this generation's worst-case cost against the shared daily guest
