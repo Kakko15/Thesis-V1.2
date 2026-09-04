@@ -86,8 +86,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # `npm audit` exits 1 both for real findings and for registry failures, so
+      # a timeout on npm's bulk advisory endpoint failed this job on 2026-09-04
+      # with no vulnerability to fix ("audit endpoint returned an error"). Only
+      # endpoint errors are retried; a high or critical advisory still fails the
+      # job on the first attempt, and an endpoint that stays unreachable fails it
+      # too rather than passing an unverified tree.
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          for attempt in 1 2 3; do
+            if report=$(npm audit --omit=dev --audit-level=high --fetch-timeout=45000 --fetch-retries=1 2>&1); then
+              echo "$report"
+              exit 0
+            fi
+            echo "$report"
+            if ! grep -qE 'audit endpoint returned an error|network timeout|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND' <<<"$report"; then
+              echo "::error::High or critical advisories in production dependencies."
+              exit 1
+            fi
+            echo "npm's advisory endpoint was unreachable (attempt $attempt/3)."
+            if [ "$attempt" -lt 3 ]; then sleep 15; fi
+          done
+          echo "::error::npm audit could not reach the advisory endpoint after 3 attempts."
+          exit 1
 
       - name: ESLint (Maintainability)
         run: npm run lint

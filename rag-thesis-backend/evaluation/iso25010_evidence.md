@@ -88,6 +88,17 @@ matrix passes unchanged for every typed prompt), `TestTheResponseCarriesItsKindL
 `TestCapabilityAndCourtesyFastPaths` in `tests/test_chat_endpoint_flows.py`. The
 per-paper duplication RPC pattern is untouched, per the standing audit warning.
 
+**CI gate repair.** The push of `16a1b53` failed `Frontend - ESLint + build` at *Audit
+production dependencies*, skipping every later frontend step. The cause was not a
+vulnerability: `npm audit` exits 1 both for real findings and for registry failures, and
+npm's bulk advisory endpoint timed out (`npm error audit endpoint returned an error`).
+Querying that endpoint directly for all 341 production packages in `package-lock.json`
+returns one **moderate** advisory (fflate 0.6.0-0.6.10 under `three-stdlib`,
+GHSA-px8p-9vwx-vf98) and zero high or critical, so the tree passes the gate's own
+`--audit-level=high` threshold. The step now retries up to three times on endpoint errors
+only; a genuine high or critical advisory still fails it on the first attempt, and an
+endpoint that stays unreachable fails it too rather than passing an unverified tree.
+
 Manuscript deltas deferred to a paper Pass 10 (not yet applied): Section 3.2.3 pipeline
 description (top-5-by-cosine -> pool 15 / rerank / <=3 per thesis / 5 blocks), prompt
 version mentions, and the aggregate-question sample-scoped behaviour where limitations
