@@ -48,15 +48,21 @@ const spaAwareApiProxy = {
 }
 
 function e2eApiGuard() {
+  // Also installed on the preview server: the E2E suite runs against the built
+  // bundle, and without this an unmocked API call would fall through to the SPA
+  // fallback and answer 200 with index.html, which surfaces as a confusing JSON
+  // parse error instead of a clean 501.
+  const guard = (server) => {
+    server.middlewares.use('/__e2e_api', (_req, res) => {
+      res.statusCode = 501
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ detail: 'Unmocked E2E API request' }))
+    })
+  }
   return {
     name: 'e2e-api-guard',
-    configureServer(server) {
-      server.middlewares.use('/__e2e_api', (_req, res) => {
-        res.statusCode = 501
-        res.setHeader('Content-Type', 'application/json')
-        res.end(JSON.stringify({ detail: 'Unmocked E2E API request' }))
-      })
-    },
+    configureServer: guard,
+    configurePreviewServer: guard,
   }
 }
 
