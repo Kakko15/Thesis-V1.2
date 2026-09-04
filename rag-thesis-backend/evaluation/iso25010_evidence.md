@@ -123,6 +123,15 @@ state in its own browser context). All 24 pass at each setting, and at two worke
 the SBOM, and a reused layer could make the scan attest a package set the image no longer
 contains.
 
+The dependency audit is now its own job. On the first run after the caching change npm's
+advisory endpoint stayed unreachable through all three attempts, and because the audit sat
+early in the frontend job it took ESLint, the unit tests, the build, the bundle budget and
+Playwright down with it - and a failed job also discards the caches it would have saved,
+so the caching could never take effect. `npm audit` resolves its tree from
+`package-lock.json`, verified to report the same counts with no `node_modules` present, so
+the job needs no install. A registry outage now fails that job alone, and still fails it: a
+gate that could not run is never recorded as a gate that passed.
+
 Manuscript deltas deferred to a paper Pass 10 (not yet applied): Section 3.2.3 pipeline
 description (top-5-by-cosine -> pool 15 / rerank / <=3 per thesis / 5 blocks), prompt
 version mentions, and the aggregate-question sample-scoped behaviour where limitations
