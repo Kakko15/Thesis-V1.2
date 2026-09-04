@@ -75,6 +75,8 @@ jobs:
   frontend-audit:
     name: Frontend · dependency audit
     runs-on: ubuntu-latest
+    # Three attempts that each wait up to five minutes, plus backoff.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: rag-thesis-frontend
@@ -97,15 +99,21 @@ jobs:
 
       # `npm audit` exits 1 both for real findings and for registry failures, so
       # a timeout on npm's bulk advisory endpoint failed this job on 2026-09-04
-      # with no vulnerability to fix ("audit endpoint returned an error"). Only
-      # endpoint errors are retried; a high or critical advisory still fails the
-      # job on the first attempt, and an endpoint that stays unreachable fails it
-      # too rather than passing an unverified tree.
+      # with no vulnerability to fix ("audit endpoint returned an error").
+      #
+      # That endpoint was not down, it was slow: measured the same day, a
+      # one-package POST answered 200 after 131 s, and the real 341-package
+      # payload after 294 s. A short client timeout turns that into a hard
+      # failure, so the timeout is five minutes and npm's own retry is off -
+      # retrying a slow request only multiplies the wait. The loop then retries
+      # genuine endpoint errors twice more. A high or critical advisory still
+      # fails the job on the first attempt, and an endpoint that never answers
+      # fails it too rather than passing an unverified tree.
       - name: Audit production dependencies
         run: |
-          backoff="20 40 60 0"
-          for attempt in 1 2 3 4; do
-            if report=$(npm audit --omit=dev --audit-level=high --fetch-timeout=45000 --fetch-retries=1 2>&1); then
+          backoff="15 30 0"
+          for attempt in 1 2 3; do
+            if report=$(npm audit --omit=dev --audit-level=high --fetch-timeout=300000 --fetch-retries=0 2>&1); then
               echo "$report"
               exit 0
             fi
@@ -114,11 +122,11 @@ jobs:
               echo "::error::High or critical advisories in production dependencies."
               exit 1
             fi
-            echo "npm's advisory endpoint was unreachable (attempt $attempt/4)."
+            echo "npm's advisory endpoint did not answer (attempt $attempt/3)."
             wait_for=$(cut -d' ' -f"$attempt" <<<"$backoff")
             if [ "$wait_for" -gt 0 ]; then sleep "$wait_for"; fi
           done
-          echo "::error::npm audit could not reach the advisory endpoint after 4 attempts."
+          echo "::error::npm audit could not reach the advisory endpoint after 3 attempts."
           exit 1
 
   frontend:
