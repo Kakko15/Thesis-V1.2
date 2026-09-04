@@ -132,6 +132,18 @@ so the caching could never take effect. `npm audit` resolves its tree from
 the job needs no install. A registry outage now fails that job alone, and still fails it: a
 gate that could not run is never recorded as a gate that passed.
 
+The e2e suite now runs against the built bundle instead of the vite dev server. The dev
+server transformed modules on demand, and that single-threaded work - not the browser - was
+the bottleneck, which is why a second Playwright worker bought only 213 s -> 203 s in CI.
+Measured locally on the same 24 tests: dev server 180 s at one worker and 118 s at two;
+built bundle 98 s and 65 s, with the e2e-mode build about 6 s of that. All 24 pass in every
+configuration, twice in a row at the CI setting. The build writes to `dist-e2e`, never
+`dist`, so the production bundle the size budget measures is never stood in for by an
+E2E-mode build; `--mode e2e` preserves `import.meta.env.MODE === 'e2e'`, which is what puts
+the app on its deterministic fixtures, and the 501 guard for unmocked API calls is now
+installed on the preview server as well so an unmocked call cannot fall through to the SPA
+fallback and answer 200 with `index.html`.
+
 Manuscript deltas deferred to a paper Pass 10 (not yet applied): Section 3.2.3 pipeline
 description (top-5-by-cosine -> pool 15 / rerank / <=3 per thesis / 5 blocks), prompt
 version mentions, and the aggregate-question sample-scoped behaviour where limitations
