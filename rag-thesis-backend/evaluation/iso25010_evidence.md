@@ -111,6 +111,18 @@ artifact from the recorded 2026-07-25 PI-03 run
 (`docs/evidence/security/pi-03-dependencies-20260725-045627/npm-audit.json`) carries
 `auditReportVersion` and populated counts, so that result was a real audit and stands.
 
+**CI wall-clock.** The 2026-09-04 run took 632 s, of which the frontend job was 622 s:
+`npm ci` 303 s, Playwright 213 s, the dependency audit 61 s. The resolved `node_modules`
+tree is a pure function of the lockfile, the Node version and the runner image, so it is
+now cached whole and reinstalled only on a miss; the Playwright browser is cached on the
+same key. The e2e suite ran at one worker: measured on the 24-test suite, 180 s at one
+worker, 126 s at two, 134 s at three, so CI now uses two (`fullyParallel` stays off, so
+order within a spec file is unchanged; every test mocks its own backend traffic and holds
+state in its own browser context). All 24 pass at each setting, and at two workers under
+`CI=1` in 118 s. Container image builds are deliberately left uncached: they feed Trivy and
+the SBOM, and a reused layer could make the scan attest a package set the image no longer
+contains.
+
 Manuscript deltas deferred to a paper Pass 10 (not yet applied): Section 3.2.3 pipeline
 description (top-5-by-cosine -> pool 15 / rerank / <=3 per thesis / 5 blocks), prompt
 version mentions, and the aggregate-question sample-scoped behaviour where limitations

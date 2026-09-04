@@ -13,6 +13,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Superseded pull-request runs are cancelled; every push to main keeps its own
+# run, because those are the dated evidence artifacts.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   backend:
     name: Backend · PyTest + Pylint
@@ -83,8 +89,22 @@ jobs:
           cache: npm
           cache-dependency-path: rag-thesis-frontend/package-lock.json
 
+      # `npm ci` rebuilt the whole tree on every run: 303 s of a 622 s job on
+      # 2026-09-04, the single largest cost in CI. The resolved tree is a pure
+      # function of the lockfile, the Node version and the runner image, so it
+      # is cached whole and the install only runs on a miss. `--no-audit` here
+      # suppresses npm's install-time advisory call only; the audit gate below
+      # is a separate invocation and is unaffected.
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@v4
+        with:
+          path: rag-thesis-frontend/node_modules
+          key: node-modules-${{ runner.os }}-node24.18.0-${{ hashFiles('rag-thesis-frontend/package-lock.json') }}
+
       - name: Install dependencies
-        run: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       # `npm audit` exits 1 both for real findings and for registry failures, so
       # a timeout on npm's bulk advisory endpoint failed this job on 2026-09-04
@@ -129,6 +149,13 @@ jobs:
       # charting chunks stay behind their lazy imports.
       - name: Bundle-size budget
         run: npm run bundle:budget
+
+      # Keyed on the lockfile, so a @playwright/test bump invalidates it.
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('rag-thesis-frontend/package-lock.json') }}
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
