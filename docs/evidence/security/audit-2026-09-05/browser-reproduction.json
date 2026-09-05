@@ -1,0 +1,8 @@
+{
+  "reproduced": true,
+  "authenticated_display_name": "Bob",
+  "visible_previous_account_file": "ALICE-PRIVATE-DRAFT.pdf",
+  "visible_previous_account_summary": "Alice confidential research notes.",
+  "backend_history_requests": 1,
+  "identity_and_backend": "synthetic E2E fixtures"
+}
