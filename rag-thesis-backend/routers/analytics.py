@@ -16,6 +16,7 @@ from models import ProfileUpdate, RoleUpdate, UserUpdate
 from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.catalog import resolve_academic_selection
+from services.db_errors import identifier_not_found, is_missing_column
 from services.rate_limiting import limiter
 
 logger = logging.getLogger(__name__)
@@ -182,7 +183,32 @@ def public_summary(request: Request):
     }
 
 
-@router.get('/overview', responses=errors(403))
+def _overview_papers(build_scoped):
+    """Archive rows for the dashboard, tolerating only the pre-migration schema."""
+    try:
+        papers, total = _fetch_all(
+            build_scoped('papers', 'id,track,year,chunk_count,created_at,thesis_category'),
+            label='overview papers',
+        )
+        return papers, total, Counter(
+            paper.get('thesis_category') or 'student' for paper in papers
+        )
+    except Exception as error:
+        # A database without the thesis_category column is the one condition a
+        # reduced column list can repair, and the dashboard hides the category
+        # breakdown while that counter stays empty. Catching every exception
+        # instead retried a transient read failure once against the same
+        # connection and then surfaced it as an unhandled 500.
+        if not is_missing_column(error):
+            raise
+    papers, total = _fetch_all(
+        build_scoped('papers', 'id,track,year,chunk_count,created_at'),
+        label='overview papers (legacy)',
+    )
+    return papers, total, Counter()
+
+
+@router.get('/overview', responses=errors(403, 503))
 def overview(user: AdminUser):
     """Return full analytics for the admin dashboard."""
     role, department = _admin_scope(user)
@@ -198,35 +224,31 @@ def overview(user: AdminUser):
         return build
 
     try:
-        papers, total_papers = _fetch_all(
-            scoped('papers', 'id,track,year,chunk_count,created_at,thesis_category'),
-            label='overview papers',
+        papers, total_papers, papers_per_category = _overview_papers(scoped)
+        profiles, total_users = _fetch_all(
+            scoped('profiles', 'role'), label='overview profiles',
         )
-        papers_per_category = Counter(
-            paper.get('thesis_category') or 'student' for paper in papers
+        scans, total_scans = _fetch_all(
+            scoped('scan_history', 'duplication_percentage,created_at'),
+            label='overview scans',
         )
-    except Exception:
-        # Pre-migration databases have no thesis_category column yet; the
-        # dashboard hides the breakdown while this counter stays empty.
-        papers, total_papers = _fetch_all(
-            scoped('papers', 'id,track,year,chunk_count,created_at'),
-            label='overview papers (legacy)',
+    except Exception as error:
+        # Every figure below reaches an administrator as a measured fact, so an
+        # unavailable read declines rather than reporting a fabricated zero --
+        # the contract `public_summary` already follows. These three reads were
+        # previously unguarded and surfaced a transient Supabase failure as a
+        # bare 500.
+        logger.warning(
+            'Administration analytics are unavailable (%s)', type(error).__name__,
         )
-        papers_per_category = Counter()
+        raise HTTPException(
+            503, 'Administration analytics are temporarily unavailable.',
+        ) from error
 
     papers_per_track = Counter(paper.get('track') or 'Uncategorized' for paper in papers)
     papers_per_year = Counter(str(paper['year']) for paper in papers if paper.get('year'))
     total_chunks = sum(paper.get('chunk_count') or 0 for paper in papers)
-
-    profiles, total_users = _fetch_all(
-        scoped('profiles', 'role'), label='overview profiles',
-    )
     users_per_role = Counter(profile.get('role', 'student') for profile in profiles)
-
-    scans, total_scans = _fetch_all(
-        scoped('scan_history', 'duplication_percentage,created_at'),
-        label='overview scans',
-    )
     scan_percentages = [
         scan['duplication_percentage']
         for scan in scans
@@ -305,7 +327,8 @@ def update_user_role(user_id: str, body: RoleUpdate, user: AdminUser):
     current_result = sb.table('profiles').select('role,department').eq('id', user.id).execute()
     current_profile = current_result.data[0] if current_result.data else {}
 
-    existing = sb.table('profiles').select('id,email,role,department').eq('id', user_id).execute()
+    with identifier_not_found('User not found'):
+        existing = sb.table('profiles').select('id,email,role,department').eq('id', user_id).execute()
     if not existing.data:
         raise HTTPException(404, 'User not found')
     target = existing.data[0]
@@ -344,7 +367,8 @@ def delete_user(user_id: str, user: AdminUser):
     current_result = sb.table('profiles').select('role,department').eq('id', user.id).execute()
     current_profile = current_result.data[0] if current_result.data else {}
 
-    existing = sb.table('profiles').select('department,role').eq('id', user_id).execute()
+    with identifier_not_found('User not found'):
+        existing = sb.table('profiles').select('department,role').eq('id', user_id).execute()
     if not existing.data:
         raise HTTPException(404, 'User not found')
     target = existing.data[0]
@@ -377,13 +401,21 @@ def delete_user(user_id: str, user: AdminUser):
     return {'deleted': True}
 
 
-@router.put('/users/{user_id}/details', responses=errors(403, 404, 422))
+@router.put('/users/{user_id}/details', responses=errors(400, 403, 404, 422))
 def update_user_details(user_id: str, data: UserUpdate, curr_user: AdminUser):
     """Edit an authorized user's name, role, department, and status."""
+    # The role endpoint has always refused self-modification and this one did
+    # not, so a superadmin could demote or reject their own account here and
+    # lock the only unrestricted role out of the system. The UI hides the
+    # control for the current user, which left the gap reachable by direct call.
+    if user_id == curr_user.id:
+        raise HTTPException(400, 'You cannot change your own role, department, or status.')
+
     current_result = sb.table('profiles').select('role,department').eq('id', curr_user.id).execute()
     current_profile = current_result.data[0] if current_result.data else {}
 
-    existing = sb.table('profiles').select('department,role').eq('id', user_id).execute()
+    with identifier_not_found('User not found'):
+        existing = sb.table('profiles').select('department,role').eq('id', user_id).execute()
     if not existing.data:
         raise HTTPException(404, 'User not found')
     target = existing.data[0]
@@ -500,7 +532,12 @@ def update_my_profile(data: ProfileUpdate, user: CurrentUser):
         if not full_name:
             raise HTTPException(422, 'Full name cannot be empty')
         update_data['full_name'] = full_name
-    if data.avatar_url is not None:
+    # Keyed on whether the field was SENT, not on whether it is null. `None` is
+    # both "absent" and "clear it", and treating the two alike meant Remove
+    # photo (which posts `avatar_url: null`) skipped the update entirely and
+    # returned "no changes" -- while the client went on to delete the storage
+    # object, leaving the profile pointing at an image that no longer exists.
+    if 'avatar_url' in data.model_fields_set:
         if data.avatar_url and not data.avatar_url.startswith(f'{user.id}/'):
             raise HTTPException(422, 'Avatar must be an image uploaded to your account')
         update_data['avatar_url'] = data.avatar_url

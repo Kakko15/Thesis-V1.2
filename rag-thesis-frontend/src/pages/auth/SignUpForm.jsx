@@ -119,6 +119,16 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
         }, captcha.token),
       })
       if (error) throw error
+      // Supabase never errors on a duplicate address — it returns a user
+      // carrying no identities rather than confirming the account exists. That
+      // left `exists` permanently false and its panel unreachable, and sent the
+      // visitor to a code screen no code would ever reach. The panel's wording
+      // stays non-enumerating, matching what authUtils already says for the
+      // explicit "user already registered" error.
+      if (Array.isArray(data?.user?.identities) && data.user.identities.length === 0) {
+        setExists(true)
+        return
+      }
       if (data.session) {
         // Email confirmation disabled on the project — signed straight in.
         toast.success('Welcome to the archive!')
@@ -244,7 +254,12 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
           role="alert"
           className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-gold-400/12 px-3.5 py-2.5 text-xs font-medium"
         >
-          <span>An account with this email already exists.</span>
+          {/* Word for word what authUtils returns for the explicit
+              "user already registered" error, so the two ways this can be
+              reached read as one outcome: Supabase raises that error only when
+              email confirmation is off, and returns the identity-less user
+              this branch detects when it is on. */}
+          <span>Account creation could not be completed. Try signing in or recovering access.</span>
           <UnderlineLink
             onClick={onSwitchToSignIn}
             className="font-bold text-forest-700 dark:text-gold-300"

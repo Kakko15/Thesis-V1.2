@@ -77,9 +77,11 @@ function QuickAction({ icon: Icon, title, text, onClick, tone = 'forest' }) {
 // slim nudge, shown while 2FA is off, because admins need it for Operations.
 function SecurityNudge() {
   const { isAdmin } = useAuth()
-  const { enabled, isLoading: checking, handleChanged } = useMfaStatus()
+  const { enabled, isLoading: checking, isError, handleChanged } = useMfaStatus()
   const [open, setOpen] = useState(false)
-  if (checking || enabled) return null
+  // An unreadable factor list is not evidence that 2FA is off, and urging
+  // someone to enable protection they already have is worse than staying quiet.
+  if (checking || isError || enabled) return null
   return (
     <GlassCard className="flex flex-wrap items-center gap-3 border border-gold-400/25 p-4 text-sm">
       <Fingerprint size={17} className="shrink-0 text-gold-500" aria-hidden="true" />

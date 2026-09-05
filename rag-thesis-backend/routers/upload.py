@@ -37,6 +37,7 @@ from routers.catalog import active_track_names
 from routers.openapi_responses import errors
 from services.cleanup import record_storage_cleanup
 from services.catalog import normalize_thesis_category, resolve_academic_selection
+from services.db_errors import is_invalid_identifier
 from services import prompts
 from services.filenames import sanitize_filename
 from services.llm_output import coerce_text, strip_code_fence
@@ -441,6 +442,11 @@ def upload_status(job_id: str, user: UploadUser):
             )
         job = result.data[0] if result.data else None
     except Exception as error:
+        # `upload_jobs.id` is a uuid column, so a mistyped job id is rejected by
+        # Postgres rather than returning no rows. That is an absent job, not an
+        # outage, and reporting 503 invited a client to keep retrying it.
+        if is_invalid_identifier(error):
+            raise HTTPException(404, 'Upload job not found (it may have expired)') from error
         raise HTTPException(503, 'Upload status is temporarily unavailable') from error
     if not job:
         raise HTTPException(404, 'Upload job not found (it may have expired)')
@@ -513,6 +519,8 @@ def cancel_upload_job(
         text = str(error).lower()
         if 'pgrst202' in text or 'could not find the function' in text:
             raise HTTPException(503, 'Upload cancellation requires the operations migration') from error
+        if is_invalid_identifier(error):
+            raise HTTPException(404, 'Upload job not found') from error
         raise HTTPException(503, 'Upload cancellation is temporarily unavailable') from error
     outcome = str((data or {}).get('outcome') or 'not_found')
     status = str((data or {}).get('status') or 'unknown')

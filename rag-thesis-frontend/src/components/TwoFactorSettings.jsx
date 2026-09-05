@@ -10,7 +10,7 @@ import { useMfaStatus } from './useMfaStatus'
  */
 export function TwoFactorSettings() {
   const [open, setOpen] = useState(false)
-  const { enabled, handleChanged } = useMfaStatus()
+  const { enabled, isError, handleChanged } = useMfaStatus()
 
   return (
     <div>
@@ -36,23 +36,29 @@ export function TwoFactorSettings() {
                 }
               >
                 <span className={enabled ? 'h-1 w-1 rounded-full bg-forest-500' : 'h-1 w-1 rounded-full bg-forest-900/30 dark:bg-white/30'} />
-                {enabled ? 'On' : 'Off'}
+                {isError ? 'Unavailable' : enabled ? 'On' : 'Off'}
               </span>
             </div>
+            {/* An emailed code also satisfies sign-in for a non-privileged
+                account, so the authenticator is not what every sign-in
+                requires. Administration and Operations are what genuinely
+                cannot proceed without it (dependencies/auth.py). */}
             <p className="mt-0.5 text-xs text-ink-muted">
-              {enabled
-                ? 'Sign-ins require your password and a rotating authenticator code.'
-                : 'A stolen password alone can never open your account — takes about a minute.'}
+              {isError
+                ? 'Two-factor status could not be checked. Open Manage to try again.'
+                : enabled
+                  ? 'Sign-in asks for a second step. Administration and Operations require a code from this app.'
+                  : 'A stolen password alone can never open your account — takes about a minute.'}
             </p>
           </div>
         </div>
         <Button
-          variant={enabled ? 'outline' : 'primary'}
+          variant={enabled || isError ? 'outline' : 'primary'}
           size="sm"
           className="shrink-0"
           onClick={() => setOpen(true)}
         >
-          {enabled ? 'Manage' : 'Enable 2FA'}
+          {enabled || isError ? 'Manage' : 'Enable 2FA'}
         </Button>
       </div>
       <MfaEnrollDialog open={open} onClose={() => setOpen(false)} onChanged={handleChanged} />

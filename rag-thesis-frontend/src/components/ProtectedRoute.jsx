@@ -51,12 +51,15 @@ export function ProtectedRoute({ children, roles, isAllowed, allowGuest = false 
           <AlertTriangle size={28} className="text-gold-500" />
         </div>
         <h2 className="font-display text-2xl font-bold">Pending Approval</h2>
-        {/* Two different things land here now — a faculty request, or any address
-            outside the institutional domain — so the copy no longer blames the role. */}
+        {/* The institutional-domain hold was removed by
+            20260828_allow_any_email_signup.sql: student sign-ups are approved on
+            creation, so the domain half of this copy described a rule the
+            database no longer applies. An administrator can still place any
+            account under review, which is the other way to land here. */}
         <p className="mt-2 max-w-sm text-sm text-ink-muted">
           Your account request has been received. An administrator will review it before
-          access is granted. Faculty requests and sign-ups from outside the ISU email
-          domain both need approval.
+          access is granted. Faculty accounts always need approval, and an administrator
+          can place any account under review.
         </p>
         <button onClick={signOut} className="mt-6 text-sm font-semibold text-forest-700 hover:text-forest-500">
           Sign out

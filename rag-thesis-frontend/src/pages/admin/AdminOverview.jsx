@@ -99,10 +99,14 @@ export default function AdminOverview() {
   const trackData = Object.entries(overview?.papers?.per_track || {}).map(([name, value]) => ({ name, value }))
   const yearData = Object.entries(overview?.papers?.per_year || {}).map(([name, value]) => ({ name, value }))
 
-  const changeRole = async (userId, role) => {
-    setChanging(userId)
+  const changeRole = async (selectedUser, role) => {
+    setChanging(selectedUser.id)
     try {
-      await updateUserRole(userId, role)
+      // Status travels with the role. `RoleUpdate.status` defaults to
+      // 'approved' when omitted, so sending the role alone silently approved a
+      // pending faculty request — or un-rejected a rejected account — on every
+      // role change made from this panel.
+      await updateUserRole(selectedUser.id, { role, status: selectedUser.status })
       queryClient.invalidateQueries({ queryKey: ['users'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-overview'] })
       toast.success('Role updated')
@@ -255,7 +259,7 @@ export default function AdminOverview() {
                   <Select
                     value={u.role}
                     disabled={changing === u.id}
-                    onChange={(e) => changeRole(u.id, e.target.value)}
+                    onChange={(e) => changeRole(u, e.target.value)}
                     className="h-8 w-28 rounded-xl px-2.5 text-xs"
                     aria-label={`Role for ${u.email}`}
                   >

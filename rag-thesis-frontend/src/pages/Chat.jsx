@@ -57,6 +57,20 @@ function isCancelledRequest(error) {
   return error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError'
 }
 
+// `ChatRequest.conversation_replies` caps every entry at 500 characters
+// (rag-thesis-backend/models.py). The field exists only so the server can pick
+// a conversational line it has not just used, and each of those canned replies
+// sits far below the cap — but Redo response appended the answer being
+// regenerated, and a grounded answer runs well past it, so every retry of a
+// real answer came back 422 and the reader was told IskAI could not answer.
+const CONVERSATION_REPLY_MAX_CHARS = 500
+
+function withinReplyLimit(answer) {
+  return typeof answer === 'string'
+    && answer.length > 0
+    && answer.length <= CONVERSATION_REPLY_MAX_CHARS
+}
+
 function ComposerAction({ sending, verifying, hasInput, onStop }) {
   if (sending) {
     return (
@@ -135,6 +149,10 @@ function Composer({
           onChange={(e) => onChange(e.target.value)}
           onFocus={onFocus}
           onKeyDown={(e) => {
+            // Enter commits an IME candidate rather than submitting, so
+            // without this a Filipino, Japanese, or Chinese speaker sends
+            // half-composed text mid-word.
+            if (e.nativeEvent.isComposing) return
             // sendKey preference from Settings → Chat & AI: default Enter sends
             // (Shift+Enter newlines); 'ctrlEnter' flips it so Enter newlines and
             // only Ctrl/Cmd+Enter sends.
@@ -392,6 +410,9 @@ function UserBubble({ text, onCopy, onUpdate, copied }) {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
+                // Enter commits an IME candidate and Escape cancels one;
+                // neither is an edit action while a character is being composed.
+                if (e.nativeEvent.isComposing) return
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitEdit() }
                 if (e.key === 'Escape') cancelEdit()
               }}
@@ -486,9 +507,16 @@ function AiResponseActions({ message, onRegenerate, onFollowUp, disabled }) {
     }
   }, [menuOpen])
 
-  useEffect(() => () => {
-    clearTimeout(copiedTimerRef.current)
-    if (listening) window.speechSynthesis?.cancel()
+  // Unmount only. Keyed on `listening`, this cleanup also ran every time Listen
+  // was toggled, clearing the copy-feedback timer of an unrelated action — so a
+  // copy within 1.6s of a toggle left the "Copied" tick showing for good.
+  useEffect(() => () => clearTimeout(copiedTimerRef.current), [])
+
+  // Speech this component started stops when it stops listening or goes away.
+  // Cancelling an utterance that already ended is a no-op.
+  useEffect(() => {
+    if (!listening) return undefined
+    return () => window.speechSynthesis?.cancel()
   }, [listening])
 
   const copyResponse = async () => {
@@ -898,7 +926,7 @@ export default function Chat() {
           .filter((message) => message.kind === 'ai' && message.notice_type === 'conversation')
           .map((message) => message.answer),
         answerMessage.answer,
-      ].filter(Boolean).slice(-30),
+      ].filter(withinReplyLimit).slice(-30),
     })
   }
 
@@ -1027,7 +1055,7 @@ export default function Chat() {
         options.conversationReplies ?? baseMessages
           .filter((message) => message.kind === 'ai' && message.notice_type === 'conversation')
           .map((message) => message.answer)
-          .filter(Boolean)
+          .filter(withinReplyLimit)
           .slice(-30),
       )
       if (controller.signal.aborted) return

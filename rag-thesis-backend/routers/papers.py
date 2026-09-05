@@ -11,6 +11,7 @@ from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.catalog import normalize_thesis_category
 from services.cleanup import record_storage_cleanup
+from services.db_errors import identifier_not_found
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +108,13 @@ def delete_paper(paper_id: str, user: AdminUser):
     profile_res = sb.table('profiles').select('role,department').eq('id', user.id).execute()
     current_profile = profile_res.data[0] if profile_res.data else {}
 
-    existing = sb.table('papers').select(
-        'id,title,storage_path,department,ingestion_status',
-    ).eq('id', paper_id).execute()
+    # `papers.id` is a uuid column, so a mistyped identifier is rejected by
+    # Postgres rather than returning no rows; without this guard that reached
+    # the administrator as an unhandled 500 instead of the documented 404.
+    with identifier_not_found('Paper not found'):
+        existing = sb.table('papers').select(
+            'id,title,storage_path,department,ingestion_status',
+        ).eq('id', paper_id).execute()
     if not existing.data:
         raise HTTPException(404, 'Paper not found')
     paper = existing.data[0]
