@@ -9,7 +9,7 @@ from config import settings
 from dependencies.auth import require_superadmin, sb
 from models import CatalogEntityCreate, CatalogEntityUpdate
 from routers.openapi_responses import errors
-from services.db_errors import is_unique_violation
+from services.db_errors import identifier_not_found, is_unique_violation
 from services.rate_limiting import limiter
 
 router = APIRouter(prefix='/catalog', tags=['Academic catalog'])
@@ -161,7 +161,11 @@ def list_catalog_legacy(request: Request):
 
 @router.post('/programs', status_code=status.HTTP_201_CREATED, responses=errors(409, 422, 502))
 def create_program(body: CatalogEntityCreate, _user: SuperadminUser):
-    parent = sb.table('departments').select('id').eq('id', body.parent_id).eq('active', True).execute()
+    # `parent_id` is only length-checked by the model, so a 36-character value
+    # that is not a UUID reaches Postgres and raises instead of returning no
+    # rows. An unusable parent reference is a 422 either way.
+    with identifier_not_found('Active parent department not found.', status_code=422):
+        parent = sb.table('departments').select('id').eq('id', body.parent_id).eq('active', True).execute()
     if not parent.data:
         raise HTTPException(422, 'Active parent department not found.')
     row = {'department_id': body.parent_id, 'code': body.code, 'name': body.name, 'active': True}
@@ -175,7 +179,8 @@ def update_program(entity_id: str, body: CatalogEntityUpdate, _user: SuperadminU
     values = body.model_dump(exclude_none=True)
     if not values:
         raise HTTPException(422, 'At least one program field is required.')
-    result = sb.table('programs').update(values).eq('id', entity_id).execute().data or []
+    with identifier_not_found('Program not found.'):
+        result = sb.table('programs').update(values).eq('id', entity_id).execute().data or []
     if not result:
         raise HTTPException(404, 'Program not found.')
     return result[0]
@@ -183,7 +188,8 @@ def update_program(entity_id: str, body: CatalogEntityUpdate, _user: SuperadminU
 
 @router.post('/specializations', status_code=status.HTTP_201_CREATED, responses=errors(409, 422, 502))
 def create_specialization(body: CatalogEntityCreate, _user: SuperadminUser):
-    parent = sb.table('programs').select('id').eq('id', body.parent_id).eq('active', True).execute()
+    with identifier_not_found('Active parent program not found.', status_code=422):
+        parent = sb.table('programs').select('id').eq('id', body.parent_id).eq('active', True).execute()
     if not parent.data:
         raise HTTPException(422, 'Active parent program not found.')
     row = {'program_id': body.parent_id, 'code': body.code, 'name': body.name, 'active': True}
@@ -197,7 +203,8 @@ def update_specialization(entity_id: str, body: CatalogEntityUpdate, _user: Supe
     values = body.model_dump(exclude_none=True)
     if not values:
         raise HTTPException(422, 'At least one specialization field is required.')
-    result = sb.table('specializations').update(values).eq('id', entity_id).execute().data or []
+    with identifier_not_found('Specialization not found.'):
+        result = sb.table('specializations').update(values).eq('id', entity_id).execute().data or []
     if not result:
         raise HTTPException(404, 'Specialization not found.')
     return result[0]

@@ -340,6 +340,16 @@ function DepartmentsManagement() {
   )
 }
 
+/** A name the API will accept.
+ *
+ *  `UserUpdate.full_name` is required and rejects a blank string, while a
+ *  profile row may legitimately carry none — so an account without a name made
+ *  every edit fail validation with a 422 the administrator could not act on.
+ */
+function displayNameFor(user) {
+  return (user?.full_name || '').trim() || user?.email?.split('@')[0] || 'Unknown'
+}
+
 /** Active department names, keeping `current` selectable even if its college
  *  has since been archived so an editor cannot silently reassign a record. */
 function departmentOptions(departments, current) {
@@ -416,7 +426,15 @@ export default function SystemManagementTab() {
 
   const handleUpdate = async (userId, data) => {
     try {
-      await updateUserDetails(userId, data)
+      // Exactly the four fields the endpoint reads, and never a blank name.
+      // Posting the whole profile row sent `full_name: null` for an account
+      // that has none, which `UserUpdate` rejects before the edit is applied.
+      await updateUserDetails(userId, {
+        full_name: displayNameFor(data),
+        role: data.role,
+        department: data.department,
+        status: data.status,
+      })
       queryClient.invalidateQueries({ queryKey: ['users'] })
       toast.success('User updated')
       setEditingUser(null)
@@ -437,7 +455,7 @@ export default function SystemManagementTab() {
 
   const updateUserStatus = async (selectedUser, status) => {
     try {
-      const fallbackName = selectedUser.full_name || selectedUser.email.split('@')[0] || 'Unknown'
+      const fallbackName = displayNameFor(selectedUser)
       if (myRole === 'superadmin') {
         await updateUserDetails(selectedUser.id, {
           full_name: fallbackName,

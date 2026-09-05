@@ -585,14 +585,27 @@ class TestChatPersistence:
         ]
 
     def test_edit_generation_excludes_the_replaced_and_later_history(self, monkeypatch):
+        """The edit position is resolved by the loader, against the session's
+        own ordered transcript.
+
+        It used to be applied here instead, as a slice of the five newest
+        ANSWER rows the loader returns -- two different coordinate systems. The
+        browser counts every stored row as a turn, notices included, so on a
+        session past five turns, or holding a single notice, that slice fed the
+        model turns from after the edit point or the wrong prefix entirely.
+        """
         captured = {}
         history = [
             {'question': 'first', 'answer': 'first answer', 'sources': []},
             {'question': 'second', 'answer': 'second answer', 'sources': []},
         ]
 
+        def load(session_id, user_id, before_turn=None):
+            captured['loader_args'] = (session_id, user_id, before_turn)
+            return history if before_turn is None else history[:before_turn]
+
         monkeypatch.setattr(chat, '_ensure_session_owner', lambda *_: None)
-        monkeypatch.setattr(chat, '_load_chat_history', lambda *_: history)
+        monkeypatch.setattr(chat, '_load_chat_history', load)
         monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_: 'CCSICT')
         original_format = chat._format_chat_history
 
@@ -615,7 +628,38 @@ class TestChatPersistence:
         ))
 
         assert captured['question'] == 'edited second'
+        # Forwarded, not applied here.
+        assert captured['loader_args'] == ('session-1', 'user-1', 1)
         assert captured['history_messages'] == history[:1]
+
+    def test_the_loader_counts_notices_as_turns_when_resolving_an_edit(self, monkeypatch):
+        """`before_turn` indexes the FULL transcript, notices included.
+
+        The browser renders every stored row, so the turn it reports counts
+        them. The model context must not, which is why the notice below is a
+        boundary for counting and never becomes an exchange.
+        """
+        rows = [
+            {'question': 'q1', 'answer': 'a1', 'sources': [], 'kind': 'answer'},
+            {'question': 'q2', 'answer': 'a notice', 'sources': [], 'kind': 'notice'},
+            {'question': 'q3', 'answer': 'a3', 'sources': [], 'kind': 'answer'},
+        ]
+
+        class Query:
+            def select(self, *_args): return self
+            def eq(self, *_args): return self
+            def order(self, *_args, **_kwargs): return self
+            def execute(self): return SimpleNamespace(data=rows)
+
+        monkeypatch.setattr(chat, 'sb', SimpleNamespace(table=lambda _name: Query()))
+        first = {'question': 'q1', 'answer': 'a1', 'sources': []}
+        third = {'question': 'q3', 'answer': 'a3', 'sources': []}
+
+        assert chat._history_before_turn('s1', 3) == [first, third]
+        assert chat._history_before_turn('s1', 1) == [first]
+        # The notice occupies turn 1, so turn 2 adds a boundary and no exchange.
+        assert chat._history_before_turn('s1', 2) == [first]
+        assert chat._history_before_turn('s1', 0) == []
 
     def test_session_department_mismatch_is_rejected(self, monkeypatch):
         class Query:

@@ -1328,6 +1328,9 @@
           },
           "403": {
             "description": "The authenticated account is not permitted to perform this action."
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [
@@ -1483,6 +1486,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "The request payload or parameters were rejected."
           },
           "403": {
             "description": "The authenticated account is not permitted to perform this action."

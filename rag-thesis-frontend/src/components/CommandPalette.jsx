@@ -57,6 +57,8 @@ export function CommandPalette({ open, onClose, items, onOpenAppearance, onOpenP
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
+            // Enter commits an IME candidate rather than choosing a command.
+            if (event.nativeEvent.isComposing) return
             if (event.key === 'Enter' && filtered[0]) run(filtered[0])
           }}
           placeholder="Search destinations and actions"

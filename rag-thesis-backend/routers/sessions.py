@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from dependencies.auth import get_current_user, get_user_scope, sb
 from models import SessionCreate, SessionUpdate
 from routers.openapi_responses import errors
+from services.db_errors import identifier_not_found
 
 router = APIRouter(prefix='/sessions', tags=['sessions'])
 
@@ -25,13 +26,18 @@ _MESSAGE_FIELDS = 'id,session_id,question,answer,sources,duplication_alert,kind,
 
 
 def _owned_session_or_404(session_id: str, user_id: str):
-    existing = (
-        sb.table('chat_sessions')
-        .select('id')
-        .eq('id', session_id)
-        .eq('user_id', user_id)
-        .execute()
-    )
+    # `chat_sessions.id` is a uuid column, so a mistyped identifier is rejected
+    # by Postgres instead of returning no rows. Without this guard that opaque
+    # driver error reached the client as an unhandled 500 from a route that
+    # documents 404 for exactly this case.
+    with identifier_not_found('Session not found'):
+        existing = (
+            sb.table('chat_sessions')
+            .select('id')
+            .eq('id', session_id)
+            .eq('user_id', user_id)
+            .execute()
+        )
     if not existing.data:
         raise HTTPException(status_code=404, detail='Session not found')
 

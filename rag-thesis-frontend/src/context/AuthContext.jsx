@@ -142,7 +142,11 @@ export const AuthProvider = ({ children }) => {
       .then(({ data }) => active && syncSession(data.session))
       .catch(() => active && setLoading(false))
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // `getSession()` above already syncs the initial state, and supabase-js
+      // emits INITIAL_SESSION for that same state — so every page load ran the
+      // profile read and the feature fetch twice before settling.
+      if (event === 'INITIAL_SESSION') return
       if (active) void syncSession(session)
     })
 

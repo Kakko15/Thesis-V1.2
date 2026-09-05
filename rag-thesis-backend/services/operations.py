@@ -308,11 +308,13 @@ def evaluate_operations(client) -> dict:
         if row.get('cleanup_status') in {'pending', 'processing'}
         and _timestamp(row.get('updated_at')) < cleanup_before
     ]
-    exhausted = [
-        row for row in jobs
-        if row.get('status') == 'failed'
-        and int(row.get('attempt_count') or 0) >= int(row.get('max_attempts') or 3)
-    ]
+    # Every `failed` job is terminal: `fail_upload_job` is the only writer of
+    # that status and nothing retries afterwards. Additionally requiring the
+    # retry budget to have run out silently excluded the whole permanent-failure
+    # class -- an unreadable, encrypted, or malware-flagged manuscript is failed
+    # on attempt 1 of 3 by `upload_queue.is_retryable_ingestion_error`, so it
+    # raised no alert and never reached the console's failed-job count.
+    exhausted = [row for row in jobs if row.get('status') == 'failed']
     scanner_unavailable = [
         row for row in active_workers if row.get('scanner_status') not in allowed_scanner_states
     ]

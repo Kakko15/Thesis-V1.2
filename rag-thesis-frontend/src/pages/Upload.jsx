@@ -440,6 +440,7 @@ export default function Upload() {
       const active = JSON.parse(saved)
       if (active.jobId) {
         idempotencyKeyRef.current = active.idempotencyKey || crypto.randomUUID()
+        if (active.title) setForm((current) => ({ ...current, title: active.title }))
         setJob({ status: 'queued', stage: 'download', progress: 8, message: 'Restoring durable upload status…' })
         setStep(3)
         startPolling(active.jobId)
@@ -458,6 +459,10 @@ export default function Upload() {
       sessionStorage.setItem('activeUploadJob', JSON.stringify({
         jobId: res.job_id,
         idempotencyKey: res.idempotency_key || idempotencyKeyRef.current,
+        // The completion screen names the thesis. Only the job was restored on
+        // a refresh, so a reader who reloaded while indexing was told that ""
+        // had joined the archive.
+        title: form.title,
       }))
       setJob({ status: res.status, stage: 'download', progress: 8, message: res.message })
       setStep(3)

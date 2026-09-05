@@ -65,8 +65,18 @@ export function IdleSessionGuard() {
   const [secondsLeft, setSecondsLeft] = useState(null) // null → no warning
   const expiringRef = useRef(false)
   const lastActivityRef = useRef(0)
+  // Read through a ref so `expire` keeps a stable identity. As a dependency it
+  // was rebuilt on every navigation, and the main effect below lists it — so a
+  // route change tore down and reinstalled the 1s interval and all four
+  // activity listeners, and the recordActivity() in that effect reset the idle
+  // clock without any real input having happened.
+  const locationRef = useRef(location)
 
   const active = Boolean(user) && !needsMfa && !isE2ETestMode
+
+  useEffect(() => {
+    locationRef.current = location
+  })
 
   const expire = useCallback(
     async (reason) => {
@@ -76,8 +86,8 @@ export function IdleSessionGuard() {
       window.localStorage.removeItem(IDLE_SESSION_START_KEY)
       setSecondsLeft(null)
       await signOut()
-      const here = location.pathname + location.search
-      navigate(loginPathWithNext(here), { replace: true })
+      const { pathname, search } = locationRef.current
+      navigate(loginPathWithNext(pathname + search), { replace: true })
       if (reason === 'absolute') {
         toast.info('Session expired', {
           description: 'For security, sessions last 12 hours. Sign in again to continue.',
@@ -88,7 +98,7 @@ export function IdleSessionGuard() {
         })
       }
     },
-    [signOut, navigate, location],
+    [signOut, navigate],
   )
 
   // Record activity — shared across tabs via localStorage, throttled so a

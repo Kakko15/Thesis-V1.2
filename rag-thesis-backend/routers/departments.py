@@ -9,7 +9,7 @@ from config import settings
 from dependencies.auth import require_superadmin, sb
 from models import DepartmentCreate, DepartmentOut, DepartmentUpdate
 from routers.openapi_responses import errors
-from services.db_errors import is_unique_violation
+from services.db_errors import identifier_not_found, is_unique_violation
 from services.rate_limiting import limiter
 
 router = APIRouter(prefix='/departments', tags=['Departments'])
@@ -120,11 +120,12 @@ def update_department(
     """Update a department."""
     # Returned directly at the no-op branch below, so this pins the response
     # columns rather than publishing whatever the table happens to have.
-    existing = (
-        sb.table('departments')
-        .select(_DEPARTMENT_COLUMNS)
-        .eq('id', department_id).execute()
-    )
+    with identifier_not_found('Department not found'):
+        existing = (
+            sb.table('departments')
+            .select(_DEPARTMENT_COLUMNS)
+            .eq('id', department_id).execute()
+        )
     if not existing.data:
         raise HTTPException(status_code=404, detail='Department not found')
 
@@ -166,7 +167,8 @@ def update_department(
 def delete_department(department_id: str, user: SuperadminUser):
     """Delete a department."""
     # Only the name is read, and nothing here reaches the client.
-    existing = sb.table('departments').select('name').eq('id', department_id).execute()
+    with identifier_not_found('Department not found'):
+        existing = sb.table('departments').select('name').eq('id', department_id).execute()
     if not existing.data:
         raise HTTPException(status_code=404, detail='Department not found')
 

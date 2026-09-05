@@ -9,14 +9,21 @@ import { useAuth } from '../context/AuthContext'
  */
 export function useMfaStatus() {
   const { refreshMfa } = useAuth()
-  const { data, refetch, isLoading } = useQuery({
+  const { data, refetch, isLoading, isError } = useQuery({
     queryKey: ['mfa-factors'],
-    queryFn: async () => (await supabase.auth.mfa.listFactors()).data,
+    queryFn: async () => {
+      // The error used to be discarded and `.data` read as null, so a transient
+      // lookup failure was indistinguishable from "2FA is off" — and every
+      // surface urged the reader to enable protection they already had.
+      const { data: factors, error } = await supabase.auth.mfa.listFactors()
+      if (error) throw error
+      return factors
+    },
   })
   const enabled = !!data?.totp?.some((f) => f.status === 'verified')
   const handleChanged = async () => {
     await refetch()
     await refreshMfa()
   }
-  return { enabled, isLoading, handleChanged }
+  return { enabled, isLoading, isError, handleChanged }
 }

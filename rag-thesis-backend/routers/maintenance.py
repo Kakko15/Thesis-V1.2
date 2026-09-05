@@ -12,6 +12,7 @@ from dependencies.auth import require_superadmin, sb
 from config import settings
 from routers.openapi_responses import errors
 from services.activity import log_activity
+from services.db_errors import identifier_not_found
 from services.operations import (
     ALERT_FIELDS,
     WORKER_FIELDS,
@@ -97,12 +98,13 @@ def list_operational_alerts(user: SuperadminUser, limit: int = 100):
 def acknowledge_alert(alert_id: str, user: SuperadminUser):
     now = datetime.now(timezone.utc).isoformat()
     try:
-        rows = (
-            sb.table('operational_alerts').update({
-                'status': 'acknowledged', 'acknowledged_at': now,
-                'acknowledged_by': user.id, 'updated_at': now,
-            }).eq('id', alert_id).neq('status', 'resolved').execute().data or []
-        )
+        with identifier_not_found('Open operational alert not found'):
+            rows = (
+                sb.table('operational_alerts').update({
+                    'status': 'acknowledged', 'acknowledged_at': now,
+                    'acknowledged_by': user.id, 'updated_at': now,
+                }).eq('id', alert_id).neq('status', 'resolved').execute().data or []
+            )
         if not rows:
             raise HTTPException(404, 'Open operational alert not found')
         record_security_event(

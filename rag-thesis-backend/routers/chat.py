@@ -30,6 +30,7 @@ from services.citations import (
     normalize_citation_markers,
     validate_citations,
 )
+from services.db_errors import identifier_not_found
 from services.embedder import embed_text
 from services import gemini_pool
 from services import chat_notices, guest_budget, prompts
@@ -604,11 +605,62 @@ def get_no_relevant_message(department: str | None = None) -> str:
 _coerce_answer = coerce_text
 
 
-def _load_chat_history(session_id: str, user_id: str) -> list[dict]:
-    owner = sb.table('chat_sessions').select('id') \
-        .eq('id', session_id).eq('user_id', user_id).execute()
+def _history_before_turn(session_id: str, before_turn: int) -> list[dict]:
+    """The newest answered exchanges that precede `before_turn`.
+
+    The whole ordered transcript is read because the browser counts every
+    stored row as a turn, notices included, and this has to land on the same
+    boundary `_truncate_session_from_turn` deletes from -- which reads the
+    session the same way, for the same reason.
+    """
+    rows = (
+        sb.table('chat_messages')
+        .select('question, answer, sources, kind')
+        .eq('session_id', session_id)
+        .order('created_at', desc=False)
+        .execute()
+    ).data or []
+    answered = [
+        row for row in rows[:before_turn]
+        if row.get('kind') == chat_notices.KIND_ANSWER
+    ]
+    # The same five-exchange window the default branch below asks SQL for.
+    return [
+        {key: row.get(key) for key in ('question', 'answer', 'sources')}
+        for row in answered[-5:]
+    ]
+
+
+def _load_chat_history(
+    session_id: str, user_id: str, before_turn: int | None = None,
+) -> list[dict]:
+    """Recent answered exchanges a follow-up may be resolved against.
+
+    `before_turn` is the zero-based position of a prompt being edited within the
+    session's FULL ordered transcript -- the only index a browser can compute,
+    and the one `_truncate_session_from_turn` deletes from. It is deliberately
+    NOT an index into the list this returns by default, which holds at most the
+    newest five ANSWER rows: slicing that window by a full-transcript position
+    compared two different coordinate systems, so any session longer than five
+    turns, or holding a single notice, fed the model turns from after the edit
+    point or the wrong prefix entirely.
+
+    A position, rather than the edited row's id, is what a browser can supply,
+    and it is sound because the two server-side operations that consume it --
+    this and `_truncate_session_from_turn` -- now resolve it against the same
+    ordered read, while `_client_gone` keeps the transcript from gaining a row
+    the reader never saw. Keying on a message id would additionally survive a
+    client whose transcript had diverged some other way, but it needs
+    `save_chat_exchange` to return the inserted row id, which is a signature
+    change to a SECURITY DEFINER function and a migration.
+    """
+    with identifier_not_found('Session not found'):
+        owner = sb.table('chat_sessions').select('id') \
+            .eq('id', session_id).eq('user_id', user_id).execute()
     if not owner.data:
         raise HTTPException(status_code=404, detail='Session not found')
+    if before_turn is not None:
+        return _history_before_turn(session_id, before_turn)
     # B14: only real answers become conversational context. Filtered in SQL so a
     # session whose recent history is mostly notices still returns five usable
     # exchanges instead of five rows that are then discarded in Python.
@@ -623,14 +675,15 @@ def _load_chat_history(session_id: str, user_id: str) -> list[dict]:
 
 
 def _ensure_session_owner(session_id: str, user_id: str, department: str) -> None:
-    owner = (
-        sb.table('chat_sessions')
-        .select('id,department')
-        .eq('id', session_id)
-        .eq('user_id', user_id)
-        .limit(1)
-        .execute()
-    )
+    with identifier_not_found('Session not found'):
+        owner = (
+            sb.table('chat_sessions')
+            .select('id,department')
+            .eq('id', session_id)
+            .eq('user_id', user_id)
+            .limit(1)
+            .execute()
+        )
     if not owner.data:
         raise HTTPException(status_code=404, detail='Session not found')
     if owner.data[0].get('department') != department:
@@ -658,6 +711,51 @@ def _truncate_session_from_turn(
     stale_ids = [row['id'] for row in rows[turn:] if row.get('id')]
     if stale_ids:
         sb.table('chat_messages').delete().in_('id', stale_ids).execute()
+
+
+async def _client_gone(request) -> bool:
+    """Whether the browser abandoned this request before the answer landed.
+
+    Pressing Stop, or editing a prompt still in flight, aborts the fetch while
+    the server finishes and persists the exchange anyway. The reader's
+    transcript then held one turn fewer than the database, so the withdrawn
+    question reappeared on the next reload.
+
+    Reliable for the case it exists to catch rather than merely best effort:
+    uvicorn marks a connection lost on the event loop the moment the socket
+    closes, independently of this handler, so by the time a generation lasting
+    seconds returns, an abort issued at its start is long since queued.
+    Starlette then polls that channel without blocking, so this is True only
+    once a disconnect has genuinely arrived. It cannot invent one.
+
+    It carries exactly one deployment dependency: a reverse proxy in front of
+    uvicorn must pass the client's abort upstream. `docker-compose.operations.yml`
+    publishes the API directly, so nothing intercepts it today; a topology that
+    buffered the response instead would simply persist the exchange, which is
+    what this path did unconditionally before.
+
+    Every ambiguous case counts as still connected, deliberately. A double with
+    no such method, or a transport that cannot answer, must not stop the
+    exchange being recorded -- that failure would be silent and would lose real
+    chat history, which is worse than the surplus turn this removes.
+
+    `TestClient` is the one shape that answers True spuriously: it queues
+    `http.disconnect` as soon as the body is consumed, so an AUTHENTICATED chat
+    request driven through it would skip persistence. Drive `_chat_impl`
+    directly there, as the existing tests do.
+    """
+    probe = getattr(request, 'is_disconnected', None)
+    if not callable(probe):
+        return False
+    try:
+        gone = bool(await probe())
+    except Exception:  # pylint: disable=broad-exception-caught
+        return False
+    if gone:
+        # Logged because the alternative failure is silent: were this ever to
+        # misfire, chat history would simply stop being written.
+        logger.info('Client disconnected before the answer landed; exchange not saved')
+    return gone
 
 
 def _persist_chat_exchange(req: ChatRequest, response: ChatResponse, user, department: str) -> str:
@@ -1074,14 +1172,19 @@ async def chat(
             if user
             else None
         )
+        # Checked before generation rather than after it: a prompt edit with no
+        # saved session is a malformed request, and rejecting it only once the
+        # answer existed spent a model call to return 400.
+        if user and req.edit_from_turn is not None and not req.session_id:
+            raise HTTPException(
+                status_code=400, detail='A prompt edit requires a saved session.',
+            )
         response = await _chat_impl(
             req, request, background_tasks, user, resolved_department=department,
         )
-        if user:
+        if user and not await _client_gone(request):
             try:
                 if req.edit_from_turn is not None:
-                    if not req.session_id:
-                        raise HTTPException(status_code=400, detail='A prompt edit requires a saved session.')
                     await asyncio.to_thread(
                         _truncate_session_from_turn,
                         req.session_id,
@@ -1267,9 +1370,12 @@ async def _chat_impl_unstamped(
     history_messages: list[dict] = []
     reference_sources: list[dict] = []
     if req.session_id:
-        history_messages = await asyncio.to_thread(_load_chat_history, req.session_id, user.id)
-        if req.edit_from_turn is not None:
-            history_messages = history_messages[:req.edit_from_turn]
+        # The edit position is resolved against the session's own ordered
+        # transcript inside the loader. Slicing the five-row window it returns
+        # by that position compared two different coordinate systems.
+        history_messages = await asyncio.to_thread(
+            _load_chat_history, req.session_id, user.id, req.edit_from_turn,
+        )
         history_messages = [
             message for message in history_messages
             if not prohibited_reason(message.get('question', ''))

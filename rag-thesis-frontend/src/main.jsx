@@ -26,6 +26,12 @@ import './index.css'
 MotionGlobalConfig.skipAnimations = isE2ETestMode
   && window.localStorage.getItem('isu_e2e_skip_animations') === '1'
 
+// Already retried twice by the Axios interceptor (src/api.js). Retrying them
+// here as well turned one failed GET into as many as six requests — the
+// multiplication the 503 exclusion below was written to prevent, applied to
+// only one of the three statuses that needed it.
+const INTERCEPTOR_RETRIED_STATUSES = new Set([502, 504])
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -38,6 +44,7 @@ const queryClient = new QueryClient({
         // Authentication, authorization, validation, and readiness failures
         // require user/configuration action; repeating them only floods logs.
         if (status && (status < 500 || status === 503)) return false
+        if (INTERCEPTOR_RETRIED_STATUSES.has(status)) return false
         return failureCount < 1
       },
       refetchOnWindowFocus: false,

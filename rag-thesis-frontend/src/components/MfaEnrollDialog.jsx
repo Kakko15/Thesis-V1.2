@@ -257,7 +257,7 @@ function MfaBody({ onClose, onChanged }) {
       })
       if (err) throw err
       toast.success('Two-factor authentication enabled', {
-        description: "You'll be asked for a code at every sign-in.",
+        description: "You'll be asked to verify a second step at every sign-in.",
       })
       onChanged?.()
       onClose()
@@ -419,7 +419,7 @@ function MfaBody({ onClose, onChanged }) {
             </div>
             <div className="mt-0.5 text-xs leading-relaxed text-ink-muted">
               {factor
-                ? 'Signing in requires your password and a rotating authenticator code.'
+                ? 'Sign-in asks for a second step. Administration and Operations require a code from this app.'
                 : 'Add an authenticator app so a stolen password alone can never open your account.'}
             </div>
           </div>
