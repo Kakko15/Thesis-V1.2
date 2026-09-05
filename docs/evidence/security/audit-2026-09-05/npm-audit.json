@@ -1,0 +1,29 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "fflate": {
+      "name": "fflate",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [{
+        "source": 1164784,
+        "name": "fflate",
+        "dependency": "fflate",
+        "title": "fflate unzipSync can enter an infinite loop when parsing malformed ZIP64 archives",
+        "url": "https://github.com/advisories/GHSA-px8p-9vwx-vf98",
+        "severity": "moderate",
+        "cwe": ["CWE-400"],
+        "cvss": {"score": 7.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"},
+        "range": ">=0.6.0 <0.6.11"
+      }],
+      "effects": [],
+      "range": "0.6.0 - 0.6.10",
+      "nodes": ["node_modules/three-stdlib/node_modules/fflate"],
+      "fixAvailable": true
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {"info": 0, "low": 0, "moderate": 1, "high": 0, "critical": 0, "total": 1},
+    "dependencies": {"prod": 302, "dev": 223, "optional": 53, "peer": 3, "peerOptional": 0, "total": 577}
+  }
+}
