@@ -13,6 +13,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege for GITHUB_TOKEN. Without this block every job inherits the
+# repository default, which on repositories created before February 2023 is
+# read/write on all scopes — contents and packages included — for jobs that
+# only ever read the tree and build images. Anything a job genuinely needs is
+# granted back on that job; today only the secret scan needs more.
+permissions:
+  contents: read
+
 # Superseded pull-request runs are cancelled; every push to main keeps its own
 # run, because those are the dated evidence artifacts.
 concurrency:
@@ -28,10 +36,10 @@ jobs:
         working-directory: rag-thesis-backend
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           # Kept in step with the interpreter assertion in
           # rag-thesis-backend/Dockerfile. Moved 3.14.6 -> 3.14.7 on 2026-08-25
@@ -67,7 +75,7 @@ jobs:
         run: pylint --rcfile=.pylintrc routers services dependencies workers main.py config.py models.py
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: backend-coverage
           path: rag-thesis-backend/coverage.xml
@@ -90,10 +98,10 @@ jobs:
     # never reported as a gate that passed.
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24.18.0'
 
@@ -137,10 +145,10 @@ jobs:
         working-directory: rag-thesis-frontend
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24.18.0'
           cache: npm
@@ -154,7 +162,7 @@ jobs:
       # is a separate invocation and is unaffected.
       - name: Restore node_modules
         id: node-modules
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: rag-thesis-frontend/node_modules
           key: node-modules-${{ runner.os }}-node24.18.0-${{ hashFiles('rag-thesis-frontend/package-lock.json') }}
@@ -170,7 +178,7 @@ jobs:
         run: npm run test:coverage
 
       - name: Upload frontend coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: frontend-coverage
           path: rag-thesis-frontend/coverage/lcov.info
@@ -185,7 +193,7 @@ jobs:
 
       # Keyed on the lockfile, so a @playwright/test bump invalidates it.
       - name: Cache Playwright browser
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('rag-thesis-frontend/package-lock.json') }}
@@ -199,8 +207,15 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    # The only job that needs more than the workflow default. gitleaks-action
+    # reads the pull request's commits through the API, which `contents: read`
+    # alone does not cover; the step below already records why the token is
+    # required and that read-only is enough.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       # Dependabot-driven pull_request runs failed here on every branch while
@@ -208,7 +223,7 @@ jobs:
       # and needs the workflow token to do so. Pull requests receive a read-only
       # token, which is sufficient.
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -223,7 +238,7 @@ jobs:
           - name: frontend
             context: rag-thesis-frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Build ${{ matrix.name }} image
         run: docker build -t isu-thesis-${{ matrix.name }}:ci ${{ matrix.context }}
 
@@ -244,7 +259,7 @@ jobs:
           isu-thesis-backend:ci
           python -c "import main, workers.ingestion_worker; print('backend image imports', main.app.version)"
       - name: Scan ${{ matrix.name }} image
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: isu-thesis-${{ matrix.name }}:ci
           format: table
@@ -259,7 +274,7 @@ jobs:
       # sbom-action uploads the result as a workflow artifact itself, so there is
       # no separate upload step to keep in sync.
       - name: Generate ${{ matrix.name }} SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: isu-thesis-${{ matrix.name }}:ci
           format: spdx-json
@@ -274,7 +289,7 @@ jobs:
     needs: [backend, frontend]
     steps:
       - name: Checkout (full history for accurate blame data)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -282,31 +297,46 @@ jobs:
         id: sonar
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
         run: |
-          if [ -n "$SONAR_TOKEN" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ -z "$SONAR_TOKEN" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "SONAR_TOKEN secret not set — skipping the scan (see README, SonarQube section)."
+            exit 0
           fi
+          # The host arrives from a repository variable, a lower bar than the
+          # secret it steers: anyone who can set variables could point
+          # SONAR_TOKEN at a server of their choosing, and unlike editing this
+          # file that change leaves no trace in the git history. Add a
+          # self-hosted server here before pointing CI at it.
+          case "$SONAR_HOST_URL" in
+            https://sonarcloud.io) ;;
+            *)
+              echo "::error::Refusing to send SONAR_TOKEN to unapproved host $SONAR_HOST_URL."
+              exit 1 ;;
+          esac
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "host=$SONAR_HOST_URL" >> "$GITHUB_OUTPUT"
 
       - name: Download backend coverage
         if: steps.sonar.outputs.enabled == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: backend-coverage
           path: rag-thesis-backend
 
       - name: Download frontend coverage
         if: steps.sonar.outputs.enabled == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: frontend-coverage
           path: rag-thesis-frontend/coverage
 
       - name: SonarQube scan
         if: steps.sonar.outputs.enabled == 'true'
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+          # The allowlisted value the check step above resolved, never the raw
+          # repository variable.
+          SONAR_HOST_URL: ${{ steps.sonar.outputs.host }}
