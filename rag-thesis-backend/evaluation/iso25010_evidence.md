@@ -6,6 +6,87 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## Corpus release and instrument re-scope - 2026-09-07
+
+CCSICT released the defense corpus. It is **thirteen distinct undergraduate
+manuscripts**, not the fifty the proposal reserved, and the department both selected and
+limited the set; no further theses will be provided. The handover held fourteen PDFs:
+`ARELLANO & MARYCRIS.pdf` is an unsigned second revision of the Arellano/Tamano BLIS
+project already in the set, so it is the one file that is not its own record. Titles,
+authors and years were transcribed from each manuscript's own title page; the staged PDFs
+and the working register are controlled under PI-08 (`evaluation/corpus/private/`,
+gitignored).
+
+Composition as released:
+
+| Program / specialization | Theses | Years |
+|---|---|---|
+| BSCS / Data Mining | 6 | 2024 (5), 2025 (1) |
+| BSIS (no specialization) | 3 | 2025 |
+| BLIS (no specialization) | 4 | 2026 |
+| BSIT / Web and Mobile Application Development | 0 | - |
+| BSIT / Network and Security | 0 | - |
+| BSDSA | 0 | - |
+
+Three consequences were applied in code rather than left to the formal run:
+
+1. **`EXPECTED_PAPER_COUNT` is 13** (`scripts/corpus_manifest.py`), so a lock-ready
+   manifest must hold exactly the released set. The manifest template records the
+   represented and unrepresented categories explicitly, and
+   `tests/test_corpus_manifest.py` pins the constant so a future release moves the paper
+   and the PI-08 protocol with it.
+2. **The Golden Dataset keeps all forty queries and declares a coverage stratum for
+   each** — 3 `absent_by_design`, 5 `absent_unreleased`, 32 `undetermined`. Deleting the
+   queries the corpus cannot answer would have narrowed the catalog-wide scope the
+   methodology declares and hidden the department release limit; leaving them unmarked
+   would have let a correct refusal count as an accuracy failure.
+   `validate_formal_dataset` refuses a formal run unless every query declares a stratum,
+   and refuses again while any is still `undetermined`.
+
+   **The first version of this stratum assignment was wrong and was corrected the same
+   day, in review, before any ground truth was drafted.** It derived the stratum from
+   each query's category, which is wrong in both directions: category records which part
+   of the catalog a query was written to probe, not which manuscripts exist, and most of
+   these questions ask about "CCSICT theses" generally rather than about one track. Query
+   6 asks about recommender systems, which the released Mango Fruit Quality thesis
+   builds, yet its BSDSA category had marked it unanswerable; query 1 asks which theses
+   applied Retrieval-Augmented Generation, which none of the thirteen do, yet its Data
+   Mining category had marked it answerable. Either way round the interpretation inverts:
+   a correct grounded answer scored against a ground truth asserting absence, or a
+   correct refusal scored against one asserting an answer exists. Only two determinations
+   survive without reading the corpus — a negative control is absent by construction, and
+   a query whose own wording is scoped to an unreleased program or specialization cannot
+   be answered whatever the manuscripts contain — so those are the only queries marked in
+   advance. The other 32 are `undetermined` until the panel drafts their ground truth.
+   `tests/test_evaluation_harness.py::TestGoldenDatasetStrata` pins the counts, requires a
+   `coverage_basis` on every query, and asserts that no query is marked `present` before
+   its ground truth exists.
+3. **`run_comparison.py` reports Answer Correctness per stratum as well as pooled**
+   (`by_corpus_coverage` in the results JSON). Faithfulness and Context Precision stay
+   split by response kind in `summarize_rag_diagnostics`, not by coverage. The pooled
+   figure remains the headline for comparability with earlier artifacts; the `present`
+   stratum is the one Section 3.2.5 quotes as accuracy, because it is the only stratum
+   with a corpus-derived ground truth to be accurate against. Its n is whatever the panel
+   determines and is therefore not fixed here. A run resumed from a checkpoint written
+   before the field existed carries rows with no stratum; those are now listed in
+   `rows_without_corpus_coverage`, warned about, and disqualify `formal_result`, rather
+   than sitting in the pooled mean while silently missing from every stratum.
+
+**Still outstanding, unchanged:** all 40 ground truths and all 40 source-thesis fields
+are `REPLACE:` placeholders, `validated_by_faculty_panel` is `false`, and the corpus
+lock, its receipt and the four PI-08 approvals do not exist. The release narrows the
+corpus; it does not unblock Objective 2. A sample of thirteen theses across three of six
+catalog categories is a stated limitation of the study, not a property of the
+architecture, and Sections 1.3, 3.1.3 and 3.2.1 now say so.
+
+**One open item on the released set.** Two revisions of the Arellano/Tamano BLIS project
+exist: a 131-page copy carrying the adviser, panel and chair endorsement (PDF modified
+2026-05-15) and a 132-page unsigned copy (2026-06-03) whose only additions reword the
+application-manual section into formal third person, and which omits the approval sheet, a
+Chapter IV paragraph interpreting respondent distribution, and the chart data labels.
+Word-level similarity is 0.9724. The endorsed copy is staged; the register records the
+question so the librarian and adviser approvals see it rather than rediscover it.
+
 ## RAG accuracy and prompt-adaptivity pass - 2026-09-04, items 1-4 in `7392544`, items 5-6 on top of it
 
 Owner-approved improvement pass, applied BEFORE the formal Objective 2 run (the golden

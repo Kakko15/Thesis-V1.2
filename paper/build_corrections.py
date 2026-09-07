@@ -109,9 +109,9 @@ PROSE2 = [
      'The vector database is strictly limited to theses generated within the CCSICT '
      'department, comprising both student (undergraduate) and faculty manuscripts, each '
      'labelled by category and filterable in browsing, chat retrieval, and analytics. The '
-     'evaluation corpus for Objective 2 remains exactly the fifty (50) undergraduate theses '
-     'selected under the corpus protocol; faculty-category manuscripts are excluded from '
-     'that locked corpus by definition.',
+     'evaluation corpus for Objective 2 remains exactly the thirteen (13) undergraduate '
+     'theses CCSICT released under the corpus protocol; faculty-category manuscripts are '
+     'excluded from that locked corpus by definition.',
      1, 'P2-17 thesis categories'),
     # P2-7  tokenizer proxy caveat
     ('configured to an empirically optimized 800-token chunk size with a 100-token overlap '
@@ -247,8 +247,9 @@ PROSE4 = [
      'using both physical hardbound copies and digital files.',
      'The data will include past student (undergraduate) and faculty thesis projects from '
      'the department, each labelled by category, using both physical hardbound copies and '
-     'digital files. The evaluation corpus for Objective 2 remains exactly the fifty (50) '
-     'student manuscripts. Converting physical copies into PDF is an operational '
+     'digital files. The evaluation corpus for Objective 2 remains exactly the thirteen (13) '
+     'student manuscripts CCSICT released. Converting physical copies into PDF is an '
+     'operational '
      'prerequisite carried out before ingestion; the system extracts and, where necessary, '
      'OCRs text from an uploaded PDF and does not itself perform scanning.',
      1, 'A1/A3 3.1.3 corpus + boundary'),
@@ -593,6 +594,89 @@ REFERENCES9 = [
      'P9-11 Wong authors'),
 ]
 
+# --- Pass 10: the released corpus, 2026-09-07 -------------------------------
+# CCSICT released the defense corpus and it is thirteen manuscripts, not the
+# fifty the proposal reserved: six BSCS Data Mining (five 2024, one 2025),
+# three BSIS (2025) and four BLIS (2026), with the two BSIT tracks and BSDSA
+# unreleased. The
+# department chose the set and said there would be no more, so the two
+# paragraphs that promise fifty theses and proportional representation across
+# the tracks are now false in both directions -- the count and the sampling
+# claim. Ground truth: scripts/corpus_manifest.EXPECTED_PAPER_COUNT,
+# evaluation/corpus/corpus_manifest.template.json (released_composition) and
+# the 2026-09-07 section of evaluation/iso25010_evidence.md.
+PROSE10 = [
+    # Section 1.3, Dataset Volume Limit
+    ('The dataset will be limited to fifty (50) thesis documents obtained from the CCSICT '
+     'library, focusing only on selected undergraduate studies. This sample size was '
+     'purposely determined based on the volume of accessible and complete undergraduate '
+     "manuscripts currently available in the CCSICT archives, ensuring proportional "
+     "representation across the department's academic tracks.",
+     'The dataset is limited to the thirteen (13) undergraduate thesis documents released by '
+     'CCSICT for this study on 7 September 2026. This proposal reserved fifty (50); the '
+     'department selected and limited the release and provided no further manuscripts, so '
+     'the evaluation corpus is a census of what was released rather than a proportional '
+     'sample drawn by the researchers. The released set comprises six (6) BSCS Data Mining '
+     'theses (2024-2025), three (3) BSIS capstone projects (2025) and four (4) BLIS research '
+     'projects (2026); the BSIT Web and Mobile Application Development and Network and '
+     'Security tracks and the BSDSA program are unrepresented because no manuscript from '
+     'them was released. The reduced volume and the three unrepresented categories are '
+     'limitations of the evaluation rather than properties of the architecture, and they '
+     'are carried through Sections 3.1.3 and 3.2.1.',
+     1, 'P10-1 1.3 released corpus size'),
+    # Section 3.2.1, sampling. The needle is the paragraph as the 2026-08-25
+    # catalog-relabelling pass leaves it (PROSE5, 'Track vocabulary 3.2.1'), not
+    # the 2026-08-09 original: PROSE10 is applied last, so it has to match the
+    # current text.
+    ('The study will utilize purposive sampling in selecting fifty (50) undergraduate '
+     'thesis documents from the CCSICT archives. The selected dataset will include both '
+     'physical manuscript copies and digital soft copies, ensuring representation across '
+     'the CCSICT academic catalog: the Data Mining, Web and Mobile Application '
+     'Development, and Network and Security specializations, together with the BSDSA, '
+     'BSIS and BLIS programs, which carry no specialization and are therefore identified '
+     'by program code.',
+     'The study uses the thirteen (13) undergraduate thesis documents CCSICT released from '
+     'its archives on 7 September 2026, treated as a complete census of that release '
+     'rather than a purposive sample, because the department selected which manuscripts '
+     'to release and provided no others. The released dataset includes both physical '
+     'manuscript copies and digital soft copies and covers three categories of the CCSICT '
+     'academic catalog: the BSCS Data Mining specialization (six theses, 2024-2025), and the '
+     'BSIS (three, 2025) and BLIS (four, 2026) programs, which carry no specialization '
+     'and are therefore identified by program code. The Web and Mobile Application '
+     'Development and Network and Security specializations and the BSDSA program are '
+     'unrepresented, because no manuscript from them was released.',
+     1, 'P10-2 3.2.1 census not sample'),
+    # Section 3.2.1, the Golden Dataset. Forty queries were written for the
+    # full catalog, so the instrument declares a coverage stratum per query
+    # instead of letting a correct refusal be scored as an accuracy failure.
+    # The stratum is the panel's determination, taken when it drafts the ground
+    # truth: only the negative controls and the queries whose own wording names
+    # an unreleased track can be classified in advance, which is why no count
+    # of answerable queries is asserted here. Ground truth:
+    # evaluation/golden_dataset.json (corpus_coverage, coverage_basis) and
+    # evaluation/run_comparison.py (DECLARABLE_COVERAGE, by_corpus_coverage).
+    ("To eliminate researcher bias and ensure academic neutrality, these 'Ground Truth' "
+     'answers will be validated by a panel of three CCSICT faculty members prior to '
+     'serving as the absolute mathematical benchmark for the Ragas evaluation.',
+     "To eliminate researcher bias and ensure academic neutrality, these 'Ground Truth' "
+     'answers will be validated by a panel of three CCSICT faculty members prior to '
+     'serving as the absolute mathematical benchmark for the Ragas evaluation. Because '
+     'the released corpus covers three of the six catalog categories, each of the forty '
+     'queries also declares its corpus coverage, recording whether a released manuscript '
+     'can answer it at all. Three (3) queries are the original negative controls and five '
+     '(5) are scoped by their own wording to a program or specialization the department '
+     'did not release; both are known in advance to have no answer in the corpus. For the '
+     'remaining thirty-two (32) the determination is a judgement about content and is '
+     'made by the same panel when it drafts the ground truth, because a query about '
+     'CCSICT theses in general cannot be classified from the catalog category it was '
+     'written to probe. Where the corpus holds no evidence, an explicit statement to that '
+     'effect is the correct response rather than a wrong answer, so Answer Correctness is '
+     'interpreted on the queries the corpus can answer and every stratum is reported '
+     'separately as well as pooled.',
+     1, 'P10-3 3.2.1 coverage strata'),
+]
+
+
 # The displayed URL and the live hyperlink are stored separately; changing the
 # text alone would leave the link still pointing at the wrong paper.
 REL_TARGETS = [
@@ -640,6 +724,7 @@ def build(verbose=True):
     if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding')
     for old, new, n, label in (
         PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5 + PROSE6 + PROSE7 + PROSE8 + PROSE9
+        + PROSE10
     ):
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')

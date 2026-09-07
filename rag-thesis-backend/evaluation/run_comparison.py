@@ -122,6 +122,25 @@ BASELINE_PROMPT = (
 _CONTEXT_HEADER = re.compile(r'^\[(\d+)\][^\n]*\n', flags=re.MULTILINE)
 
 
+# Whether the released corpus can support an answer at all. CCSICT released
+# thirteen manuscripts covering BSCS Data Mining, BSIS and BLIS only, so some
+# queries have no corpus-derived ground truth. They stay in the instrument -- a
+# correct refusal there is evidence of grounding -- but pooling them with the
+# answerable queries would report one mean that mixes retrieval accuracy with
+# absence handling, so Answer Correctness is also reported per stratum.
+#
+# `undetermined` is a real state, not a placeholder: whether a query that asks
+# about "CCSICT theses" generally can be answered is a judgement about content,
+# made when the panel drafts its ground truth. It must not be inferred from the
+# query category, which is what an earlier revision of this instrument did in
+# both directions. A formal run is refused while any query is still
+# undetermined. See evaluation/golden_dataset.json
+# validation.instrument_revisions (2026-09-07).
+CORPUS_COVERAGE = ('present', 'absent_unreleased', 'absent_by_design')
+UNDETERMINED_COVERAGE = 'undetermined'
+DECLARABLE_COVERAGE = CORPUS_COVERAGE + (UNDETERMINED_COVERAGE,)
+
+
 def validate_formal_dataset(dataset: dict) -> list[str]:
     """Return every condition that prevents a defensible formal evaluation."""
     issues: list[str] = []
@@ -138,6 +157,17 @@ def validate_formal_dataset(dataset: dict) -> list[str]:
             value = str(query.get(field, '')).strip()
             if not value or value.upper().startswith('REPLACE:'):
                 issues.append(f'query {query.get("id", "?")} has an unverified {field}')
+        coverage = query.get('corpus_coverage')
+        if coverage not in DECLARABLE_COVERAGE:
+            issues.append(
+                f'query {query.get("id", "?")} must declare corpus_coverage as one of '
+                f'{", ".join(DECLARABLE_COVERAGE)}'
+            )
+        elif coverage == UNDETERMINED_COVERAGE:
+            issues.append(
+                f'query {query.get("id", "?")} still has corpus_coverage '
+                f'{UNDETERMINED_COVERAGE!r}: the panel sets it from the drafted ground truth'
+            )
     if dataset.get('validated_by_faculty_panel') is not True:
         issues.append('validated_by_faculty_panel is not true')
     panel = (dataset.get('validation') or {}).get('panel') or []
@@ -247,6 +277,7 @@ def _build_row(q, baseline, rag, attempts: int, unattempted: bool) -> dict:
         'id': q['id'],
         'question': q['question'],
         'ground_truth': q.get('ground_truth', ''),
+        'corpus_coverage': q.get('corpus_coverage'),
         'baseline_answer': baseline_answer,
         'baseline_latency_s': round(baseline_latency, 3),
         'rag_answer': rag_response.answer,
@@ -281,6 +312,7 @@ def _unattempted_row(q: dict, detail: str) -> dict:
         'id': q['id'],
         'question': q['question'],
         'ground_truth': q.get('ground_truth', ''),
+        'corpus_coverage': q.get('corpus_coverage'),
         'baseline_answer': '',
         'baseline_latency_s': 0.0,
         'rag_answer': '',
@@ -724,6 +756,23 @@ def main():
     print(f'Running {len(queries)} queries through both pathways (run id {run_id})...')
     rows = run_pathways(queries, pathways_checkpoint)
 
+    # A checkpoint written before corpus_coverage existed replays rows verbatim
+    # (`_load_checkpoint`), so a resumed run can carry rows with no stratum.
+    # Those would sit in the pooled mean while vanishing from every stratum,
+    # leaving the stratum n's not summing to the pooled n with nothing said.
+    # Only reachable with an explicit --run-id, since the default run id is the
+    # dataset digest and this field changed it.
+    uncovered = [
+        row['id'] for row in rows
+        if row.get('corpus_coverage') not in DECLARABLE_COVERAGE
+    ]
+    if uncovered:
+        print(
+            f'\nWARNING: {len(uncovered)} of {len(rows)} rows carry no corpus_coverage and are '
+            f'excluded from the per-stratum figures: {uncovered}. They come from a checkpoint '
+            f'written before the stratum existed; re-run with --fresh for a formal result.'
+        )
+
     unattempted = [row['id'] for row in rows if row.get('rag_unattempted')]
     if unattempted:
         print(
@@ -753,9 +802,10 @@ def main():
         # would otherwise be reported over a silently smaller n than the
         # instrument declares, which is the same class of error as quoting a
         # /chat load run that returned 100% HTTP 200 while answering nothing.
-        'formal_result': not dataset_issues and not unattempted,
+        'formal_result': not dataset_issues and not unattempted and not uncovered,
         'dataset_validation_issues': dataset_issues,
         'unattempted_query_ids': unattempted,
+        'rows_without_corpus_coverage': uncovered,
         'queries_scored': len(rows) - len(unattempted),
         'queries_total': len(rows),
         'rows': sanitized_rows,
@@ -767,10 +817,13 @@ def main():
         output['ragas'] = ragas_results
 
         for metric in ('answer_correctness',):
+            # Each score row is paired with the source row it came from so a
+            # pair keeps its coverage stratum. `score_with_ragas` appends one
+            # entry per row in order, which is what makes the strict zip sound.
             pairs = [
-                (float(base_row[metric]), float(rag_row[metric]))
-                for base_row, rag_row in zip(
-                    ragas_results['baseline'], ragas_results['rag'], strict=True,
+                (row.get('corpus_coverage'), float(base_row[metric]), float(rag_row[metric]))
+                for row, base_row, rag_row in zip(
+                    rows, ragas_results['baseline'], ragas_results['rag'], strict=True,
                 )
                 if base_row.get(metric) is not None
                 and rag_row.get(metric) is not None
@@ -778,7 +831,8 @@ def main():
                 and math.isfinite(float(rag_row[metric]))
             ]
             if pairs:
-                base, rag = map(list, zip(*pairs, strict=True))
+                base = [baseline_score for _stratum, baseline_score, _rag in pairs]
+                rag = [rag_score for _stratum, _baseline, rag_score in pairs]
                 output.setdefault('statistics', {})[metric] = statistical_treatment(base, rag)
                 output.setdefault('means', {})[metric] = {
                     'baseline': sum(base) / len(base),
@@ -788,6 +842,25 @@ def main():
                     # so this can legitimately be smaller than queries_total.
                     'n': len(pairs),
                 }
+                # The pooled figures above stay the headline so earlier
+                # artifacts remain comparable; these are what Section 3.2.5
+                # quotes for accuracy, because only the `present` stratum has a
+                # corpus-derived ground truth to be accurate against.
+                for stratum in CORPUS_COVERAGE:
+                    selected = [
+                        (baseline_score, rag_score)
+                        for row_stratum, baseline_score, rag_score in pairs
+                        if row_stratum == stratum
+                    ]
+                    if not selected:
+                        continue
+                    stratum_base, stratum_rag = map(list, zip(*selected, strict=True))
+                    output.setdefault('by_corpus_coverage', {}).setdefault(stratum, {})[metric] = {
+                        'baseline': sum(stratum_base) / len(stratum_base),
+                        'rag': sum(stratum_rag) / len(stratum_rag),
+                        'n': len(selected),
+                        'statistics': statistical_treatment(stratum_base, stratum_rag),
+                    }
         output['rag_diagnostics'] = summarize_rag_diagnostics(rows, ragas_results['rag'])
 
     json_path = RESULTS_DIR / f'comparison_{stamp}.json'
@@ -808,7 +881,12 @@ def main():
     print(f'\nDone. Results written to {json_path}')
     if 'means' in output:
         for metric, vals in output['means'].items():
-            print(f"  {metric}: baseline={vals['baseline']:.3f}  rag={vals['rag']:.3f}")
+            print(f"  {metric} (pooled, n={vals['n']}): "
+                  f"baseline={vals['baseline']:.3f}  rag={vals['rag']:.3f}")
+    for stratum, metrics in output.get('by_corpus_coverage', {}).items():
+        for metric, vals in metrics.items():
+            print(f"  {metric} [{stratum}, n={vals['n']}]: "
+                  f"baseline={vals['baseline']:.3f}  rag={vals['rag']:.3f}")
 
 
 if __name__ == '__main__':

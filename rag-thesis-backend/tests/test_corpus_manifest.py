@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from scripts.corpus_manifest import (
+    EXPECTED_PAPER_COUNT,
     ManifestError,
     lock_manifest,
     manifest_sha256,
@@ -60,7 +61,7 @@ def _approved_manifest() -> dict:
         'corpus_id': 'ISU-ECHAGUE-CCSICT-DEFENSE-2026',
         'status': 'approved',
         'department': 'CCSICT',
-        'expected_paper_count': 50,
+        'expected_paper_count': 13,
         'purpose': 'Fixed corpus for the approved CCSICT defense evaluation.',
         'processing_profile': {
             'gemini_service_tier': 'unpaid',
@@ -72,8 +73,87 @@ def _approved_manifest() -> dict:
             'privacy_officer': _approval('Authorized Privacy Officer', 3),
             'thesis_adviser': _approval('Thesis Adviser', 4),
         },
-        'papers': [_paper(number) for number in range(1, 51)],
+        'papers': [_paper(number) for number in range(1, 14)],
     }
+
+
+def test_expected_paper_count_is_the_released_corpus_size():
+    """CCSICT released thirteen distinct manuscripts on 2026-09-07 and no more.
+
+    Pinned as a literal because the number is also printed in the manuscript
+    (sections 1.3, 3.1.3 and 3.2.1) and in the PI-08 protocol. If the department
+    later releases another thesis, this test is the reminder that the paper and
+    the protocol move with the constant.
+    """
+    assert EXPECTED_PAPER_COUNT == 13
+
+
+def _composition() -> dict:
+    """Matches the distribution `_paper` produces over thirteen records."""
+    return {
+        'released_on': '2026-09-07',
+        'note': 'Released set, recorded so the unrepresented categories are explicit.',
+        'represented': [
+            {'program': 'BSCS', 'specialization': 'Data Mining', 'count': 3},
+            {'program': 'BSIT', 'specialization': 'WMAD', 'count': 2},
+            {'program': 'BSIT', 'specialization': 'NETSEC', 'count': 2},
+            {'program': 'BSDSA', 'specialization': None, 'count': 2},
+            {'program': 'BSIS', 'specialization': None, 'count': 2},
+            {'program': 'BLIS', 'specialization': None, 'count': 2},
+        ],
+        'unrepresented': [],
+    }
+
+
+def test_a_declared_composition_that_matches_the_records_is_lock_ready():
+    manifest = _approved_manifest()
+    manifest['released_composition'] = _composition()
+    assert not validate_manifest(manifest, lock_ready=True)
+
+
+@pytest.mark.parametrize(
+    ('mutate', 'message'),
+    [
+        (lambda c: c['represented'][0].update(count=1), 'sum to 11'),
+        (lambda c: c['represented'][0].update(specialization='WMAD'), 'invalid for BSCS'),
+        (lambda c: c['represented'][0].update(program='BSNURSING'), 'supported CCSICT program'),
+        (lambda c: c['represented'].append(
+            {'program': 'BSCS', 'specialization': 'Data Mining', 'count': 3}),
+         'duplicates an earlier represented category'),
+        (lambda c: c['unrepresented'].append({'program': 'BSIS', 'specialization': None}),
+         'also listed as represented'),
+        (lambda c: c.update(released_on='soon'), 'must be an ISO date'),
+        (lambda c: c['represented'][0].update(count=0), 'must be a positive integer'),
+    ],
+)
+def test_released_composition_is_validated_not_decorative(mutate, message):
+    """A lock must not certify a set whose mix contradicts the declared one.
+
+    Without this the block is prose beside the records: the receipt would be
+    valid and tamper-evident over a corpus whose category mix contradicts the
+    composition section 4 of the PI-08 protocol fixes as non-substitutable.
+    """
+    manifest = _approved_manifest()
+    manifest['released_composition'] = _composition()
+    mutate(manifest['released_composition'])
+    assert message in '\n'.join(validate_manifest(manifest, lock_ready=True))
+
+
+def test_lock_readiness_rejects_records_that_contradict_the_composition():
+    manifest = _approved_manifest()
+    manifest['released_composition'] = _composition()
+    manifest['papers'][0].update(program='BLIS', specialization=None)
+    issues = '\n'.join(validate_manifest(manifest, lock_ready=True))
+    assert 'papers do not match released_composition.represented' in issues
+
+
+def test_composition_is_only_checked_against_records_once_lock_ready():
+    """A draft may declare the target composition before the records exist."""
+    manifest = _approved_manifest()
+    manifest['status'] = 'draft'
+    manifest['released_composition'] = _composition()
+    manifest['papers'] = []
+    assert not validate_manifest(manifest)
 
 
 def test_template_shape_is_valid_as_an_unlocked_draft():
@@ -82,14 +162,14 @@ def test_template_shape_is_valid_as_an_unlocked_draft():
     assert not validate_manifest(manifest)
 
 
-def test_approved_fifty_paper_manifest_is_lock_ready():
+def test_approved_released_corpus_manifest_is_lock_ready():
     assert not validate_manifest(_approved_manifest(), lock_ready=True)
 
 
 @pytest.mark.parametrize(
     ('mutate', 'message'),
     [
-        (lambda data: data['papers'].pop(), 'exactly 50'),
+        (lambda data: data['papers'].pop(), 'exactly 13'),
         (lambda data: data['papers'][1].update(record_id='CCSICT-001'), 'duplicate record_id'),
         (lambda data: data['papers'][1].update(source_sha256='0' * 63 + '1'), 'duplicate source_sha256'),
         (lambda data: data['papers'][0].update(specialization='WMAD'), 'invalid for BSCS'),
@@ -118,7 +198,7 @@ def test_lock_sorts_records_writes_receipt_and_verifies(tmp_path):
     )
 
     assert locked['papers'][0]['record_id'] == 'CCSICT-001'
-    assert receipt['paper_count'] == 50
+    assert receipt['paper_count'] == 13
     assert receipt['manifest_sha256'] == manifest_sha256(locked)
     verify_lock(
         json.loads(manifest_path.read_text(encoding='utf-8')),

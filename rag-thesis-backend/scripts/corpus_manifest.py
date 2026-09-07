@@ -1,8 +1,8 @@
 """Validate, lock, and verify the PI-08 defense corpus manifest.
 
 The tool deliberately stores hashes and approval references instead of thesis
-files or signature images. A corpus becomes immutable only after all fifty
-records and every institutional/privacy gate are complete.
+files or signature images. A corpus becomes immutable only after every released
+record and every institutional/privacy gate are complete.
 """
 
 from __future__ import annotations
@@ -18,7 +18,16 @@ from pathlib import Path
 from typing import Any
 
 
-EXPECTED_PAPER_COUNT = 50
+# The corpus is exactly what CCSICT released for the defense evaluation. The
+# proposal reserved fifty; on 2026-09-07 the department released thirteen
+# distinct undergraduate manuscripts and stated that no further theses would be
+# provided, so thirteen is the governed size. The handover held fourteen PDFs:
+# ARELLANO & MARYCRIS.pdf is an unsigned second revision of the Arellano/Tamano
+# BLIS project already counted here, which is the one file that is not its own
+# record. Raising this number is a paper change as well as a code change: it
+# also moves the manifest template, this module's test, the golden dataset
+# revision record, and sections 1.3, 3.1.3 and 3.2.1.
+EXPECTED_PAPER_COUNT = 13
 APPROVAL_ROLES = (
     'ccsict_department_chair',
     'university_librarian',
@@ -156,6 +165,106 @@ def _validate_paper(index: int, paper: Any, errors: list[str]) -> None:
         )
 
 
+def _category(entry: Any) -> tuple[Any, Any]:
+    """The (program, specialization) pair an entry names."""
+    return (entry.get('program'), entry.get('specialization'))
+
+
+def _validate_released_composition(manifest: dict[str, Any], errors: list[str],
+                                   *, lock_ready: bool) -> None:
+    """Hold released_composition to the same standard as the records themselves.
+
+    Without this the block is decorative: a lock could produce a valid,
+    tamper-evident receipt over a set whose category mix contradicts the
+    composition section 4 of the PI-08 protocol fixes as non-substitutable.
+    """
+    composition = manifest.get('released_composition')
+    if composition is None:
+        return
+    if not isinstance(composition, dict):
+        errors.append('released_composition must be an object')
+        return
+    if not _is_iso_date(composition.get('released_on')):
+        errors.append('released_composition.released_on must be an ISO date (YYYY-MM-DD)')
+    if not _is_text(composition.get('note')):
+        errors.append('released_composition.note must be completed without placeholders')
+
+    represented = composition.get('represented')
+    if not isinstance(represented, list) or not represented:
+        errors.append('released_composition.represented must be a non-empty array')
+        represented = []
+    unrepresented = composition.get('unrepresented')
+    if not isinstance(unrepresented, list):
+        errors.append('released_composition.unrepresented must be an array')
+        unrepresented = []
+
+    declared: dict[tuple[Any, Any], int] = {}
+    for index, entry in enumerate(represented):
+        prefix = f'released_composition.represented[{index}]'
+        if not isinstance(entry, dict):
+            errors.append(f'{prefix} must be an object')
+            continue
+        program, specialization = _category(entry)
+        allowed = PROGRAM_SPECIALIZATIONS.get(program)
+        if allowed is None:
+            errors.append(f'{prefix}.program must be a supported CCSICT program')
+        elif specialization not in allowed:
+            errors.append(f'{prefix}.specialization is invalid for {program}')
+        count = entry.get('count')
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            errors.append(f'{prefix}.count must be a positive integer')
+            continue
+        if (program, specialization) in declared:
+            errors.append(f'{prefix} duplicates an earlier represented category')
+        declared[(program, specialization)] = count
+
+    for index, entry in enumerate(unrepresented):
+        prefix = f'released_composition.unrepresented[{index}]'
+        if not isinstance(entry, dict):
+            errors.append(f'{prefix} must be an object')
+            continue
+        program, specialization = _category(entry)
+        allowed = PROGRAM_SPECIALIZATIONS.get(program)
+        if allowed is None:
+            errors.append(f'{prefix}.program must be a supported CCSICT program')
+        elif specialization not in allowed:
+            errors.append(f'{prefix}.specialization is invalid for {program}')
+        elif (program, specialization) in declared:
+            errors.append(f'{prefix} is also listed as represented')
+
+    total = sum(declared.values())
+    expected = manifest.get('expected_paper_count')
+    if declared and total != expected:
+        errors.append(
+            f'released_composition.represented counts sum to {total}, '
+            f'not expected_paper_count {expected}'
+        )
+
+    if not lock_ready:
+        return
+    papers = manifest.get('papers')
+    if not isinstance(papers, list):
+        return
+    actual: dict[tuple[Any, Any], int] = {}
+    for paper in papers:
+        if isinstance(paper, dict):
+            actual[_category(paper)] = actual.get(_category(paper), 0) + 1
+    if declared and actual != declared:
+        errors.append(
+            'papers do not match released_composition.represented: '
+            f'declared {_render_categories(declared)}, found {_render_categories(actual)}'
+        )
+
+
+def _render_categories(counts: dict[tuple[Any, Any], int]) -> str:
+    return ', '.join(
+        f'{program}/{specialization or "-"}={count}'
+        for (program, specialization), count in sorted(
+            counts.items(), key=lambda item: (str(item[0][0]), str(item[0][1]))
+        )
+    )
+
+
 def validate_manifest(manifest: dict[str, Any], *, lock_ready: bool = False) -> list[str]:
     """Return all schema and lock-readiness errors without mutating input."""
     errors: list[str] = []
@@ -186,6 +295,8 @@ def validate_manifest(manifest: dict[str, Any], *, lock_ready: bool = False) -> 
             errors.append(
                 'processing_profile.allowed_content must be redacted_non_personal_non_confidential_only'
             )
+
+    _validate_released_composition(manifest, errors, lock_ready=lock_ready)
 
     papers = manifest.get('papers')
     if not isinstance(papers, list):
