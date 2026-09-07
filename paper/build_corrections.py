@@ -109,7 +109,7 @@ PROSE2 = [
      'The vector database is strictly limited to theses generated within the CCSICT '
      'department, comprising both student (undergraduate) and faculty manuscripts, each '
      'labelled by category and filterable in browsing, chat retrieval, and analytics. The '
-     'evaluation corpus for Objective 2 remains exactly the thirteen (13) undergraduate '
+     'evaluation corpus for Objective 2 remains exactly the twelve (12) undergraduate '
      'theses CCSICT released under the corpus protocol; faculty-category manuscripts are '
      'excluded from that locked corpus by definition.',
      1, 'P2-17 thesis categories'),
@@ -247,7 +247,7 @@ PROSE4 = [
      'using both physical hardbound copies and digital files.',
      'The data will include past student (undergraduate) and faculty thesis projects from '
      'the department, each labelled by category, using both physical hardbound copies and '
-     'digital files. The evaluation corpus for Objective 2 remains exactly the thirteen (13) '
+     'digital files. The evaluation corpus for Objective 2 remains exactly the twelve (12) '
      'student manuscripts CCSICT released. Converting physical copies into PDF is an '
      'operational '
      'prerequisite carried out before ingestion; the system extracts and, where necessary, '
@@ -595,14 +595,16 @@ REFERENCES9 = [
 ]
 
 # --- Pass 10: the released corpus, 2026-09-07 -------------------------------
-# CCSICT released the defense corpus and it is thirteen manuscripts, not the
-# fifty the proposal reserved: six BSCS Data Mining (five 2024, one 2025),
-# three BSIS (2025) and four BLIS (2026), with the two BSIT tracks and BSDSA
-# unreleased. The
+# CCSICT released the defense corpus and it is twelve manuscripts, not the
+# fifty the proposal reserved: five BSCS Data Mining (2024), three BSIS (2025)
+# and four BLIS (2026), with the two BSIT tracks and BSDSA unreleased. The
 # department chose the set and said there would be no more, so the two
 # paragraphs that promise fifty theses and proportional representation across
 # the tracks are now false in both directions -- the count and the sampling
-# claim. Ground truth: scripts/corpus_manifest.EXPECTED_PAPER_COUNT,
+# claim. A thirteenth manuscript was staged from its author rather than the
+# release and the adviser excluded it on 2026-09-07, which is why the corpus
+# is a clean census; that exclusion is recorded in the controlled register,
+# not in the manuscript. Ground truth: scripts/corpus_manifest.EXPECTED_PAPER_COUNT,
 # evaluation/corpus/corpus_manifest.template.json (released_composition) and
 # the 2026-09-07 section of evaluation/iso25010_evidence.md.
 PROSE10 = [
@@ -612,12 +614,12 @@ PROSE10 = [
      'purposely determined based on the volume of accessible and complete undergraduate '
      "manuscripts currently available in the CCSICT archives, ensuring proportional "
      "representation across the department's academic tracks.",
-     'The dataset is limited to the thirteen (13) undergraduate thesis documents released by '
+     'The dataset is limited to the twelve (12) undergraduate thesis documents released by '
      'CCSICT for this study on 7 September 2026. This proposal reserved fifty (50); the '
      'department released as many manuscripts as its office could prepare, so the '
      'evaluation corpus is a census of what was released rather than a proportional sample '
-     'drawn by the researchers. The released set comprises six (6) BSCS Data Mining '
-     'theses (2024-2025), three (3) BSIS capstone projects (2025) and four (4) BLIS research '
+     'drawn by the researchers. The released set comprises five (5) BSCS Data Mining '
+     'theses (2024), three (3) BSIS capstone projects (2025) and four (4) BLIS research '
      'projects (2026); the BSIT Web and Mobile Application Development and Network and '
      'Security tracks and the BSDSA program are unrepresented because no manuscript from '
      'them was released. The reduced volume and the three unrepresented categories are '
@@ -635,12 +637,12 @@ PROSE10 = [
      'Development, and Network and Security specializations, together with the BSDSA, '
      'BSIS and BLIS programs, which carry no specialization and are therefore identified '
      'by program code.',
-     'The study uses the thirteen (13) undergraduate thesis documents CCSICT released from '
+     'The study uses the twelve (12) undergraduate thesis documents CCSICT released from '
      'its archives on 7 September 2026, treated as a complete census of that release '
      'rather than a purposive sample, because the department selected which manuscripts '
      'to release and provided no others. The released dataset includes both physical '
      'manuscript copies and digital soft copies and covers three categories of the CCSICT '
-     'academic catalog: the BSCS Data Mining specialization (six theses, 2024-2025), and the '
+     'academic catalog: the BSCS Data Mining specialization (five theses, 2024), and the '
      'BSIS (three, 2025) and BLIS (four, 2026) programs, which carry no specialization '
      'and are therefore identified by program code. The Web and Mobile Application '
      'Development and Network and Security specializations and the BSDSA program are '

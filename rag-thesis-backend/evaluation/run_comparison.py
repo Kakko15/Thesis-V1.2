@@ -123,7 +123,7 @@ _CONTEXT_HEADER = re.compile(r'^\[(\d+)\][^\n]*\n', flags=re.MULTILINE)
 
 
 # Whether the released corpus can support an answer at all. CCSICT released
-# thirteen manuscripts covering BSCS Data Mining, BSIS and BLIS only, so some
+# twelve manuscripts covering BSCS Data Mining, BSIS and BLIS only, so some
 # queries have no corpus-derived ground truth. They stay in the instrument -- a
 # correct refusal there is evidence of grounding -- but pooling them with the
 # answerable queries would report one mean that mixes retrieval accuracy with

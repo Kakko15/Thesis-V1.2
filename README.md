@@ -1,6 +1,6 @@
 # ISU Centralized AI-Powered Thesis Library
 
-Operational deployment, cancellation, malware scanning, retention, encrypted backup, and disposable restore procedures are in [the operations runbook](docs/OPERATIONS_SECURITY_RUNBOOK.md). Secret rotation is covered by [the secret-rotation runbook](docs/SECRET_ROTATION.md). Institutional approvals, privacy review, and the immutable thirteen-thesis defense corpus (the set CCSICT released on 2026-09-07) are controlled by [the PI-08 governance protocol](docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md). [The defense walkthrough](docs/DEFENSE_WALKTHROUGH.md) is the demo script. [The fidelity audit](docs/FIDELITY_AUDIT_2026-09-02.html) is a point-in-time review of the manuscript against this repository, measured at `cc886e5`; open it in a browser.
+Operational deployment, cancellation, malware scanning, retention, encrypted backup, and disposable restore procedures are in [the operations runbook](docs/OPERATIONS_SECURITY_RUNBOOK.md). Secret rotation is covered by [the secret-rotation runbook](docs/SECRET_ROTATION.md). Institutional approvals, privacy review, and the immutable twelve-thesis defense corpus (the set CCSICT released on 2026-09-07) are controlled by [the PI-08 governance protocol](docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md). [The defense walkthrough](docs/DEFENSE_WALKTHROUGH.md) is the demo script. [The fidelity audit](docs/FIDELITY_AUDIT_2026-09-02.html) is a point-in-time review of the manuscript against this repository, measured at `cc886e5`; open it in a browser.
 
 A production web application implementing the thesis *"A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"* (Barlis & Gallardo, BSCS Data Mining Track) for the College of Computing Studies, Information and Communication Technology (CCSICT), Isabela State University, Echague.
 
@@ -155,7 +155,7 @@ process is running on the system interpreter rather than the pinned set.
 
 - `SUPABASE_KEY` must be the **service_role** key.
 - Never place the service-role key in the frontend or commit it. Rotate any key that is exposed outside the local test environment.
-- Optional: install the [Tesseract OCR binary](https://github.com/UB-Mannheim/tesseract/wiki) to digitize scanned manuscripts.
+- Install the [Tesseract OCR binary](https://github.com/UB-Mannheim/tesseract/wiki) to digitize scanned manuscripts. Ingestion refuses a manuscript whose scanned pages cannot be read (`REQUIRE_OCR_FOR_SCANNED_PAGES`, default true) rather than indexing it without them, so a host without OCR can validate and serve but should not ingest scanned PDFs.
 - API docs: http://localhost:8000/docs
 
 ### 3. Frontend

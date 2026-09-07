@@ -379,21 +379,25 @@ changed.
 
 ## Pass 10 - the released corpus, 2026-09-07
 
-CCSICT released the Objective 2 corpus and it is **thirteen** distinct undergraduate
+CCSICT released the Objective 2 corpus and it is **twelve** distinct undergraduate
 manuscripts, not the fifty this proposal reserved. The department selected the set itself
-and released as many manuscripts as its office could prepare. The handover held
-fourteen PDFs:
+and released as many manuscripts as its office could prepare, thirteen PDFs in all:
 `ARELLANO & MARYCRIS.pdf` is an unsigned second revision of the Arellano/Tamano BLIS project
-already in the set, so it is the one file that is not its own record. Titles, authors and
+already in the set, so it is the one file that is not its own record. A fourteenth PDF was
+staged the same day and initially counted as CCSICT-006: the k-means manuscript came
+directly from its author rather than through the release, and the thesis adviser declined
+it as an addition on 2026-09-07, so the corpus is twelve and remains a census of the
+release. The exclusion is recorded in the controlled register, not in the manuscript.
+Titles, authors and
 years were transcribed from each manuscript's own title page.
 
-As released: six BSCS Data Mining theses (five 2024, one 2025), three BSIS capstone projects
+As released: five BSCS Data Mining theses (2024), three BSIS capstone projects
 (2025), four BLIS research projects (2026). Nothing from the BSIT Web and Mobile Application
 Development or Network and Security tracks, and nothing from BSDSA.
 
 - **P10-1 Section 1.3 (Dataset Volume Limit)** - the paragraph promised fifty documents and
   claimed the sample size ensured "proportional representation across the department's
-  academic tracks". Both halves are now false: the count, and the sampling claim. Thirteen
+  academic tracks". Both halves are now false: the count, and the sampling claim. Twelve
   manuscripts chosen and limited by the department is a census of a release, not a
   proportional sample, and three of the six catalog categories are unrepresented. The
   paragraph now states the released count, its composition, the fact that the proposal
@@ -417,13 +421,13 @@ Development or Network and Security tracks, and nothing from BSDSA.
   which part of the catalog a query probes, not which manuscripts exist: query 6 (recommender
   systems) was marked unanswerable although the released Mango Fruit Quality thesis builds
   one, and query 1 (Retrieval-Augmented Generation) was marked answerable although none of
-  the thirteen theses applies it. Either error inverts the interpretation this pass commits
+  the twelve theses applies it. Either error inverts the interpretation this pass commits
   the paper to, so the paper now states the mechanism and asserts no count of answerable
   queries.
 - **P2-17 and A1/A3 amended** - both replacement texts written in earlier passes still said
-  the Objective 2 corpus "remains exactly the fifty (50)" theses. Both now say thirteen.
+  the Objective 2 corpus "remains exactly the fifty (50)" theses. Both now say twelve.
 
-Repository ground truth for this pass: `scripts/corpus_manifest.EXPECTED_PAPER_COUNT` (13,
+Repository ground truth for this pass: `scripts/corpus_manifest.EXPECTED_PAPER_COUNT` (12,
 pinned by `tests/test_corpus_manifest.py`), `evaluation/corpus/corpus_manifest.template.json`
 (`released_composition`), `evaluation/golden_dataset.json` (`corpus_coverage` plus the
 2026-09-07 instrument revision), `evaluation/run_comparison.py` (`CORPUS_COVERAGE`,

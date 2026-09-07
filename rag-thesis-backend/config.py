@@ -113,6 +113,15 @@ class Settings(BaseSettings):
     require_privileged_mfa: bool = False
     max_upload_mb: int = 25
     max_pdf_pages: int = Field(default=500, ge=1, le=2000)
+    # Fail an ingestion job when a scanned page needs OCR and OCR cannot run,
+    # rather than indexing the manuscript with those pages missing. Measured
+    # 2026-09-07: extracting the twelve-thesis defense corpus on a host without
+    # the tesserocr wheel dropped 94 of 835 pages (11.3%) across eleven of the
+    # twelve manuscripts, worst case 20 of 56, and logged only warnings -- a
+    # corpus short an eighth of its content would have looked like a clean
+    # ingest. Set false only for local work on a host that cannot install the
+    # Linux OCR wheel, never for the governed corpus.
+    require_ocr_for_scanned_pages: bool = True
     ingestion_poll_seconds: float = Field(default=2.0, ge=0.2, le=60.0)
     ingestion_lease_seconds: int = Field(default=120, ge=30, le=900)
     ingestion_heartbeat_seconds: int = Field(default=30, ge=5, le=300)

@@ -8,7 +8,7 @@ capacity of the system's core feature is unknown. Load-testing it needs a corpus
 against an empty archive every request returns "no relevant thesis found" and
 never reaches generation, which would measure the fast path and mislabel it RAG.
 
-The real thirteen-thesis defense corpus is a governed artifact gated on four
+The real twelve-thesis defense corpus is a governed artifact gated on four
 institutional approvals (see `scripts/corpus_manifest.py`) and must never be
 approximated. This script instead produces obviously-synthetic theses for
 performance measurement only. Any figure derived from it must be reported as

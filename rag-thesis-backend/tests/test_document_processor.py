@@ -2,8 +2,10 @@
 
 import fitz
 
+from services import document_processor
 from services.document_processor import (
     FIGURE_PLACEHOLDER,
+    extract_document,
     _clean_page,
     _detect_repeated_lines,
     _remove_excluded_sections,
@@ -103,3 +105,53 @@ class TestExtractText:
         assert [page.page_number for page in document.pages] == [1, 2]
         assert 'academic thesis content' in document.text
         assert extract_pdf_text(payload) == document.text
+
+
+def _scanned_pdf() -> bytes:
+    """A PDF whose second page is an image carrying no extractable text."""
+    pdf = fitz.open()
+    first = pdf.new_page()
+    first.insert_text(
+        (72, 72),
+        'CHAPTER 1. This page holds enough real academic prose to be extracted '
+        'directly without ever reaching the OCR fallback.',
+    )
+    second = pdf.new_page()
+    pixmap = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 24, 24))
+    pixmap.clear_with(255)
+    second.insert_image(fitz.Rect(72, 72, 200, 200), stream=pixmap.tobytes('png'))
+    payload = pdf.tobytes()
+    pdf.close()
+    return payload
+
+
+class TestScannedPageDiagnostics:
+    """Silent OCR loss is the failure this reports.
+
+    Measured 2026-09-07: the twelve-thesis corpus extracted on a host without
+    the tesserocr wheel lost 94 of 835 pages while logging only warnings, so an
+    incomplete corpus was indistinguishable from a clean one.
+    """
+
+    def test_page_ocr_cannot_read_is_reported_one_based(self, monkeypatch):
+        monkeypatch.setattr(document_processor, 'OCR_AVAILABLE', False)
+        document = extract_pdf_document(_scanned_pdf())
+        assert document.unresolved_scanned_pages == (2,)
+
+    def test_page_ocr_recovers_is_not_reported(self, monkeypatch):
+        monkeypatch.setattr(
+            document_processor, '_ocr_page',
+            lambda _page: ('Recovered scanned methodology discussion text.', True),
+        )
+        document = extract_pdf_document(_scanned_pdf())
+        assert document.unresolved_scanned_pages == ()
+        assert 'Recovered scanned methodology' in document.text
+
+    def test_blank_scan_read_successfully_is_not_a_fault(self, monkeypatch):
+        """OCR ran and the page really was empty: that must not block a thesis."""
+        monkeypatch.setattr(document_processor, '_ocr_page', lambda _page: ('', True))
+        assert extract_pdf_document(_scanned_pdf()).unresolved_scanned_pages == ()
+
+    def test_text_document_reports_no_scanned_pages(self):
+        assert extract_document(b'Plain notes.', 'notes.txt').unresolved_scanned_pages == ()
+
