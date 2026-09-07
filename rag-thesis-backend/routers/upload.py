@@ -21,6 +21,7 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
@@ -173,7 +174,87 @@ def _normalize_author(raw: str) -> str:
     return ' '.join(_author_token(token) for token in name.split())
 
 
-def _extract_title_page_metadata(text: str, departments: list[str]) -> dict[str, str]:
+_WHITESPACE = re.compile(r'\s+')
+
+
+def _department_records(departments) -> list[dict[str, str]]:
+    """Accept either the code list callers used to pass or full catalog rows."""
+    records: list[dict[str, str]] = []
+    for entry in departments or []:
+        if isinstance(entry, str):
+            records.append({'name': entry.strip(), 'title': ''})
+        elif isinstance(entry, Mapping):
+            records.append({
+                'name': str(entry.get('name') or '').strip(),
+                'title': str(entry.get('title') or '').strip(),
+            })
+    return [record for record in records if record['name']]
+
+
+def _department_phrases(record: Mapping[str, str]) -> list[str]:
+    """Spellings of one college that a title page actually prints.
+
+    The code is almost never on the page; the prose title is. CCSICT is set as
+    'College of Computing Studies, Information and Communication Technology',
+    and a page naming only the college before the comma is naming the same
+    department, so the leading segment counts too.
+    """
+    title = record['title']
+    if not title:
+        return []
+    head = title.split(',', 1)[0].strip()
+    return [title] if head == title else [title, head]
+
+
+def _match_department(text: str, departments) -> str:
+    """Resolve the title page's college to a department code.
+
+    Scored by the longest spelling that matched rather than by the order the
+    catalog happened to return, because a plain substring scan in row order
+    sent every upload to the first short code the page could spell. 'CA'
+    (College of Agriculture) sits inside both 'card' and 'communication', so on
+    2026-09-08 a BLIS thesis whose page reads 'College of Computing Studies,
+    Information and Communication Technology' autofilled as CA -- and a
+    superadmin's form keeps the extracted value (pages/Upload.jsx), so it was
+    submitted that way. Codes now match only as whole words, and the prose
+    title, being longer and far more specific, outscores any code inside it.
+    """
+    haystack = _WHITESPACE.sub(' ', text or '').casefold()
+    if not haystack:
+        return ''
+    best_name, best_score = '', 0
+    for record in _department_records(departments):
+        name = record['name']
+        # A title page wraps the college name across lines, so both sides are
+        # collapsed to single spaces before they are compared.
+        scores = [
+            len(needle) for needle in (
+                _WHITESPACE.sub(' ', phrase).casefold()
+                for phrase in _department_phrases(record)
+            ) if needle in haystack
+        ]
+        if re.search(rf'\b{re.escape(name.casefold())}\b', haystack):
+            scores.append(len(name))
+        score = max(scores, default=0)
+        if score > best_score:
+            best_name, best_score = name, score
+    return best_name
+
+
+def _canonical_department(value: str, departments) -> str:
+    """Map a model's department reply onto a real code, or drop it."""
+    wanted = _WHITESPACE.sub(' ', value or '').strip().casefold()
+    if not wanted:
+        return ''
+    for record in _department_records(departments):
+        if wanted in {record['name'].casefold(), record['title'].casefold()}:
+            return record['name']
+    return ''
+
+
+def _extract_title_page_metadata(
+    text: str, departments: Sequence[str | Mapping[str, str]],
+) -> dict[str, str]:
     """Extract conservative title-page fields without requiring an AI call."""
     lines: list[str] = []
     gap_before: list[bool] = []
@@ -208,14 +289,7 @@ def _extract_title_page_metadata(text: str, departments: list[str]) -> dict[str,
                 authors.append(name)
 
     year_match = re.search(r'\b(?:19|20)\d{2}\b', '\n'.join(lines[:40]))
-    department = ''
-    full_text = (text or '').casefold()
-    for candidate in departments:
-        if candidate.casefold() in full_text:
-            department = candidate
-            break
-    if not department and 'college of computing studies' in full_text:
-        department = next((name for name in departments if name.casefold() == 'ccsict'), '')
+    department = _match_department(text, departments)
 
     return {
         'title': title,
@@ -989,10 +1063,23 @@ def _empty_metadata() -> dict[str, str]:
     return {field: '' for field in _METADATA_FIELDS}
 
 
-def _load_department_names() -> list[str]:
-    """Department vocabulary for the local pass and the prompt."""
-    rows = sb.table('departments').select('name').execute().data
-    return [row['name'] for row in rows] if rows else ['CCSICT', 'CAS']
+def _load_department_names() -> list[dict[str, str]]:
+    """Department vocabulary for the local pass and the prompt.
+
+    Active only, and carrying the prose `title` the matcher needs. An archived
+    college is rejected by services/catalog.py::resolve_academic_selection with
+    422, so offering one to the form autofills a value the upload cannot use;
+    blank is the better answer. Ordered so a tie between two colleges resolves
+    the same way on every host instead of following row order.
+    """
+    rows = (
+        sb.table('departments').select('name,title')
+        .eq('active', True).order('name').execute().data
+    )
+    return (
+        [{'name': row['name'], 'title': row.get('title') or ''} for row in rows]
+        if rows else [{'name': 'CCSICT', 'title': ''}]
+    )
 
 
 def _metadata_llm() -> ChatGoogleGenerativeAI:
@@ -1023,10 +1110,12 @@ async def _title_pages(file: UploadFile) -> tuple[str, str]:
 
 
 async def _ai_completion(
-    local_data: dict[str, str], text: str, title_page_text: str, dept_names: list[str],
+    local_data: dict[str, str], text: str, title_page_text: str,
+    dept_names: Sequence[Mapping[str, str]],
 ) -> dict[str, str]:
     """Fill the fields the local pass missed; on any failure keep the local data."""
-    dept_str = ', '.join(f'"{name}"' for name in dept_names)
+    codes = [record['name'] for record in _department_records(dept_names)]
+    dept_str = ', '.join(f'"{code}"' for code in codes)
     try:
         # The manuscript is third-party text: a thesis is student-authored and
         # the uploader is rarely its author, so "an administrator uploaded it"
@@ -1048,14 +1137,19 @@ async def _ai_completion(
                 _normalize_author_field(data.get('authors')), local_data['authors'],
             ),
             'year': local_data['year'] or ai_year,
-            'department': _as_text(data.get('department'), local_data['department']),
+            'department': (
+                _canonical_department(_as_text(data.get('department')), dept_names)
+                or local_data['department']
+            ),
         }
     except Exception as e:
         logger.exception('Metadata extraction failed (%s)', type(e).__name__)
         return local_data
 
 
-async def _extract_one(file: UploadFile, dept_names: list[str] | None = None) -> dict[str, str]:
+async def _extract_one(
+    file: UploadFile, dept_names: Sequence[Mapping[str, str]] | None = None,
+) -> dict[str, str]:
     """Local title-page pass first; Gemini only for what it leaves blank."""
     text, title_page_text = await _title_pages(file)
     if not text.strip():
