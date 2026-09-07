@@ -1,26 +1,89 @@
 {
-  "description": "Golden Dataset for Objective 2 (thesis paper, Section 3.2.1). Forty standardized academic queries spanning the CCSICT academic catalog -- the Data Mining, Web and Mobile Application Development, and Network and Security specializations, and the BSDSA, BSIS and BLIS programs, which carry no specialization and are therefore identified by program code (services/catalog.py::resolve_academic_selection) -- plus cross-track and negative-control items. Every ground_truth answer must be derived directly from the archived CCSICT thesis corpus and validated by a panel of three CCSICT faculty members before serving as the absolute mathematical benchmark for the Ragas evaluation.",
+  "description": "Golden Dataset for Objective 2 (thesis paper, Section 3.2.1). Forty standardized academic queries spanning the CCSICT academic catalog -- the Data Mining, Web and Mobile Application Development, and Network and Security specializations, and the BSDSA, BSIS and BLIS programs, which carry no specialization and are therefore identified by program code (services/catalog.py::resolve_academic_selection) -- plus cross-track and negative-control items. Every ground_truth answer must be derived directly from the archived CCSICT thesis corpus and validated by a panel of three CCSICT faculty members before serving as the absolute mathematical benchmark for the Ragas evaluation. The corpus CCSICT released on 2026-09-07 holds thirteen manuscripts covering BSCS Data Mining, BSIS and BLIS only, so every query also carries corpus_coverage, which records whether the released corpus can support an answer at all: absent_by_design (the 3 negative controls, absent by construction), absent_unreleased (5 queries whose own text is scoped to a program or specialization the department did not release) and undetermined (the remaining 32). undetermined is the honest default, not a placeholder to be filled in mechanically: most questions ask about CCSICT theses generally rather than about one track, so whether a released manuscript answers them is a judgement about content that only the panel drafting the ground truth can make. It must never be inferred from the category label, which records which part of the catalog a query was written to probe, not which manuscripts exist. validate_formal_dataset refuses a formal run while any query is still undetermined. Accuracy is interpreted on the present stratum and refusal behaviour on the absent strata; run_comparison.py reports Answer Correctness both pooled and split this way.",
   "validated_by_faculty_panel": false,
   "validation": {
     "workflow": [
-      "1. Ingest the full 50-thesis corpus into the system.",
+      "1. Ingest the released thirteen-thesis corpus into the system.",
       "2. For each query, the researchers draft a ground_truth answer strictly from the archived manuscripts and record the exact source thesis (title, authors, year).",
-      "3. Queries marked query_type=negative_control must be checked against the corpus; if no thesis covers the topic, the ground_truth states that explicitly.",
-      "4. Each of the three faculty panel members reviews every ground_truth against the corpus and signs off below.",
-      "5. Set validated_by_faculty_panel to true only after all three sign-offs. run_comparison.py warns until then."
+      "3. Set corpus_coverage from what step 2 found, never from the category label: present when a released manuscript answers the query, absent_unreleased when it cannot because the department released no thesis from the program or specialization the query is about, absent_by_design for the negative controls. The five queries already marked absent_unreleased are scoped to an unreleased track by their own wording; confirm them rather than re-derive them.",
+      "4. For either absent stratum the ground_truth states the absence explicitly and source_thesis is 'none'. Say which absence it is: no manuscript from that program was released, or the released manuscripts do not cover the topic. Those are different findings, and preserving the distinction is why the stratum exists.",
+      "5. Each of the three faculty panel members reviews every ground_truth and its assigned stratum against the corpus and signs off below.",
+      "6. Set validated_by_faculty_panel to true only after all three sign-offs. run_comparison.py warns until then, and refuses a formal run while any query is undetermined."
     ],
     "panel": [
-      { "name": "", "position": "", "date_validated": "" },
-      { "name": "", "position": "", "date_validated": "" },
-      { "name": "", "position": "", "date_validated": "" }
+      {
+        "name": "",
+        "position": "",
+        "date_validated": ""
+      },
+      {
+        "name": "",
+        "position": "",
+        "date_validated": ""
+      },
+      {
+        "name": "",
+        "position": "",
+        "date_validated": ""
+      }
     ],
     "instrument_revisions": [
       {
         "date": "2026-08-25",
         "commit": "13f10c6",
         "change": "Query categories relabelled to the ISU Echague academic catalog. Ids 29 and 33 additionally had their QUESTION TEXT reworded: both named a retired track grouping (Intelligent Systems, Information Management) that services/catalog.py::AMBIGUOUS_LEGACY_TRACKS retires and the catalog never defined, so they asked about a category the system has no concept of. They now name the BSDSA and BSIS programs respectively.",
-        "affected_ids": [29, 33],
+        "affected_ids": [
+          29,
+          33
+        ],
         "rationale": "Recorded here, not only in version control, because a reworded question changes what the instrument asks. Panel members drafting ground_truth answers must be able to see that these two differ from the pre-2026-08-25 dataset. No ground_truth had been drafted at the time of the change; all forty were still REPLACE placeholders, so no validated work was invalidated."
+      },
+      {
+        "date": "2026-09-07",
+        "change": "No question text changed. Every query gained corpus_coverage and coverage_basis after CCSICT released the actual corpus: thirteen distinct undergraduate manuscripts, six BSCS Data Mining (five 2024, one 2025), three BSIS (2025) and four BLIS (2026). The department selected and released these itself and provided no BSIT (Web and Mobile Application Development, Network and Security) or BSDSA manuscripts.",
+        "affected_ids": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40
+        ],
+        "rationale": "The stratum was first assigned from each query category, which was wrong in both directions and was caught in review before any ground truth had been drafted. Category records which part of the catalog a query probes, not which manuscripts exist, and most of these questions ask about CCSICT theses generally: query 6 asks about recommender systems, which the released Mango Fruit Quality thesis builds, yet its BSDSA category had marked it unanswerable; query 1 asks which theses applied Retrieval-Augmented Generation, which none of the thirteen do, yet its Data Mining category had marked it answerable. Either error inverts the interpretation the study commits to, because a correct grounded answer would be scored against a ground truth asserting absence, or a correct refusal against one asserting an answer exists. Only two determinations survive without reading the corpus: a negative control is absent by construction, and a query whose own wording is scoped to an unreleased program or specialization cannot be answered whatever the manuscripts contain. The other thirty-two are undetermined until the panel drafts their ground truth, and the harness refuses a formal run until every one is resolved."
       }
     ]
   },
@@ -31,7 +94,9 @@
       "query_type": "factual_lookup",
       "question": "What CCSICT theses have applied Retrieval-Augmented Generation to institutional data?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 2,
@@ -39,7 +104,9 @@
       "query_type": "methodology",
       "question": "Which data mining techniques were used in past CCSICT theses to classify student performance data?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 3,
@@ -47,7 +114,9 @@
       "query_type": "synthesis",
       "question": "What web development frameworks were most commonly adopted in CCSICT capstone systems?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 4,
@@ -55,7 +124,9 @@
       "query_type": "synthesis",
       "question": "Summarize prior CCSICT research on network intrusion detection systems.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 5,
@@ -63,7 +134,9 @@
       "query_type": "factual_lookup",
       "question": "Have any CCSICT theses evaluated OCR accuracy for digitizing printed documents?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 6,
@@ -71,7 +144,9 @@
       "query_type": "factual_lookup",
       "question": "What recommendation systems have been developed in previous CCSICT undergraduate studies?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 7,
@@ -79,7 +154,9 @@
       "query_type": "methodology",
       "question": "Which CCSICT theses used cosine similarity or vector embeddings in their methodology?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 8,
@@ -87,7 +164,9 @@
       "query_type": "factual_lookup",
       "question": "What mobile applications targeting agriculture were built by CCSICT students?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 9,
@@ -95,7 +174,9 @@
       "query_type": "methodology",
       "question": "Describe evaluation methods used in CCSICT theses that applied the ISO/IEC 25010 standard.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 10,
@@ -103,7 +184,9 @@
       "query_type": "factual_lookup",
       "question": "What datasets were used by CCSICT theses in the Data Mining track between 2020 and 2024?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 11,
@@ -111,7 +194,9 @@
       "query_type": "methodology",
       "question": "Which classification algorithms (e.g. decision trees, Naive Bayes, k-NN) appear most often in CCSICT Data Mining theses, and for what problems were they applied?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 12,
@@ -119,7 +204,9 @@
       "query_type": "factual_lookup",
       "question": "Have any CCSICT theses applied sentiment analysis to student or customer feedback, and what tools did they use?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 13,
@@ -127,7 +214,9 @@
       "query_type": "synthesis",
       "question": "Summarize CCSICT research that predicted crop yield or agricultural outcomes using historical data.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 14,
@@ -135,7 +224,9 @@
       "query_type": "methodology",
       "question": "What data preprocessing and cleaning steps were reported in CCSICT Data Mining theses before model training?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 15,
@@ -143,7 +234,9 @@
       "query_type": "factual_lookup",
       "question": "Which CCSICT theses used clustering techniques such as k-means, and what did they cluster?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 16,
@@ -151,7 +244,9 @@
       "query_type": "factual_lookup",
       "question": "What enrollment, registration, or student information systems have been developed as CCSICT theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 17,
@@ -159,7 +254,9 @@
       "query_type": "factual_lookup",
       "question": "Which CCSICT theses built document tracking or records management systems for university offices?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 18,
@@ -167,7 +264,9 @@
       "query_type": "methodology",
       "question": "What software development life cycle models (e.g. Agile, waterfall, iterative) were adopted in CCSICT web development theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "absent_unreleased",
+      "coverage_basis": "the question is scoped to \"CCSICT web development theses\" (BSIT WMAD, unreleased)"
     },
     {
       "id": 19,
@@ -175,7 +274,9 @@
       "query_type": "synthesis",
       "question": "Summarize CCSICT theses that developed e-commerce or online marketplace platforms for local products.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 20,
@@ -183,7 +284,9 @@
       "query_type": "methodology",
       "question": "How did CCSICT web development theses evaluate the usability or acceptability of their systems?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "absent_unreleased",
+      "coverage_basis": "the question is scoped to \"CCSICT web development theses\" (BSIT WMAD, unreleased)"
     },
     {
       "id": 21,
@@ -191,7 +294,9 @@
       "query_type": "factual_lookup",
       "question": "Which CCSICT theses developed scheduling, queuing, or appointment systems, and for what offices or services?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 22,
@@ -199,7 +304,9 @@
       "query_type": "factual_lookup",
       "question": "What CCSICT theses assessed Wi-Fi or local area network security within a university campus?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 23,
@@ -207,7 +314,9 @@
       "query_type": "methodology",
       "question": "Which penetration testing or vulnerability assessment tools were used in CCSICT Network Security theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "absent_unreleased",
+      "coverage_basis": "the question is scoped to \"CCSICT Network Security theses\" (BSIT NETSEC, unreleased)"
     },
     {
       "id": 24,
@@ -215,7 +324,9 @@
       "query_type": "synthesis",
       "question": "Summarize CCSICT research on phishing detection or social engineering awareness among students.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 25,
@@ -223,7 +334,9 @@
       "query_type": "factual_lookup",
       "question": "Have any CCSICT theses implemented network monitoring or bandwidth management systems, and what technologies did they use?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 26,
@@ -231,7 +344,9 @@
       "query_type": "methodology",
       "question": "What encryption or authentication schemes were proposed or evaluated in CCSICT Network Security theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "absent_unreleased",
+      "coverage_basis": "the question is scoped to \"CCSICT Network Security theses\" (BSIT NETSEC, unreleased)"
     },
     {
       "id": 27,
@@ -239,7 +354,9 @@
       "query_type": "factual_lookup",
       "question": "Which CCSICT theses used image processing or computer vision for plant disease or pest detection?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 28,
@@ -247,7 +364,9 @@
       "query_type": "factual_lookup",
       "question": "What chatbot or virtual assistant systems have been developed in CCSICT theses, and what domains did they serve?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 29,
@@ -255,7 +374,9 @@
       "query_type": "methodology",
       "question": "Which neural network architectures or deep learning frameworks were used in CCSICT Data Science and Analytics (BSDSA) theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "absent_unreleased",
+      "coverage_basis": "the question is scoped to \"CCSICT Data Science and Analytics (BSDSA) theses\" (unreleased)"
     },
     {
       "id": 30,
@@ -263,7 +384,9 @@
       "query_type": "synthesis",
       "question": "Summarize CCSICT research on IoT-based monitoring systems, including the sensors and microcontrollers used.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 31,
@@ -271,7 +394,9 @@
       "query_type": "factual_lookup",
       "question": "What inventory or supply management systems were developed as CCSICT theses, and for which organizations?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 32,
@@ -279,7 +404,9 @@
       "query_type": "factual_lookup",
       "question": "Which CCSICT theses digitized or automated library services, and what features did they implement?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 33,
@@ -287,7 +414,9 @@
       "query_type": "methodology",
       "question": "What database management systems and schema design approaches were used in CCSICT Information Systems (BSIS) theses?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 34,
@@ -295,7 +424,9 @@
       "query_type": "synthesis",
       "question": "Summarize CCSICT theses that implemented attendance monitoring using QR codes, RFID, or biometrics.",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 35,
@@ -303,7 +434,9 @@
       "query_type": "factual_lookup",
       "question": "Have any CCSICT theses addressed data privacy or Republic Act 10173 compliance in their system designs?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 36,
@@ -311,7 +444,9 @@
       "query_type": "synthesis",
       "question": "Across all tracks, which CCSICT theses focused on serving the Isabela State University Echague campus itself, and what campus problems did they solve?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 37,
@@ -319,7 +454,9 @@
       "query_type": "methodology",
       "question": "What statistical treatments (e.g. t-tests, weighted means, Likert scales) were used in CCSICT theses to analyze their evaluation results?",
       "ground_truth": "REPLACE: faculty-verified answer derived from the archived corpus.",
-      "source_thesis": "REPLACE: exact thesis title, authors, and year."
+      "source_thesis": "REPLACE: exact thesis title, authors, and year.",
+      "corpus_coverage": "undetermined",
+      "coverage_basis": "the question is not scoped to a single program or specialization, so whether the released corpus can answer it is a judgement about content: the panel sets this field when it drafts the ground truth"
     },
     {
       "id": 38,
@@ -327,7 +464,9 @@
       "query_type": "negative_control",
       "question": "Which CCSICT theses studied quantum computing algorithms for cryptographic key distribution?",
       "ground_truth": "REPLACE: expected form — 'The CCSICT archive contains no thesis on this topic'; verify against the corpus and adjust if a match exists.",
-      "source_thesis": "REPLACE: 'none' if verified absent from the corpus."
+      "source_thesis": "REPLACE: 'none' if verified absent from the corpus.",
+      "corpus_coverage": "absent_by_design",
+      "coverage_basis": "negative control: absent from the corpus by construction"
     },
     {
       "id": 39,
@@ -335,7 +474,9 @@
       "query_type": "negative_control",
       "question": "Summarize the CCSICT thesis that developed a self-driving vehicle navigation system.",
       "ground_truth": "REPLACE: expected form — 'The CCSICT archive contains no thesis on this topic'; verify against the corpus and adjust if a match exists.",
-      "source_thesis": "REPLACE: 'none' if verified absent from the corpus."
+      "source_thesis": "REPLACE: 'none' if verified absent from the corpus.",
+      "corpus_coverage": "absent_by_design",
+      "coverage_basis": "negative control: absent from the corpus by construction"
     },
     {
       "id": 40,
@@ -343,7 +484,9 @@
       "query_type": "negative_control",
       "question": "What did the 2019 CCSICT thesis by author 'J. Rizal' conclude about blockchain-based voting?",
       "ground_truth": "REPLACE: expected form — 'No such thesis or author exists in the CCSICT archive'; verify against the corpus and adjust if a match exists.",
-      "source_thesis": "REPLACE: 'none' if verified absent from the corpus."
+      "source_thesis": "REPLACE: 'none' if verified absent from the corpus.",
+      "corpus_coverage": "absent_by_design",
+      "coverage_basis": "negative control: absent from the corpus by construction"
     }
   ]
 }

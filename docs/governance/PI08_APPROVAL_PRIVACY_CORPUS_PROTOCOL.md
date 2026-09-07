@@ -5,7 +5,7 @@
 | System | IskAI - ISU Echague Thesis Library |
 | Institutional scope | CCSICT, Isabela State University - Echague |
 | Research owners | Ahron John F. Barlis and Carlo Rossi P. Gallardo |
-| Purpose | Fixed 50-thesis baseline-versus-RAG defense evaluation |
+| Purpose | Fixed thirteen-thesis baseline-versus-RAG defense evaluation, on the set CCSICT released on 2026-09-07 |
 | Repository status | Protocol and locking controls implemented; institutional decisions pending |
 | Sensitive records | Controlled outside Git; only document references and SHA-256 receipts enter release evidence |
 
@@ -13,7 +13,7 @@ This protocol is an approval packet and technical control, not a substitute for 
 
 ## 1. Non-negotiable release rule
 
-The corpus may be locked only when all four written approvals are complete, exactly 50 eligible CCSICT theses have passed individual rights/privacy review, and the manifest tool produces a valid SHA-256 receipt. Until then, PI-08 remains `BLOCKED-EXTERNAL`.
+The corpus may be locked only when all four written approvals are complete, exactly 13 eligible CCSICT theses -- the set the department released on 2026-09-07, no substitutions -- have passed individual rights/privacy review, and the manifest tool produces a valid SHA-256 receipt. Until then, PI-08 remains `BLOCKED-EXTERNAL`.
 
 The unpaid Gemini API profile may receive only content that an authorized human reviewer has confirmed is redacted, non-personal, non-sensitive, and non-confidential. Google states that content submitted to unpaid services may be used to improve its products and may be reviewed by humans, and instructs users not to submit personal, sensitive, or confidential information. If a thesis cannot meet this restriction, it is excluded from the unpaid profile; institutional approval does not override provider terms.
 
@@ -87,7 +87,7 @@ Automated regular-expression redaction is only a first pass. It cannot certify n
 1. The thesis adviser approves inclusion/exclusion criteria before titles are selected.
 2. The researchers create a controlled candidate register; rejected candidates retain only a reason code and audit reference.
 3. The librarian verifies custody/rights and the privacy reviewer screens each proposed paper.
-4. The final set contains exactly 50 unique papers. No program quota is invented unless the adviser approves it in writing.
+4. The final set contains exactly 13 unique papers: the manuscripts CCSICT released on 2026-09-07 (6 BSCS Data Mining, 3 BSIS, 4 BLIS). The department selected and limited the release, so the corpus is a census of what was released rather than a researcher-drawn proportional sample, and the BSIT Web and Mobile Application Development and Network and Security tracks and the BSDSA program are unrepresented. No program quota is invented and no paper is substituted unless the adviser approves it in writing.
 5. The researchers calculate source, redacted-content, and index-fingerprint SHA-256 values.
 6. Both researchers reconcile the manifest against the controlled register.
 7. The thesis adviser approves the final list.
@@ -159,7 +159,7 @@ PI-08 may be changed to `VERIFIED` only when all of these exist:
 
 - four completed approval-register rows with matching controlled originals;
 - privacy worksheet and any required PIA/DPIA or agreement;
-- exactly 50 individually eligible papers;
+- exactly 13 individually eligible papers;
 - locked manifest that passes `verify`;
 - corpus receipt included in the versioned release evidence;
 - named owner and approved deletion/retention event;

@@ -7,13 +7,48 @@
   },
   "corpus_id": "ISU-ECHAGUE-CCSICT-DEFENSE-2026",
   "department": "CCSICT",
-  "expected_paper_count": 50,
+  "expected_paper_count": 13,
   "papers": [],
   "processing_profile": {
     "allowed_content": "redacted_non_personal_non_confidential_only",
     "gemini_service_tier": "unpaid"
   },
-  "purpose": "Fixed 50-thesis corpus for the approved CCSICT baseline-versus-RAG defense evaluation.",
+  "purpose": "Fixed thirteen-thesis corpus, exactly as released by CCSICT, for the approved baseline-versus-RAG defense evaluation.",
+  "released_composition": {
+    "note": "The department released only these manuscripts and selected them itself, so the corpus is a department-determined census of the released set rather than a researcher-drawn proportional sample. Categories the department did not release are unrepresented and are recorded here so the gap is explicit. validate_manifest checks that the counts sum to expected_paper_count, that every program/specialization pair is one the catalog defines, that no pair is both represented and unrepresented, and, once the manifest is lock-ready, that papers[] matches this distribution exactly.",
+    "released_on": "2026-09-07",
+    "represented": [
+      {
+        "count": 6,
+        "program": "BSCS",
+        "specialization": "Data Mining"
+      },
+      {
+        "count": 3,
+        "program": "BSIS",
+        "specialization": null
+      },
+      {
+        "count": 4,
+        "program": "BLIS",
+        "specialization": null
+      }
+    ],
+    "unrepresented": [
+      {
+        "program": "BSIT",
+        "specialization": "WMAD"
+      },
+      {
+        "program": "BSIT",
+        "specialization": "NETSEC"
+      },
+      {
+        "program": "BSDSA",
+        "specialization": null
+      }
+    ]
+  },
   "schema_version": 1,
   "status": "draft"
 }

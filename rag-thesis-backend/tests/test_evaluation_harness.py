@@ -3,7 +3,9 @@
 import asyncio
 import importlib.util
 import json
+from collections import Counter
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +19,9 @@ from evaluation.run_comparison import (
     is_unattempted,
     sanitize_evaluation_rows,
     statistical_treatment,
+    CORPUS_COVERAGE,
+    DECLARABLE_COVERAGE,
+    UNDETERMINED_COVERAGE,
     summarize_rag_diagnostics,
     validate_formal_dataset,
 )
@@ -53,6 +58,7 @@ def _valid_dataset() -> dict:
                 'question': f'Question {index}',
                 'ground_truth': f'Faculty-verified answer {index}',
                 'source_thesis': f'Thesis {index}, Author, 2026',
+                'corpus_coverage': 'present',
             }
             for index in range(1, 31)
         ],
@@ -61,6 +67,100 @@ def _valid_dataset() -> dict:
 
 def test_formal_dataset_validation_accepts_complete_three_faculty_dataset():
     assert validate_formal_dataset(_valid_dataset()) == []
+
+
+def test_formal_dataset_validation_requires_a_declared_coverage_stratum():
+    """A query with no stratum would silently rejoin the pooled accuracy mean.
+
+    Twenty of the forty queries ask about a program or specialization CCSICT
+    released no thesis from (golden_dataset.json, 2026-09-07 revision). Their
+    stratum is what keeps a correct refusal out of the accuracy figure, so a
+    dropped or misspelled field has to block a formal run rather than quietly
+    move a query back into it.
+    """
+    dataset = deepcopy(_valid_dataset())
+    del dataset['queries'][0]['corpus_coverage']
+    dataset['queries'][1]['corpus_coverage'] = 'absent'
+    issues = validate_formal_dataset(dataset)
+    assert 'query 1 must declare corpus_coverage' in '\n'.join(issues)
+    assert 'query 2 must declare corpus_coverage' in '\n'.join(issues)
+
+
+def test_formal_dataset_validation_blocks_a_run_while_a_stratum_is_undetermined():
+    """`undetermined` is declarable but not runnable.
+
+    It is the honest state of a query whose answerability nobody has checked
+    against the corpus yet. Letting a formal run proceed on it would report a
+    stratified result whose strata were never determined.
+    """
+    dataset = deepcopy(_valid_dataset())
+    dataset['queries'][0]['corpus_coverage'] = UNDETERMINED_COVERAGE
+    issues = validate_formal_dataset(dataset)
+    assert any('still has corpus_coverage' in issue for issue in issues)
+    assert not any('must declare corpus_coverage' in issue for issue in issues)
+
+
+def test_formal_dataset_validation_accepts_every_declared_stratum():
+    dataset = deepcopy(_valid_dataset())
+    for query, stratum in zip(dataset['queries'], CORPUS_COVERAGE, strict=False):
+        query['corpus_coverage'] = stratum
+    assert validate_formal_dataset(dataset) == []
+
+
+class TestGoldenDatasetStrata:
+    """Repository-fact tests for the shipped instrument.
+
+    The stratum counts are quoted in the manuscript (section 3.2.1), in
+    `evaluation/iso25010_evidence.md` and in the dataset's own description, and
+    an earlier revision assigned them from the query category, which was wrong
+    in both directions. Nothing pinned them, so this class does.
+    """
+
+    @pytest.fixture(name='dataset')
+    def dataset_fixture(self):
+        path = Path(__file__).parents[1] / 'evaluation' / 'golden_dataset.json'
+        return json.loads(path.read_text(encoding='utf-8'))
+
+    def test_every_query_declares_a_stratum_and_its_basis(self, dataset):
+        for query in dataset['queries']:
+            assert query.get('corpus_coverage') in DECLARABLE_COVERAGE, query['id']
+            assert str(query.get('coverage_basis', '')).strip(), query['id']
+
+    def test_the_declared_counts_are_what_the_paper_quotes(self, dataset):
+        counts = Counter(query['corpus_coverage'] for query in dataset['queries'])
+        assert len(dataset['queries']) == 40
+        assert counts['absent_by_design'] == 3
+        assert counts['absent_unreleased'] == 5
+        assert counts[UNDETERMINED_COVERAGE] == 32
+        assert counts['present'] == 0, (
+            'no query may be marked present until its ground truth is drafted from the corpus'
+        )
+
+    def test_negative_controls_are_exactly_the_absent_by_design_stratum(self, dataset):
+        controls = {q['id'] for q in dataset['queries'] if q['query_type'] == 'negative_control'}
+        by_design = {
+            q['id'] for q in dataset['queries'] if q['corpus_coverage'] == 'absent_by_design'
+        }
+        assert controls == by_design
+
+    def test_unreleased_queries_name_an_unreleased_track_in_their_own_text(self, dataset):
+        """The one determination that can be made without reading the corpus.
+
+        A query is absent_unreleased a priori only when its wording scopes it to
+        a program or specialization CCSICT did not release. A question about
+        "CCSICT theses" generally is undetermined, however its category reads.
+        """
+        unreleased = ('web development', 'network security', 'bsdsa')
+        for query in dataset['queries']:
+            if query['corpus_coverage'] != 'absent_unreleased':
+                continue
+            question = query['question'].casefold()
+            assert any(track in question for track in unreleased), query['id']
+
+    def test_the_revision_record_covers_every_query_it_restratified(self, dataset):
+        revision = dataset['validation']['instrument_revisions'][-1]
+        assert revision['date'] == '2026-09-07'
+        assert set(revision['affected_ids']) == {q['id'] for q in dataset['queries']}
 
 
 def test_formal_dataset_validation_rejects_placeholders_and_incomplete_signoff():
