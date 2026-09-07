@@ -10,7 +10,8 @@ This file reports only observed command results. Pending external measurements a
 
 CCSICT released the defense corpus. It is **thirteen distinct undergraduate
 manuscripts**, not the fifty the proposal reserved, and the department both selected and
-limited the set; no further theses will be provided. The handover held fourteen PDFs:
+limited the set to as many manuscripts as the releasing office could prepare. The
+handover held fourteen PDFs:
 `ARELLANO & MARYCRIS.pdf` is an unsigned second revision of the Arellano/Tamano BLIS
 project already in the set, so it is the one file that is not its own record. Titles,
 authors and years were transcribed from each manuscript's own title page; the staged PDFs
