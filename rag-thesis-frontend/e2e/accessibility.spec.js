@@ -364,6 +364,12 @@ const SURFACES = [
     ready: (page) => expect(page.getByRole('heading', { name: /Upload/, level: 1 })).toBeVisible(),
   },
   {
+    name: 'upload-batch',
+    path: '/upload/batch',
+    fixture: adminFixture,
+    ready: (page) => expect(page.getByRole('heading', { name: /Batch/, level: 1 })).toBeVisible(),
+  },
+  {
     name: 'admin-overview',
     path: '/admin',
     fixture: superadminFixture,

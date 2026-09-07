@@ -127,6 +127,17 @@ class Settings(BaseSettings):
     ingestion_heartbeat_seconds: int = Field(default=30, ge=5, le=300)
     ingestion_max_attempts: int = Field(default=3, ge=1, le=10)
     ingestion_maintenance_seconds: int = Field(default=300, ge=30, le=3600)
+    # Upload jobs one worker process runs at once. 1 (the default) keeps the
+    # evaluated pipeline unchanged: one claim, one job, processed inline.
+    # Higher values run claimed jobs on a thread pool, each with its own lease
+    # heartbeat; claim_upload_job's `for update skip locked` already makes
+    # concurrent claimers safe. Capped at 8 because every in-flight job holds
+    # a manuscript of up to max_upload_mb plus its OCR page renders in memory.
+    ingestion_concurrency: int = Field(default=1, ge=1, le=8)
+    # Files one POST /upload/batch request may carry. Each file is still bound
+    # by max_upload_mb and is read one at a time, so the cap bounds request
+    # duration rather than resident memory.
+    max_batch_files: int = Field(default=20, ge=1, le=50)
     operations_monitor_enabled: bool = False
     operations_monitor_seconds: int = Field(default=60, ge=15, le=3600)
     operations_worker_stale_seconds: int = Field(default=90, ge=30, le=900)

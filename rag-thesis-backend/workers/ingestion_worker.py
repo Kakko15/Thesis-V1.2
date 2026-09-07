@@ -11,6 +11,7 @@ import socket
 import threading
 import time
 import uuid
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 
 from warning_filters import silence_known_third_party_warnings
 
@@ -203,43 +204,105 @@ def process_claimed_job(client, job: dict, worker_id: str,
             logger.warning('Failure was not recorded because job %s no longer owns its lease', job_id)
 
 
+class _Housekeeping:
+    """Registry heartbeat and maintenance timers shared by both worker modes.
+
+    Extracted from the loop body so the inline (concurrency 1) and pooled paths
+    run exactly the same cadence: registry state every heartbeat interval,
+    cleanup, expiry, and the operations monitor every maintenance interval.
+    """
+
+    def __init__(self, client, worker_id: str):
+        self.client = client
+        self.worker_id = worker_id
+        self.registry_at = 0.0
+        self.maintenance_at = 0.0
+        self.scan_state = 'unknown'
+
+    def tick(self, current_job_id: str | None = None) -> None:
+        now = time.monotonic()
+        if now >= self.registry_at:
+            self.scan_state = scanner_status()
+            if current_job_id:
+                state, extra = 'processing', {'current_job_id': current_job_id}
+            else:
+                state, extra = ('degraded' if self.scan_state == 'unavailable' else 'idle'), {}
+            try:
+                register_worker(self.client, self.worker_id, state=state, scanner=self.scan_state, **extra)
+            except Exception as error:
+                logger.warning('Worker registry heartbeat failed (%s)', type(error).__name__)
+            self.registry_at = now + settings.ingestion_heartbeat_seconds
+        if now >= self.maintenance_at:
+            try:
+                process_one_cleanup(self.client, self.worker_id)
+                expire_terminal_jobs(self.client)
+                if settings.operations_monitor_enabled:
+                    evaluate_operations(self.client)
+            except Exception as error:
+                logger.warning('Ingestion maintenance failed (%s)', type(error).__name__)
+            self.maintenance_at = now + settings.ingestion_maintenance_seconds
+
+    def register_processing(self, job_id: str) -> None:
+        try:
+            register_worker(
+                self.client, self.worker_id, state='processing', scanner=self.scan_state,
+                current_job_id=job_id,
+            )
+        except Exception as error:
+            logger.warning('Worker registry update failed (%s)', type(error).__name__)
+
+
+def _drain(executor: ThreadPoolExecutor | None, in_flight: dict) -> int:
+    """Let every submitted job finish and report how many were still pending.
+
+    Each job owns a LeaseHeartbeat, so waiting here is safe for as long as the
+    pipeline takes; abandoning the threads would strand leases that only expire
+    after ingestion_lease_seconds and would re-run the job elsewhere.
+    """
+    if executor is None:
+        return 0
+    if in_flight:
+        logger.info('Draining %d in-flight ingestion job(s) before shutdown', len(in_flight))
+    executor.shutdown(wait=True)
+    return len(in_flight)
+
+
 def run_worker(*, once: bool = False, stop_event: threading.Event | None = None,
                client=None) -> int:
     client = client or create_client(settings.supabase_url, settings.supabase_key)
     stop_event = stop_event or threading.Event()
     worker_id = _worker_id()
-    maintenance_at = 0.0
-    registry_at = 0.0
-    scan_state = 'unknown'
+    house = _Housekeeping(client, worker_id)
+    # `--once` processes a single job inline whatever the setting, so the smoke
+    # path and the tests keep one deterministic shape. Above 1, claimed jobs run
+    # on a pool: claim_upload_job's `for update skip locked` and the per-job
+    # lease already make concurrent claimers safe, and one worker_id may hold
+    # several leases because lease_owner is recorded per job.
+    concurrency = 1 if once else settings.ingestion_concurrency
+    executor = (
+        ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix='ingest')
+        if concurrency > 1 else None
+    )
+    in_flight: dict[Future, str] = {}
     processed = 0
-    logger.info('Durable ingestion worker started as %s', worker_id)
+    poll = settings.ingestion_poll_seconds
+    logger.info('Durable ingestion worker started as %s (concurrency %d)', worker_id, concurrency)
     try:
         while not stop_event.is_set():
-            now = time.monotonic()
-            if now >= registry_at:
-                scan_state = scanner_status()
-                try:
-                    register_worker(
-                        client, worker_id,
-                        state='degraded' if scan_state == 'unavailable' else 'idle',
-                        scanner=scan_state,
-                    )
-                except Exception as error:
-                    logger.warning('Worker registry heartbeat failed (%s)', type(error).__name__)
-                registry_at = now + settings.ingestion_heartbeat_seconds
-            if now >= maintenance_at:
-                try:
-                    process_one_cleanup(client, worker_id)
-                    expire_terminal_jobs(client)
-                    if settings.operations_monitor_enabled:
-                        evaluate_operations(client)
-                except Exception as error:
-                    logger.warning('Ingestion maintenance failed (%s)', type(error).__name__)
-                maintenance_at = now + settings.ingestion_maintenance_seconds
-            if scan_state == 'unavailable':
+            for future in [pending for pending in in_flight if pending.done()]:
+                # process_claimed_job records every outcome itself and never
+                # raises, so a finished future only needs counting.
+                in_flight.pop(future)
+                processed += 1
+                house.registry_at = 0.0
+            house.tick(next(iter(in_flight.values()), None))
+            if house.scan_state == 'unavailable':
                 if once:
                     return processed
-                stop_event.wait(settings.ingestion_poll_seconds)
+                stop_event.wait(poll)
+                continue
+            if len(in_flight) >= concurrency:
+                wait(in_flight, timeout=poll, return_when=FIRST_COMPLETED)
                 continue
             try:
                 job = claim_job(client, worker_id, settings.ingestion_lease_seconds)
@@ -247,30 +310,33 @@ def run_worker(*, once: bool = False, stop_event: threading.Event | None = None,
                 logger.exception('Could not claim an ingestion job (%s)', type(error).__name__)
                 if once:
                     return processed
-                stop_event.wait(settings.ingestion_poll_seconds)
+                stop_event.wait(poll)
                 continue
             if job:
-                try:
-                    register_worker(
-                        client, worker_id, state='processing', scanner=scan_state,
-                        current_job_id=str(job['id']),
-                    )
-                except Exception as error:
-                    logger.warning('Worker registry update failed (%s)', type(error).__name__)
-                process_claimed_job(client, job, worker_id, scan_state)
-                processed += 1
-                registry_at = 0.0
+                house.register_processing(str(job['id']))
+                if executor is None:
+                    process_claimed_job(client, job, worker_id, house.scan_state)
+                    processed += 1
+                    house.registry_at = 0.0
+                else:
+                    future = executor.submit(process_claimed_job, client, job, worker_id, house.scan_state)
+                    in_flight[future] = str(job['id'])
             elif once:
                 return processed
+            elif in_flight:
+                # Nothing claimable, but slots are working: wake on the first
+                # finished job rather than sleeping a full poll interval.
+                wait(in_flight, timeout=poll, return_when=FIRST_COMPLETED)
             else:
-                stop_event.wait(settings.ingestion_poll_seconds)
-        return processed
+                stop_event.wait(poll)
+        return processed + _drain(executor, in_flight)
     finally:
+        if executor is not None:
+            executor.shutdown(wait=True)
         try:
             stop_worker(client, worker_id)
         except Exception as error:
             logger.warning('Worker shutdown registry update failed (%s)', type(error).__name__)
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Run the durable thesis-ingestion worker')

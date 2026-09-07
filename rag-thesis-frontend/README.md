@@ -66,13 +66,13 @@ npm.cmd run test:e2e
 - Administrator: department-scoped upload and administration.
 - Superadmin: validated cross-department administration.
 
-`/dashboard`, `/archive`, `/novelty`, `/upload`, and `/admin` are protected by the profile and feature-permission checks in `ProtectedRoute`. `/chat` also permits the constrained guest experience. The backend remains authoritative for permissions and department isolation.
+`/dashboard`, `/archive`, `/novelty`, `/upload`, `/upload/batch`, and `/admin` are protected by the profile and feature-permission checks in `ProtectedRoute`. `/chat` also permits the constrained guest experience. The backend remains authoritative for permissions and department isolation.
 
 ## E2E isolation
 
 Playwright starts Vite in `e2e` mode. That mode injects deterministic local auth/API fixtures and a fail-closed `/__e2e_api` guard. An unexpected request fails instead of reaching Supabase, storage, the backend, or Gemini. Never replace these fixtures with live credentials.
 
-The critical suite covers protected-route redirects, grounded guest chat and refresh recovery, API retry behavior, legacy-safe archive rendering, faculty novelty metrics, and the administrator upload journey.
+The critical suite covers protected-route redirects, grounded guest chat and refresh recovery, API retry behavior, legacy-safe archive rendering, faculty novelty metrics, the administrator upload journey, and the administrator batch upload journey.
 
 ## Production build and deployment
 

@@ -30,13 +30,13 @@ test('thesis categories are exactly student and faculty', () => {
 })
 
 test('category labels default unknown or missing values to student', () => {
-  assert.equal(thesisCategoryLabel('faculty'), 'Faculty research')
-  assert.equal(thesisCategoryLabel('student'), 'Student thesis')
-  assert.equal(thesisCategoryLabel(undefined), 'Student thesis')
-  assert.equal(thesisCategoryLabel('graduate'), 'Student thesis')
+  assert.equal(thesisCategoryLabel('faculty'), 'Faculty Research')
+  assert.equal(thesisCategoryLabel('student'), 'Student Thesis')
+  assert.equal(thesisCategoryLabel(undefined), 'Student Thesis')
+  assert.equal(thesisCategoryLabel('graduate'), 'Student Thesis')
 })
 
-test('only an explicit faculty category marks a paper as faculty research', () => {
+test('only an explicit faculty category marks a paper as Faculty Research', () => {
   assert.equal(isFacultyThesis({ thesis_category: 'faculty' }), true)
   assert.equal(isFacultyThesis({ thesis_category: 'student' }), false)
   // Papers indexed before the category migration carry no field.

@@ -154,6 +154,55 @@ class UploadCancelResponse(BaseModel):
     cancelled_at: Optional[str] = None
 
 
+class BatchRow(BaseModel):
+    """Per-file metadata carried in the `rows` JSON field of POST /upload/batch.
+
+    One JSON list rather than repeated multipart fields: repeated fields
+    silently misalign when a value is blank, while a list is validated as a
+    whole and length-checked against the files once.
+    """
+    title: str
+    authors: str = ''
+    year: str = ''
+    idempotency_key: str
+
+
+class BatchExtractedFile(BaseModel):
+    index: int
+    filename: str
+    title: str = ''
+    authors: str = ''
+    year: str = ''
+    department: str = ''
+    error: Optional[str] = None
+    status_code: Optional[int] = None
+
+
+class BatchExtractResponse(BaseModel):
+    files: list[BatchExtractedFile]
+
+
+class BatchFileResult(BaseModel):
+    index: int
+    filename: str
+    idempotency_key: str
+    job_id: Optional[str] = None
+    status: Optional[str] = None     # queued, or the status of an already-tracked job
+    message: Optional[str] = None
+    error: Optional[str] = None
+    status_code: Optional[int] = None  # HTTP-like code of a per-file rejection
+
+
+class BatchUploadAccepted(BaseModel):
+    accepted: int
+    rejected: int
+    results: list[BatchFileResult]
+
+
+class UploadJobList(BaseModel):
+    jobs: list[UploadJobStatus]
+
+
 class ScanHistoryOut(BaseModel):
     id: str
     filename: str

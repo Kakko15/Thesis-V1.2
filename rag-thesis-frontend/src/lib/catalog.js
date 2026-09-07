@@ -1,13 +1,13 @@
 // Authorship provenance of a manuscript. Deliberately unrelated to the
 // 'faculty' user role: the category classifies the thesis, not the uploader.
 export const THESIS_CATEGORIES = Object.freeze([
-  Object.freeze({ value: 'student', label: 'Student thesis' }),
-  Object.freeze({ value: 'faculty', label: 'Faculty research' }),
+  Object.freeze({ value: 'student', label: 'Student Thesis' }),
+  Object.freeze({ value: 'faculty', label: 'Faculty Research' }),
 ])
 
 export function thesisCategoryLabel(value) {
   const category = THESIS_CATEGORIES.find((item) => item.value === value)
-  return category ? category.label : 'Student thesis'
+  return category ? category.label : 'Student Thesis'
 }
 
 export function isFacultyThesis(paper) {

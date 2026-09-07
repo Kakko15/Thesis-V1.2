@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   createUploadState, emptyUploadForm, isCurrentPoll, uploadReducer, UPLOAD_STEPS,
 } from './uploadState.js'
+import { uploadMetadataErrors } from './uploadState.js'
 
 test('upload reducer covers all upload stages and terminal outcomes', () => {
   let state = createUploadState('CCSICT')
@@ -39,4 +40,51 @@ test('stale polling responses are rejected after reset, replacement, or unmount'
   assert.equal(isCurrentPoll({ ...current, currentGeneration: 4 }), false)
   assert.equal(isCurrentPoll({ ...current, currentJobId: 'job-2' }), false)
   assert.equal(isCurrentPoll({ ...current, mounted: false }), false)
+})
+
+test('uploadMetadataErrors enforces title, program, specialization, department and year', () => {
+  const base = { ...emptyUploadForm('CCSICT'), title: 'A Complete Thesis Title', program_id: 'p1' }
+  assert.deepEqual(uploadMetadataErrors(base), {})
+  assert.match(uploadMetadataErrors({ ...base, title: 'abc' }).title, /full thesis title/)
+  assert.match(uploadMetadataErrors({ ...base, program_id: '' }).program_id, /academic program/)
+  assert.equal(uploadMetadataErrors({ ...base, program_id: '', thesis_category: 'faculty' }).program_id, undefined)
+  assert.match(uploadMetadataErrors({ ...base, requires_specialization: true }).specialization_id, /specialization/)
+  assert.equal(uploadMetadataErrors({ ...base, requires_specialization: true, specialization_id: 's1' }).specialization_id, undefined)
+  assert.match(uploadMetadataErrors({ ...base, department: '' }).department, /department/)
+  assert.equal(uploadMetadataErrors({ ...base, year: '' }).year, undefined)
+  assert.equal(uploadMetadataErrors({ ...base, year: String(new Date().getFullYear()) }).year, undefined)
+  assert.match(uploadMetadataErrors({ ...base, year: '1900' }).year, /valid year/)
+  assert.match(uploadMetadataErrors({ ...base, year: '20x6' }).year, /valid year/)
+  assert.match(uploadMetadataErrors({ ...base, year: String(new Date().getFullYear() + 2) }).year, /valid year/)
+  assert.match(uploadMetadataErrors({ ...emptyUploadForm('CCSICT'), title: undefined }).title, /full thesis title/)
+})
+
+test('the wizard remembers which way it last moved', () => {
+  // The step surfaces slide along this axis, so Back has to reverse the
+  // transition rather than replay the forward one.
+  let state = createUploadState('CCSICT')
+  assert.equal(state.direction, 1)
+  state = uploadReducer(state, { type: 'set-step', step: UPLOAD_STEPS.metadata })
+  assert.equal(state.direction, 1)
+  state = uploadReducer(state, { type: 'set-step', step: UPLOAD_STEPS.manuscript })
+  assert.equal(state.direction, -1)
+  state = uploadReducer(state, { type: 'set-step', step: UPLOAD_STEPS.manuscript })
+  assert.equal(state.direction, 1)
+})
+
+test('autofill provenance is recorded per key and cleared on first edit', () => {
+  let state = uploadReducer(createUploadState('CCSICT'), { type: 'set-autofilled', keys: ['title', 'year'] })
+  assert.deepEqual(state.autofilled, { title: true, year: true })
+
+  state = uploadReducer(state, { type: 'set-field', key: 'title', value: 'An edited thesis title' })
+  assert.deepEqual(state.autofilled, { year: true })
+
+  // Editing a field the extractor never claimed leaves the map untouched by
+  // identity, so the chips do not re-render on every keystroke.
+  const before = state.autofilled
+  state = uploadReducer(state, { type: 'set-field', key: 'authors', value: 'Dela Cruz, J.' })
+  assert.equal(state.autofilled, before)
+
+  state = uploadReducer(state, { type: 'set-autofilled', keys: undefined })
+  assert.deepEqual(state.autofilled, {})
 })

@@ -10,6 +10,10 @@ The API validates and privately stages each PDF, then a separate leased worker
 executes the durable job while the admin UI polls authoritative database state.
 Original PDFs are never publicly reachable (indirect access model).
 """
+# Like routers/chat.py: the single-file and batch endpoints deliberately share
+# one module so the staging two-phase commit, the status mapping, and the
+# metadata extraction each exist exactly once.
+# pylint: disable=too-many-lines
 
 import asyncio
 import hashlib
@@ -17,20 +21,28 @@ import json
 import logging
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 import fitz
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from langchain_google_genai import ChatGoogleGenerativeAI
+from pydantic import TypeAdapter, ValidationError
 
 from config import settings
 from dependencies.auth import require_upload_access, resolve_effective_department, sb
 from models import (
     CCSICT_TRACKS,
+    BatchExtractResponse,
+    BatchExtractedFile,
+    BatchFileResult,
+    BatchRow,
+    BatchUploadAccepted,
     UploadAccepted,
     UploadCancelRequest,
     UploadCancelResponse,
+    UploadJobList,
     UploadJobStatus,
 )
 from routers.catalog import active_track_names
@@ -52,31 +64,148 @@ router = APIRouter(prefix='/upload', tags=['upload'])
 # The Supabase SDK returns an opaque user record, so Any is the honest type.
 UploadUser = Annotated[Any, Depends(require_upload_access)]
 
-def _extract_title_page_metadata(text: str, departments: list[str]) -> dict[str, str]:
-    """Extract conservative title-page fields without requiring an AI call."""
-    lines = [line.strip() for line in (text or '').splitlines()]
-    lines = [line for line in lines if line and not re.fullmatch(r'[_\W\d]+', line)]
-    lowered = [line.casefold() for line in lines]
+# A title page wraps its title across lines: ten of the twelve manuscripts
+# CCSICT released on 2026-09-07 do. Reading only the first line autofilled
+# 'DEVELOPMENT OF PERFORMANCE APPRAISAL SYSTEM FOR' and silently dropped
+# 'ENHANCING MANPOWER AND PRODUCTIVITY' (CCSICT-007, measured 2026-09-07), and
+# that truncated title would have carried into the citation, the archive row
+# and the duplication screen. Continuation stops at the blank line or typed
+# rule the template puts under the title, or at the document-type line that
+# follows it. The boilerplate list cannot serve as that stop: two of the
+# released titles name the university inside the title itself.
+_TITLE_CONTINUATION_STOP = re.compile(
+    r'^(?:an?\s+(?:thesis|capstone|research|dissertation|special|undergraduate|graduate)'
+    r'|presented\s+to|in\s+partial\s+fulfillment|bachelor\s+of|master\s+of|by\s*:?$)',
+    re.IGNORECASE,
+)
+_TITLE_MAX_LINES = 4
+_TITLE_MAX_CHARS = 240
 
-    title = ''
+
+def _title_page_title(lines: list[str], gap_before: list[bool]) -> str:
+    """Join the wrapped lines the title page sets as one thesis title."""
     boilerplate = (
         'a thesis', 'presented to', 'in partial fulfillment',
         'academic requirements', 'bachelor of', 'isabela state university',
     )
-    for line in lines[:20]:
-        folded = line.casefold()
-        if 12 <= len(line) <= 240 and not any(term in folded for term in boilerplate):
-            title = line
+    start = next(
+        (
+            index for index, line in enumerate(lines[:20])
+            if 12 <= len(line) <= _TITLE_MAX_CHARS
+            and not any(term in line.casefold() for term in boilerplate)
+        ),
+        None,
+    )
+    if start is None:
+        return ''
+
+    parts = [lines[start]]
+    length = len(parts[0])
+    for index in range(start + 1, min(start + _TITLE_MAX_LINES, len(lines))):
+        line = lines[index]
+        if gap_before[index] or _TITLE_CONTINUATION_STOP.match(line):
             break
+        if not 12 <= len(line) <= _TITLE_MAX_CHARS:
+            break
+        if length + 1 + len(line) > _TITLE_MAX_CHARS:
+            break
+        parts.append(line)
+        length += 1 + len(line)
+    return ' '.join(parts)
+
+
+# A title page writes the same name three ways, and all three occur in the
+# twelve manuscripts CCSICT released on 2026-09-07: 'Adrian T. Agustin',
+# 'FERNANDO D. PAGBILAO JR.' and 'OLESCO, DANICA NICOLE F'. The comma form is
+# the one that breaks the field, because authors are stored as a single
+# comma-joined string: the two names on CCSICT-013 reached the review card as
+# 'OLESCO, DANICA NICOLE F, RAMOS, DENISE RIKKI ISABEL H.', four comma-separated
+# fragments with nothing to say which is a surname (observed 2026-09-07). The
+# old pattern rejected any line holding a comma, so those manuscripts parsed to
+# no authors at all and fell through to the model, which returned the page
+# verbatim. Every name is normalised to the given-name-first, title-case form
+# the controlled register uses, so a comma means a new author and nothing else.
+_AUTHOR_DASH = re.compile(r'\s*[\u2010-\u2015\u2212-]\s*')
+_AUTHOR_TOKEN = r"[A-Za-z][A-Za-z.'-]*"
+_AUTHOR_NAME = re.compile(rf'{_AUTHOR_TOKEN}(?:\s+{_AUTHOR_TOKEN}){{1,6}}')
+_NOT_A_NAME = (
+    'track', 'university', 'college', 'thesis', 'project', 'department',
+    'faculty', 'degree', 'bachelor', 'science', 'specialization',
+)
+_AUTHOR_SUFFIXES = {
+    'jr': 'Jr.', 'jr.': 'Jr.', 'sr': 'Sr.', 'sr.': 'Sr.',
+    'ii': 'II', 'iii': 'III', 'iv': 'IV',
+}
+
+
+def _author_token(token: str) -> str:
+    """Recase one name token, leaving a token that is not shouted alone."""
+    if token.casefold() in _AUTHOR_SUFFIXES:
+        return _AUTHOR_SUFFIXES[token.casefold()]
+    if len(token.strip('.')) == 1:
+        # Every other name in the corpus writes its initials with the period,
+        # so 'DANICA NICOLE F' and 'DANICA NICOLE F.' come out as one spelling.
+        return f"{token.strip('.').upper()}."
+    if not token.isupper():
+        # 'Dela Cruz' and 'Jay-Ar' are already cased the way they are written,
+        # and no recasing rule reproduces them from a lowercased form.
+        return token
+    return '-'.join(
+        "'".join(piece.capitalize() for piece in part.split("'"))
+        for part in token.split('-')
+    )
+
+
+def _normalize_author(raw: str) -> str:
+    """Return one author as 'Given Names Surname', or '' if it is not a name."""
+    name = _AUTHOR_DASH.sub('-', ' '.join((raw or '').split()))
+    if any(word in name.casefold() for word in _NOT_A_NAME):
+        # 'Data Mining Track' is shaped exactly like a three-part name, and it
+        # sits within a few lines of 'By' on the manuscripts that carry one.
+        return ''
+    parts = [part.strip() for part in name.split(',')]
+    if len(parts) == 2 and all(parts):
+        name = f'{parts[1]} {parts[0]}'
+    elif len(parts) != 1:
+        return ''
+    if not _AUTHOR_NAME.fullmatch(name):
+        return ''
+    return ' '.join(_author_token(token) for token in name.split())
+
+
+def _extract_title_page_metadata(text: str, departments: list[str]) -> dict[str, str]:
+    """Extract conservative title-page fields without requiring an AI call."""
+    lines: list[str] = []
+    gap_before: list[bool] = []
+    pending_gap = False
+    for raw_line in (text or '').splitlines():
+        line = raw_line.strip()
+        if not line or re.fullmatch(r'[_\W\d]+', line):
+            # A blank line and the typed rule under a title are the same signal:
+            # the block ended. Both are dropped, and both are remembered.
+            pending_gap = True
+            continue
+        lines.append(line)
+        gap_before.append(pending_gap)
+        pending_gap = False
+    lowered = [line.casefold() for line in lines]
+
+    title = _title_page_title(lines, gap_before)
 
     authors: list[str] = []
     by_index = next((i for i, value in enumerate(lowered) if value in {'by', 'by:'}), None)
     if by_index is not None:
-        for line in lines[by_index + 1:by_index + 6]:
+        for index in range(by_index + 1, min(by_index + 6, len(lines))):
+            line = lines[index]
             if re.match(r'^(chapter|abstract|adviser|advisor)\b', line, re.IGNORECASE):
                 break
-            if re.fullmatch(r"[A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){1,6}", line):
-                authors.append(line)
+            if authors and gap_before[index]:
+                # The names are set as one block. What follows the blank line
+                # under them is the date or the adviser, never another author.
+                break
+            name = _normalize_author(line)
+            if name:
+                authors.append(name)
 
     year_match = re.search(r'\b(?:19|20)\d{2}\b', '\n'.join(lines[:40]))
     department = ''
@@ -119,6 +248,20 @@ def _as_text(value, fallback: str = '') -> str:
     else:
         text = ''
     return text or fallback
+
+
+def _normalize_author_field(value):
+    """Normalise a model's author reply without re-splitting a plain string.
+
+    A list is normalised item by item, because the model returns the title
+    page's own order and a surname-first list would rejoin into exactly the
+    comma soup the local path avoids. A bare string is left alone: its commas
+    may already be separating whole authors, and reordering around one would
+    turn 'Ana Cruz, Ben Diaz' into a single mangled name.
+    """
+    if isinstance(value, (list, tuple)):
+        return [_normalize_author(_as_text(item)) or _as_text(item) for item in value]
+    return value
 
 
 def _sanitize_filename(filename: str | None) -> str:
@@ -265,33 +408,30 @@ def _title_page_texts(file_bytes: bytes) -> list[str]:
         document.close()
 
 
-@router.post(
-    '/paper', response_model=UploadAccepted, status_code=202,
-    responses=errors(400, 409, 413, 415, 422, 503),
-)
-@limiter.limit(settings.rate_limit_upload)
-async def upload_paper(
-    request: Request,
-    file: Annotated[UploadFile, File()],
-    title: Annotated[str, Form()],
-    user: UploadUser,
-    authors: Annotated[str, Form()] = '',
-    year: Annotated[str, Form()] = '',
-    abstract: Annotated[str, Form()] = '',
-    track: Annotated[str, Form()] = '',
-    department: Annotated[str | None, Form()] = None,
-    program_id: Annotated[str | None, Form()] = None,
-    specialization_id: Annotated[str | None, Form()] = None,
-    thesis_category: Annotated[str, Form()] = 'student',
-    idempotency_key: Annotated[str | None, Header(alias='Idempotency-Key')] = None,
-):
-    # Every blocking call below is offloaded with asyncio.to_thread, matching
-    # routers/chat.py. FastAPI runs an `async def` handler on the event loop
-    # itself, so PDF parsing, the profile and catalog lookups, and the private
-    # storage upload of up to 25 MB previously stalled every other request —
-    # including /health and the readiness probe — for the whole submission.
+@dataclass(frozen=True)
+class _StagingContext:
+    """The batch-invariant half of a submission: who uploads, into which
+    department, and how the manuscript is classified. Resolved once per request
+    so a twenty-file batch performs the profile and catalog reads once, not
+    twenty times."""
+    user_id: str
+    department: str
+    category: str
+    classification_payload: dict
+
+
+def _parse_idempotency_key(value: str | None) -> str:
+    try:
+        return str(uuid.UUID(value)) if value else str(uuid.uuid4())
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, 'Idempotency-Key must be a valid UUID') from error
+
+
+async def _resolve_staging_context(
+    user, *, department: str | None, thesis_category: str,
+    program_id: str | None, specialization_id: str | None, track: str,
+) -> _StagingContext:
     department = await asyncio.to_thread(resolve_effective_department, user, department)
-    _validate_metadata(title, authors, year, abstract)
     category = normalize_thesis_category(thesis_category)
     # The program requirement follows the manuscript, not the uploader:
     # a student thesis always belongs to an academic program, while faculty
@@ -305,34 +445,51 @@ async def upload_paper(
         legacy_track=track,
         require_program=category == 'student',
     )
+    return _StagingContext(
+        user_id=user.id,
+        department=department,
+        category=category,
+        classification_payload=classification.as_payload(),
+    )
 
+
+async def _stage_and_queue_one(
+    ctx: _StagingContext, file: UploadFile, *, title: str, authors: str,
+    year: str, abstract: str, idempotency_key: str | None,
+) -> UploadAccepted:
+    """Validate, privately stage, and durably queue one manuscript.
+
+    Shared by the single-file and batch endpoints so both keep the same
+    two-phase commit and compensation. Every blocking call is offloaded with
+    asyncio.to_thread, matching routers/chat.py: FastAPI runs an `async def`
+    handler on the event loop itself, so PDF parsing and the private storage
+    upload of up to 25 MB previously stalled every other request, including
+    /health and the readiness probe, for the whole submission.
+    """
     file_bytes = await _read_limited_upload(file)
     safe_filename = await asyncio.to_thread(
         _validate_pdf_upload, file_bytes, file.filename, file.content_type,
     )
-    try:
-        effective_key = str(uuid.UUID(idempotency_key)) if idempotency_key else str(uuid.uuid4())
-    except (TypeError, ValueError) as error:
-        raise HTTPException(400, 'Idempotency-Key must be a valid UUID') from error
+    effective_key = _parse_idempotency_key(idempotency_key)
 
     job_id = str(uuid.uuid4())
-    source_path = f'uploads/{user.id}/{job_id}/{safe_filename}'
+    source_path = f'uploads/{ctx.user_id}/{job_id}/{safe_filename}'
     content_sha256 = await asyncio.to_thread(_content_digest, file_bytes)
     request_payload = {
         'title': title.strip(),
         'authors': authors.strip(),
         'year': year,
         'abstract': abstract,
-        **classification.as_payload(),
-        'thesis_category': category,
-        'department': department,
-        'uploader_id': user.id,
+        **ctx.classification_payload,
+        'thesis_category': ctx.category,
+        'department': ctx.department,
+        'uploader_id': ctx.user_id,
     }
     try:
         reserved = await asyncio.to_thread(_reserve_durable_job, {
             'p_job_id': job_id,
-            'p_owner_id': user.id,
-            'p_department': department,
+            'p_owner_id': ctx.user_id,
+            'p_department': ctx.department,
             'p_idempotency_key': effective_key,
             'p_source_path': source_path,
             'p_original_filename': safe_filename,
@@ -374,9 +531,9 @@ async def upload_paper(
         raise HTTPException(503, 'The private manuscript could not be staged safely') from error
 
     try:
-        queued = await asyncio.to_thread(_queue_durable_job, job_id, user.id)
+        queued = await asyncio.to_thread(_queue_durable_job, job_id, ctx.user_id)
         if not queued and await asyncio.to_thread(
-            _durable_job_status, job_id, user.id,
+            _durable_job_status, job_id, ctx.user_id,
         ) not in {'queued', 'processing', 'retry_wait', 'completed'}:
             raise RuntimeError('Durable queue transition was not confirmed')
     except Exception as error:
@@ -384,7 +541,7 @@ async def upload_paper(
         # an already-queued job by deleting the source underneath its worker.
         try:
             advanced = await asyncio.to_thread(
-                _durable_job_status, job_id, user.id,
+                _durable_job_status, job_id, ctx.user_id,
             ) in {'queued', 'processing', 'retry_wait', 'completed'}
         except Exception:
             advanced = False
@@ -412,63 +569,225 @@ async def upload_paper(
     )
 
 
-@router.get('/status/{job_id}', response_model=UploadJobStatus, responses=errors(404, 503))
-def upload_status(job_id: str, user: UploadUser):
-    extended_fields = (
-        'id,owner_id,department,status,stage,progress,message,paper_id,'
-        'chunks,duplication,error,attempt_count,max_attempts,next_retry_at,'
-        'cancel_requested_at,cancelled_at,created_at,updated_at'
+@router.post(
+    '/paper', response_model=UploadAccepted, status_code=202,
+    responses=errors(400, 409, 413, 415, 422, 503),
+)
+@limiter.limit(settings.rate_limit_upload)
+async def upload_paper(
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    title: Annotated[str, Form()],
+    user: UploadUser,
+    authors: Annotated[str, Form()] = '',
+    year: Annotated[str, Form()] = '',
+    abstract: Annotated[str, Form()] = '',
+    track: Annotated[str, Form()] = '',
+    department: Annotated[str | None, Form()] = None,
+    program_id: Annotated[str | None, Form()] = None,
+    specialization_id: Annotated[str | None, Form()] = None,
+    thesis_category: Annotated[str, Form()] = 'student',
+    idempotency_key: Annotated[str | None, Header(alias='Idempotency-Key')] = None,
+):
+    # Department first, metadata second, catalog last: the order the clients
+    # and their tests have always observed for a request that is wrong twice.
+    department = await asyncio.to_thread(resolve_effective_department, user, department)
+    _validate_metadata(title, authors, year, abstract)
+    ctx = await _resolve_staging_context(
+        user, department=department, thesis_category=thesis_category,
+        program_id=program_id, specialization_id=specialization_id, track=track,
     )
-    legacy_fields = (
-        'id,owner_id,department,status,stage,progress,message,paper_id,'
-        'chunks,duplication,error,attempt_count,max_attempts,next_retry_at,'
-        'created_at,updated_at'
+    return await _stage_and_queue_one(
+        ctx, file, title=title, authors=authors, year=year, abstract=abstract,
+        idempotency_key=idempotency_key,
     )
+
+
+# ---------------------------------------------------------------------------
+# Batch submission
+# ---------------------------------------------------------------------------
+# The upload limit is 10 requests a minute per uploader, shared by staging,
+# metadata extraction, and cancellation. Ingesting a shelf of theses through
+# the single-file endpoint therefore spends the whole minute on ten manuscripts
+# and 429s the eleventh, so a batch travels as one request per phase: one
+# extraction call for all files, one staging call for all files.
+
+_ROWS_ADAPTER = TypeAdapter(list[BatchRow])
+
+
+def _check_batch_size(files: list[UploadFile]) -> None:
+    if not files:
+        raise HTTPException(422, 'A batch must contain at least one file')
+    if len(files) > settings.max_batch_files:
+        raise HTTPException(413, f'A batch may contain at most {settings.max_batch_files} files')
+
+
+def _parse_batch_rows(raw: str, *, expected: int) -> list[BatchRow]:
     try:
-        query = (
-            sb.table('upload_jobs').select(extended_fields)
-            .eq('id', job_id)
-            .eq('owner_id', user.id)
-            .limit(1)
-        )
+        rows = _ROWS_ADAPTER.validate_json(raw)
+    except ValidationError as error:
+        raise HTTPException(
+            422, 'rows must be a JSON list of {title, authors, year, idempotency_key} objects',
+        ) from error
+    if len(rows) != expected:
+        raise HTTPException(422, f'rows lists {len(rows)} entries for {expected} files')
+    seen: set[str] = set()
+    for index, row in enumerate(rows):
         try:
-            result = query.execute()
-        except Exception as schema_error:
-            if 'cancel_requested_at' not in str(schema_error) and 'cancelled_at' not in str(schema_error):
-                raise
-            result = (
-                sb.table('upload_jobs').select(legacy_fields)
-                .eq('id', job_id).eq('owner_id', user.id).limit(1).execute()
-            )
-        job = result.data[0] if result.data else None
+            key = str(uuid.UUID(row.idempotency_key))
+        except (TypeError, ValueError) as error:
+            raise HTTPException(422, f'rows[{index}].idempotency_key must be a valid UUID') from error
+        if key in seen:
+            raise HTTPException(422, f'rows[{index}].idempotency_key repeats an earlier key')
+        seen.add(key)
+    return rows
+
+
+def _batch_filename(file: UploadFile, index: int) -> str:
+    return file.filename or f'file-{index}'
+
+
+async def _stage_batch_file(
+    ctx: _StagingContext, index: int, file: UploadFile, row: BatchRow,
+) -> BatchFileResult:
+    """Stage one file of a batch, folding its outcome into a per-file result.
+
+    A batch never fails as a whole because one manuscript was encrypted or
+    oversized: the client renders each rejection beside its row and resubmits
+    only those files, under the same idempotency keys.
+    """
+    base = {'index': index, 'filename': _batch_filename(file, index), 'idempotency_key': row.idempotency_key}
+    try:
+        _validate_metadata(row.title, row.authors, row.year, '')
+        accepted = await _stage_and_queue_one(
+            ctx, file, title=row.title, authors=row.authors, year=row.year,
+            abstract='', idempotency_key=row.idempotency_key,
+        )
+    except HTTPException as error:
+        return BatchFileResult(**base, error=str(error.detail), status_code=error.status_code)
     except Exception as error:
-        # `upload_jobs.id` is a uuid column, so a mistyped job id is rejected by
-        # Postgres rather than returning no rows. That is an absent job, not an
-        # outage, and reporting 503 invited a client to keep retrying it.
-        if is_invalid_identifier(error):
-            raise HTTPException(404, 'Upload job not found (it may have expired)') from error
-        raise HTTPException(503, 'Upload status is temporarily unavailable') from error
-    if not job:
-        raise HTTPException(404, 'Upload job not found (it may have expired)')
-    last_event_at = None
+        logger.exception('Batch file %d could not be staged (%s)', index, type(error).__name__)
+        return BatchFileResult(
+            **base, error='This file could not be staged. Please try it again.', status_code=500,
+        )
+    return BatchFileResult(
+        **base, job_id=accepted.job_id, status=accepted.status, message=accepted.message,
+    )
+
+
+@router.post(
+    '/batch', response_model=BatchUploadAccepted, status_code=202,
+    responses=errors(400, 403, 413, 422, 503),
+)
+@limiter.limit(settings.rate_limit_upload)
+async def upload_batch(
+    request: Request,
+    user: UploadUser,
+    files: Annotated[list[UploadFile], File()],
+    rows: Annotated[str, Form()],
+    track: Annotated[str, Form()] = '',
+    department: Annotated[str | None, Form()] = None,
+    program_id: Annotated[str | None, Form()] = None,
+    specialization_id: Annotated[str | None, Form()] = None,
+    thesis_category: Annotated[str, Form()] = 'student',
+):
+    """Stage and queue several manuscripts that share one classification.
+
+    `rows` is a JSON list aligned with `files`: per-file title, authors, year,
+    and the client-minted idempotency key. Envelope problems (too many files,
+    misaligned rows, a bad classification) are rejected before any file is
+    read; per-file problems are reported in `results` and the request still
+    returns 202 so the accepted files are not lost.
+    """
+    _check_batch_size(files)
+    parsed = _parse_batch_rows(rows, expected=len(files))
+    ctx = await _resolve_staging_context(
+        user, department=department, thesis_category=thesis_category,
+        program_id=program_id, specialization_id=specialization_id, track=track,
+    )
+    results: list[BatchFileResult] = []
+    # Sequential on purpose: each file is read fully before validation, so
+    # staging them concurrently would hold every manuscript of the batch in
+    # memory at once, up to max_batch_files x max_upload_mb.
+    for index, (file, row) in enumerate(zip(files, parsed)):
+        results.append(await _stage_batch_file(ctx, index, file, row))
+    accepted = sum(1 for result in results if result.job_id)
+    return BatchUploadAccepted(accepted=accepted, rejected=len(results) - accepted, results=results)
+
+
+# ---------------------------------------------------------------------------
+# Job status
+# ---------------------------------------------------------------------------
+
+_MAX_JOB_IDS = 50
+_JOB_FIELDS_EXTENDED = (
+    'id,owner_id,department,status,stage,progress,message,paper_id,'
+    'chunks,duplication,error,attempt_count,max_attempts,next_retry_at,'
+    'cancel_requested_at,cancelled_at,created_at,updated_at'
+)
+_JOB_FIELDS_LEGACY = (
+    'id,owner_id,department,status,stage,progress,message,paper_id,'
+    'chunks,duplication,error,attempt_count,max_attempts,next_retry_at,'
+    'created_at,updated_at'
+)
+
+
+def _select_upload_jobs(build) -> list[dict]:
+    """Run `build(fields)` with the extended columns, then the legacy set.
+
+    Pre-operations-migration schemas lack the cancellation columns; the read
+    still succeeds there so the admin UI keeps polling.
+    """
+    try:
+        return build(_JOB_FIELDS_EXTENDED).execute().data or []
+    except Exception as schema_error:
+        if 'cancel_requested_at' not in str(schema_error) and 'cancelled_at' not in str(schema_error):
+            raise
+        return build(_JOB_FIELDS_LEGACY).execute().data or []
+
+
+def _last_event_at(job_id: str) -> str | None:
     try:
         event = (
             sb.table('upload_job_events').select('created_at')
             .eq('job_id', job_id).order('created_at', desc=True).limit(1).execute().data or []
         )
-        last_event_at = event[0].get('created_at') if event else None
+        return event[0].get('created_at') if event else None
     except Exception as error:
         # This field is presentational, so the request still succeeds without
-        # it — but a bare `pass` hid genuine database problems with no log line
+        # it, but a bare `pass` hid genuine database problems with no log line
         # at all, which is exactly the case someone would need to diagnose.
         logger.warning(
             'Could not read the last upload event for %s (%s)',
             job_id, type(error).__name__,
         )
+        return None
+
+
+def _last_event_map(job_ids: list[str]) -> dict[str, str | None]:
+    """Latest event timestamp per job in one read, for the batch poll."""
+    try:
+        rows = (
+            sb.table('upload_job_events').select('job_id,created_at')
+            .in_('job_id', job_ids).order('created_at', desc=True).execute().data or []
+        )
+    except Exception as error:
+        logger.warning(
+            'Could not read the last upload events for %d job(s) (%s)',
+            len(job_ids), type(error).__name__,
+        )
+        return {}
+    latest: dict[str, str | None] = {}
+    for row in rows:
+        latest.setdefault(str(row.get('job_id')), row.get('created_at'))
+    return latest
+
+
+def _job_status_model(job: dict, last_event_at: str | None) -> UploadJobStatus:
     cancel_requested = bool(job.get('cancel_requested_at'))
     status = job.get('status', 'queued')
     return UploadJobStatus(
-        job_id=job_id,
+        job_id=str(job.get('id')),
         status=status,
         stage=job.get('stage', ''),
         progress=job.get('progress', 0),
@@ -487,6 +806,76 @@ def upload_status(job_id: str, user: UploadUser):
         ),
         last_event_at=last_event_at,
     )
+
+
+@router.get('/status/{job_id}', response_model=UploadJobStatus, responses=errors(404, 503))
+def upload_status(job_id: str, user: UploadUser):
+    try:
+        jobs = _select_upload_jobs(
+            lambda fields: sb.table('upload_jobs').select(fields)
+            .eq('id', job_id).eq('owner_id', user.id).limit(1)
+        )
+    except Exception as error:
+        # `upload_jobs.id` is a uuid column, so a mistyped job id is rejected by
+        # Postgres rather than returning no rows. That is an absent job, not an
+        # outage, and reporting 503 invited a client to keep retrying it.
+        if is_invalid_identifier(error):
+            raise HTTPException(404, 'Upload job not found (it may have expired)') from error
+        raise HTTPException(503, 'Upload status is temporarily unavailable') from error
+    if not jobs:
+        raise HTTPException(404, 'Upload job not found (it may have expired)')
+    job = dict(jobs[0])
+    job.setdefault('id', job_id)
+    return _job_status_model(job, _last_event_at(job_id))
+
+
+def _parse_job_ids(raw: str) -> list[str]:
+    """Comma-separated ids, deduplicated in request order, non-UUIDs dropped.
+
+    A single malformed id inside an `in_()` filter makes Postgres reject the
+    whole query, which would turn one stale entry in the client's list into an
+    outage for every job beside it. Unknown ids simply produce no row.
+    """
+    ids: list[str] = []
+    for candidate in raw.split(','):
+        candidate = candidate.strip()
+        if not candidate:
+            continue
+        try:
+            normalized = str(uuid.UUID(candidate))
+        except (TypeError, ValueError):
+            continue
+        if normalized not in ids:
+            ids.append(normalized)
+    if not ids:
+        raise HTTPException(422, 'ids must list at least one upload job id')
+    if len(ids) > _MAX_JOB_IDS:
+        raise HTTPException(422, f'ids may list at most {_MAX_JOB_IDS} upload jobs')
+    return ids
+
+
+@router.get('/jobs', response_model=UploadJobList, responses=errors(422, 503))
+def list_upload_jobs(ids: str, user: UploadUser):
+    """Status of several of the caller's upload jobs in one read.
+
+    The batch page polls every job of a submission together; per-job polling
+    would cost two reads a job every tick and, for a twenty-file batch, exceed
+    the global request limit on its own.
+    """
+    job_ids = _parse_job_ids(ids)
+    try:
+        rows = _select_upload_jobs(
+            lambda fields: sb.table('upload_jobs').select(fields)
+            .in_('id', job_ids).eq('owner_id', user.id)
+        )
+    except Exception as error:
+        raise HTTPException(503, 'Upload status is temporarily unavailable') from error
+    by_id = {str(row.get('id')): row for row in rows}
+    events = _last_event_map(list(by_id)) if by_id else {}
+    return UploadJobList(jobs=[
+        _job_status_model(by_id[job_id], events.get(job_id))
+        for job_id in job_ids if job_id in by_id
+    ])
 
 
 @router.post(
@@ -585,6 +974,100 @@ def list_tracks(request: Request):
     return {'tracks': tracks or CCSICT_TRACKS}
 
 
+# ---------------------------------------------------------------------------
+# Metadata extraction
+# ---------------------------------------------------------------------------
+
+_METADATA_FIELDS = ('title', 'authors', 'year', 'department')
+# Gemini completions a batch extraction may run at once. Bounded because the
+# pool's EXTRACT slot rotates keys reactively: a twenty-way fan-out would trip
+# the capacity cooldown on every key before the first reply came back.
+_EXTRACT_CONCURRENCY = 3
+
+
+def _empty_metadata() -> dict[str, str]:
+    return {field: '' for field in _METADATA_FIELDS}
+
+
+def _load_department_names() -> list[str]:
+    """Department vocabulary for the local pass and the prompt."""
+    rows = sb.table('departments').select('name').execute().data
+    return [row['name'] for row in rows] if rows else ['CCSICT', 'CAS']
+
+
+def _metadata_llm() -> ChatGoogleGenerativeAI:
+    # Bounded like the chat client: metadata extraction runs during an upload,
+    # so an unbounded call would hold the request open indefinitely.
+    return ChatGoogleGenerativeAI(
+        model=settings.gemini_chat_model,
+        google_api_key=settings.gemini_api_key,
+        timeout=settings.gemini_timeout_seconds,
+        max_retries=settings.gemini_max_retries,
+        max_output_tokens=settings.gemini_max_output_tokens,
+    )
+
+
+async def _title_pages(file: UploadFile) -> tuple[str, str]:
+    """Validate the upload and return (joined title-page text, first page).
+
+    Use the title page as the authoritative source for bibliographic fields.
+    Later pages are context for Gemini, but their citation years must never be
+    mistaken for the thesis completion year.
+    """
+    file_bytes = await _read_limited_upload(file)
+    await asyncio.to_thread(
+        _validate_pdf_upload, file_bytes, file.filename, file.content_type,
+    )
+    page_texts = await asyncio.to_thread(_title_page_texts, file_bytes)
+    return '\n'.join(page_texts), (page_texts[0] if page_texts else '')
+
+
+async def _ai_completion(
+    local_data: dict[str, str], text: str, title_page_text: str, dept_names: list[str],
+) -> dict[str, str]:
+    """Fill the fields the local pass missed; on any failure keep the local data."""
+    dept_str = ', '.join(f'"{name}"' for name in dept_names)
+    try:
+        # The manuscript is third-party text: a thesis is student-authored and
+        # the uploader is rarely its author, so "an administrator uploaded it"
+        # is not the same as "an administrator wrote it". Escaped and fenced
+        # like every other prompt that embeds document text, and the reply is
+        # json.loads-ed, so a steered response is parsed rather than read.
+        prompt = prompts.metadata_extraction_prompt(text, dept_str)
+        result = await gemini_pool.arun(
+            _metadata_llm(), gemini_pool.EXTRACT, lambda client: client.ainvoke(prompt),
+        )
+        data = json.loads(strip_code_fence(coerce_text(result)))
+
+        ai_year = _as_text(data.get('year'))
+        if ai_year and not re.search(rf'\b{re.escape(ai_year)}\b', title_page_text):
+            ai_year = ''
+        return {
+            'title': _as_text(data.get('title'), local_data['title']),
+            'authors': _as_text(
+                _normalize_author_field(data.get('authors')), local_data['authors'],
+            ),
+            'year': local_data['year'] or ai_year,
+            'department': _as_text(data.get('department'), local_data['department']),
+        }
+    except Exception as e:
+        logger.exception('Metadata extraction failed (%s)', type(e).__name__)
+        return local_data
+
+
+async def _extract_one(file: UploadFile, dept_names: list[str] | None = None) -> dict[str, str]:
+    """Local title-page pass first; Gemini only for what it leaves blank."""
+    text, title_page_text = await _title_pages(file)
+    if not text.strip():
+        return {'title': '', 'authors': ''}
+    if dept_names is None:
+        dept_names = await asyncio.to_thread(_load_department_names)
+    local_data = _extract_title_page_metadata(title_page_text, dept_names)
+    if all(local_data.get(field) for field in _METADATA_FIELDS):
+        return local_data
+    return await _ai_completion(local_data, text, title_page_text, dept_names)
+
+
 @router.post('/extract-metadata', responses=errors(400, 413, 415, 422))
 @limiter.limit(settings.rate_limit_upload)
 async def extract_metadata(
@@ -595,66 +1078,70 @@ async def extract_metadata(
     """Extract thesis metadata locally, with Gemini filling missing fields."""
     # As in upload_paper: PDF parsing, the department read, and the Gemini call
     # must not run on the event loop, or one metadata autofill freezes the API.
-    local_data = {'title': '', 'authors': '', 'year': '', 'department': ''}
     try:
-        file_bytes = await _read_limited_upload(file)
-        await asyncio.to_thread(
-            _validate_pdf_upload, file_bytes, file.filename, file.content_type,
-        )
-
-        # Use the title page as the authoritative source for bibliographic
-        # fields. Later pages are context for Gemini, but their citation years
-        # must never be mistaken for the thesis completion year.
-        page_texts = await asyncio.to_thread(_title_page_texts, file_bytes)
-        title_page_text = page_texts[0] if page_texts else ''
-        text = '\n'.join(page_texts)
-
-        if not text.strip():
-            return {'title': '', 'authors': ''}
-
-        # Fetch dynamic departments for prompt injection
-        depts_res = await asyncio.to_thread(
-            lambda: sb.table('departments').select('name').execute()
-        )
-        dept_names = [d['name'] for d in depts_res.data] if depts_res.data else ['CCSICT', 'CAS']
-        dept_str = ", ".join(f'"{name}"' for name in dept_names)
-        local_data = _extract_title_page_metadata(title_page_text, dept_names)
-
-        if all(local_data.get(field) for field in ('title', 'authors', 'year', 'department')):
-            return local_data
-
-        # Bounded like the chat client: metadata extraction runs during an upload,
-        # so an unbounded call would hold the request open indefinitely.
-        llm = ChatGoogleGenerativeAI(
-            model=settings.gemini_chat_model,
-            google_api_key=settings.gemini_api_key,
-            timeout=settings.gemini_timeout_seconds,
-            max_retries=settings.gemini_max_retries,
-            max_output_tokens=settings.gemini_max_output_tokens,
-        )
-
-        # The manuscript is third-party text: a thesis is student-authored and
-        # the uploader is rarely its author, so "an administrator uploaded it"
-        # is not the same as "an administrator wrote it". Escaped and fenced
-        # like every other prompt that embeds document text, and the reply is
-        # json.loads-ed, so a steered response is parsed rather than read.
-        prompt = prompts.metadata_extraction_prompt(text, dept_str)
-        result = await gemini_pool.arun(
-            llm, gemini_pool.EXTRACT, lambda client: client.ainvoke(prompt),
-        )
-        data = json.loads(strip_code_fence(coerce_text(result)))
-
-        ai_year = _as_text(data.get('year'))
-        if ai_year and not re.search(rf'\b{re.escape(ai_year)}\b', title_page_text):
-            ai_year = ''
-        return {
-            'title': _as_text(data.get('title'), local_data['title']),
-            'authors': _as_text(data.get('authors'), local_data['authors']),
-            'year': local_data['year'] or ai_year,
-            'department': _as_text(data.get('department'), local_data['department']),
-        }
+        return await _extract_one(file)
     except HTTPException:
         raise
     except Exception as e:
         logger.exception('Metadata extraction failed (%s)', type(e).__name__)
-        return local_data
+        return _empty_metadata()
+
+
+def _extracted_file(index: int, filename: str, data: dict[str, str] | None = None,
+                    **extra) -> BatchExtractedFile:
+    fields = {field: str((data or {}).get(field) or '') for field in _METADATA_FIELDS}
+    return BatchExtractedFile(index=index, filename=filename, **fields, **extra)
+
+
+@router.post(
+    '/batch/extract-metadata', response_model=BatchExtractResponse,
+    responses=errors(400, 403, 413, 422),
+)
+@limiter.limit(settings.rate_limit_upload)
+async def extract_metadata_batch(
+    request: Request,
+    files: Annotated[list[UploadFile], File()],
+    user: UploadUser,
+):
+    """Extract metadata for every file of a batch in one request.
+
+    Files are read one at a time (only their title-page text is kept), then
+    the Gemini completions for the incomplete ones run under a small
+    semaphore. A file that fails validation is reported in place with its
+    HTTP-like status so the client can drop that row and keep the rest.
+    """
+    _check_batch_size(files)
+    dept_names = await asyncio.to_thread(_load_department_names)
+    results: list[BatchExtractedFile | None] = [None] * len(files)
+    pending: list[tuple[int, str, dict[str, str], str, str]] = []
+    for index, file in enumerate(files):
+        filename = _batch_filename(file, index)
+        try:
+            text, title_page_text = await _title_pages(file)
+        except HTTPException as error:
+            results[index] = _extracted_file(
+                index, filename, error=str(error.detail), status_code=error.status_code,
+            )
+            continue
+        except Exception as error:
+            logger.exception('Batch metadata extraction failed for file %d (%s)', index, type(error).__name__)
+            results[index] = _extracted_file(index, filename)
+            continue
+        if not text.strip():
+            results[index] = _extracted_file(index, filename)
+            continue
+        local_data = _extract_title_page_metadata(title_page_text, dept_names)
+        if all(local_data.get(field) for field in _METADATA_FIELDS):
+            results[index] = _extracted_file(index, filename, local_data)
+            continue
+        pending.append((index, filename, local_data, text, title_page_text))
+
+    semaphore = asyncio.Semaphore(_EXTRACT_CONCURRENCY)
+
+    async def complete(index: int, filename: str, local_data: dict[str, str], text: str, first_page: str) -> None:
+        async with semaphore:
+            data = await _ai_completion(local_data, text, first_page, dept_names)
+        results[index] = _extracted_file(index, filename, data)
+
+    await asyncio.gather(*(complete(*entry) for entry in pending))
+    return BatchExtractResponse(files=[result for result in results if result is not None])

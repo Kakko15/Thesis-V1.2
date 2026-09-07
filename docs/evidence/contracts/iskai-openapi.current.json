@@ -1,6 +1,203 @@
 {
   "components": {
     "schemas": {
+      "BatchExtractResponse": {
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/BatchExtractedFile"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "BatchExtractResponse",
+        "type": "object"
+      },
+      "BatchExtractedFile": {
+        "properties": {
+          "authors": {
+            "default": "",
+            "title": "Authors",
+            "type": "string"
+          },
+          "department": {
+            "default": "",
+            "title": "Department",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "status_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Code"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "year": {
+            "default": "",
+            "title": "Year",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "filename"
+        ],
+        "title": "BatchExtractedFile",
+        "type": "object"
+      },
+      "BatchFileResult": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "status_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Code"
+          }
+        },
+        "required": [
+          "index",
+          "filename",
+          "idempotency_key"
+        ],
+        "title": "BatchFileResult",
+        "type": "object"
+      },
+      "BatchUploadAccepted": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "rejected": {
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/BatchFileResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "accepted",
+          "rejected",
+          "results"
+        ],
+        "title": "BatchUploadAccepted",
+        "type": "object"
+      },
+      "Body_extract_metadata_batch_upload_batch_extract_metadata_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "contentMediaType": "application/octet-stream",
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "Body_extract_metadata_batch_upload_batch_extract_metadata_post",
+        "type": "object"
+      },
       "Body_extract_metadata_upload_extract_metadata_post": {
         "properties": {
           "file": {
@@ -38,6 +235,71 @@
           "file"
         ],
         "title": "Body_scan_duplication_duplication_scan_post",
+        "type": "object"
+      },
+      "Body_upload_batch_upload_batch_post": {
+        "properties": {
+          "department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "files": {
+            "items": {
+              "contentMediaType": "application/octet-stream",
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "program_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Program Id"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "string"
+          },
+          "specialization_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Specialization Id"
+          },
+          "thesis_category": {
+            "default": "student",
+            "title": "Thesis Category",
+            "type": "string"
+          },
+          "track": {
+            "default": "",
+            "title": "Track",
+            "type": "string"
+          }
+        },
+        "required": [
+          "files",
+          "rows"
+        ],
+        "title": "Body_upload_batch_upload_batch_post",
         "type": "object"
       },
       "Body_upload_paper_upload_paper_post": {
@@ -912,6 +1174,22 @@
           "message"
         ],
         "title": "UploadCancelResponse",
+        "type": "object"
+      },
+      "UploadJobList": {
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/UploadJobStatus"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs"
+        ],
+        "title": "UploadJobList",
         "type": "object"
       },
       "UploadJobStatus": {
@@ -3034,6 +3312,107 @@
         ]
       }
     },
+    "/upload/batch": {
+      "post": {
+        "description": "Stage and queue several manuscripts that share one classification.\n\n`rows` is a JSON list aligned with `files`: per-file title, authors, year,\nand the client-minted idempotency key. Envelope problems (too many files,\nmisaligned rows, a bad classification) are rejected before any file is\nread; per-file problems are reported in `results` and the request still\nreturns 202 so the accepted files are not lost.",
+        "operationId": "upload_batch_upload_batch_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_batch_upload_batch_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchUploadAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "The request payload or parameters were rejected."
+          },
+          "403": {
+            "description": "The authenticated account is not permitted to perform this action."
+          },
+          "413": {
+            "description": "The uploaded file exceeds the configured size limit."
+          },
+          "422": {
+            "description": "The request was well formed but failed validation."
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Batch",
+        "tags": [
+          "upload"
+        ]
+      }
+    },
+    "/upload/batch/extract-metadata": {
+      "post": {
+        "description": "Extract metadata for every file of a batch in one request.\n\nFiles are read one at a time (only their title-page text is kept), then\nthe Gemini completions for the incomplete ones run under a small\nsemaphore. A file that fails validation is reported in place with its\nHTTP-like status so the client can drop that row and keep the rest.",
+        "operationId": "extract_metadata_batch_upload_batch_extract_metadata_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_extract_metadata_batch_upload_batch_extract_metadata_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchExtractResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "The request payload or parameters were rejected."
+          },
+          "403": {
+            "description": "The authenticated account is not permitted to perform this action."
+          },
+          "413": {
+            "description": "The uploaded file exceeds the configured size limit."
+          },
+          "422": {
+            "description": "The request was well formed but failed validation."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Extract Metadata Batch",
+        "tags": [
+          "upload"
+        ]
+      }
+    },
     "/upload/extract-metadata": {
       "post": {
         "description": "Extract thesis metadata locally, with Gemini filling missing fields.",
@@ -3076,6 +3455,50 @@
           }
         ],
         "summary": "Extract Metadata",
+        "tags": [
+          "upload"
+        ]
+      }
+    },
+    "/upload/jobs": {
+      "get": {
+        "description": "Status of several of the caller's upload jobs in one read.\n\nThe batch page polls every job of a submission together; per-job polling\nwould cost two reads a job every tick and, for a twenty-file batch, exceed\nthe global request limit on its own.",
+        "operationId": "list_upload_jobs_upload_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ids",
+            "required": true,
+            "schema": {
+              "title": "Ids",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadJobList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "The request was well formed but failed validation."
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Upload Jobs",
         "tags": [
           "upload"
         ]

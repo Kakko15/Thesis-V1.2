@@ -11,9 +11,15 @@ export function emptyUploadForm(department = 'CCSICT') {
 export function createUploadState(department = 'CCSICT') {
   return {
     step: UPLOAD_STEPS.manuscript,
+    // Which way the wizard last moved. The step surfaces slide along this axis,
+    // so Back reverses the transition instead of replaying the forward one.
+    direction: 1,
     file: null,
     form: emptyUploadForm(department),
     errors: {},
+    // Keys the title-page extractor filled, for the "Autofilled" provenance
+    // chips. Cleared per key on first edit so a chip never outlives its claim.
+    autofilled: {},
     job: null,
     submitting: false,
     parsing: false,
@@ -22,12 +28,31 @@ export function createUploadState(department = 'CCSICT') {
   }
 }
 
+function withoutAutofilled(autofilled, key) {
+  if (!autofilled[key]) return autofilled
+  const next = { ...autofilled }
+  delete next[key]
+  return next
+}
+
 export function uploadReducer(state, action) {
   switch (action.type) {
-    case 'set-step': return { ...state, step: action.step }
+    case 'set-step': return {
+      ...state,
+      step: action.step,
+      direction: action.step < state.step ? -1 : 1,
+    }
     case 'set-file': return { ...state, file: action.file }
     case 'set-pending-file': return { ...state, pendingFile: action.file }
-    case 'set-field': return { ...state, form: { ...state.form, [action.key]: action.value } }
+    case 'set-autofilled': return {
+      ...state,
+      autofilled: Object.fromEntries((action.keys ?? []).map((key) => [key, true])),
+    }
+    case 'set-field': return {
+      ...state,
+      form: { ...state.form, [action.key]: action.value },
+      autofilled: withoutAutofilled(state.autofilled, action.key),
+    }
     case 'set-form': return { ...state, form: typeof action.value === 'function' ? action.value(state.form) : action.value }
     case 'set-errors': return { ...state, errors: action.errors }
     case 'set-job': return { ...state, job: action.job }
@@ -41,4 +66,29 @@ export function uploadReducer(state, action) {
 
 export function isCurrentPoll({ mounted, generation, currentGeneration, jobId, currentJobId }) {
   return Boolean(mounted && generation === currentGeneration && jobId === currentJobId)
+}
+
+/**
+ * Metadata rules shared by the single-file wizard and every row of a batch.
+ * `form` carries the title/authors/year of one manuscript plus the shared
+ * classification (thesis_category, program_id, specialization_id,
+ * requires_specialization, department).
+ */
+export function uploadMetadataErrors(form) {
+  const errors = {}
+  if ((form.title ?? '').trim().length < 5) errors.title = 'Enter the full thesis title'
+  // The program requirement follows the manuscript: student theses always
+  // belong to a program, faculty research may sit outside the catalog.
+  if (form.thesis_category !== 'faculty' && !form.program_id) {
+    errors.program_id = 'Select the academic program'
+  }
+  if (form.program_id && form.requires_specialization && !form.specialization_id) {
+    errors.specialization_id = 'Select the program specialization'
+  }
+  if (!form.department) errors.department = 'Select the department'
+  const latestYear = new Date().getFullYear() + 1
+  if (form.year && (!/^\d{4}$/.test(form.year) || +form.year < 1978 || +form.year > latestYear)) {
+    errors.year = 'Enter a valid year'
+  }
+  return errors
 }

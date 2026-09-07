@@ -380,7 +380,7 @@ test('authenticated archive renders legacy-safe records and filters them', async
   // The category filter separates faculty research from student theses, and
   // the faculty card carries its gold provenance badge.
   await page.getByRole('combobox', { name: 'Filter by thesis category' }).click()
-  await page.getByRole('option', { name: 'Faculty research' }).click()
+  await page.getByRole('option', { name: 'Faculty Research' }).click()
   await expect(page.getByText('Adaptive Irrigation Analytics for Isabela Farms')).toBeVisible()
   await expect(page.getByText('A Centralized AI-Powered Thesis Library')).not.toBeVisible()
   await expect(page.getByText('Showing 1 of 2 indexed theses')).toBeVisible()
@@ -493,7 +493,7 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   await page.getByRole('button', { name: 'Review' }).click()
   await expect(page.getByText('Deterministic E2E Thesis')).toBeVisible()
   // The wizard defaults every manuscript to a student thesis.
-  await expect(page.getByText('Student thesis')).toBeVisible()
+  await expect(page.getByText('Student Thesis')).toBeVisible()
   await page.getByRole('button', { name: /Ingest into archive/ }).click()
 
   await expect(page.getByText(/Temporary service interruption/)).toBeVisible({ timeout: 5_000 })
@@ -503,6 +503,102 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   await expect(page.getByRole('heading', { name: 'Thesis indexed!' })).toBeVisible({ timeout: 5_000 })
   await expect(page.getByText(/22 embedded chunks/)).toBeVisible()
   expect(statusChecks).toBeGreaterThanOrEqual(2)
+  expect(unexpected).toEqual([])
+})
+
+test('administrator batch upload journey stages several manuscripts and polls them together', async ({ page }) => {
+  await useAuthenticatedSession(page)
+  let submittedBody = ''
+  let submittedRows = null
+  let jobPolls = 0
+  const unexpected = await mockApi(page, {
+    'GET /catalog/departments/legacy': [{
+      id: 'dept-1', name: 'CCSICT', track_label: 'Program / specialization',
+      tracks: ['Data Mining'],
+      programs: [{
+        id: 'program-bscs', code: 'BSCS', name: 'Bachelor of Science in Computer Science',
+        specializations: [{ id: 'specialization-dm', code: 'DM', name: 'Data Mining' }],
+      }],
+    }],
+    'POST /upload/batch/extract-metadata': {
+      files: [
+        { index: 0, filename: 'first.pdf', title: 'First Deterministic Thesis', authors: 'A. Researcher', year: '2026', department: 'CCSICT' },
+        { index: 1, filename: 'second.pdf', title: 'Second Deterministic Thesis', authors: 'B. Researcher', year: '2025', department: 'CCSICT' },
+      ],
+    },
+    'POST /upload/batch': (request) => {
+      submittedBody = request.postDataBuffer()?.toString('latin1') ?? ''
+      const match = submittedBody.match(/name="rows"\r\n\r\n([\s\S]*?)\r\n--/)
+      submittedRows = match ? JSON.parse(match[1]) : null
+      return {
+        accepted: 2, rejected: 0,
+        results: [
+          { index: 0, filename: 'first.pdf', idempotency_key: submittedRows?.[0]?.idempotency_key, job_id: 'job-a', status: 'queued', message: 'Queued' },
+          { index: 1, filename: 'second.pdf', idempotency_key: submittedRows?.[1]?.idempotency_key, job_id: 'job-b', status: 'queued', message: 'Queued' },
+        ],
+      }
+    },
+    'GET /upload/jobs': () => {
+      jobPolls += 1
+      if (jobPolls === 1) {
+        return {
+          jobs: [
+            { job_id: 'job-a', status: 'processing', stage: 'embed', progress: 58, message: 'Embedding chunks', attempt_count: 1, max_attempts: 3, can_cancel: true, cancel_requested: false },
+            { job_id: 'job-b', status: 'queued', stage: 'download', progress: 8, message: 'Queued', attempt_count: 0, max_attempts: 3, can_cancel: true, cancel_requested: false },
+          ],
+        }
+      }
+      return {
+        jobs: [
+          { job_id: 'job-a', status: 'completed', stage: 'done', progress: 100, message: 'Indexed', chunks: 22, attempt_count: 1, max_attempts: 3, can_cancel: false, cancel_requested: false },
+          { job_id: 'job-b', status: 'completed', stage: 'done', progress: 100, message: 'Indexed', chunks: 17, attempt_count: 1, max_attempts: 3, can_cancel: false, cancel_requested: false },
+        ],
+      }
+    },
+  })
+
+  await page.goto('/upload/batch')
+  await expect(page.getByRole('heading', { name: /Batch/, level: 1 })).toBeVisible()
+  await page.locator('input[type="file"]').setInputFiles([
+    { name: 'first.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%e2e first\n%%EOF') },
+    { name: 'second.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%e2e second\n%%EOF') },
+  ])
+  await expect(page.getByText('2 / 20 manuscripts selected')).toBeVisible()
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await expect(page.getByText('Metadata autofilled')).toBeVisible()
+
+  await expect(page.getByLabel('Title for first.pdf')).toHaveValue('First Deterministic Thesis')
+  await expect(page.getByLabel('Title for second.pdf')).toHaveValue('Second Deterministic Thesis')
+  await expect(page.getByLabel('Year for second.pdf')).toHaveValue('2025')
+  // Fix one row by hand: the review table is editable per manuscript.
+  await page.getByLabel('Authors for second.pdf').fill('B. Researcher, D. Researcher')
+
+  // Shared classification is required before the batch can be ingested.
+  await page.getByRole('button', { name: /Ingest 2 manuscripts/ }).click()
+  await expect(page.getByText('Select the academic program')).toBeVisible()
+  await page.getByRole('combobox', { name: 'Select academic program' }).click()
+  await page.getByRole('option', { name: /BSCS/ }).click()
+  await page.getByRole('combobox', { name: 'Select academic specialization' }).click()
+  await page.getByRole('option', { name: /Data Mining/ }).click()
+  await page.getByRole('button', { name: /Ingest 2 manuscripts/ }).click()
+
+  await expect(page.getByRole('region', { name: 'Batch summary' })).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByText('Batch indexed!')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText(/2 of 2 manuscripts are now part of the semantic archive/)).toBeVisible()
+  await expect(page.locator('tbody').getByText('Indexed', { exact: true })).toHaveCount(2)
+  await expect(page.getByText('22 embedded chunks')).toBeVisible()
+
+  expect(submittedRows).toHaveLength(2)
+  expect(submittedRows[0].title).toBe('First Deterministic Thesis')
+  expect(submittedRows[1].authors).toBe('B. Researcher, D. Researcher')
+  expect(submittedRows[0].idempotency_key).toMatch(/^[0-9a-f-]{36}$/)
+  expect(submittedRows[1].idempotency_key).toMatch(/^[0-9a-f-]{36}$/)
+  expect(submittedRows[0].idempotency_key).not.toBe(submittedRows[1].idempotency_key)
+  expect(submittedBody).toContain('name="program_id"')
+  expect(submittedBody).toContain('program-bscs')
+  expect(submittedBody).toContain('filename="first.pdf"')
+  expect(submittedBody).toContain('filename="second.pdf"')
+  expect(jobPolls).toBeGreaterThanOrEqual(2)
   expect(unexpected).toEqual([])
 })
 

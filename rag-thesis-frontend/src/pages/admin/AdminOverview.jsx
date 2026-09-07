@@ -151,7 +151,7 @@ export default function AdminOverview() {
             Archive by category
           </span>
           <Badge tone="forest">Student theses: {overview.papers.per_category.student ?? 0}</Badge>
-          <Badge tone="gold">Faculty research: {overview.papers.per_category.faculty ?? 0}</Badge>
+          <Badge tone="gold">Faculty Research: {overview.papers.per_category.faculty ?? 0}</Badge>
         </GlassCard>
       )}
 

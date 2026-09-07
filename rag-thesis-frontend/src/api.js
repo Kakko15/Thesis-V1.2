@@ -275,6 +275,43 @@ export async function extractMetadata(file) {
   return data // { title, authors }
 }
 
+// ---------- Batch upload ----------
+// One request per phase on purpose: the upload rate limit is shared by
+// staging, extraction, and cancellation, so N per-file calls would 429 the
+// eleventh manuscript of a batch within the minute.
+export async function extractMetadataBatch(files) {
+  const formData = new FormData()
+  for (const file of files) formData.append('files', file)
+  const { data } = await api.post('/upload/batch/extract-metadata', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    // Up to twenty title pages plus their Gemini completions.
+    timeout: 10 * 60 * 1000,
+  })
+  return data // { files: [{ index, filename, title, authors, year, department, error, status_code }] }
+}
+export async function uploadBatch({ files, rows, defaults, onUploadProgress }) {
+  const formData = new FormData()
+  for (const file of files) formData.append('files', file)
+  formData.append('rows', JSON.stringify(rows))
+  formData.append('track', defaults.track || '')
+  formData.append('department', defaults.department || 'CCSICT')
+  formData.append('thesis_category', defaults.thesis_category || 'student')
+  if (defaults.program_id) formData.append('program_id', defaults.program_id)
+  if (defaults.specialization_id) formData.append('specialization_id', defaults.specialization_id)
+  const { data } = await api.post('/upload/batch', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    // The instance default of three minutes is sized for one manuscript; a
+    // batch body can be twenty times larger on a campus link.
+    timeout: 15 * 60 * 1000,
+    onUploadProgress,
+  })
+  return data // { accepted, rejected, results: [{ index, filename, idempotency_key, job_id, status, message, error, status_code }] }
+}
+export async function getUploadJobs(ids) {
+  const { data } = await api.get('/upload/jobs', { params: { ids: ids.join(',') } })
+  return data.jobs // [UploadJobStatus]
+}
+
 // ---------- Topic novelty / duplication (faculty + admin) ----------
 export async function scanDuplication(file, department = null) {
   const formData = new FormData()

@@ -9,6 +9,7 @@ import { Badge } from '../../components/ui/Badge'
 import { Input, Select } from '../../components/ui/Input'
 import { cn, formatDate } from '../../lib/utils'
 import { THESIS_CATEGORIES, isFacultyThesis, thesisCategoryLabel } from '../../lib/catalog'
+import { resolveArchiveTracks } from '../archive/archiveFilters'
 import { TableScroller } from '../../components/ui/TableScroller'
 import { TableStateRow } from '../../components/ui/TableStateRow'
 
@@ -52,12 +53,14 @@ export default function UploadHistoryTab() {
     return ys.sort((a, b) => b - a)
   }, [papers])
 
-  const { activeTracks, trackLabel } = useMemo(() => {
-    if (!deptFilter) return { activeTracks: tracks, trackLabel: 'track' }
-    const dept = departments.find(d => d.name === deptFilter)
-    if (dept) return { activeTracks: dept.tracks || [], trackLabel: dept.track_label?.toLowerCase() || 'track' }
-    return { activeTracks: tracks, trackLabel: 'track' }
-  }, [deptFilter, departments, tracks])
+  // Shared with the archive filter so both surfaces name the vocabulary the
+  // same way. The label comes from the catalog, which calls it
+  // 'Program / specialization' — the list mixes specialization names with the
+  // codes of the programs that take none, so "track" was wrong for both.
+  const { activeTracks, trackLabel } = useMemo(
+    () => resolveArchiveTracks({ tracks, departments, selectedDepartment: deptFilter }),
+    [deptFilter, departments, tracks],
+  )
 
   const filteredPapers = useMemo(() => {
     return (papers || []).filter((p) => {
