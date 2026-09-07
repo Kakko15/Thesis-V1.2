@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { BookText, ChevronDown, FileSignature, Sparkles, Tags } from 'lucide-react'
+import { BookText, ChevronDown, FileSignature, Lock, Sparkles, Tags } from 'lucide-react'
 import { Input, Textarea, Select, Field } from '../ui/Input'
-import { Badge } from '../ui/Badge'
 import { cn } from '../../lib/utils'
 import { motionTokens } from '../../design/motion'
 import { THESIS_CATEGORIES } from '../../lib/catalog'
@@ -23,20 +22,26 @@ const fieldRise = {
 /**
  * The extraction step fills the form silently, so a reader had no way to tell
  * an autofilled value from one they typed — the difference that decides
- * whether a field needs checking. The chip disappears on first edit.
+ * whether a field needs checking. The marker disappears on first edit.
+ *
+ * Deliberately quiet: this was a filled `Badge`, and three of them down the
+ * Identity column carried more weight than the labels they annotated. It is a
+ * footnote on a value, not a status worth a pill.
  */
 function AutofillChip({ show }) {
   return (
     <AnimatePresence initial={false}>
       {show && (
         <motion.span
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.9 }}
+          initial={{ opacity: 0, y: -2 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -2 }}
           transition={{ duration: duration.short, ease: easing.standard }}
-          className="inline-flex"
+          // normal-case/tracking-normal because the label span above sets
+          // uppercase and wide tracking, which this should not inherit.
+          className="inline-flex items-center gap-1 text-[11px] font-medium normal-case tracking-normal text-ink-faint"
         >
-          <Badge tone="forest"><Sparkles size={11} aria-hidden="true" /> Autofilled</Badge>
+          <Sparkles size={11} aria-hidden="true" /> autofilled
         </motion.span>
       )}
     </AnimatePresence>
@@ -61,28 +66,50 @@ function Section({ icon: Icon, title, hint, headingId, children }) {
 }
 
 /**
- * A `Field` whose label carries the autofill chip.
+ * The label content shared by both field wrappers.
  *
- * Only ever wraps a plain `Input`. `Field` special-cases a *direct* `Select`
- * child to wire `aria-labelledby`, which would then outrank the `aria-label`
- * the E2E suite selects those comboboxes by — so the Selects below keep their
- * original plain-string labels and go without a chip.
- *
- * The required marker is rendered here rather than passed through, so the
- * asterisk stays attached to the label text instead of landing after the chip.
+ * The required marker is rendered here rather than passed through to `Field`,
+ * so the asterisk stays attached to the label text instead of landing after
+ * the autofill marker.
  */
+function FieldLabel({ label, required, autofilled }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <span>
+        {label}
+        {required && <span className="ml-1 text-flame-500">*</span>}
+      </span>
+      <AutofillChip show={Boolean(autofilled)} />
+    </span>
+  )
+}
+
+/** A `Field` around a plain `Input`, whose label carries the autofill marker. */
 function LabelledField({ label, autofilled, required, ...props }) {
   return (
+    <Field label={<FieldLabel label={label} required={required} autofilled={autofilled} />} {...props} />
+  )
+}
+
+/**
+ * The same, around a `Select`.
+ *
+ * `nameFromLabel={false}` is the reason this wrapper exists. `Field` lends its
+ * visible label to a lone `Select` child as `aria-labelledby`, which outranks
+ * the `aria-label` the E2E suite matches these comboboxes by (see
+ * e2e/critical-flows.spec.js:489-492). Opting out leaves the accessible name on
+ * the control — which is what finally lets the specialization below carry a
+ * visible label of its own, instead of sitting unlabelled under the program
+ * because the label slot was reserved for the program's accessible name.
+ *
+ * It takes no autofill marker: the only autofillable Select is Department, and
+ * the note at its call site explains why a marker there would lie.
+ */
+function SelectField({ label, required, ...props }) {
+  return (
     <Field
-      label={(
-        <span className="inline-flex flex-wrap items-center gap-2">
-          <span>
-            {label}
-            {required && <span className="ml-1 text-flame-500">*</span>}
-          </span>
-          <AutofillChip show={Boolean(autofilled)} />
-        </span>
-      )}
+      nameFromLabel={false}
+      label={<FieldLabel label={label} required={required} />}
       {...props}
     />
   )
@@ -100,9 +127,12 @@ function AbstractDisclosure({ value, onChange }) {
         aria-expanded={open}
         className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left outline-none transition-colors duration-200 hover:bg-[var(--surface-2)]"
       >
-        <span className="min-w-0">
-          <span className="block text-xs font-semibold uppercase tracking-wider text-ink-muted">Add an abstract</span>
-          <span className="mt-0.5 block text-xs text-ink-faint">Optional, but it improves archive browsing</span>
+        {/* One line, not two. This used to add "Optional, but it improves
+            archive browsing" under the title, directly below a section header
+            already reading "Optional context for readers browsing the archive"
+            — the same sentence twice, two levels apart. */}
+        <span className="min-w-0 text-xs font-semibold uppercase tracking-wider text-ink-muted">
+          Add an abstract
         </span>
         <ChevronDown
           size={16}
@@ -142,12 +172,24 @@ function AbstractDisclosure({ value, onChange }) {
  * the optional abstract carried identical weight. Grouping them gives the eye
  * three short lists instead of one long one, and lets the optional third
  * collapse.
+ *
+ * Every grid cell holds exactly one labelled control. The classification row
+ * used to stack the program and its specialization in the left cell against a
+ * single control in the right, so the two columns ended at different heights
+ * and left a hole under Department.
  */
 export function MetadataForm({
   form, errors, autofilled, departments, isSuperadmin, enforcedDepartment, loadingDepts,
   programs, specializations, onField, onForm, onBlurValidate,
 }) {
   const set = (key) => (event) => onField(key, event.target.value)
+
+  const programsUnavailable = !form.department || programs.length === 0
+  const programHint = programsUnavailable
+    ? 'Choose a department first'
+    : form.thesis_category === 'faculty'
+      ? 'Optional for faculty research'
+      : 'Validated against the official catalog'
 
   return (
     <motion.div variants={sectionStagger} initial="hidden" animate="show" className="space-y-7">
@@ -157,37 +199,44 @@ export function MetadataForm({
         hint="How the thesis is cited"
         headingId="upload-identity-heading"
       >
-        <LabelledField label="Thesis title" error={errors.title} required autofilled={autofilled.title}>
-          <Input
-            value={form.title}
-            onChange={set('title')}
-            onBlur={onBlurValidate}
-            placeholder="Full official thesis title"
-            error={errors.title}
-          />
-        </LabelledField>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <LabelledField
-            label="Authors"
-            hint="Separate multiple authors with commas"
-            autofilled={autofilled.authors}
-          >
-            <Input value={form.authors} onChange={set('authors')} placeholder="Dela Cruz, J., Santos, M." />
-          </LabelledField>
-          {/* 'e.g.' prefixed and derived from the clock: a bare
-              '2024' here reads as an autofilled value in the muted
-              placeholder colour, and was mistaken for one. */}
-          <LabelledField label="Year completed" error={errors.year} autofilled={autofilled.year}>
+        <div className="space-y-5">
+          <LabelledField label="Thesis title" error={errors.title} required autofilled={autofilled.title}>
             <Input
-              value={form.year}
-              onChange={set('year')}
+              value={form.title}
+              onChange={set('title')}
               onBlur={onBlurValidate}
-              placeholder={`e.g. ${new Date().getFullYear()}`}
-              inputMode="numeric"
-              maxLength={4}
-              error={errors.year}
+              placeholder="Full official thesis title"
+              error={errors.title}
             />
           </LabelledField>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <LabelledField
+              label="Authors"
+              hint="Separate multiple authors with commas"
+              autofilled={autofilled.authors}
+            >
+              <Input value={form.authors} onChange={set('authors')} placeholder="Dela Cruz, J., Santos, M." />
+            </LabelledField>
+            {/* 'e.g.' prefixed and derived from the clock: a bare
+                '2024' here reads as an autofilled value in the muted
+                placeholder colour, and was mistaken for one. */}
+            <LabelledField
+              label="Year completed"
+              error={errors.year}
+              hint="Four digits, 1978 onwards"
+              autofilled={autofilled.year}
+            >
+              <Input
+                value={form.year}
+                onChange={set('year')}
+                onBlur={onBlurValidate}
+                placeholder={`e.g. ${new Date().getFullYear()}`}
+                inputMode="numeric"
+                maxLength={4}
+                error={errors.year}
+              />
+            </LabelledField>
+          </div>
         </div>
       </Section>
 
@@ -197,57 +246,127 @@ export function MetadataForm({
         hint="Where the thesis belongs in the archive"
         headingId="upload-classification-heading"
       >
-        <Field label="Thesis category" required hint="Who authored the manuscript — not your account role">
-          <Select value={form.thesis_category} onChange={set('thesis_category')} aria-label="Select thesis category">
-            {THESIS_CATEGORIES.map((category) => (
-              <option key={category.value} value={category.value}>{category.label}</option>
-            ))}
-          </Select>
-        </Field>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field
-            label="Academic program"
-            error={errors.program_id}
-            required={form.thesis_category !== 'faculty'}
-            hint={form.thesis_category === 'faculty'
-              ? 'Optional for faculty research'
-              : 'Validated against the official CCSICT catalog'}
-          >
-            <Select
-              value={form.program_id}
-              onChange={(event) => {
-                const program = programs.find((item) => item.id === event.target.value)
-                onForm((current) => ({
-                  ...current,
-                  program_id: event.target.value,
-                  specialization_id: '',
-                  requires_specialization: Boolean(program?.specializations?.length),
-                  track: program?.specializations?.length ? '' : (program?.code || ''),
-                }))
-              }}
-              error={errors.program_id}
-              disabled={!form.department || programs.length === 0}
-              aria-label="Select academic program"
+        <div className="space-y-5">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <SelectField
+              label="Thesis category"
+              required
+              hint="Who wrote it — not your account role"
             >
-              <option value="">Select program…</option>
-              {programs.map((program) => (
-                <option key={program.id} value={program.id}>{program.code} — {program.name}</option>
-              ))}
-            </Select>
+              <Select value={form.thesis_category} onChange={set('thesis_category')} aria-label="Select thesis category">
+                {THESIS_CATEGORIES.map((category) => (
+                  <option key={category.value} value={category.value}>{category.label}</option>
+                ))}
+              </Select>
+            </SelectField>
+            {/* Department leads the program on purpose: it decides which
+                programs load at all, and while it sat to the right of them the
+                cascade read child-before-parent. */}
+            {isSuperadmin ? (
+              /* No autofill marker here, though `department` is in
+                 AUTOFILLABLE_KEYS: this Select is edited through `onForm`, and
+                 `set-form` does not clear the autofill map the way `set-field`
+                 does (uploadState.js:51-56). The marker would go on claiming
+                 the extractor's value after a superadmin picked a different
+                 department — a provenance hint that lies is worse than none.
+                 Fixing it properly means teaching `set-form` to clear claimed
+                 keys, which is reducer work with pinned tests. */
+              <SelectField
+                label="Department"
+                error={errors.department}
+                required
+                hint="Programs below are filtered by this"
+              >
+                <Select
+                  value={form.department}
+                  onChange={(event) => onForm((current) => ({
+                    ...current,
+                    department: event.target.value,
+                    track: '',
+                    program_id: '',
+                    specialization_id: '',
+                    requires_specialization: false,
+                  }))}
+                  error={errors.department}
+                  disabled={loadingDepts}
+                  aria-label="Select thesis department"
+                >
+                  <option value="">Select a Department…</option>
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.name}>{department.name}</option>
+                  ))}
+                </Select>
+              </SelectField>
+            ) : (
+              /* Everyone else is pinned to their profile's department by
+                 dependencies/auth.resolve_effective_department, so this reads
+                 out a fact rather than taking input. It used to be a bare Badge
+                 in an input-shaped box under a required asterisk, which
+                 explained nothing; the lock and "Assigned" say why it cannot be
+                 changed. Same shell as the sign-up form's department field. */
+              <Field label="Department">
+                <div className="flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm font-semibold">
+                  <Lock size={14} aria-hidden="true" />
+                  {enforcedDepartment}
+                  <span className="ml-auto text-xs font-medium uppercase tracking-wider text-ink-faint">Assigned</span>
+                </div>
+              </Field>
+            )}
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            {/* Widens to the full row when the chosen program has no
+                specializations, so the reveal below never leaves a dead cell. */}
+            <div className={cn('min-w-0', specializations.length === 0 && 'sm:col-span-2')}>
+              <SelectField
+                label="Academic program"
+                error={errors.program_id}
+                required={form.thesis_category !== 'faculty'}
+                hint={programHint}
+              >
+                <Select
+                  value={form.program_id}
+                  onChange={(event) => {
+                    const program = programs.find((item) => item.id === event.target.value)
+                    onForm((current) => ({
+                      ...current,
+                      program_id: event.target.value,
+                      specialization_id: '',
+                      requires_specialization: Boolean(program?.specializations?.length),
+                      track: program?.specializations?.length ? '' : (program?.code || ''),
+                    }))
+                  }}
+                  error={errors.program_id}
+                  disabled={programsUnavailable}
+                  aria-label="Select academic program"
+                >
+                  <option value="">Select program…</option>
+                  {programs.map((program) => (
+                    <option key={program.id} value={program.id}>{program.code} — {program.name}</option>
+                  ))}
+                </Select>
+              </SelectField>
+            </div>
+
             {/* Only some programs carry specializations, so this reveals itself
-                rather than reserving an empty slot. It stays a sibling of the
-                program Select inside this one Field on purpose — see above. */}
-            <AnimatePresence initial={false}>
-              {specializations.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: duration.medium, ease: easing.standard }}
-                  className="overflow-hidden"
+                rather than reserving an empty slot. Enter-only animation: on
+                exit the program cell reclaims the full row immediately, which
+                would shunt a shrinking cell onto a third grid row and make it
+                fall away sideways. */}
+            {specializations.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: duration.medium, ease: easing.standard }}
+                className="min-w-0"
+              >
+                <SelectField
+                  label="Specialization"
+                  error={errors.specialization_id}
+                  required
+                  hint="Required for the selected program"
                 >
                   <Select
-                    className="mt-2"
                     value={form.specialization_id}
                     onChange={(event) => {
                       const specialization = specializations.find((item) => item.id === event.target.value)
@@ -265,45 +384,10 @@ export function MetadataForm({
                       <option key={item.id} value={item.id}>{item.code} — {item.name}</option>
                     ))}
                   </Select>
-                  {errors.specialization_id && (
-                    <p className="mt-1.5 text-xs font-medium text-flame-500">{errors.specialization_id}</p>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </Field>
-          <Field
-            label="Department"
-            error={errors.department}
-            required
-            hint="Department this thesis belongs to"
-          >
-            {isSuperadmin ? (
-              <Select
-                value={form.department}
-                onChange={(event) => onForm((current) => ({
-                  ...current,
-                  department: event.target.value,
-                  track: '',
-                  program_id: '',
-                  specialization_id: '',
-                  requires_specialization: false,
-                }))}
-                error={errors.department}
-                disabled={loadingDepts}
-                aria-label="Select thesis department"
-              >
-                <option value="">Select a Department…</option>
-                {departments.map((department) => (
-                  <option key={department.id} value={department.name}>{department.name}</option>
-                ))}
-              </Select>
-            ) : (
-              <div className="flex h-11 items-center rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3">
-                <Badge tone="neutral">{enforcedDepartment}</Badge>
-              </div>
+                </SelectField>
+              </motion.div>
             )}
-          </Field>
+          </div>
         </div>
       </Section>
 

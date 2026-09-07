@@ -153,7 +153,7 @@ export const Select = forwardRef(function Select(
   )
 })
 
-export function Field({ label, hint, error, children, required }) {
+export function Field({ label, hint, error, children, required, nameFromLabel = true }) {
   const generatedId = useId()
   const labelId = `${generatedId}-label`
   const descriptionId = `${generatedId}-description`
@@ -161,8 +161,16 @@ export function Field({ label, hint, error, children, required }) {
 
   if (isSelectField) {
     const labelledSelect = cloneElement(children, {
-      'aria-labelledby': children.props['aria-labelledby'] || labelId,
+      // The hint and the error stay programmatically attached either way.
       'aria-describedby': (error || hint) ? descriptionId : children.props['aria-describedby'],
+      // ...but the visible label is only lent to the control as its accessible
+      // *name* when the caller asks for it. aria-labelledby outranks aria-label,
+      // and the four upload Selects are matched by their aria-label strings in
+      // e2e/critical-flows.spec.js:489-492 and :579-582 — injecting the label
+      // there silently renames them and both upload journeys fail.
+      ...(nameFromLabel
+        ? { 'aria-labelledby': children.props['aria-labelledby'] || labelId }
+        : {}),
     })
     return (
       <div className="block">

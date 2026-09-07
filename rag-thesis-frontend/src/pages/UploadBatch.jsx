@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowRight, FileText, Trash2, Layers, AlertTriangle, RefreshCw, UploadCloud, Ban,
-  CheckCircle2, Sparkles, PartyPopper, Clock3, XCircle, FileWarning, Loader2,
+  CheckCircle2, Sparkles, PartyPopper, Clock3, XCircle, FileWarning, Loader2, Lock,
 } from 'lucide-react'
 import {
   getDepartments, extractMetadataBatch, uploadBatch, getUploadJobs, cancelUploadJob, apiErrorMessage,
@@ -122,9 +122,23 @@ function BatchDefaultsForm({ defaults, errors, departments, isSuperadmin, enforc
   const programs = currentDept?.programs || []
   const program = programs.find((item) => item.id === defaults.program_id)
   const specializations = program?.specializations || []
+  const programsUnavailable = !defaults.department || programs.length === 0
+  const programHint = programsUnavailable
+    ? 'Choose a department first'
+    : defaults.thesis_category === 'faculty'
+      ? 'Optional for faculty research'
+      : 'Validated against the official catalog'
+  // Two columns, one control per cell. This was sm:grid-cols-3 with the
+  // specialization stacked under the program inside its Field, which left the
+  // three columns ending at different heights and the specialization with no
+  // label of its own. Mirrors components/upload/MetadataForm.jsx.
+  //
+  // nameFromLabel={false} on every Select: Field would otherwise lend its
+  // visible label as aria-labelledby, which outranks the aria-label the batch
+  // journey matches these comboboxes by (e2e/critical-flows.spec.js:579-582).
   return (
-    <div className="grid gap-5 rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] p-4 sm:grid-cols-3 sm:p-5">
-      <Field label="Thesis category" required hint="Who authored the manuscripts">
+    <div className="grid gap-5 rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] p-4 sm:grid-cols-2 sm:p-5">
+      <Field label="Thesis category" required hint="Who authored the manuscripts" nameFromLabel={false}>
         <Select
           value={defaults.thesis_category}
           onChange={(event) => onChange({ thesis_category: event.target.value })}
@@ -135,52 +149,79 @@ function BatchDefaultsForm({ defaults, errors, departments, isSuperadmin, enforc
           ))}
         </Select>
       </Field>
-      <Field
-        label="Academic program"
-        error={errors.program_id}
-        required={defaults.thesis_category !== 'faculty'}
-        hint={defaults.thesis_category === 'faculty' ? 'Optional for faculty research' : 'Validated against the official catalog'}
-      >
-        <Select value={defaults.program_id} onChange={(event) => {
-          const next = programs.find((item) => item.id === event.target.value)
-          onChange({
-            program_id: event.target.value,
-            specialization_id: '',
-            requires_specialization: Boolean(next?.specializations?.length),
-            track: next?.specializations?.length ? '' : (next?.code || ''),
-          })
-        }} error={errors.program_id} disabled={!defaults.department || programs.length === 0} aria-label="Select academic program">
-          <option value="">Select program…</option>
-          {programs.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
-        </Select>
-        {specializations.length > 0 && (
-          <Select className="mt-2" value={defaults.specialization_id} onChange={(event) => {
-            const next = specializations.find((item) => item.id === event.target.value)
-            onChange({ specialization_id: event.target.value, track: next?.name || '' })
-          }} error={errors.specialization_id} aria-label="Select academic specialization">
-            <option value="">Select specialization…</option>
-            {specializations.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
-          </Select>
-        )}
-      </Field>
-      <Field label="Department" error={errors.department} required hint="Archive these manuscripts belong to">
-        {isSuperadmin ? (
+      {/* Department leads the program: it decides which programs load at all. */}
+      {isSuperadmin ? (
+        <Field
+          label="Department"
+          error={errors.department}
+          required
+          hint="Programs below are filtered by this"
+          nameFromLabel={false}
+        >
           <Select value={defaults.department} onChange={(event) => onChange({
             department: event.target.value, track: '', program_id: '', specialization_id: '', requires_specialization: false,
           })} error={errors.department} disabled={loadingDepts} aria-label="Select thesis department">
             <option value="">Select a Department…</option>
             {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
           </Select>
-        ) : (
-          <div className="flex h-11 items-center rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3">
-            <Badge tone="neutral">{enforcedDepartment}</Badge>
+        </Field>
+      ) : (
+        /* Pinned to the uploader's own department by the backend, so this reads
+           out a fact rather than taking input. The lock and "Assigned" say why
+           it cannot be changed; it used to be a bare Badge in an input-shaped
+           box under a required asterisk. */
+        <Field label="Department">
+          <div className="flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm font-semibold">
+            <Lock size={14} aria-hidden="true" />
+            {enforcedDepartment}
+            <span className="ml-auto text-xs font-medium uppercase tracking-wider text-ink-faint">Assigned</span>
           </div>
-        )}
-      </Field>
+        </Field>
+      )}
+      {/* Widens to the full row when the chosen program has no specializations,
+          so the reveal beside it never leaves a dead cell. */}
+      <div className={cn('min-w-0', specializations.length === 0 && 'sm:col-span-2')}>
+        <Field
+          label="Academic program"
+          error={errors.program_id}
+          required={defaults.thesis_category !== 'faculty'}
+          hint={programHint}
+          nameFromLabel={false}
+        >
+          <Select value={defaults.program_id} onChange={(event) => {
+            const next = programs.find((item) => item.id === event.target.value)
+            onChange({
+              program_id: event.target.value,
+              specialization_id: '',
+              requires_specialization: Boolean(next?.specializations?.length),
+              track: next?.specializations?.length ? '' : (next?.code || ''),
+            })
+          }} error={errors.program_id} disabled={programsUnavailable} aria-label="Select academic program">
+            <option value="">Select program…</option>
+            {programs.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
+          </Select>
+        </Field>
+      </div>
+      {specializations.length > 0 && (
+        <Field
+          label="Specialization"
+          error={errors.specialization_id}
+          required
+          hint="Required for the selected program"
+          nameFromLabel={false}
+        >
+          <Select value={defaults.specialization_id} onChange={(event) => {
+            const next = specializations.find((item) => item.id === event.target.value)
+            onChange({ specialization_id: event.target.value, track: next?.name || '' })
+          }} error={errors.specialization_id} aria-label="Select academic specialization">
+            <option value="">Select specialization…</option>
+            {specializations.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
+          </Select>
+        </Field>
+      )}
     </div>
   )
 }
-
 /**
  * A title field that grows to fit what it holds.
  *
