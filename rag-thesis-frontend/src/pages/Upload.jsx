@@ -1,278 +1,98 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import {
-  UploadCloud, FileText, X, ArrowRight, ArrowLeft, CheckCircle2,
-  ScanText, Archive, Scissors, BrainCircuit, Database, PartyPopper, AlertTriangle,
-  ShieldAlert, ShieldCheck, Ban,
-} from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, Ban, Layers, UploadCloud } from 'lucide-react'
 import {
   uploadPaper, getUploadStatus, getDepartments, apiErrorMessage, extractMetadata,
   cancelUploadJob,
 } from '../api'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Button } from '../components/ui/Button'
-import { Input, Textarea, Select, Field } from '../components/ui/Input'
-import { Badge } from '../components/ui/Badge'
 import { PageTransition } from '../components/ui/Motion'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { useAuth } from '../context/AuthContext'
-import { cn, normalizePercent, scanMetrics, verdictLabel } from '../lib/utils'
-import { THESIS_CATEGORIES, thesisCategoryLabel } from '../lib/catalog'
-import { createUploadState, emptyUploadForm, isCurrentPoll, uploadReducer } from './upload/uploadState'
+import { cn, scanMetrics, verdictLabel } from '../lib/utils'
+import { thesisCategoryLabel } from '../lib/catalog'
+import {
+  createUploadState, emptyUploadForm, isCurrentPoll, uploadMetadataErrors, uploadReducer, UPLOAD_STEPS,
+} from './upload/uploadState'
+import {
+  WIZARD_STEPS, autofilledKeys, isTerminalJob, railMode, stageView, summaryRows,
+} from './upload/wizardSteps'
+import { Dropzone } from '../components/upload/Dropzone'
+import { RailFileChip, RailHeading, RailSummaryList, WizardRail } from '../components/upload/WizardRail'
+import { WizardStep } from '../components/upload/WizardStep'
+import { MetadataForm } from '../components/upload/MetadataForm'
+import { ReviewPanel } from '../components/upload/ReviewPanel'
+import { PipelineTimeline } from '../components/upload/PipelineTimeline'
+import { IngestOutcome } from '../components/upload/IngestOutcome'
 
-const STEPS = ['Manuscript', 'Metadata', 'Review']
-
-const PIPELINE_STAGES = [
-  { key: 'download', label: 'Secure source', icon: Archive },
-  { key: 'malware_scan', label: 'Malware scan', icon: ShieldCheck },
-  { key: 'extract', label: 'Extract & clean', icon: ScanText },
-  { key: 'chunk', label: 'Chunk (800 tokens)', icon: Scissors },
-  { key: 'embed', label: 'Embed (768d)', icon: BrainCircuit },
-  { key: 'screen', label: 'Screen novelty (85%)', icon: ShieldAlert },
-  { key: 'index', label: 'Index vectors', icon: Database },
-]
+const STATUS_LABELS = {
+  staging: 'Staging',
+  queued: 'Queued',
+  processing: 'Processing',
+  retry_wait: 'Retrying',
+  completed: 'Indexed',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+}
 
 function DepartmentLoadError({ show, onRetry }) {
   if (!show) return null
   return (
     <div role="alert" className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-flame-500/25 bg-flame-500/10 p-3 text-xs">
-      <span className="flex items-center gap-2"><AlertTriangle size={14} /> Department metadata is unavailable.</span>
+      <span className="flex items-center gap-2"><AlertTriangle size={14} aria-hidden="true" /> Department metadata is unavailable.</span>
       <Button variant="ghost" size="sm" onClick={onRetry}>Retry</Button>
     </div>
   )
 }
 
-function uploadMetadataErrors(form) {
-  const errors = {}
-  if (form.title.trim().length < 5) errors.title = 'Enter the full thesis title'
-  // The program requirement follows the manuscript: student theses always
-  // belong to a program, faculty research may sit outside the catalog.
-  if (form.thesis_category !== 'faculty' && !form.program_id) {
-    errors.program_id = 'Select the academic program'
-  }
-  if (form.program_id && form.requires_specialization && !form.specialization_id) {
-    errors.specialization_id = 'Select the program specialization'
-  }
-  if (!form.department) errors.department = 'Select the department'
-  const latestYear = new Date().getFullYear() + 1
-  if (form.year && (!/^\d{4}$/.test(form.year) || +form.year < 1978 || +form.year > latestYear)) {
-    errors.year = 'Enter a valid year'
-  }
-  return errors
-}
-
-function UploadScreening({ scan }) {
-  if (!scan?.flagged) return null
-  const metrics = scanMetrics(scan)
+/** Ingestion in flight: the timeline plus whatever the job lets you do about it. */
+function IngestingPanel({ job, pollError, onCancel, onResume }) {
   return (
-    <div className="mt-6 w-full max-w-md rounded-2xl border border-gold-400/40 bg-gold-400/10 p-4 text-left">
-      <div className="flex items-center gap-2 text-sm font-bold">
-        <ShieldAlert size={15} className="shrink-0 text-gold-500" />
-        {verdictLabel(metrics.verdict)}
-      </div>
-      <div className="mt-2 grid gap-1 text-xs opacity-75 sm:grid-cols-2">
-        <span>Highest passage similarity: {metrics.highest.toFixed(2)}%</span>
-        <span>Matched chunk coverage: {metrics.coverage.toFixed(2)}%</span>
-        <span>Matched chunks / total chunks: {metrics.matchedChunks} / {metrics.totalChunks}</span>
-        <span>Advisory verdict: {verdictLabel(metrics.verdict)}</span>
-      </div>
-      <ul className="mt-2 space-y-1 text-xs opacity-75">
-        {(scan.matched_papers || []).map((paper) => (
-          <li key={paper.id}>
-            &quot;{paper.title || 'Untitled thesis'}&quot;{paper.year ? ` (${paper.year})` : ''} — highest passage {normalizePercent(paper.similarity).toFixed(2)}%
-            {' · '}{paper.match_count} chunk{paper.match_count === 1 ? '' : 's'}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-2 text-xs text-ink-muted">
-        The manuscript was still indexed. This is advisory only; faculty makes the final decision.
-      </p>
-    </div>
-  )
-}
-
-function StepIndicator({ current }) {
-  return (
-    <div className="mb-8 flex items-center justify-center gap-0">
-      {STEPS.map((label, i) => (
-        <div key={label} className="flex items-center">
-          <div className="flex flex-col items-center gap-1.5">
-            <motion.div
-              animate={{
-                scale: current === i ? 1.08 : 1,
-              }}
-              className={cn(
-                'flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-bold transition-colors duration-300',
-                i < current
-                  ? 'bg-forest-600 text-white'
-                  : i === current
-                    ? 'bg-gradient-to-br from-gold-300 to-gold-400 text-forest-950 shadow-lg shadow-gold-400/30'
-                    : 'glass opacity-50',
-              )}
-            >
-              {i < current ? <CheckCircle2 size={18} /> : i + 1}
-            </motion.div>
-            <span className={cn('text-xs font-semibold uppercase tracking-wider', i === current ? 'text-ink' : 'text-ink-faint')}>
-              {label}
-            </span>
-          </div>
-          {i < STEPS.length - 1 && (
-            <div className={cn('mx-3 mb-5 h-0.5 w-12 rounded-full sm:w-20', i < current ? 'bg-forest-600' : 'bg-forest-900/15 dark:bg-white/15')} />
-          )}
+    <div className="space-y-6">
+      <PipelineTimeline job={job} />
+      {job?.cancel_requested && (
+        <div className="rounded-2xl border border-gold-400/35 bg-gold-400/10 p-4 text-center text-sm">
+          Cancellation requested. Processing will stop at the next safe checkpoint.
         </div>
-      ))}
-    </div>
-  )
-}
-
-function Dropzone({ file, onFile }) {
-  const [dragging, setDragging] = useState(false)
-  const inputRef = useRef(null)
-
-  const handleFiles = useCallback((files) => {
-    const f = files?.[0]
-    if (!f) return
-    const validMime = !f.type || ['application/pdf', 'application/x-pdf'].includes(f.type)
-    if (!f.name.toLowerCase().endsWith('.pdf') || !validMime) {
-      toast.error('Unsupported file', { description: 'Please upload a valid PDF manuscript.' })
-      return
-    }
-    if (f.size > 25 * 1024 * 1024) {
-      toast.error('File too large', { description: 'Maximum size is 25 MB.' })
-      return
-    }
-    onFile(f)
-  }, [onFile])
-
-  return (
-    <div className="relative">
-      <input
-        ref={inputRef}
-        type="file"
-        accept="application/pdf,.pdf"
-        className="hidden"
-        onChange={(e) => handleFiles(e.target.files)}
-      />
-      <button
-      type="button"
-      onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files) }}
-      onClick={() => inputRef.current?.click()}
-      className={cn(
-        'group flex w-full cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed px-6 py-14 text-center transition-all duration-300',
-        dragging
-          ? 'border-gold-400 bg-gold-400/10 scale-[1.01]'
-          : 'border-forest-700/25 hover:border-forest-600/50 dark:border-white/15 dark:hover:border-gold-400/40',
       )}
-    >
-      {file ? (
-        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex flex-col items-center pb-10">
-          <div className="glass mb-4 flex h-16 w-16 items-center justify-center rounded-3xl">
-            <FileText size={26} className="text-forest-700 dark:text-gold-300" />
-          </div>
-          <div className="max-w-xs truncate text-sm font-semibold">{file.name}</div>
-          <div className="mt-1 text-xs text-ink-faint">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
-        </motion.div>
-      ) : (
-        <>
-          <motion.div
-            animate={{ y: dragging ? -6 : 0 }}
-            className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-xl shadow-forest-900/25 transition-transform duration-300 group-hover:scale-105"
-          >
-            <UploadCloud size={26} className="text-gold-300" />
-          </motion.div>
-          <div className="font-display text-base font-bold">
-            Drop the manuscript here
-          </div>
-          <p className="mt-1 text-xs text-ink-muted">
-            or click to browse · PDF only · up to 25 MB · scanned copies are OCR-processed
-          </p>
-        </>
+      {job?.can_cancel && !job?.cancel_requested && (
+        <div className="flex justify-center">
+          <Button variant="ghost" onClick={onCancel}>
+            <Ban size={15} aria-hidden="true" /> Cancel upload
+          </Button>
+        </div>
       )}
-      </button>
-      {file && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="absolute bottom-8 left-1/2 -translate-x-1/2"
-          onClick={() => onFile(null)}
-        >
-          <X size={14} /> Remove
-        </Button>
-      )}
-    </div>
-  )
-}
-
-// The backend reports a `store` stage while the manuscript is being staged
-// privately, which is not one of the seven worker stages below. findIndex
-// returned -1 for it, so the whole stepper rendered inert and greyed while the
-// progress bar already showed movement. Map it onto the first worker stage, and
-// treat the pre-worker statuses as active so the step reads as "starting".
-const STAGE_ALIASES = { store: 'download', '': 'download' }
-const IN_FLIGHT_STATUSES = ['staging', 'queued', 'processing', 'retry_wait']
-
-function PipelineProgress({ job }) {
-  const stageKey = STAGE_ALIASES[job?.stage ?? ''] ?? job?.stage
-  const currentIdx = PIPELINE_STAGES.findIndex((s) => s.key === stageKey)
-  return (
-    <div className="space-y-5">
-      <div className="relative h-2.5 overflow-hidden rounded-full bg-forest-900/10 dark:bg-white/10">
-        <motion.div
-          className="h-full rounded-full bg-gradient-to-r from-forest-600 via-forest-500 to-gold-400"
-          animate={{ width: `${job?.progress ?? 0}%` }}
-          transition={{ duration: 0.6, ease: [0.2, 0, 0, 1] }}
-        />
-      </div>
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-7">
-        {PIPELINE_STAGES.map((stage, i) => {
-          const done = job?.status === 'completed' || i < currentIdx
-          const active = i === currentIdx && IN_FLIGHT_STATUSES.includes(job?.status)
-          return (
-            <div key={stage.key} className="flex flex-col items-center gap-1.5 text-center">
-              <div
-                className={cn(
-                  'flex h-10 w-10 items-center justify-center rounded-2xl transition-all duration-300',
-                  done
-                    ? 'bg-forest-600 text-white'
-                    : active
-                      ? 'bg-gradient-to-br from-gold-300 to-gold-400 text-forest-950 shadow-lg shadow-gold-400/30'
-                      : 'glass opacity-40',
-                )}
-              >
-                {done ? <CheckCircle2 size={16} /> : <stage.icon size={16} className={active ? 'animate-pulse' : ''} />}
-              </div>
-              <span className={cn('text-xs font-semibold leading-tight', active || done ? 'text-ink' : 'text-ink-faint')}>
-                {stage.label}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-      <p className="text-center text-sm text-ink-muted">{job?.message}</p>
-      {job?.status === 'retry_wait' && (
-        <div className="rounded-xl border border-gold-400/35 bg-gold-400/10 px-4 py-3 text-center text-xs">
-          Temporary service interruption. Automatic retry {job.attempt_count}/{job.max_attempts}
-          {job.next_retry_at ? ` is scheduled for ${new Date(job.next_retry_at).toLocaleTimeString()}.` : ' is scheduled.'}
+      {pollError && (
+        <div role="alert" className="rounded-2xl border border-gold-400/35 bg-gold-400/10 p-4 text-center">
+          <p className="text-sm text-ink-muted">{pollError}</p>
+          <Button variant="secondary" size="sm" className="mt-3" onClick={onResume}>
+            Resume status check
+          </Button>
         </div>
       )}
     </div>
   )
 }
 
-// The multi-step wizard intentionally keeps its declarative stage rendering in one component.
-// eslint-disable-next-line complexity
+/** The wizard's own action bar. Sits at the foot of whichever step is showing. */
+function StepActions({ children }) {
+  return (
+    <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-5">
+      {children}
+    </div>
+  )
+}
+
 export default function Upload() {
   const { isSuperadmin, department: userDepartment } = useAuth()
   const enforcedDepartment = userDepartment || 'CCSICT'
   const [state, dispatch] = useReducer(uploadReducer, enforcedDepartment, createUploadState)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
-  const { step, file, form, errors, job, submitting, parsing, pendingFile, pollError } = state
+  const { step, direction, file, form, errors, autofilled, job, submitting, parsing, pendingFile, pollError } = state
   const setStep = (value) => dispatch({ type: 'set-step', step: value })
   const setFile = (value) => dispatch({ type: 'set-file', file: value })
   const setForm = (value) => dispatch({ type: 'set-form', value })
@@ -298,7 +118,7 @@ export default function Upload() {
     isError: departmentsError,
     refetch: retryDepartments,
   } = useQuery({ queryKey: ['departments'], queryFn: getDepartments })
-  
+
   // Find the currently selected department object
   const currentDept = departments.find(d => d.name === form.department)
   const currentPrograms = currentDept?.programs || []
@@ -325,7 +145,7 @@ export default function Upload() {
     }
   }, [enforcedDepartment, isSuperadmin])
 
-  const set = (key) => (e) => dispatch({ type: 'set-field', key, value: e.target.value })
+  const setField = (key, value) => dispatch({ type: 'set-field', key, value })
 
   const runAutofill = async (f) => {
     setParsing(true)
@@ -339,6 +159,8 @@ export default function Upload() {
         year: metadata.year || prev.year,
         department: isSuperadmin ? metadata.department || prev.department : enforcedDepartment,
       }))
+      // Which fields the extractor actually filled, so the form can mark them.
+      dispatch({ type: 'set-autofilled', keys: autofilledKeys(metadata) })
       if (metadata.title || metadata.authors || metadata.year || metadata.department) {
         toast.success('Metadata autofilled', { description: 'Extracted available information from the document.' })
       } else {
@@ -366,6 +188,14 @@ export default function Upload() {
     const next = uploadMetadataErrors(form)
     setErrors(next)
     return Object.keys(next).length === 0
+  }
+
+  // On blur, correct what is already wrong but never introduce a new complaint:
+  // tabbing out of an empty title should not scold you for not having typed in
+  // it yet. Continue still runs the full check.
+  const revalidateTouched = () => {
+    if (Object.keys(errors).length === 0) return
+    setErrors(uploadMetadataErrors(form))
   }
 
   const startPolling = (jobId) => {
@@ -442,7 +272,7 @@ export default function Upload() {
         idempotencyKeyRef.current = active.idempotencyKey || crypto.randomUUID()
         if (active.title) setForm((current) => ({ ...current, title: active.title }))
         setJob({ status: 'queued', stage: 'download', progress: 8, message: 'Restoring durable upload status…' })
-        setStep(3)
+        setStep(UPLOAD_STEPS.ingesting)
         startPolling(active.jobId)
       }
     } catch {
@@ -465,7 +295,7 @@ export default function Upload() {
         title: form.title,
       }))
       setJob({ status: res.status, stage: 'download', progress: 8, message: res.message })
-      setStep(3)
+      setStep(UPLOAD_STEPS.ingesting)
       startPolling(res.job_id)
     } catch (err) {
       toast.error('Upload failed', { description: apiErrorMessage(err) })
@@ -506,306 +336,158 @@ export default function Upload() {
     }
   }
 
+  const terminal = isTerminalJob(job)
+  // The rail steps aside once the job is over, so the outcome gets the full card.
+  const mode = railMode(step, job)
+
   return (
-    <PageTransition className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
-          Upload <span className="text-gradient-isu">Thesis</span>
-        </h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          Digitize a thesis manuscript into its department-scoped semantic archive.
-        </p>
+    <PageTransition className="mx-auto max-w-5xl space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
+            Upload <span className="text-gradient-isu">Thesis</span>
+          </h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            Digitize a thesis manuscript into its department-scoped semantic archive.
+          </p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => navigate('/upload/batch')} title="Ingest several manuscripts in one go">
+          <Layers size={14} aria-hidden="true" /> Batch upload
+        </Button>
       </div>
 
-      <GlassCard className="p-6 sm:p-10">
-        <DepartmentLoadError show={departmentsError} onRetry={() => retryDepartments()} />
-        {step < 3 && <StepIndicator current={step} />}
-
-        <AnimatePresence mode="wait">
-          {/* Step 1: file */}
-          {step === 0 && (
-            <motion.div
-              key="file"
-              initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
-              transition={{ duration: 0.3 }}
+      <GlassCard className="overflow-hidden p-0">
+        <div className={cn('grid', mode !== 'hidden' && 'lg:grid-cols-[17rem_minmax(0,1fr)]')}>
+          {mode !== 'hidden' && (
+            <WizardRail
+              steps={WIZARD_STEPS}
+              step={step}
+              mode={mode}
+              caption={form.title}
+              progress={stageView(job).progress}
+              statusLabel={STATUS_LABELS[job?.status] ?? 'Working'}
+              onSelectStep={step < UPLOAD_STEPS.ingesting ? setStep : undefined}
             >
-              <Dropzone file={file} onFile={handleFileSelect} />
-              <div className="mt-6 flex justify-end">
-                <Button disabled={!file || parsing} loading={parsing} onClick={() => setStep(1)} className="group">
-                  {parsing ? 'Extracting...' : 'Continue'} <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
-                </Button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Step 2: metadata */}
-          {step === 1 && (
-            <motion.div
-              key="meta"
-              initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-5"
-            >
-              <Field label="Thesis title" error={errors.title} required>
-                <Input value={form.title} onChange={set('title')} placeholder="Full official thesis title" error={errors.title} />
-              </Field>
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Authors" hint="Separate multiple authors with commas">
-                  <Input value={form.authors} onChange={set('authors')} placeholder="Dela Cruz, J., Santos, M." />
-                </Field>
-                <Field label="Year completed" error={errors.year}>
-                  <Input value={form.year} onChange={set('year')} placeholder="2024" inputMode="numeric" maxLength={4} error={errors.year} />
-                </Field>
-              </div>
-              <Field
-                label="Thesis category"
-                required
-                hint="Who authored the manuscript — not your account role"
-              >
-                <Select
-                  value={form.thesis_category}
-                  onChange={set('thesis_category')}
-                  aria-label="Select thesis category"
-                >
-                  {THESIS_CATEGORIES.map((category) => (
-                    <option key={category.value} value={category.value}>{category.label}</option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field
-                  label="Academic program"
-                  error={errors.program_id}
-                  required={form.thesis_category !== 'faculty'}
-                  hint={form.thesis_category === 'faculty'
-                    ? 'Optional for faculty research'
-                    : 'Validated against the official CCSICT catalog'}
-                >
-                  <Select value={form.program_id} onChange={(event) => {
-                    const program = currentPrograms.find((item) => item.id === event.target.value)
-                    setForm((current) => ({
-                      ...current,
-                      program_id: event.target.value,
-                      specialization_id: '',
-                      requires_specialization: Boolean(program?.specializations?.length),
-                      track: program?.specializations?.length ? '' : (program?.code || ''),
-                    }))
-                  }} error={errors.program_id} disabled={!form.department || currentPrograms.length === 0} aria-label="Select academic program">
-                    <option value="">Select program…</option>
-                    {currentPrograms.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}
-                  </Select>
-                  {currentSpecializations.length > 0 && (
-                    <Select className="mt-2" value={form.specialization_id} onChange={(event) => {
-                      const specialization = currentSpecializations.find((item) => item.id === event.target.value)
-                      setForm((current) => ({
-                        ...current,
-                        specialization_id: event.target.value,
-                        track: specialization?.name || '',
-                      }))
-                    }} error={errors.specialization_id} aria-label="Select academic specialization">
-                      <option value="">Select specialization…</option>
-                      {currentSpecializations.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
-                    </Select>
-                  )}
-                </Field>
-                <Field label="Department" error={errors.department} required hint="Department this thesis belongs to">
-                  {isSuperadmin ? (
-                    <Select value={form.department} onChange={(e) => setForm(f => ({
-                      ...f,
-                      department: e.target.value,
-                      track: '',
-                      program_id: '',
-                      specialization_id: '',
-                      requires_specialization: false,
-                    }))} error={errors.department} disabled={loadingDepts} aria-label="Select thesis department">
-                      <option value="">Select a Department…</option>
-                      {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
-                    </Select>
-                  ) : (
-                    <div className="glass flex h-11 items-center rounded-xl px-3"><Badge tone="neutral">{enforcedDepartment}</Badge></div>
-                  )}
-                </Field>
-              </div>
-              <Field label="Abstract" hint="Optional but improves archive browsing">
-                <Textarea value={form.abstract} onChange={set('abstract')} placeholder="Paste the thesis abstract…" rows={4} />
-              </Field>
-              <div className="flex justify-between pt-1">
-                <Button variant="ghost" onClick={() => setStep(0)}>
-                  <ArrowLeft size={15} /> Back
-                </Button>
-                <Button onClick={() => validateMetadata() && setStep(2)} className="group">
-                  Review <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
-                </Button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Step 3: review */}
-          {step === 2 && (
-            <motion.div
-              key="review"
-              initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-5"
-            >
-              <div className="glass space-y-4 rounded-2xl p-5">
-                <div className="flex items-center gap-3">
-                  <FileText size={18} className="shrink-0 text-gold-400" />
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold">{file?.name}</div>
-                    <div className="text-xs text-ink-faint">{(file?.size / 1024 / 1024).toFixed(2)} MB</div>
-                  </div>
-                </div>
-                <div className="grid gap-3 border-t border-forest-900/10 pt-4 text-sm dark:border-white/10 sm:grid-cols-2">
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Title</div>
-                    <div className="mt-0.5 font-medium">{form.title}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Authors</div>
-                    <div className="mt-0.5 font-medium">{form.authors || '—'}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Category</div>
-                    <div className="mt-0.5">
-                      <Badge tone={form.thesis_category === 'faculty' ? 'gold' : 'forest'}>
-                        {thesisCategoryLabel(form.thesis_category)}
-                      </Badge>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Program / specialization</div>
-                    <div className="mt-0.5 flex flex-wrap gap-1.5">
-                      <Badge tone="forest">
-                        {currentProgram?.code
-                          || (form.thesis_category === 'faculty' ? 'Not applicable' : 'Pending program')}
-                      </Badge>
-                      {currentSpecialization && <Badge tone="gold">{currentSpecialization.code}</Badge>}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Department</div>
-                    <div className="mt-0.5"><Badge tone="neutral">{form.department}</Badge></div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Year</div>
-                    <div className="mt-0.5 font-medium">{form.year || '—'}</div>
-                  </div>
-                </div>
-              </div>
-              <p className="text-xs leading-relaxed text-ink-muted">
-                On submit, the manuscript is cleaned (headers, footers, page numbers, TOC, and
-                bibliography stripped), split into 800-token chunks with metadata tags, embedded via
-                Gemini, and indexed in the pgvector archive. The original PDF is stored privately.
-              </p>
-              <div className="flex justify-between">
-                <Button variant="ghost" onClick={() => setStep(1)}>
-                  <ArrowLeft size={15} /> Back
-                </Button>
-                <Button variant="gold" loading={submitting} onClick={submit}>
-                  <UploadCloud size={16} /> Ingest into archive
-                </Button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Step 4: pipeline progress */}
-          {step === 3 && (
-            <motion.div
-              key="progress"
-              initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.35 }}
-              className="space-y-8 py-4"
-            >
-              {job?.status === 'completed' ? (
-                <motion.div
-                  initial={{ scale: 0.9, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-                  className="flex flex-col items-center text-center"
-                >
-                  <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-forest-600/15">
-                    <PartyPopper size={34} className="text-forest-700 dark:text-forest-300" />
-                  </div>
-                  <h2 className="font-display text-2xl font-extrabold">Thesis indexed!</h2>
-                  <p className="mt-2 max-w-sm text-sm text-ink-muted">
-                    "{form.title}" is now part of the semantic archive with {job.chunks} embedded chunks.
-                  </p>
-                  <UploadScreening scan={job.duplication} />
-                  <div className="mt-6 grid w-full max-w-xl gap-2 text-left sm:grid-cols-2">
-                    {[
-                      [ShieldCheck, 'Malware screening', 'Completed before document processing'],
-                      [ScanText, 'Text preparation', 'OCR fallback, cleanup, and structure extraction applied'],
-                      [Scissors, 'Privacy processing', 'Supported PII redaction rules applied before indexing'],
-                      [Archive, 'Source protection', 'Original manuscript retained in private storage only'],
-                    ].map(([Icon, label, description]) => (
-                      <div key={label} className="glass flex items-start gap-3 rounded-2xl p-3.5">
-                        <Icon size={16} className="mt-0.5 shrink-0 text-forest-700 dark:text-forest-300" />
-                        <div>
-                          <div className="text-xs font-bold">{label}</div>
-                          <div className="mt-0.5 text-xs leading-relaxed text-ink-muted">{description}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-7 flex gap-3">
-                    <Button variant="secondary" onClick={reset}>Upload another</Button>
-                    <Button onClick={() => navigate('/archive')}>View archive <ArrowRight size={15} /></Button>
-                  </div>
-                </motion.div>
-              ) : job?.status === 'failed' ? (
-                <div className="flex flex-col items-center text-center">
-                  <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-flame-500/12">
-                    <AlertTriangle size={32} className="text-flame-500" />
-                  </div>
-                  <h2 className="font-display text-2xl font-extrabold">Ingestion failed</h2>
-                  <p className="mt-2 max-w-sm text-sm text-ink-muted">{job.error}</p>
-                  <Button variant="secondary" className="mt-7" onClick={reset}>Try again</Button>
-                </div>
-              ) : job?.status === 'cancelled' ? (
-                <div className="flex flex-col items-center text-center">
-                  <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-gold-400/15">
-                    <Ban size={32} className="text-gold-500" />
-                  </div>
-                  <h2 className="font-display text-2xl font-extrabold">Upload cancelled</h2>
-                  <p className="mt-2 max-w-sm text-sm text-ink-muted">
-                    The manuscript was not indexed. Its staged private copy is being removed safely.
-                  </p>
-                  <Button variant="secondary" className="mt-7" onClick={reset}>Start a new upload</Button>
-                </div>
-              ) : (
+              {mode === 'summary' && (
                 <>
-                  <PipelineProgress job={job} />
-                  {job?.cancel_requested && (
-                    <div className="rounded-2xl border border-gold-400/35 bg-gold-400/10 p-4 text-center text-sm">
-                      Cancellation requested. Processing will stop at the next safe checkpoint.
-                    </div>
-                  )}
-                  {job?.can_cancel && !job?.cancel_requested && (
-                    <div className="flex justify-center">
-                      <Button variant="ghost" onClick={() => setCancelOpen(true)}>
-                        <Ban size={15} /> Cancel upload
-                      </Button>
-                    </div>
-                  )}
-                  {pollError && (
-                    <div className="mt-5 rounded-2xl border border-gold-400/35 bg-gold-400/10 p-4 text-center">
-                      <p className="text-sm opacity-75">{pollError}</p>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="mt-3"
-                        onClick={() => jobIdRef.current && startPolling(jobIdRef.current)}
-                      >
-                        Resume status check
-                      </Button>
-                    </div>
-                  )}
+                  <RailFileChip file={file} />
+                  {/* Desktop only. Beside the form it earns its place by showing
+                      the full title and author list that the inputs truncate;
+                      stacked above the same fields on a phone it is just an echo. */}
+                  <div className="hidden lg:block">
+                    <RailHeading>Archive record</RailHeading>
+                    <RailSummaryList
+                      rows={summaryRows(form, {
+                        program: currentProgram,
+                        specialization: currentSpecialization,
+                        categoryLabel: thesisCategoryLabel(form.thesis_category),
+                      })}
+                    />
+                  </div>
                 </>
               )}
-            </motion.div>
+            </WizardRail>
           )}
-        </AnimatePresence>
+
+          <div className="min-w-0 p-5 sm:p-7">
+            <DepartmentLoadError show={departmentsError} onRetry={() => retryDepartments()} />
+
+            <WizardStep stepKey={step} direction={direction}>
+              {step === UPLOAD_STEPS.manuscript && (
+                <>
+                  <Dropzone file={file} onFile={handleFileSelect} />
+                  <StepActions>
+                    <p className="text-xs text-ink-faint">
+                      {file ? 'Ready to describe the manuscript.' : 'Choose a PDF to continue.'}
+                    </p>
+                    <Button
+                      disabled={!file || parsing}
+                      loading={parsing}
+                      onClick={() => setStep(UPLOAD_STEPS.metadata)}
+                      className="group"
+                    >
+                      {parsing ? 'Extracting...' : 'Continue'}
+                      <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                    </Button>
+                  </StepActions>
+                </>
+              )}
+
+              {step === UPLOAD_STEPS.metadata && (
+                <>
+                  <MetadataForm
+                    form={form}
+                    errors={errors}
+                    autofilled={autofilled}
+                    departments={departments}
+                    isSuperadmin={isSuperadmin}
+                    enforcedDepartment={enforcedDepartment}
+                    loadingDepts={loadingDepts}
+                    programs={currentPrograms}
+                    specializations={currentSpecializations}
+                    onField={setField}
+                    onForm={setForm}
+                    onBlurValidate={revalidateTouched}
+                  />
+                  <StepActions>
+                    <Button variant="ghost" onClick={() => setStep(UPLOAD_STEPS.manuscript)}>
+                      <ArrowLeft size={15} aria-hidden="true" /> Back
+                    </Button>
+                    <Button
+                      onClick={() => validateMetadata() && setStep(UPLOAD_STEPS.review)}
+                      className="group"
+                    >
+                      Review
+                      <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                    </Button>
+                  </StepActions>
+                </>
+              )}
+
+              {step === UPLOAD_STEPS.review && (
+                <>
+                  <ReviewPanel
+                    file={file}
+                    form={form}
+                    program={currentProgram}
+                    specialization={currentSpecialization}
+                  />
+                  <StepActions>
+                    <Button variant="ghost" onClick={() => setStep(UPLOAD_STEPS.metadata)}>
+                      <ArrowLeft size={15} aria-hidden="true" /> Back
+                    </Button>
+                    {/* Primary, not the gold container variant. Gold resolves to
+                        --secondary-container, which reads quieter than a primary
+                        button — the wrong signal for the page's decisive act. */}
+                    <Button loading={submitting} onClick={submit}>
+                      <UploadCloud size={16} aria-hidden="true" /> Ingest into archive
+                    </Button>
+                  </StepActions>
+                </>
+              )}
+
+              {step === UPLOAD_STEPS.ingesting && (
+                <div className="py-2">
+                  {terminal ? (
+                    <IngestOutcome
+                      job={job}
+                      title={form.title}
+                      onReset={reset}
+                      onViewArchive={() => navigate('/archive')}
+                    />
+                  ) : (
+                    <IngestingPanel
+                      job={job}
+                      pollError={pollError}
+                      onCancel={() => setCancelOpen(true)}
+                      onResume={() => jobIdRef.current && startPolling(jobIdRef.current)}
+                    />
+                  )}
+                </div>
+              )}
+            </WizardStep>
+          </div>
+        </div>
       </GlassCard>
 
       <ConfirmDialog
@@ -820,8 +502,11 @@ export default function Upload() {
           setPendingFile(null)
           runAutofill(f)
         }}
-        title="Autofilling the field"
-        message="Confirm the file and move on the next step"
+        // Both buttons keep the file; only Confirm runs the extractor. The old
+        // copy ("Autofilling the field" / "Confirm the file and move on the next
+        // step") described neither, so Cancel looked like it discarded the PDF.
+        title="Read metadata from this manuscript?"
+        message="The title page is analysed to fill in the title, authors and year — you can edit anything it gets wrong. Cancel keeps the file and leaves the form blank for you to complete."
         confirmLabel="Confirm"
       />
       <ConfirmDialog

@@ -463,6 +463,117 @@ class TestUploadHelpers:
         assert result['department'] == 'CCSICT'
         assert result['year'] == '2026'
 
+    def test_single_line_title_does_not_absorb_the_block_below_it(self):
+        # The line under this title is neither boilerplate nor short, so the
+        # blank line between them is the only thing keeping it out of the title.
+        text = """An Intelligent Archive Platform for Undergraduate Research
+
+College of Computing Studies, Information and Communication Technology
+"""
+        result = upload._extract_title_page_metadata(text, ['CCSICT', 'CAS'])
+        assert result['title'] == 'An Intelligent Archive Platform for Undergraduate Research'
+
+    def test_wrapped_title_is_joined_until_the_document_type_line(self):
+        # CCSICT-007's layout, measured 2026-09-07: a roman page number, a title
+        # broken across two lines, and no blank line anywhere on the page. Taking
+        # the first line alone autofilled half a title.
+        text = """i
+DEVELOPMENT OF PERFORMANCE APPRAISAL SYSTEM FOR
+ENHANCING MANPOWER AND PRODUCTIVITY
+A Capstone Project
+Presented to the Faculty of the
+College of Computing Studies, Information and Communication Technology
+ISABELA STATE UNIVERSITY
+By:
+Juan Miguel C. Rejesus
+May 2025
+"""
+        result = upload._extract_title_page_metadata(text, ['CCSICT', 'CAS'])
+        assert result['title'] == (
+            'DEVELOPMENT OF PERFORMANCE APPRAISAL SYSTEM FOR '
+            'ENHANCING MANPOWER AND PRODUCTIVITY'
+        )
+        assert result['year'] == '2025'
+        assert result['authors'] == 'Juan Miguel C. Rejesus'
+
+    def test_wrapped_title_may_name_the_university_and_ends_at_the_typed_rule(self):
+        # CCSICT-013's layout: the university is part of the title itself, so the
+        # boilerplate list cannot be what ends the title. The typed rule is.
+        text = """DESIGNING A MOBILE-BASED BORROWER'S CARD FOR THE
+ISABELA STATE UNIVERSITY LIBRARY
+____________________________________
+A Research Project
+"""
+        result = upload._extract_title_page_metadata(text, ['CCSICT', 'CAS'])
+        assert result['title'] == (
+            "DESIGNING A MOBILE-BASED BORROWER'S CARD FOR THE "
+            'ISABELA STATE UNIVERSITY LIBRARY'
+        )
+
+    def test_joined_title_stops_at_the_stored_column_width(self):
+        long_line = 'A' * 200
+        text = f"""{long_line}
+{long_line}
+A Thesis
+"""
+        result = upload._extract_title_page_metadata(text, ['CCSICT', 'CAS'])
+        assert result['title'] == long_line
+
+    def test_surname_first_authors_are_reordered_not_comma_joined(self):
+        # CCSICT-013, measured 2026-09-07. The old pattern rejected any line
+        # with a comma, so this page parsed to no authors, fell through to the
+        # model and filled the form with 'OLESCO, DANICA NICOLE F, RAMOS,
+        # DENISE RIKKI ISABEL H.' -- four fragments, no way to tell which is a
+        # surname. The comma has to separate authors and nothing else.
+        text = """By:
+OLESCO, DANICA NICOLE F
+RAMOS, DENISE RIKKI ISABEL H.
+
+MAY 2026
+"""
+        result = upload._extract_title_page_metadata(text, ['CCSICT', 'CAS'])
+        assert result['authors'] == 'Danica Nicole F. Olesco, Denise Rikki Isabel H. Ramos'
+
+    def test_author_block_ends_at_the_blank_line_below_it(self):
+        # CCSICT-010's layout: a blank line under 'By' before the names, so the
+        # separator cannot end a list that has not started yet. The blank line
+        # under the names carries the date, which is not an author.
+        text = """By
+
+UALAT, MARVIN M.
+PADRE, MARK CHRISTIAN U.
+
+May 2026
+"""
+        result = upload._extract_title_page_metadata(text, ['CCSICT', 'CAS'])
+        assert result['authors'] == 'Marvin M. Ualat, Mark Christian U. Padre'
+
+    def test_shouted_names_are_recased_and_a_spaced_dash_rejoins(self):
+        # CCSICT-001 shouts its names and carries a suffix; CCSICT-002 sets
+        # 'Jay - Ar' with an en dash and spaces around it.
+        assert upload._normalize_author('FERNANDO D. PAGBILAO JR.') == 'Fernando D. Pagbilao Jr.'
+        assert upload._normalize_author('Jay – Ar L. Santos') == 'Jay-Ar L. Santos'
+        # A bare initial is written with its period everywhere else in the corpus.
+        assert upload._normalize_author('OLESCO, DANICA NICOLE F') == 'Danica Nicole F. Olesco'
+        # Mixed case is already the spelling the author chose; no rule recovers
+        # 'Dela Cruz' or "O'Brien" from a lowercased form, so leave them.
+        assert upload._normalize_author('Angelyn B. Dela Cruz') == 'Angelyn B. Dela Cruz'
+        assert upload._normalize_author("O'BRIEN, MARIA") == "Maria O'Brien"
+
+    def test_lines_that_are_not_names_are_rejected(self):
+        for line in ('May 2026', 'Chapter 1', 'Data Mining Track', 'Isabela State University', ''):
+            assert upload._normalize_author(line) == ''
+
+    def test_a_model_author_list_is_normalised_but_a_string_is_left_alone(self):
+        assert upload._normalize_author_field(['OLESCO, DANICA NICOLE F', 'RAMOS, DENISE R.']) == [
+            'Danica Nicole F. Olesco', 'Denise R. Ramos',
+        ]
+        # Two authors already separated by the comma: reordering around it
+        # would fuse them into one mangled name.
+        assert upload._normalize_author_field('Ana Cruz, Ben Diaz') == 'Ana Cruz, Ben Diaz'
+        # An item that is not a name at all survives rather than vanishing.
+        assert upload._normalize_author_field(['Chapter 1']) == ['Chapter 1']
+
     def test_read_limited_upload_rejects_oversized_stream(self, monkeypatch):
         monkeypatch.setattr(upload.settings, 'max_upload_mb', 0)
 
@@ -683,3 +794,213 @@ class TestExtractMetadataEndpoint:
         response = self._post(upload_client, pdf)
         assert response.status_code == 200
         assert response.json()['title'] == 'An Intelligent Archive Platform for Undergraduate Research'
+
+
+JOB_A = '11111111-1111-4111-8111-111111111111'
+JOB_B = '22222222-2222-4222-8222-222222222222'
+JOB_C = '33333333-3333-4333-8333-333333333333'
+
+
+class _JobsTable:
+    """upload_jobs stub for the list endpoint that records its filters."""
+
+    def __init__(self, rows, legacy_schema=False, always_fail=False):
+        self.rows = rows
+        self.legacy_schema = legacy_schema
+        self.always_fail = always_fail
+        self.fields = ''
+        self.filters = []
+
+    def select(self, fields):
+        self.fields = fields
+        return self
+
+    def in_(self, column, values):
+        self.filters.append(('in', column, list(values)))
+        return self
+
+    def eq(self, column, value):
+        self.filters.append(('eq', column, value))
+        return self
+
+    def execute(self):
+        if self.always_fail:
+            raise RuntimeError('database gone')
+        if self.legacy_schema and 'cancel_requested_at' in self.fields:
+            raise RuntimeError('column upload_jobs.cancel_requested_at does not exist')
+        wanted = next((values for kind, _column, values in self.filters if kind == 'in'), [])
+        return SimpleNamespace(data=[row for row in self.rows if row['id'] in wanted])
+
+
+class _EventsTable(_Chain):
+    def __init__(self, data, fail=False):
+        super().__init__(data)
+        self.fail = fail
+
+    def execute(self):
+        if self.fail:
+            raise RuntimeError('events unavailable')
+        return super().execute()
+
+
+def _jobs_sb(rows, *, events=(), legacy_schema=False, always_fail=False, events_fail=False):
+    jobs = _JobsTable(rows, legacy_schema=legacy_schema, always_fail=always_fail)
+
+    class _Sb:
+        @staticmethod
+        def table(name):
+            if name == 'upload_jobs':
+                return jobs
+            return _EventsTable(list(events), fail=events_fail)
+    return _Sb(), jobs
+
+
+def _job_row(job_id, **overrides):
+    return {**_JOB, 'id': job_id, **overrides}
+
+
+class TestUploadJobsListEndpoint:
+    def test_lists_owned_jobs_in_request_order_with_one_event_read(self, upload_client, monkeypatch):
+        sb, jobs = _jobs_sb(
+            [_job_row(JOB_A, status='processing', cancel_requested_at=None), _job_row(JOB_B, status='completed')],
+            events=[
+                {'job_id': JOB_B, 'created_at': '2026-09-08T00:00:09Z'},
+                {'job_id': JOB_A, 'created_at': '2026-09-08T00:00:05Z'},
+                {'job_id': JOB_A, 'created_at': '2026-09-08T00:00:01Z'},
+            ],
+        )
+        monkeypatch.setattr(upload, 'sb', sb)
+        response = upload_client.get(f'/upload/jobs?ids={JOB_B},{JOB_A}')
+        assert response.status_code == 200
+        body = response.json()['jobs']
+        assert [job['job_id'] for job in body] == [JOB_B, JOB_A]
+        assert body[1]['can_cancel'] is True and body[0]['can_cancel'] is False
+        assert [job['last_event_at'] for job in body] == ['2026-09-08T00:00:09Z', '2026-09-08T00:00:05Z']
+        assert ('eq', 'owner_id', 'user-1') in jobs.filters
+        assert ('in', 'id', [JOB_B, JOB_A]) in jobs.filters
+
+    def test_unknown_and_malformed_ids_are_omitted_not_fatal(self, upload_client, monkeypatch):
+        sb, jobs = _jobs_sb([_job_row(JOB_A)])
+        monkeypatch.setattr(upload, 'sb', sb)
+        response = upload_client.get(f'/upload/jobs?ids=not-a-uuid,{JOB_A},{JOB_C},,{JOB_A}')
+        assert response.status_code == 200
+        assert [job['job_id'] for job in response.json()['jobs']] == [JOB_A]
+        assert ('in', 'id', [JOB_A, JOB_C]) in jobs.filters
+
+    def test_no_usable_ids_is_422(self, upload_client, monkeypatch):
+        monkeypatch.setattr(upload, 'sb', _jobs_sb([])[0])
+        assert upload_client.get('/upload/jobs?ids=nope').status_code == 422
+        assert upload_client.get('/upload/jobs?ids=').status_code == 422
+
+    def test_more_than_fifty_ids_is_422(self, upload_client, monkeypatch):
+        monkeypatch.setattr(upload, 'sb', _jobs_sb([])[0])
+        ids = ','.join(f'{index:08d}-0000-4000-8000-000000000000' for index in range(51))
+        assert upload_client.get(f'/upload/jobs?ids={ids}').status_code == 422
+
+    def test_legacy_schema_falls_back_to_reduced_columns(self, upload_client, monkeypatch):
+        sb, jobs = _jobs_sb([_job_row(JOB_A)], legacy_schema=True)
+        monkeypatch.setattr(upload, 'sb', sb)
+        response = upload_client.get(f'/upload/jobs?ids={JOB_A}')
+        assert response.status_code == 200
+        assert 'cancel_requested_at' not in jobs.fields
+        assert response.json()['jobs'][0]['cancel_requested'] is False
+
+    def test_event_read_failure_still_returns_statuses(self, upload_client, monkeypatch):
+        sb, _jobs = _jobs_sb([_job_row(JOB_A)], events_fail=True)
+        monkeypatch.setattr(upload, 'sb', sb)
+        response = upload_client.get(f'/upload/jobs?ids={JOB_A}')
+        assert response.status_code == 200
+        assert response.json()['jobs'][0]['last_event_at'] is None
+
+    def test_database_outage_is_503(self, upload_client, monkeypatch):
+        monkeypatch.setattr(upload, 'sb', _jobs_sb([], always_fail=True)[0])
+        assert upload_client.get(f'/upload/jobs?ids={JOB_A}').status_code == 503
+
+    def test_requires_authentication(self):
+        client = TestClient(app, raise_server_exceptions=False)
+        assert client.get(f'/upload/jobs?ids={JOB_A}').status_code in (401, 403)
+
+
+class TestBatchExtractEndpoint:
+    def _post(self, client, files):
+        return client.post(
+            '/upload/batch/extract-metadata',
+            files=[('files', (name, content, mime)) for name, content, mime in files],
+        )
+
+    def test_each_file_is_extracted_in_place_and_bad_ones_are_reported(self, upload_client, monkeypatch):
+        monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
+
+        def forbidden(*_args, **_kwargs):
+            raise AssertionError('LLM must not be called when local extraction is complete')
+        monkeypatch.setattr(upload, 'ChatGoogleGenerativeAI', forbidden)
+        complete = _pdf_bytes((
+            'An Intelligent Archive Platform for Undergraduate Research',
+            'CCSICT',
+            'By:',
+            'Ana D. Cruz',
+            'May 2026',
+        ))
+        blank_document = fitz.open()
+        blank_document.new_page()
+        blank = blank_document.tobytes()
+        blank_document.close()
+        response = self._post(upload_client, [
+            ('complete.pdf', complete, 'application/pdf'),
+            ('notes.txt', b'plain text', 'text/plain'),
+            ('blank.pdf', blank, 'application/pdf'),
+        ])
+        assert response.status_code == 200
+        files = response.json()['files']
+        assert [entry['index'] for entry in files] == [0, 1, 2]
+        assert files[0]['title'] == 'An Intelligent Archive Platform for Undergraduate Research'
+        assert files[0]['authors'] == 'Ana D. Cruz'
+        assert files[0]['year'] == '2026' and files[0]['department'] == 'CCSICT'
+        assert files[0]['error'] is None
+        assert files[1]['status_code'] == 415 and files[1]['filename'] == 'notes.txt'
+        assert files[2] == {
+            'index': 2, 'filename': 'blank.pdf', 'title': '', 'authors': '', 'year': '',
+            'department': '', 'error': None, 'status_code': None,
+        }
+
+    def test_llm_completions_run_together_but_never_more_than_three_at_once(self, upload_client, monkeypatch):
+        monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
+        monkeypatch.setattr(upload, 'ChatGoogleGenerativeAI', lambda **_kwargs: object())
+        state = {'active': 0, 'peak': 0, 'calls': 0}
+
+        async def arun(_llm, _slot, _call):
+            state['active'] += 1
+            state['calls'] += 1
+            state['peak'] = max(state['peak'], state['active'])
+            await asyncio.sleep(0.02)
+            state['active'] -= 1
+            return SimpleNamespace(content='{"title": "Completed By Model", "authors": "Ana D. Cruz"}')
+        monkeypatch.setattr(upload.gemini_pool, 'arun', arun)
+        pdf = _pdf_bytes(('Some cover line without any recognisable fields',))
+        response = self._post(upload_client, [(f'thesis-{index}.pdf', pdf, 'application/pdf') for index in range(6)])
+        assert response.status_code == 200
+        assert all(entry['title'] == 'Completed By Model' for entry in response.json()['files'])
+        assert state['calls'] == 6
+        assert 2 <= state['peak'] <= 3
+
+    def test_empty_batch_is_422_and_oversized_batch_is_413(self, upload_client, monkeypatch):
+        monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
+        monkeypatch.setattr(upload.settings, 'max_batch_files', 2)
+        pdf = _pdf_bytes()
+        assert upload_client.post('/upload/batch/extract-metadata', data={}).status_code == 422
+        response = self._post(upload_client, [(f'thesis-{index}.pdf', pdf, 'application/pdf') for index in range(3)])
+        assert response.status_code == 413
+
+    def test_single_file_endpoint_keeps_its_shape(self, upload_client, monkeypatch):
+        """The refactor behind the batch endpoint must not change the single reply."""
+        monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
+
+        def broken_departments():
+            raise RuntimeError('catalog down')
+        monkeypatch.setattr(upload, '_load_department_names', broken_departments)
+        response = upload_client.post(
+            '/upload/extract-metadata',
+            files={'file': ('thesis.pdf', _pdf_bytes(('Some cover line',)), 'application/pdf')},
+        )
+        assert response.status_code == 200
+        assert response.json() == {'title': '', 'authors': '', 'year': '', 'department': ''}

@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import inspect
+import json
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -603,6 +604,211 @@ class TestUploadApi:
         assert updates[-1]['cleanup_status'] == 'pending'
         assert updates[-1]['source_stored'] is True
         assert cleanup_calls[0]['job_id'] == JOB_ID
+
+
+class BatchClient(UploadClient):
+    """UploadClient whose reservations echo each file's own job id and key.
+
+    The single-file fake answers every reserve with one JOB_ID; a batch needs
+    distinct rows to prove the files were staged independently.
+    """
+
+    def __init__(self, *, reserve_errors=None, **kwargs):
+        super().__init__(**kwargs)
+        self.reserve_errors = reserve_errors or {}
+        self.reserves = []
+
+    def rpc(self, name, payload):
+        if name == 'reserve_upload_job':
+            self.reserves.append(payload)
+            error = self.reserve_errors.get(payload['p_idempotency_key'])
+            if error:
+                return Result(error=error)
+            return Result([{
+                'job_id': payload['p_job_id'],
+                'job_status': self.reserve_status,
+                'stored_source_path': payload['p_source_path'],
+                'stored_content_sha256': payload['p_content_sha256'],
+                'created': self.created,
+            }])
+        return super().rpc(name, payload)
+
+
+KEY_A = '44444444-4444-4444-8444-444444444444'
+KEY_B = '55555555-5555-4555-8555-555555555555'
+
+
+def _rows(*entries):
+    return json.dumps([
+        {'title': title, 'authors': authors, 'year': year, 'idempotency_key': key}
+        for title, authors, year, key in entries
+    ])
+
+
+def _text_file() -> UploadFile:
+    return UploadFile(BytesIO(b'not a pdf'), filename='notes.txt', headers=Headers({'content-type': 'text/plain'}))
+
+
+class TestBatchUploadApi:
+    @pytest.fixture(autouse=True)
+    def normalized_catalog(self, monkeypatch):
+        monkeypatch.setattr(
+            upload,
+            'resolve_academic_selection',
+            lambda *_args, **_kwargs: SimpleNamespace(as_payload=lambda: {
+                'department_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                'program_id': None,
+                'specialization_id': None,
+                'track': '',
+                'legacy_track': None,
+                'classification_status': 'unclassified',
+            }),
+        )
+        monkeypatch.setattr(upload, 'resolve_effective_department', lambda _user, value: value)
+
+    @staticmethod
+    def call(files, rows, **form):
+        endpoint = inspect.unwrap(upload.upload_batch)
+        return asyncio.run(endpoint(
+            request=SimpleNamespace(), user=SimpleNamespace(id=OWNER_ID),
+            files=files, rows=rows, department='CCSICT', **form,
+        ))
+
+    def test_every_file_becomes_its_own_durable_job(self, monkeypatch):
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        response = self.call(
+            [upload_file(), upload_file()],
+            _rows(('First Durable Thesis', 'A. One', '2026', KEY_A), ('Second Durable Thesis', 'B. Two', '2025', KEY_B)),
+        )
+        assert (response.accepted, response.rejected) == (2, 0)
+        assert [result.status for result in response.results] == ['queued', 'queued']
+        assert len({result.job_id for result in response.results}) == 2
+        assert [result.idempotency_key for result in response.results] == [KEY_A, KEY_B]
+        assert [reserve['p_idempotency_key'] for reserve in client.reserves] == [KEY_A, KEY_B]
+        assert [reserve['p_request_payload']['title'] for reserve in client.reserves] == [
+            'First Durable Thesis', 'Second Durable Thesis',
+        ]
+        assert client.reserves[0]['p_request_payload']['thesis_category'] == 'student'
+        assert len(client.bucket.uploaded) == 2
+
+    def test_one_bad_file_is_reported_in_place_and_the_rest_are_queued(self, monkeypatch):
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        response = self.call(
+            [upload_file(), _text_file()],
+            _rows(('Valid Durable Thesis', '', '', KEY_A), ('Plain Text Notes', '', '', KEY_B)),
+        )
+        assert (response.accepted, response.rejected) == (1, 1)
+        good, bad = response.results
+        assert good.job_id and good.status == 'queued'
+        assert bad.job_id is None and bad.status_code == 415
+        assert 'PDF' in bad.error
+        assert len(client.bucket.uploaded) == 1
+
+    def test_invalid_row_metadata_is_a_per_file_422_with_no_staging(self, monkeypatch):
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        response = self.call(
+            [upload_file(), upload_file()],
+            _rows(('abc', '', '', KEY_A), ('Long Enough Title', '', '1900', KEY_B)),
+        )
+        assert response.accepted == 0
+        assert [result.status_code for result in response.results] == [422, 422]
+        assert client.reserves == [] and client.bucket.uploaded == []
+
+    @pytest.mark.parametrize('rows', [
+        'not json',
+        '{"title": "object not list"}',
+        _rows(('Only One Row Provided', '', '', KEY_A)),
+        _rows(('Same Key Twice', '', '', KEY_A), ('Same Key Twice Again', '', '', KEY_A)),
+        _rows(('Not A UUID Key', '', '', 'key-1'), ('Fine Key', '', '', KEY_B)),
+    ])
+    def test_envelope_problems_reject_the_whole_batch_before_any_read(self, monkeypatch, rows):
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        with pytest.raises(HTTPException) as caught:
+            self.call([upload_file(), upload_file()], rows)
+        assert caught.value.status_code == 422
+        assert client.reserves == [] and client.bucket.uploaded == []
+
+    def test_empty_batch_is_rejected(self, monkeypatch):
+        monkeypatch.setattr(upload, 'sb', BatchClient())
+        with pytest.raises(HTTPException) as caught:
+            self.call([], '[]')
+        assert caught.value.status_code == 422
+
+    def test_batch_above_the_configured_cap_is_413(self, monkeypatch):
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        monkeypatch.setattr(upload.settings, 'max_batch_files', 1)
+        with pytest.raises(HTTPException) as caught:
+            self.call(
+                [upload_file(), upload_file()],
+                _rows(('First Durable Thesis', '', '', KEY_A), ('Second Durable Thesis', '', '', KEY_B)),
+            )
+        assert caught.value.status_code == 413
+        assert client.bucket.uploaded == []
+
+    def test_classification_failure_rejects_the_whole_batch(self, monkeypatch):
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+
+        def missing_program(*_args, **_kwargs):
+            raise HTTPException(422, 'Select the academic program')
+        monkeypatch.setattr(upload, 'resolve_academic_selection', missing_program)
+        with pytest.raises(HTTPException) as caught:
+            self.call(
+                [upload_file(), upload_file()],
+                _rows(('First Durable Thesis', '', '', KEY_A), ('Second Durable Thesis', '', '', KEY_B)),
+            )
+        assert caught.value.status_code == 422
+        assert client.reserves == [] and client.bucket.uploaded == []
+
+    def test_reused_key_with_different_content_is_a_per_file_conflict(self, monkeypatch):
+        client = BatchClient(reserve_errors={
+            KEY_B: RuntimeError('Idempotency key was already used for different content'),
+        })
+        monkeypatch.setattr(upload, 'sb', client)
+        response = self.call(
+            [upload_file(), upload_file()],
+            _rows(('First Durable Thesis', '', '', KEY_A), ('Second Durable Thesis', '', '', KEY_B)),
+        )
+        assert (response.accepted, response.rejected) == (1, 1)
+        assert response.results[0].status == 'queued'
+        assert response.results[1].status_code == 409
+        assert len(client.bucket.uploaded) == 1
+
+    def test_staging_failure_compensates_each_file_and_reports_503(self, monkeypatch):
+        client = BatchClient(fail_upload=True)
+        monkeypatch.setattr(upload, 'sb', client)
+        response = self.call(
+            [upload_file(), upload_file()],
+            _rows(('First Durable Thesis', '', '', KEY_A), ('Second Durable Thesis', '', '', KEY_B)),
+        )
+        assert response.accepted == 0
+        assert [result.status_code for result in response.results] == [503, 503]
+        assert len(client.bucket.removed) == 2
+        assert len(client.queries['upload_jobs'].updates) == 2
+
+    def test_unexpected_error_in_one_file_never_fails_the_batch(self, monkeypatch):
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        calls = {'count': 0}
+        original = upload._content_digest
+
+        def flaky(file_bytes):
+            calls['count'] += 1
+            if calls['count'] == 1:
+                raise ValueError('digest exploded')
+            return original(file_bytes)
+        monkeypatch.setattr(upload, '_content_digest', flaky)
+        response = self.call(
+            [upload_file(), upload_file()],
+            _rows(('First Durable Thesis', '', '', KEY_A), ('Second Durable Thesis', '', '', KEY_B)),
+        )
+        assert [result.status_code for result in response.results] == [500, None]
+        assert response.results[1].status == 'queued'
 
 
 class TestSqlQueueContracts:

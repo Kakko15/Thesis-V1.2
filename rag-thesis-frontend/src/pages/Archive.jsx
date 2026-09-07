@@ -96,7 +96,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           {paper.authors || 'Unknown authors'}
         </p>
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-4">
-          {isFacultyThesis(paper) && <Badge tone="gold">Faculty research</Badge>}
+          {isFacultyThesis(paper) && <Badge tone="gold">Faculty Research</Badge>}
           {paper.track && <Badge tone="forest">{paper.track}</Badge>}
           {paper.year && <Badge tone="neutral">{paper.year}</Badge>}
           {paper.department && <Badge tone="neutral">{paper.department}</Badge>}

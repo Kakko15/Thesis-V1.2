@@ -11,6 +11,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Archive = lazy(() => import('./pages/Archive'))
 const Chat = lazy(() => import('./pages/Chat'))
 const Upload = lazy(() => import('./pages/Upload'))
+const UploadBatch = lazy(() => import('./pages/UploadBatch'))
 const Novelty = lazy(() => import('./pages/Novelty'))
 const Admin = lazy(() => import('./pages/Admin'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -52,6 +53,10 @@ function ShellRoutes() {
         <Route
           path="/upload"
           element={<RouteSuspense><ProtectedRoute isAllowed={canUpload}><Upload /></ProtectedRoute></RouteSuspense>}
+        />
+        <Route
+          path="/upload/batch"
+          element={<RouteSuspense><ProtectedRoute isAllowed={canUpload}><UploadBatch /></ProtectedRoute></RouteSuspense>}
         />
         <Route
           path="/admin"

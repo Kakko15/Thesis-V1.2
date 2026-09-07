@@ -174,6 +174,7 @@ class TestAccessControl:
         ('get', '/analytics/users'),
         ('get', '/analytics/activity'),
         ('get', '/upload/status/some-job'),
+        ('get', '/upload/jobs?ids=some-job'),
     ])
     def test_protected_endpoints_require_auth(self, client, method, path):
         res = getattr(client, method)(path)

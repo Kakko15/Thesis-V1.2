@@ -759,7 +759,7 @@ export default function SystemManagementTab() {
                       <div className="flex gap-1">
                         <Badge tone="neutral">{p.department || 'Unassigned'}</Badge>
                         <Badge tone="forest">{p.track}</Badge>
-                        {isFacultyThesis(p) && <Badge tone="gold">Faculty research</Badge>}
+                        {isFacultyThesis(p) && <Badge tone="gold">Faculty Research</Badge>}
                       </div>
                     </td>
                   </tr>

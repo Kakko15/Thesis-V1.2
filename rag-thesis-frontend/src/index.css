@@ -99,6 +99,8 @@
   --animate-shine: shine 3s ease-in-out infinite;
   --animate-sweep: sweep 0.9s ease forwards;
   --animate-caret: caret-blink 1.1s step-end infinite;
+  --animate-dash-march: dash-march 0.9s linear infinite;
+  --animate-stage-sheen: stage-sheen 1.9s ease-in-out infinite;
 
   @keyframes aurora {
     0% { transform: translate(-8%, -6%) rotate(0deg) scale(1); }
@@ -138,6 +140,20 @@
   @keyframes caret-blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
+  }
+  /* Marching ants for the upload drop target. A CSS dashed border cannot
+     animate its dash phase, so the outline is an SVG rect and this drives its
+     stroke offset while a file is dragged over it. */
+  @keyframes dash-march {
+    to { stroke-dashoffset: -40; }
+  }
+  /* Sweep across the ingestion stage that is currently running. Transform-only
+     and CSS-driven on purpose: the accessibility suite waits for inline opacity
+     to stop changing before it scans, so a looping opacity animation there
+     would stall it. */
+  @keyframes stage-sheen {
+    0% { transform: translateX(-130%); }
+    60%, 100% { transform: translateX(230%); }
   }
 }
 
@@ -546,7 +562,9 @@ html[data-effects="low"] .animate-marquee-slow,
 html[data-effects="low"] .animate-pulse-glow,
 html[data-effects="low"] .animate-spin-slow,
 html[data-effects="low"] .animate-gradient-x,
-html[data-effects="low"] .animate-shine {
+html[data-effects="low"] .animate-shine,
+html[data-effects="low"] .animate-dash-march,
+html[data-effects="low"] .animate-stage-sheen {
   animation: none !important;
 }
 

@@ -57,6 +57,38 @@ test('archive years and department-specific tracks are deterministic', () => {
   }), { activeTracks: ['Data Mining'], trackLabel: 'academic track' })
 })
 
+test('the unscoped track label comes from the catalog, not the word "track"', () => {
+  // A superadmin on "All depts" sees the union, which the normalized catalog
+  // builds from specialization names plus the codes of the programs that take
+  // none. Calling BLIS/BSDSA/BSIS "tracks" was wrong; the catalog's own label
+  // is authoritative when every department agrees on it.
+  const departments = [
+    { name: 'CCSICT', tracks: ['Data Mining', 'BSIS'], track_label: 'Program / specialization' },
+    { name: 'CAS', tracks: ['BSBIO'], track_label: 'Program / specialization' },
+  ]
+  assert.deepEqual(resolveArchiveTracks({
+    tracks: ['Data Mining', 'BSIS', 'BSBIO'], departments, selectedDepartment: '',
+  }), { activeTracks: ['Data Mining', 'BSIS', 'BSBIO'], trackLabel: 'program / specialization' })
+  // An unknown selection falls back to the same union and the same label.
+  assert.deepEqual(resolveArchiveTracks({
+    tracks: ['Data Mining'], departments, selectedDepartment: 'Nope',
+  }), { activeTracks: ['Data Mining'], trackLabel: 'program / specialization' })
+})
+
+test('a mixed or label-less catalog keeps the neutral track label', () => {
+  // No single heading is true across disagreeing departments, and a legacy
+  // (pre-PI-04) catalog publishes no label at all.
+  assert.equal(resolveArchiveTracks({
+    tracks: ['A'],
+    departments: [
+      { name: 'CCSICT', track_label: 'Program / specialization' },
+      { name: 'CED', track_label: 'Academic track' },
+    ],
+  }).trackLabel, 'track')
+  assert.equal(resolveArchiveTracks({ tracks: ['A'], departments: [{ name: 'CCSICT' }] }).trackLabel, 'track')
+  assert.equal(resolveArchiveTracks({}).trackLabel, 'track')
+})
+
 test('normalized catalog options remain department-owned', () => {
   const departments = [{
     name: 'CCSICT',
