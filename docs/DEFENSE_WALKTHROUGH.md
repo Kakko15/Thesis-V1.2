@@ -286,7 +286,7 @@ in the repository's audit reports.
    and the gateway host, never the credential — so a reported result can always
    be traced to the provider that actually produced it.
 2. **Objective 2 results are pending.** The baseline-versus-RAG comparison needs
-   the locked thirteen-thesis corpus and faculty-validated ground truth. Nothing is
+   the locked twelve-thesis corpus and faculty-validated ground truth. Nothing is
    displayed until then, on purpose.
 3. **Context Precision cannot be computed for the baseline** — a baseline with no
    retriever has no retrieved contexts to rank. It is a RAG-only diagnostic. The

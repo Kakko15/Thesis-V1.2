@@ -6,14 +6,57 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## Silent OCR loss closed before corpus ingestion - 2026-09-07
+
+Extracting the twelve staged manuscripts on the development host, before any approval or
+ingestion, measured **94 of 835 pages (11.3%) dropped across eleven of the twelve**, worst
+cases CCSICT-011 at 20 of 56 pages and CCSICT-013 at 19 of 100. `tesserocr==2.10.0` is
+pinned in `requirements.txt` as a manylinux wheel and cannot install on Windows, so
+`OCR_AVAILABLE` was false and `_ocr_page` returned empty text after logging a warning.
+Ingestion then indexed whatever survived. A corpus missing an eighth of its content would
+have completed as a clean ingest and every Objective 2 figure measured against it would
+have been quietly wrong.
+
+Three changes, all before the governed corpus is touched:
+
+1. **The loss is now observable.** `ExtractedDocument.unresolved_scanned_pages` records the
+   1-based source pages where a scanned page was detected and OCR could not run. A page
+   where OCR ran and legitimately found nothing is deliberately excluded: a blank or
+   unreadable scan is a property of the manuscript, not a broken environment, and must not
+   block a legitimate thesis forever.
+2. **Ingestion fails closed.** `REQUIRE_OCR_FOR_SCANNED_PAGES` (default true) makes
+   `process_ingestion_job` raise `PermanentIngestionError` naming the affected pages,
+   before any commit. The false setting exists only for local work on a host that cannot
+   install the wheel.
+3. **The redaction derivative has a tool.** `scripts/build_redacted_derivatives.py` runs the
+   real `extract_document` over each staged PDF and writes the artifact a privacy reviewer
+   reads, plus `redacted_sha256` and `embedded_payload_sha256` over the chunk text that
+   actually reaches the provider. It refuses to run without OCR, because a derivative
+   hashed on this host would certify content the container indexes differently. The
+   protocol required this artifact and there was no way to produce it.
+
+`PREPROCESSING_VERSION` is deliberately not bumped. The text a successful extraction
+produces is byte-identical; what changed is that an unsuccessful one now stops instead of
+committing a partial document.
+
+The corpus measures **198,696 tokens** across the twelve manuscripts (mean 16,558) under
+`cl100k_base`, the chunker's proxy tokenizer. That figure is an undercount taken without
+OCR and is recorded to size provider cost, not as a corpus property.
+
 ## Corpus release and instrument re-scope - 2026-09-07
 
-CCSICT released the defense corpus. It is **thirteen distinct undergraduate
+CCSICT released the defense corpus. It is **twelve distinct undergraduate
 manuscripts**, not the fifty the proposal reserved, and the department both selected and
 limited the set to as many manuscripts as the releasing office could prepare. The
-handover held fourteen PDFs:
+department released thirteen PDFs:
 `ARELLANO & MARYCRIS.pdf` is an unsigned second revision of the Arellano/Tamano BLIS
-project already in the set, so it is the one file that is not its own record. Titles,
+project already in the set, so it is the one file that is not its own record. A
+fourteenth PDF was staged the same day and was initially counted as CCSICT-006; the
+k-means manuscript came directly from its author rather than through the release, and
+the thesis adviser declined it as an addition on 2026-09-07, so the count is twelve and
+the corpus stays a census of the release rather than a set the researchers topped up. It
+is recorded as excluded in the controlled register, and record ids are not renumbered, so
+CCSICT-006 is absent by design. Titles,
 authors and years were transcribed from each manuscript's own title page; the staged PDFs
 and the working register are controlled under PI-08 (`evaluation/corpus/private/`,
 gitignored).
@@ -31,7 +74,7 @@ Composition as released:
 
 Three consequences were applied in code rather than left to the formal run:
 
-1. **`EXPECTED_PAPER_COUNT` is 13** (`scripts/corpus_manifest.py`), so a lock-ready
+1. **`EXPECTED_PAPER_COUNT` is 12** (`scripts/corpus_manifest.py`), so a lock-ready
    manifest must hold exactly the released set. The manifest template records the
    represented and unrepresented categories explicitly, and
    `tests/test_corpus_manifest.py` pins the constant so a future release moves the paper
@@ -51,7 +94,7 @@ Three consequences were applied in code rather than left to the formal run:
    these questions ask about "CCSICT theses" generally rather than about one track. Query
    6 asks about recommender systems, which the released Mango Fruit Quality thesis
    builds, yet its BSDSA category had marked it unanswerable; query 1 asks which theses
-   applied Retrieval-Augmented Generation, which none of the thirteen do, yet its Data
+   applied Retrieval-Augmented Generation, which none of the twelve do, yet its Data
    Mining category had marked it answerable. Either way round the interpretation inverts:
    a correct grounded answer scored against a ground truth asserting absence, or a
    correct refusal scored against one asserting an answer exists. Only two determinations
@@ -76,7 +119,7 @@ Three consequences were applied in code rather than left to the formal run:
 **Still outstanding, unchanged:** all 40 ground truths and all 40 source-thesis fields
 are `REPLACE:` placeholders, `validated_by_faculty_panel` is `false`, and the corpus
 lock, its receipt and the four PI-08 approvals do not exist. The release narrows the
-corpus; it does not unblock Objective 2. A sample of thirteen theses across three of six
+corpus; it does not unblock Objective 2. A sample of twelve theses across three of six
 catalog categories is a stated limitation of the study, not a property of the
 architecture, and Sections 1.3, 3.1.3 and 3.2.1 now say so.
 

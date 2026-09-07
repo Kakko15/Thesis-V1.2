@@ -19,16 +19,21 @@ from typing import Any
 
 
 # The corpus is exactly what CCSICT released for the defense evaluation. The
-# proposal reserved fifty; on 2026-09-07 the department released thirteen
-# distinct undergraduate manuscripts -- as many as the releasing office could
-# prepare, which is why the count is what it is rather than a sampling
-# decision -- so thirteen is the governed size. The handover held fourteen PDFs:
-# ARELLANO & MARYCRIS.pdf is an unsigned second revision of the Arellano/Tamano
-# BLIS project already counted here, which is the one file that is not its own
-# record. Raising this number is a paper change as well as a code change: it
-# also moves the manifest template, this module's test, the golden dataset
-# revision record, and sections 1.3, 3.1.3 and 3.2.1.
-EXPECTED_PAPER_COUNT = 13
+# proposal reserved fifty; on 2026-09-07 the department released thirteen PDFs
+# holding twelve distinct undergraduate manuscripts -- as many as the releasing
+# office could prepare, which is why the count is what it is rather than a
+# sampling decision -- so twelve is the governed size. ARELLANO & MARYCRIS.pdf
+# is an unsigned second revision of the Arellano/Tamano BLIS project already
+# counted here, which is the one released file that is not its own record. A
+# fourteenth PDF was staged the same day and is not part of this corpus: the
+# k-means manuscript held as CCSICT-006 came directly from its author rather
+# than through the release, so the adviser excluded it on 2026-09-07 and the
+# corpus stays a census of what the department released. Record ids are not
+# renumbered, so 006 is absent by design. Changing this number is a paper
+# change as well as a code change: it also moves the manifest template, this
+# module's test, the golden dataset revision record, and sections 1.3, 3.1.3
+# and 3.2.1.
+EXPECTED_PAPER_COUNT = 12
 APPROVAL_ROLES = (
     'ccsict_department_chair',
     'university_librarian',

@@ -18,18 +18,21 @@ import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
-# OCR is optional at runtime: the system degrades gracefully when the bundled
-# Tesseract binding, English model, or Pillow is unavailable.
+# OCR is optional to import but not to skip. When the bundled Tesseract binding,
+# English model, or Pillow is unavailable, extraction still succeeds and records
+# the affected pages on ExtractedDocument.unresolved_scanned_pages; ingestion then
+# refuses the job under REQUIRE_OCR_FOR_SCANNED_PAGES rather than indexing a
+# manuscript with those pages silently missing.
 try:
     import tessdata
     import tesserocr
     from PIL import Image
-    _OCR_AVAILABLE = True
+    OCR_AVAILABLE = True
 except ImportError:  # pragma: no cover
     tessdata = None
     tesserocr = None
     Image = None
-    _OCR_AVAILABLE = False
+    OCR_AVAILABLE = False
 
 FIGURE_PLACEHOLDER = 'FIGURE REDACTED FOR SEMANTIC INDEXING'
 
@@ -48,6 +51,12 @@ class ExtractedDocument:
 
     pages: list[ExtractedPage]
     redaction_stats: dict[str, int] = field(default_factory=dict)
+    # 1-based source page numbers where a scanned page was detected but OCR
+    # could not run at all (binding absent, or the native call raised). These
+    # pages contribute no text, so ingesting the document would silently drop
+    # them. A page where OCR ran and legitimately found nothing is NOT listed:
+    # that is a blank or unreadable scan, not a broken environment.
+    unresolved_scanned_pages: tuple[int, ...] = ()
 
     @property
     def text(self) -> str:
@@ -135,11 +144,19 @@ def is_noise_chunk(text: str, max_non_alnum_ratio: float = 0.15) -> bool:
     return (non_alnum / len(stripped)) > max_non_alnum_ratio
 
 
-def _ocr_page(page: 'fitz.Page') -> str:
-    """Rasterize a page with PyMuPDF and run Tesseract OCR on it."""
-    if not _OCR_AVAILABLE:
-        logger.warning('Scanned page detected but Tesseract OCR is not installed; skipping page %d', page.number)
-        return ''
+def _ocr_page(page: 'fitz.Page') -> tuple[str, bool]:
+    """Rasterize a page and OCR it, reporting whether OCR could run at all.
+
+    The second element separates an environment fault (no binding, or a native
+    crash) from a page OCR read successfully and found empty. Only the first
+    kind is silent data loss, and only that kind stops ingestion.
+    """
+    if not OCR_AVAILABLE:
+        logger.warning(
+            'Scanned page detected but Tesseract OCR is not installed; skipping page %d',
+            page.number + 1,
+        )
+        return '', False
     try:
         pix = page.get_pixmap(dpi=200)
         img = Image.open(io.BytesIO(pix.tobytes('png')))
@@ -151,10 +168,10 @@ def _ocr_page(page: 'fitz.Page') -> str:
         # the rule stays enabled for the rest of the file and the project.
         with tesserocr.PyTessBaseAPI(path=tessdata.data_path(), lang='eng') as api:  # pylint: disable=no-member
             api.SetImage(img)
-            return api.GetUTF8Text()
+            return api.GetUTF8Text(), True
     except Exception as e:  # pragma: no cover - depends on native OCR runtime
-        logger.exception('OCR failed on page %d (%s)', page.number, type(e).__name__)
-        return ''
+        logger.exception('OCR failed on page %d (%s)', page.number + 1, type(e).__name__)
+        return '', False
 
 
 def _detect_repeated_lines(pages: list[str]) -> set[str]:
@@ -242,12 +259,16 @@ def extract_pdf_document(file_bytes: bytes) -> ExtractedDocument:
     """Full digitization pipeline retaining cleaned PDF page boundaries."""
     doc = fitz.open(stream=file_bytes, filetype='pdf')
     raw_pages: list[str] = []
+    unresolved: list[int] = []
     for page in doc:
         text = page.get_text().strip()
         has_images = bool(page.get_images(full=True))
         if len(text) < _MIN_TEXT_CHARS_PER_PAGE and has_images:
             # Scanned / image-based page -> OCR fallback
-            ocr_text = _ocr_page(page).strip()
+            ocr_text, ocr_ran = _ocr_page(page)
+            ocr_text = ocr_text.strip()
+            if not ocr_ran:
+                unresolved.append(page.number + 1)
             text = ocr_text if ocr_text else text
         elif has_images and text:
             # Complex visuals (ERDs, image-based tables) bypassed by the
@@ -267,6 +288,7 @@ def extract_pdf_document(file_bytes: bytes) -> ExtractedDocument:
     return ExtractedDocument(
         _remove_excluded_sections_from_pages(cleaned_pages),
         dict(redaction_totals),
+        tuple(unresolved),
     )
 
 

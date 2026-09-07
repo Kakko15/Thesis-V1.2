@@ -174,6 +174,36 @@ class TestPipeline:
         assert payload['p_paper']['redaction_stats'] == {'email': 1}
         assert len(payload['p_chunks'][0]['embedding']) == 768
 
+    def test_unreadable_scanned_pages_fail_before_commit(self, monkeypatch):
+        """A corpus short its scanned pages must not look like a clean ingest."""
+        content = pdf_bytes()
+        client = PipelineClient(content)
+        patch_pipeline(monkeypatch)
+        monkeypatch.setattr(ingestion, 'extract_document', lambda *_args: ExtractedDocument(
+            [ExtractedPage(1, 'A sufficiently detailed thesis methodology paragraph for indexing.')],
+            {},
+            (81, 94),
+        ))
+        with pytest.raises(ingestion.PermanentIngestionError, match='OCR is unavailable'):
+            ingestion.process_ingestion_job(
+                client, claimed_job(content), 'worker-1', lambda **_kw: True)
+        assert not any(name == 'commit_upload_ingestion' for name, _ in client.rpc_calls)
+
+    def test_missing_ocr_may_be_allowed_for_local_work(self, monkeypatch):
+        """The escape hatch exists for hosts that cannot install the Linux wheel."""
+        content = pdf_bytes()
+        client = PipelineClient(content)
+        patch_pipeline(monkeypatch)
+        monkeypatch.setattr(ingestion, 'extract_document', lambda *_args: ExtractedDocument(
+            [ExtractedPage(1, 'A sufficiently detailed thesis methodology paragraph for indexing.')],
+            {},
+            (81,),
+        ))
+        monkeypatch.setattr(ingestion.settings, 'require_ocr_for_scanned_pages', False)
+        paper_id = ingestion.process_ingestion_job(
+            client, claimed_job(content), 'worker-1', lambda **_kw: True)
+        assert paper_id == JOB_ID
+
     def test_changed_staged_file_is_permanent_failure(self):
         content = pdf_bytes()
         client = PipelineClient(content + b'changed')

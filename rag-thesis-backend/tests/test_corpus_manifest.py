@@ -61,7 +61,7 @@ def _approved_manifest() -> dict:
         'corpus_id': 'ISU-ECHAGUE-CCSICT-DEFENSE-2026',
         'status': 'approved',
         'department': 'CCSICT',
-        'expected_paper_count': 13,
+        'expected_paper_count': 12,
         'purpose': 'Fixed corpus for the approved CCSICT defense evaluation.',
         'processing_profile': {
             'gemini_service_tier': 'unpaid',
@@ -73,28 +73,28 @@ def _approved_manifest() -> dict:
             'privacy_officer': _approval('Authorized Privacy Officer', 3),
             'thesis_adviser': _approval('Thesis Adviser', 4),
         },
-        'papers': [_paper(number) for number in range(1, 14)],
+        'papers': [_paper(number) for number in range(1, 13)],
     }
 
 
 def test_expected_paper_count_is_the_released_corpus_size():
-    """CCSICT released thirteen distinct manuscripts on 2026-09-07 and no more.
+    """CCSICT released twelve distinct manuscripts on 2026-09-07 and no more.
 
     Pinned as a literal because the number is also printed in the manuscript
     (sections 1.3, 3.1.3 and 3.2.1) and in the PI-08 protocol. If the department
     later releases another thesis, this test is the reminder that the paper and
     the protocol move with the constant.
     """
-    assert EXPECTED_PAPER_COUNT == 13
+    assert EXPECTED_PAPER_COUNT == 12
 
 
 def _composition() -> dict:
-    """Matches the distribution `_paper` produces over thirteen records."""
+    """Matches the distribution `_paper` produces over twelve records."""
     return {
         'released_on': '2026-09-07',
         'note': 'Released set, recorded so the unrepresented categories are explicit.',
         'represented': [
-            {'program': 'BSCS', 'specialization': 'Data Mining', 'count': 3},
+            {'program': 'BSCS', 'specialization': 'Data Mining', 'count': 2},
             {'program': 'BSIT', 'specialization': 'WMAD', 'count': 2},
             {'program': 'BSIT', 'specialization': 'NETSEC', 'count': 2},
             {'program': 'BSDSA', 'specialization': None, 'count': 2},
@@ -169,7 +169,7 @@ def test_approved_released_corpus_manifest_is_lock_ready():
 @pytest.mark.parametrize(
     ('mutate', 'message'),
     [
-        (lambda data: data['papers'].pop(), 'exactly 13'),
+        (lambda data: data['papers'].pop(), 'exactly 12'),
         (lambda data: data['papers'][1].update(record_id='CCSICT-001'), 'duplicate record_id'),
         (lambda data: data['papers'][1].update(source_sha256='0' * 63 + '1'), 'duplicate source_sha256'),
         (lambda data: data['papers'][0].update(specialization='WMAD'), 'invalid for BSCS'),
@@ -198,7 +198,7 @@ def test_lock_sorts_records_writes_receipt_and_verifies(tmp_path):
     )
 
     assert locked['papers'][0]['record_id'] == 'CCSICT-001'
-    assert receipt['paper_count'] == 13
+    assert receipt['paper_count'] == 12
     assert receipt['manifest_sha256'] == manifest_sha256(locked)
     verify_lock(
         json.loads(manifest_path.read_text(encoding='utf-8')),

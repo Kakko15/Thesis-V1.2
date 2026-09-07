@@ -102,6 +102,17 @@ def process_ingestion_job(client, job: dict, worker_id: str,
     document = extract_document(file_bytes, filename)
     if not document.text.strip():
         raise PermanentIngestionError('The manuscript contained no extractable text')
+    if document.unresolved_scanned_pages and settings.require_ocr_for_scanned_pages:
+        # Refuse rather than commit a manuscript short the pages OCR could not
+        # read. The old behaviour logged a warning and indexed what was left,
+        # which produces a corpus that looks complete and is not.
+        pages = ', '.join(str(number) for number in document.unresolved_scanned_pages)
+        raise PermanentIngestionError(
+            f'{len(document.unresolved_scanned_pages)} scanned page(s) could not be read '
+            f'because OCR is unavailable on this worker (pages {pages}). Install the '
+            'tesserocr runtime and retry; the manuscript would otherwise be indexed '
+            'without them.'
+        )
 
     _require_lease(
         heartbeat,
