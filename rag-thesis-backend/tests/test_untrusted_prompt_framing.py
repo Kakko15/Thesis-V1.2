@@ -112,12 +112,8 @@ class TestMetadataExtraction:
             lambda *_a, **_k: {'title': '', 'authors': '', 'year': '', 'department': ''},
         )
         monkeypatch.setattr(
-            upload_router.sb, 'table',
-            lambda _n: SimpleNamespace(
-                select=lambda _f: SimpleNamespace(
-                    execute=lambda: SimpleNamespace(data=[{'name': 'CCSICT'}]),
-                ),
-            ),
+            upload_router, '_load_department_names',
+            lambda: [{'name': 'CCSICT', 'title': ''}],
         )
         asyncio.run(run())
 

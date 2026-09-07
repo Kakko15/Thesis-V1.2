@@ -451,6 +451,118 @@ def _pdf_bytes(lines=('Thesis page 1',)):
     return value
 
 
+# The vocabulary `_load_department_names` returns, trimmed to the colleges whose
+# spellings interact: CA and CAS are the short codes a substring scan used to
+# find inside ordinary words like 'card', 'communication', and 'Capstone'.
+CATALOG = [
+    {'name': 'CA', 'title': 'College of Agriculture'},
+    {'name': 'CAS', 'title': 'College of Arts and Sciences'},
+    {
+        'name': 'CCSICT',
+        'title': (
+            'College of Computing Studies, Information and Communication Technology'
+        ),
+    },
+]
+
+
+class TestDepartmentDetection:
+    """The 2026-09-08 report: every ingest autofilled the department as CA.
+
+    `CA` (College of Agriculture) is two letters, and the old scan asked only
+    whether a code appeared anywhere in the page, in whatever order the catalog
+    returned its rows. Every thesis page spells 'ca' somewhere -- 'card',
+    'communication', 'application' -- so CA matched before CCSICT was tried,
+    and a superadmin's form keeps the extracted value (pages/Upload.jsx).
+    """
+
+    PAGE = (
+        'Republic of the Philippines\n'
+        'ISABELA STATE UNIVERSITY\n'
+        'Echague, Isabela\n\n'
+        'College of Computing Studies,\n'
+        'Information and Communication Technology\n\n'
+        "DESIGNING A MOBILE-BASED BORROWER'S CARD FOR THE\n"
+        'ISABELA STATE UNIVERSITY LIBRARY\n'
+    )
+
+    def test_a_short_code_no_longer_matches_inside_an_ordinary_word(self):
+        assert upload._match_department('A card for communication.', CATALOG) == ''
+        assert upload._match_department('A Capstone Project', CATALOG) == ''
+
+    def test_the_wrapped_college_title_resolves_to_its_code(self):
+        # This page breaks the college name after the comma, so the two sides
+        # match only once both are collapsed to single spaces.
+        assert upload._match_department(self.PAGE, CATALOG) == 'CCSICT'
+
+    def test_the_reported_page_autofills_ccsict_not_ca(self):
+        assert upload._extract_title_page_metadata(self.PAGE, CATALOG)['department'] == 'CCSICT'
+
+    def test_the_segment_before_the_comma_names_the_same_college(self):
+        assert upload._match_department('College of Computing Studies', CATALOG) == 'CCSICT'
+
+    def test_another_college_still_wins_on_its_own_page(self):
+        assert upload._match_department(
+            'College of Agriculture\nCrop Science Department\n', CATALOG) == 'CA'
+
+    def test_a_standalone_code_is_matched_and_case_is_ignored(self):
+        assert upload._match_department('Presented to CCSICT', CATALOG) == 'CCSICT'
+        assert upload._match_department('presented to ccsict', CATALOG) == 'CCSICT'
+
+    def test_the_longest_spelling_wins_over_a_code_inside_it(self):
+        # 'CA' is a whole word here as well as a code, so without the length
+        # score the tiebreak would again be whichever row came back first.
+        page = 'CA\nCollege of Computing Studies, Information and Communication Technology'
+        assert upload._match_department(page, CATALOG) == 'CCSICT'
+
+    def test_a_page_naming_no_college_leaves_the_field_blank(self):
+        assert upload._match_department('An untitled draft.', CATALOG) == ''
+        assert upload._match_department('', CATALOG) == ''
+
+    def test_bare_code_vocabularies_are_still_accepted(self):
+        # Callers predating the catalog rows pass a plain list of codes.
+        assert upload._match_department('Presented to CCSICT', ['CCSICT', 'CAS']) == 'CCSICT'
+        assert upload._match_department('A card', ['CA']) == ''
+
+    def test_a_model_department_outside_the_catalog_is_dropped(self):
+        assert upload._canonical_department('CCSICT', CATALOG) == 'CCSICT'
+        assert upload._canonical_department('ccsict', CATALOG) == 'CCSICT'
+        assert upload._canonical_department('College of Agriculture', CATALOG) == 'CA'
+        assert upload._canonical_department('College of Wizardry', CATALOG) == ''
+        assert upload._canonical_department('', CATALOG) == ''
+
+    def test_only_active_departments_enter_the_vocabulary(self, monkeypatch):
+        """An archived college is a 422 at upload, so autofilling one is worse
+        than leaving the field blank."""
+        seen = {}
+
+        class _Departments:
+            def select(self, fields):
+                seen['fields'] = fields
+                return self
+
+            def eq(self, column, value):
+                seen[column] = value
+                return self
+
+            def order(self, column):
+                seen['order'] = column
+                return self
+
+            def execute(self):
+                return SimpleNamespace(data=[
+                    {'name': 'CCSICT', 'title': 'College of Computing Studies'},
+                ])
+
+        monkeypatch.setattr(upload, 'sb', SimpleNamespace(table=lambda _n: _Departments()))
+        assert upload._load_department_names() == [
+            {'name': 'CCSICT', 'title': 'College of Computing Studies'},
+        ]
+        assert seen['active'] is True
+        assert seen['order'] == 'name'
+        assert 'title' in seen['fields']
+
+
 class TestUploadHelpers:
     def test_title_page_author_scan_stops_at_chapter_and_college_fallback(self):
         text = (
@@ -458,7 +570,7 @@ class TestUploadHelpers:
             'College of Computing Studies, Information and Communication Technology\n'
             'By:\nAna D. Cruz\nChapter 1\nIntroduction\nMay 2026\n'
         )
-        result = upload._extract_title_page_metadata(text, ['CCSICT', 'CAS'])
+        result = upload._extract_title_page_metadata(text, CATALOG)
         assert result['authors'] == 'Ana D. Cruz'
         assert result['department'] == 'CCSICT'
         assert result['year'] == '2026'
