@@ -381,7 +381,8 @@ changed.
 
 CCSICT released the Objective 2 corpus and it is **thirteen** distinct undergraduate
 manuscripts, not the fifty this proposal reserved. The department selected the set itself
-and said no further theses would be provided. The handover held fourteen PDFs:
+and released as many manuscripts as its office could prepare. The handover held
+fourteen PDFs:
 `ARELLANO & MARYCRIS.pdf` is an unsigned second revision of the Arellano/Tamano BLIS project
 already in the set, so it is the one file that is not its own record. Titles, authors and
 years were transcribed from each manuscript's own title page.

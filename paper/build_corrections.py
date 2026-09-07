@@ -614,9 +614,9 @@ PROSE10 = [
      "representation across the department's academic tracks.",
      'The dataset is limited to the thirteen (13) undergraduate thesis documents released by '
      'CCSICT for this study on 7 September 2026. This proposal reserved fifty (50); the '
-     'department selected and limited the release and provided no further manuscripts, so '
-     'the evaluation corpus is a census of what was released rather than a proportional '
-     'sample drawn by the researchers. The released set comprises six (6) BSCS Data Mining '
+     'department released as many manuscripts as its office could prepare, so the '
+     'evaluation corpus is a census of what was released rather than a proportional sample '
+     'drawn by the researchers. The released set comprises six (6) BSCS Data Mining '
      'theses (2024-2025), three (3) BSIS capstone projects (2025) and four (4) BLIS research '
      'projects (2026); the BSIT Web and Mobile Application Development and Network and '
      'Security tracks and the BSDSA program are unrepresented because no manuscript from '

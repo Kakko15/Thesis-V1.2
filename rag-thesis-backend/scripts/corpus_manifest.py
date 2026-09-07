@@ -20,8 +20,9 @@ from typing import Any
 
 # The corpus is exactly what CCSICT released for the defense evaluation. The
 # proposal reserved fifty; on 2026-09-07 the department released thirteen
-# distinct undergraduate manuscripts and stated that no further theses would be
-# provided, so thirteen is the governed size. The handover held fourteen PDFs:
+# distinct undergraduate manuscripts -- as many as the releasing office could
+# prepare, which is why the count is what it is rather than a sampling
+# decision -- so thirteen is the governed size. The handover held fourteen PDFs:
 # ARELLANO & MARYCRIS.pdf is an unsigned second revision of the Arellano/Tamano
 # BLIS project already counted here, which is the one file that is not its own
 # record. Raising this number is a paper change as well as a code change: it
