@@ -106,7 +106,7 @@ export function Modal({ open, onClose, title, description, children, className, 
                 onPointerDownCapture={onContentPointerDownCapture}
                 onChangeCapture={onContentChangeCapture}
                 className={cn(
-                  'surface-glass fixed left-1/2 top-1/2 z-[81] max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[1.75rem] p-6 sm:p-8',
+                  'surface-glass fixed left-1/2 top-1/2 z-[81] max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 overscroll-contain overflow-y-auto rounded-[1.75rem] p-6 sm:p-8 touch-manipulation',
                   sizes[size],
                   className,
                 )}
@@ -157,7 +157,7 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, message, confir
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.97, y: 8 }}
                 transition={{ type: 'spring', stiffness: 420, damping: 36 }}
-                className="surface-glass fixed left-1/2 top-1/2 z-[91] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-[1.75rem] p-6 sm:p-8"
+                className="surface-glass fixed left-1/2 top-1/2 z-[91] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 overscroll-contain rounded-[1.75rem] p-6 sm:p-8 touch-manipulation"
               >
                 <AlertDialog.Title className="font-display text-xl font-bold tracking-tight">
                   {title}

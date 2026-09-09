@@ -44,7 +44,7 @@ function QuickAction({ icon: Icon, title, text, onClick, tone = 'forest' }) {
       hover
       role="button"
       tabIndex={0}
-      className="group cursor-pointer p-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400"
+      className="group cursor-pointer p-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400 active:scale-[0.98] transition-all duration-200 touch-manipulation"
       onClick={onClick}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {

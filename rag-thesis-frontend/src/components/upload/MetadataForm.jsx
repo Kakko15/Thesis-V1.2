@@ -4,7 +4,9 @@ import { BookText, ChevronDown, FileSignature, Lock, Sparkles, Tags } from 'luci
 import { Input, Textarea, Select, Field } from '../ui/Input'
 import { cn } from '../../lib/utils'
 import { motionTokens } from '../../design/motion'
-import { THESIS_CATEGORIES } from '../../lib/catalog'
+import {
+  THESIS_CATEGORIES, programSelectionById, specializationSelection,
+} from '../../lib/catalog'
 
 const { duration, easing, stagger } = motionTokens
 
@@ -33,34 +35,35 @@ function AutofillChip({ show }) {
     <AnimatePresence initial={false}>
       {show && (
         <motion.span
-          initial={{ opacity: 0, y: -2 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -2 }}
+          initial={{ opacity: 0, scale: 0.85, y: -2 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.85, y: -2 }}
           transition={{ duration: duration.short, ease: easing.standard }}
-          // normal-case/tracking-normal because the label span above sets
-          // uppercase and wide tracking, which this should not inherit.
-          className="inline-flex items-center gap-1 text-[11px] font-medium normal-case tracking-normal text-ink-faint"
+          className="inline-flex items-center gap-1 rounded-full bg-gold-400/15 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-gold-700 dark:text-gold-300 border border-gold-400/30 shadow-xs"
         >
-          <Sparkles size={11} aria-hidden="true" /> autofilled
+          <Sparkles size={11} aria-hidden="true" className="animate-pulse" /> autofilled
         </motion.span>
       )}
     </AnimatePresence>
   )
 }
 
-function Section({ icon: Icon, title, hint, headingId, children }) {
+function Section({ icon: Icon, title, headingId, children }) {
   return (
-    <motion.section variants={fieldRise} aria-labelledby={headingId} className="space-y-4">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300">
-          <Icon size={15} aria-hidden="true" />
+    <motion.section
+      variants={fieldRise}
+      aria-labelledby={headingId}
+      className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/70 p-5 sm:p-6 shadow-xs backdrop-blur-xs transition-shadow hover:shadow-md"
+    >
+      <div className="flex items-center gap-3 border-b border-[var(--border)]/60 pb-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600/15 to-forest-800/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300 ring-1 ring-forest-500/20 shadow-xs">
+          <Icon size={16} aria-hidden="true" />
         </span>
-        <div className="min-w-0">
-          <h2 id={headingId} className="font-display text-sm font-bold">{title}</h2>
-          <p className="text-xs text-ink-muted">{hint}</p>
-        </div>
+        <h2 id={headingId} className="font-display text-sm font-bold tracking-tight text-ink">{title}</h2>
       </div>
-      {children}
+      <div className="pt-1">
+        {children}
+      </div>
     </motion.section>
   )
 }
@@ -101,15 +104,12 @@ function LabelledField({ label, autofilled, required, ...props }) {
  * the control — which is what finally lets the specialization below carry a
  * visible label of its own, instead of sitting unlabelled under the program
  * because the label slot was reserved for the program's accessible name.
- *
- * It takes no autofill marker: the only autofillable Select is Department, and
- * the note at its call site explains why a marker there would lie.
  */
-function SelectField({ label, required, ...props }) {
+function SelectField({ label, required, autofilled, ...props }) {
   return (
     <Field
       nameFromLabel={false}
-      label={<FieldLabel label={label} required={required} />}
+      label={<FieldLabel label={label} required={required} autofilled={autofilled} />}
       {...props}
     />
   )
@@ -119,21 +119,27 @@ function AbstractDisclosure({ value, onChange }) {
   // Collapsed by default: it is optional, and expanded it pushed the wizard's
   // own actions below the fold on a laptop. Any pasted text keeps it open.
   const [open, setOpen] = useState(Boolean(value))
+  const charCount = value ? value.length : 0
+
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)]/60 transition-colors hover:bg-[var(--surface-2)]/90">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left outline-none transition-colors duration-200 hover:bg-[var(--surface-2)]"
+        className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3.5 text-left outline-none transition-colors duration-200"
       >
-        {/* One line, not two. This used to add "Optional, but it improves
-            archive browsing" under the title, directly below a section header
-            already reading "Optional context for readers browsing the archive"
-            — the same sentence twice, two levels apart. */}
-        <span className="min-w-0 text-xs font-semibold uppercase tracking-wider text-ink-muted">
-          Add an abstract
-        </span>
+        <div className="flex items-center gap-2">
+          <BookText size={15} className="text-ink-muted shrink-0" aria-hidden="true" />
+          <span className="min-w-0 text-xs font-semibold uppercase tracking-wider text-ink-muted">
+            Add an abstract
+          </span>
+          {charCount > 0 && (
+            <span className="rounded-full bg-forest-500/15 px-2 py-0.5 text-[10px] font-mono font-medium text-forest-700 dark:text-forest-300">
+              {charCount} chars
+            </span>
+          )}
+        </div>
         <ChevronDown
           size={16}
           aria-hidden="true"
@@ -149,7 +155,7 @@ function AbstractDisclosure({ value, onChange }) {
             transition={{ duration: duration.medium, ease: easing.standard }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4">
+            <div className="px-4 pb-4 pt-1 space-y-2">
               <Textarea
                 value={value}
                 onChange={onChange}
@@ -157,6 +163,9 @@ function AbstractDisclosure({ value, onChange }) {
                 rows={4}
                 aria-label="Thesis abstract"
               />
+              <p className="text-[11px] text-ink-faint">
+                Abstracts provide rich context for semantic indexing and assist researcher discovery.
+              </p>
             </div>
           </motion.div>
         )}
@@ -183,20 +192,13 @@ export function MetadataForm({
   programs, specializations, onField, onForm, onBlurValidate,
 }) {
   const set = (key) => (event) => onField(key, event.target.value)
-
   const programsUnavailable = !form.department || programs.length === 0
-  const programHint = programsUnavailable
-    ? 'Choose a department first'
-    : form.thesis_category === 'faculty'
-      ? 'Optional for faculty research'
-      : 'Validated against the official catalog'
 
   return (
     <motion.div variants={sectionStagger} initial="hidden" animate="show" className="space-y-7">
       <Section
         icon={FileSignature}
         title="Identity"
-        hint="How the thesis is cited"
         headingId="upload-identity-heading"
       >
         <div className="space-y-5">
@@ -212,7 +214,6 @@ export function MetadataForm({
           <div className="grid gap-5 sm:grid-cols-2">
             <LabelledField
               label="Authors"
-              hint="Separate multiple authors with commas"
               autofilled={autofilled.authors}
             >
               <Input value={form.authors} onChange={set('authors')} placeholder="Dela Cruz, J., Santos, M." />
@@ -223,7 +224,6 @@ export function MetadataForm({
             <LabelledField
               label="Year completed"
               error={errors.year}
-              hint="Four digits, 1978 onwards"
               autofilled={autofilled.year}
             >
               <Input
@@ -243,7 +243,6 @@ export function MetadataForm({
       <Section
         icon={Tags}
         title="Classification"
-        hint="Where the thesis belongs in the archive"
         headingId="upload-classification-heading"
       >
         <div className="space-y-5">
@@ -251,7 +250,6 @@ export function MetadataForm({
             <SelectField
               label="Thesis category"
               required
-              hint="Who wrote it — not your account role"
             >
               <Select value={form.thesis_category} onChange={set('thesis_category')} aria-label="Select thesis category">
                 {THESIS_CATEGORIES.map((category) => (
@@ -263,19 +261,15 @@ export function MetadataForm({
                 programs load at all, and while it sat to the right of them the
                 cascade read child-before-parent. */}
             {isSuperadmin ? (
-              /* No autofill marker here, though `department` is in
-                 AUTOFILLABLE_KEYS: this Select is edited through `onForm`, and
-                 `set-form` does not clear the autofill map the way `set-field`
-                 does (uploadState.js:51-56). The marker would go on claiming
-                 the extractor's value after a superadmin picked a different
-                 department — a provenance hint that lies is worse than none.
-                 Fixing it properly means teaching `set-form` to clear claimed
-                 keys, which is reducer work with pinned tests. */
+              /* The marker is honest on a Select now: `set-form` drops any
+                 claim whose value the patch changed (uploadState.js), so it
+                 disappears the moment a superadmin picks a different
+                 department instead of going on crediting the extractor. */
               <SelectField
                 label="Department"
                 error={errors.department}
                 required
-                hint="Programs below are filtered by this"
+                autofilled={autofilled.department}
               >
                 <Select
                   value={form.department}
@@ -305,10 +299,12 @@ export function MetadataForm({
                  explained nothing; the lock and "Assigned" say why it cannot be
                  changed. Same shell as the sign-up form's department field. */
               <Field label="Department">
-                <div className="flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm font-semibold">
-                  <Lock size={14} aria-hidden="true" />
-                  {enforcedDepartment}
-                  <span className="ml-auto text-xs font-medium uppercase tracking-wider text-ink-faint">Assigned</span>
+                <div className="flex h-11 items-center gap-2.5 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3.5 text-sm text-[var(--foreground)] shadow-xs">
+                  <Lock size={14} className="text-forest-600 dark:text-forest-400 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{enforcedDepartment}</span>
+                  <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-forest-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-forest-700 dark:text-forest-300 border border-forest-500/20">
+                    Assigned
+                  </span>
                 </div>
               </Field>
             )}
@@ -322,20 +318,14 @@ export function MetadataForm({
                 label="Academic program"
                 error={errors.program_id}
                 required={form.thesis_category !== 'faculty'}
-                hint={programHint}
+                autofilled={autofilled.program_id}
               >
                 <Select
                   value={form.program_id}
-                  onChange={(event) => {
-                    const program = programs.find((item) => item.id === event.target.value)
-                    onForm((current) => ({
-                      ...current,
-                      program_id: event.target.value,
-                      specialization_id: '',
-                      requires_specialization: Boolean(program?.specializations?.length),
-                      track: program?.specializations?.length ? '' : (program?.code || ''),
-                    }))
-                  }}
+                  onChange={(event) => onForm((current) => ({
+                    ...current,
+                    ...programSelectionById(programs, event.target.value),
+                  }))}
                   error={errors.program_id}
                   disabled={programsUnavailable}
                   aria-label="Select academic program"
@@ -364,18 +354,13 @@ export function MetadataForm({
                   label="Specialization"
                   error={errors.specialization_id}
                   required
-                  hint="Required for the selected program"
                 >
                   <Select
                     value={form.specialization_id}
-                    onChange={(event) => {
-                      const specialization = specializations.find((item) => item.id === event.target.value)
-                      onForm((current) => ({
-                        ...current,
-                        specialization_id: event.target.value,
-                        track: specialization?.name || '',
-                      }))
-                    }}
+                    onChange={(event) => onForm((current) => ({
+                      ...current,
+                      ...specializationSelection(specializations, event.target.value),
+                    }))}
                     error={errors.specialization_id}
                     aria-label="Select academic specialization"
                   >
@@ -394,7 +379,6 @@ export function MetadataForm({
       <Section
         icon={BookText}
         title="Description"
-        hint="Optional context for readers browsing the archive"
         headingId="upload-description-heading"
       >
         <AbstractDisclosure value={form.abstract} onChange={set('abstract')} />

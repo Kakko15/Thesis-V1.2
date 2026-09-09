@@ -26,8 +26,9 @@ export function Sheet({ open, onClose, title, children, className, responsiveCla
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
                 onClick={(event) => { if (event.target === event.currentTarget) onClose?.() }}
-                className={cn('fixed inset-0 z-50 bg-[var(--scrim)]', responsiveClass)}
+                className={cn('fixed inset-0 z-50 bg-[var(--scrim)] backdrop-blur-xs', responsiveClass)}
               />
             </Dialog.Overlay>
             <Dialog.Content asChild forceMount onInteractOutside={(event) => event.preventDefault()}>
@@ -36,8 +37,9 @@ export function Sheet({ open, onClose, title, children, className, responsiveCla
                 animate={{ x: 0 }}
                 exit={{ x: '100%' }}
                 transition={{ type: 'spring', stiffness: 380, damping: 38 }}
+                style={{ willChange: 'transform' }}
                 className={cn(
-                  'surface-glass fixed bottom-3 right-3 top-3 z-[51] w-[min(22rem,calc(100%-1.5rem))] overflow-y-auto rounded-[2rem] p-5',
+                  'surface-glass fixed bottom-3 right-3 top-3 z-[51] w-[min(22rem,calc(100%-1.5rem))] overscroll-contain overflow-y-auto rounded-[2rem] p-5 shadow-2xl touch-manipulation',
                   responsiveClass,
                   className,
                 )}

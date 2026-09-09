@@ -37,6 +37,7 @@ _ISOLATED_TEST_ENV = {
     'LANGSMITH_TRACING': 'false',
     'LANGCHAIN_TRACING_V2': 'false',
     'TURNSTILE_SECRET_KEY': '',
+    'REQUIRE_OCR_FOR_SCANNED_PAGES': 'true',
 }
 
 for _name, _value in _ISOLATED_TEST_ENV.items():

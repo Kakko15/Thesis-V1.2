@@ -63,15 +63,15 @@ function NavIcon({ item, compact = false, onNavigate }) {
       onFocus={warm}
       aria-label={compact ? item.label : undefined}
       className={({ isActive }) => cn(
-        'group relative flex items-center rounded-2xl font-medium transition-colors',
+        'group relative flex items-center rounded-2xl font-medium transition-all duration-200 active:scale-[0.98] touch-manipulation',
         compact ? 'h-12 w-12 justify-center' : 'gap-3 px-4 py-3 text-sm',
         isActive
-          ? 'bg-[var(--primary-container)] text-[var(--primary-container-foreground)]'
+          ? 'bg-[var(--primary-container)] text-[var(--primary-container-foreground)] shadow-xs font-semibold'
           : 'text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)]',
       )}
     >
-      <Icon size={19} aria-hidden="true" />
-      {!compact && <span>{item.label}</span>}
+      <Icon size={19} aria-hidden="true" className="transition-transform duration-200 group-hover:scale-110 group-active:scale-95" />
+      {!compact && <span className="transition-transform duration-200">{item.label}</span>}
     </NavLink>
   )
   if (!compact) return link
@@ -156,18 +156,13 @@ export function AppShell({ children }) {
     navigate('/')
   }
 
-  // Appearance and account settings live on the dedicated /settings page now —
-  // these shortcuts deep-link into the matching section. /settings is behind
-  // ProtectedRoute, so guests (e.g. on /chat) get the same controls in a
-  // dialog instead of a redirect to /login.
+  // Appearance controls open in place as a lightweight dialog so users
+  // can toggle dark mode, palette, or energy settings anywhere (e.g. during an
+  // active chat session) without navigating away and losing their working state.
   const openAppearance = () => {
     setCommandOpen(false)
     setMobileOpen(false)
-    if (!user) {
-      setAppearanceOpen(true)
-      return
-    }
-    navigate('/settings?section=appearance')
+    setAppearanceOpen(true)
   }
   const openProfile = () => {
     setCommandOpen(false)
@@ -187,7 +182,7 @@ export function AppShell({ children }) {
         <button
           type="button"
           onClick={() => setCommandOpen(true)}
-          className="mb-4 flex items-center gap-3 rounded-2xl border border-[var(--border)] px-3 py-2.5 text-left text-xs text-ink-muted transition-colors hover:bg-[var(--accent)] hover:text-ink"
+          className="mb-4 flex items-center gap-3 rounded-2xl border border-[var(--border)] px-3 py-2.5 text-left text-xs text-ink-muted transition-colors hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)]"
         >
           <Search size={15} /> Quick access <kbd className="ml-auto rounded-md bg-[var(--muted)] px-1.5 py-0.5">Ctrl K</kbd>
         </button>
@@ -230,60 +225,88 @@ export function AppShell({ children }) {
         </div>
       </aside>
 
-      <header className="surface-glass fixed inset-x-3 top-3 z-40 flex h-14 items-center justify-between rounded-3xl px-3 md:hidden">
-        <button type="button" onClick={() => navigate('/')} className="flex min-w-0 items-center gap-2 text-left">
-          <Logo size={30} />
+      <header className="surface-glass fixed inset-x-3 top-3 z-40 flex h-14 items-center justify-between rounded-3xl px-3.5 backdrop-blur-xl border border-[var(--border)] shadow-lg shadow-forest-950/5 md:hidden">
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="flex min-w-0 items-center gap-2.5 text-left active:scale-[0.98] transition-transform touch-manipulation"
+        >
+          <Logo size={32} />
           <span className="min-w-0">
-            <span className="block truncate font-display text-sm font-extrabold">ISU Thesis Library</span>
+            <span className="block truncate font-display text-sm font-extrabold tracking-tight text-ink">ISU Thesis Library</span>
             <span className="block truncate text-xs text-ink-muted">{activeItem?.label || 'Research discovery'}</span>
           </span>
         </button>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" onClick={() => setCommandOpen(true)} aria-label="Quick access"><Search size={18} /></Button>
-          <Button variant="ghost" size="icon-sm" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={19} /></Button>
+          <Button variant="ghost" size="icon-sm" onClick={() => setCommandOpen(true)} aria-label="Quick access" className="active:scale-95 transition-transform touch-manipulation">
+            <Search size={18} />
+          </Button>
+          <Button variant="ghost" size="icon-sm" onClick={() => setMobileOpen(true)} aria-label="Open navigation" className="active:scale-95 transition-transform touch-manipulation">
+            <Menu size={19} />
+          </Button>
         </div>
       </header>
 
       <nav
-        className="surface-glass safe-area-bottom fixed inset-x-3 bottom-3 z-40 grid gap-1 rounded-[1.75rem] p-1.5 md:hidden"
+        className="surface-glass safe-area-bottom fixed inset-x-3 bottom-3 z-40 grid gap-1 rounded-[1.75rem] p-1.5 backdrop-blur-xl border border-[var(--border)] shadow-xl shadow-forest-950/10 md:hidden touch-manipulation"
         style={{ gridTemplateColumns: `repeat(${mobilePrimary.length + 1}, minmax(0, 1fr))` }}
         aria-label="Mobile navigation"
       >
         {mobilePrimary.map((item) => {
           const Icon = item.icon
           return (
-            <NavLink key={item.to} to={item.to} className={({ isActive }) => cn(
-              'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-xs font-semibold',
-              isActive ? 'bg-[var(--primary-container)] text-[var(--primary-container-foreground)]' : 'opacity-65',
-            )}>
-              <Icon size={18} aria-hidden="true" /><span className="truncate">{item.shortLabel}</span>
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) => cn(
+                'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-xs font-semibold transition-all duration-200 active:scale-90 touch-manipulation',
+                isActive
+                  ? 'bg-[var(--primary-container)] text-[var(--primary-container-foreground)] shadow-xs'
+                  : 'text-ink-muted hover:text-ink opacity-75 hover:opacity-100',
+              )}
+            >
+              <Icon size={18} aria-hidden="true" className="transition-transform duration-200" />
+              <span className="truncate">{item.shortLabel}</span>
             </NavLink>
           )
         })}
-        <button type="button" onClick={() => setMobileOpen(true)} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-xs font-semibold text-ink-muted">
-          <MoreHorizontal size={18} aria-hidden="true" /><span>More</span>
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-xs font-semibold text-ink-muted hover:text-ink opacity-75 hover:opacity-100 transition-all duration-200 active:scale-90 touch-manipulation"
+        >
+          <MoreHorizontal size={18} aria-hidden="true" />
+          <span>More</span>
         </button>
       </nav>
 
       <Sheet open={mobileOpen} onClose={() => setMobileOpen(false)} title="Navigation menu">
               <div className="mb-5 flex items-center justify-between">
                 <BrandMark />
-                <Button variant="ghost" size="icon-sm" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={18} /></Button>
+                <Button variant="ghost" size="icon-sm" onClick={() => setMobileOpen(false)} aria-label="Close navigation" className="active:scale-95 transition-transform touch-manipulation">
+                  <X size={18} />
+                </Button>
               </div>
               <nav className="space-y-1" aria-label="All navigation">
                 {items.map((item) => <NavIcon key={item.to} item={item} onNavigate={() => setMobileOpen(false)} />)}
               </nav>
               <div className="mt-5 space-y-3 border-t border-[var(--border)] pt-5">
-                <Button variant="secondary" className="w-full justify-start" onClick={() => { setMobileOpen(false); setCommandOpen(true) }}><Search size={16} /> Quick access</Button>
+                <Button variant="secondary" className="w-full justify-start active:scale-[0.98] transition-transform touch-manipulation" onClick={() => { setMobileOpen(false); setCommandOpen(true) }}>
+                  <Search size={16} /> Quick access
+                </Button>
                 {user && (
-                  <Button variant="outline" className="w-full justify-start" onClick={openProfile}><Settings2 size={16} /> Settings</Button>
+                  <Button variant="outline" className="w-full justify-start active:scale-[0.98] transition-transform touch-manipulation" onClick={openProfile}>
+                    <Settings2 size={16} /> Settings
+                  </Button>
                 )}
-                <Button variant="outline" className="w-full justify-start" onClick={openAppearance}><Palette size={16} /> Appearance and energy</Button>
+                <Button variant="outline" className="w-full justify-start active:scale-[0.98] transition-transform touch-manipulation" onClick={openAppearance}>
+                  <Palette size={16} /> Appearance and energy
+                </Button>
                 <AccountBlock user={user} role={role} displayName={displayName} avatarUrl={avatarUrl} onOpenProfile={openProfile} onLogout={handleAccountAction} />
               </div>
       </Sheet>
 
-      <main id="main-content" className="px-4 pb-28 pt-20 md:ml-[6.5rem] md:px-6 md:pb-8 md:pt-6 xl:ml-[19rem] xl:pr-6">
+      <main id="main-content" className="px-3.5 pb-28 pt-20 sm:px-6 md:ml-[6.5rem] md:pb-8 md:pt-6 xl:ml-[19rem] xl:pr-6">
         {children}
       </main>
 

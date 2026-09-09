@@ -30,7 +30,7 @@ export const PIPELINE_STAGES = Object.freeze([
 // for it, so the whole stepper rendered inert and greyed while the progress bar
 // already showed movement. Map it onto the first worker stage, and treat the
 // pre-worker statuses as in-flight so the step reads as "starting".
-const STAGE_ALIASES = { store: 'download', '': 'download' }
+const STAGE_ALIASES = { store: 'download', queued: 'download', '': 'download' }
 const IN_FLIGHT_STATUSES = ['staging', 'queued', 'processing', 'retry_wait']
 
 /** Job progress as a whole number of percent, safe against nulls and junk. */
@@ -137,14 +137,48 @@ export function formatFileSize(bytes) {
   return `${(size / 1024 / 1024).toFixed(2)} MB`
 }
 
-/** Which metadata keys the title-page extractor is allowed to claim it filled. */
-export const AUTOFILLABLE_KEYS = Object.freeze(['title', 'authors', 'year', 'department'])
+/**
+ * Split "what the title page named" from "what the form will hold".
+ *
+ * These are not the same department, and conflating them is what put a
+ * permanent "Autofilled" chip on the superadmin's department Select: the form
+ * is seeded with a department, so a fallback to its current value is never
+ * blank, and crediting that fallback claimed a value the extractor had never
+ * produced (2026-09-09).
+ *
+ * - `extractedDepartment` is what the page actually named, and the only value
+ *   `autofilledKeys` may be given. Blank for everyone but a superadmin, whose
+ *   department is the only one not pinned by the server.
+ * - `department` is what the form ends up holding, and what the program code is
+ *   resolved inside, so it always falls back to a real college.
+ */
+export function extractionDepartment({
+  isSuperadmin = false, extracted = '', current = '', enforced = '',
+} = {}) {
+  const extractedDepartment = isSuperadmin ? displayValue(extracted) : ''
+  return {
+    extractedDepartment,
+    department: extractedDepartment || (isSuperadmin ? current : enforced),
+  }
+}
 
 /**
- * The subset of AUTOFILLABLE_KEYS that `extracted` actually supplied a value
- * for. Drives the "Autofilled" provenance chips, so a field the extractor left
+ * Which metadata keys the title-page extractor is allowed to claim it filled.
+ *
+ * `program_id` rather than the `program_code` the API returns: the caller
+ * resolves the code against the department it selected before it can fill
+ * anything, so the id is what the form ends up holding, and a code that
+ * resolved to nothing must not be credited to the extractor.
+ */
+export const AUTOFILLABLE_KEYS = Object.freeze([
+  'title', 'authors', 'year', 'department', 'program_id',
+])
+
+/**
+ * The subset of AUTOFILLABLE_KEYS that `patch` actually supplied a value for.
+ * Drives the "Autofilled" provenance chips, so a field the extractor left
  * alone is never credited to it.
  */
-export function autofilledKeys(extracted = {}) {
-  return AUTOFILLABLE_KEYS.filter((key) => displayValue(extracted?.[key]) !== '')
+export function autofilledKeys(patch = {}) {
+  return AUTOFILLABLE_KEYS.filter((key) => displayValue(patch?.[key]) !== '')
 }

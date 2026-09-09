@@ -3,6 +3,68 @@ export function archiveYears(papers = []) {
     .sort((left, right) => right - left)
 }
 
+export const SORT_OPTIONS = Object.freeze([
+  { value: 'newest', label: 'Sort: Newest first' },
+  { value: 'oldest', label: 'Sort: Oldest first' },
+  { value: 'relevance', label: 'Sort: Most relevant' },
+  { value: 'title_asc', label: 'Sort: Title (A–Z)' },
+  { value: 'title_desc', label: 'Sort: Title (Z–A)' },
+  { value: 'year_desc', label: 'Sort: Year (Newest)' },
+  { value: 'year_asc', label: 'Sort: Year (Oldest)' },
+])
+
+function relevanceScore(paper, query) {
+  if (!query || !paper) return 0
+  const q = query.toLowerCase()
+  const title = String(paper.title || '').toLowerCase()
+  const authors = String(paper.authors || '').toLowerCase()
+  const abstract = String(paper.abstract || '').toLowerCase()
+  let score = 0
+  if (title.startsWith(q)) score += 50
+  else if (title.includes(q)) score += 30
+  if (authors.includes(q)) score += 15
+  if (abstract.includes(q)) score += 5
+  return score
+}
+
+function compareByNewest(left, right) {
+  const timeDiff = new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime()
+  if (timeDiff !== 0) return timeDiff
+  const yDiff = (Number(right.year) || 0) - (Number(left.year) || 0)
+  if (yDiff !== 0) return yDiff
+  return String(left.title || '').localeCompare(String(right.title || ''))
+}
+
+function compareByOldest(left, right) {
+  const timeDiff = new Date(left.created_at || 0).getTime() - new Date(right.created_at || 0).getTime()
+  if (timeDiff !== 0) return timeDiff
+  return (Number(left.year) || 0) - (Number(right.year) || 0)
+}
+
+const COMPARATORS = {
+  title_asc: (a, b) => String(a.title || '').localeCompare(String(b.title || '')),
+  title_desc: (a, b) => String(b.title || '').localeCompare(String(a.title || '')),
+  year_desc: (a, b) => (Number(b.year) || 0) - (Number(a.year) || 0),
+  year_asc: (a, b) => (Number(a.year) || 0) - (Number(b.year) || 0),
+  oldest: compareByOldest,
+  newest: compareByNewest,
+}
+
+export function sortArchivePapers(papers = [], sortBy = 'newest', query = '') {
+  if (!Array.isArray(papers) || papers.length === 0) return []
+  const copy = papers.filter(Boolean)
+
+  if (sortBy === 'relevance' && query) {
+    return copy.sort((left, right) => {
+      const diff = relevanceScore(right, query) - relevanceScore(left, query)
+      return diff !== 0 ? diff : compareByNewest(left, right)
+    })
+  }
+
+  const comparator = COMPARATORS[sortBy] || compareByNewest
+  return copy.sort(comparator)
+}
+
 export function filterArchivePapers(papers = [], filters = {}) {
   const query = (filters.query || '').trim().toLowerCase()
   return papers.filter(Boolean).filter((paper) => {

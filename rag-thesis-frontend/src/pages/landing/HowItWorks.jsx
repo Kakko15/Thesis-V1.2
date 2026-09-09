@@ -249,12 +249,20 @@ function StackedPipeline() {
         return (
           <Reveal key={step.title} delay={i * 0.1}>
             <GlassCard hover className="relative h-full overflow-hidden p-6">
+              {/* The step number is a watermark, not content: the cards are
+                  already ordered and titled, and it is drawn at 8% alpha. As a
+                  DOM text node axe read it as text a user must be able to read
+                  and reported a serious color-contrast violation (1.16:1) on
+                  the landing page across all four theme/viewport shards. It
+                  cannot reach 3:1 without becoming a solid mid-grey numeral,
+                  which is a different card. So it is declared for what it is --
+                  decorative, per WCAG 1.4.3's exemption -- and drawn from CSS,
+                  which leaves the pixels identical and the text layer honest. */}
               <div
                 aria-hidden="true"
-                className="absolute right-5 top-5 font-display text-4xl font-extrabold opacity-[0.08]"
-              >
-                0{i + 1}
-              </div>
+                data-step={`0${i + 1}`}
+                className="pointer-events-none absolute right-5 top-5 font-display text-4xl font-extrabold opacity-[0.08] after:content-[attr(data-step)]"
+              />
               <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-3xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-lg shadow-forest-900/30">
                 <step.icon size={24} className="text-gold-300" />
               </div>

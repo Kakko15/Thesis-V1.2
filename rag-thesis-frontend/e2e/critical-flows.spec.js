@@ -515,14 +515,22 @@ test('administrator batch upload journey stages several manuscripts and polls th
     'GET /catalog/departments/legacy': [{
       id: 'dept-1', name: 'CCSICT', track_label: 'Program / specialization',
       tracks: ['Data Mining'],
-      programs: [{
-        id: 'program-bscs', code: 'BSCS', name: 'Bachelor of Science in Computer Science',
-        specializations: [{ id: 'specialization-dm', code: 'DM', name: 'Data Mining' }],
-      }],
+      programs: [
+        {
+          id: 'program-bscs', code: 'BSCS', name: 'Bachelor of Science in Computer Science',
+          specializations: [{ id: 'specialization-dm', code: 'DM', name: 'Data Mining' }],
+        },
+        {
+          id: 'program-bsis', code: 'BSIS', name: 'Bachelor of Science in Information Systems',
+          specializations: [],
+        },
+      ],
     }],
+    // Two manuscripts from two degrees, which is the shape a shelf of theses
+    // actually has and the reason the program is read per title page.
     'POST /upload/batch/extract-metadata': {
       files: [
-        { index: 0, filename: 'first.pdf', title: 'First Deterministic Thesis', authors: 'A. Researcher', year: '2026', department: 'CCSICT' },
+        { index: 0, filename: 'first.pdf', title: 'First Deterministic Thesis', authors: 'A. Researcher', year: '2026', department: 'CCSICT', program_code: 'BSCS', specialization_code: 'DM' },
         { index: 1, filename: 'second.pdf', title: 'Second Deterministic Thesis', authors: 'B. Researcher', year: '2025', department: 'CCSICT' },
       ],
     },
@@ -573,13 +581,37 @@ test('administrator batch upload journey stages several manuscripts and polls th
   // Fix one row by hand: the review table is editable per manuscript.
   await page.getByLabel('Authors for second.pdf').fill('B. Researcher, D. Researcher')
 
-  // Shared classification is required before the batch can be ingested.
+  // The first title page named its degree, so that row is already classified.
+  await expect(page.getByRole('combobox', { name: 'Program for first.pdf' })).toContainText('BSCS')
+  await expect(page.getByRole('combobox', { name: 'Specialization for first.pdf' })).toContainText('DM')
+  // The second page named none, so its row waits to be told rather than
+  // inheriting whatever the manuscript beside it happens to be.
+  await expect(page.getByRole('combobox', { name: 'Program for second.pdf' })).toContainText('Select program')
+
+  // The unclassified row blocks only itself, and says so beside that row rather
+  // than above the whole table.
   await page.getByRole('button', { name: /Ingest 2 manuscripts/ }).click()
   await expect(page.getByText('Select the academic program')).toBeVisible()
-  await page.getByRole('combobox', { name: 'Select academic program' }).click()
+  await expect(page.getByRole('combobox', { name: 'Program for first.pdf' })).toContainText('BSCS')
+
+  // The bulk control is how a shelf that really does share one degree is set.
+  await page.getByRole('combobox', { name: 'Select a program for every manuscript' }).click()
+  await page.getByRole('option', { name: /BSIS/ }).click()
+  await page.getByRole('button', { name: 'Apply to all rows' }).click()
+  await expect(page.getByRole('combobox', { name: 'Program for first.pdf' })).toContainText('BSIS')
+  await expect(page.getByRole('combobox', { name: 'Program for second.pdf' })).toContainText('BSIS')
+  // BSIS takes no specialization, so neither row asks for one any more.
+  await expect(page.getByRole('combobox', { name: 'Specialization for first.pdf' })).toHaveCount(0)
+
+  // Put the first manuscript back under the degree its title page named, so the
+  // batch that is submitted really does carry two programs at once.
+  await page.getByRole('combobox', { name: 'Program for first.pdf' }).click()
   await page.getByRole('option', { name: /BSCS/ }).click()
-  await page.getByRole('combobox', { name: 'Select academic specialization' }).click()
-  await page.getByRole('option', { name: /Data Mining/ }).click()
+  await page.getByRole('combobox', { name: 'Specialization for first.pdf' }).click()
+  // The row cells list codes, not the prose names: five degrees down a twenty
+  // row table, the code is the part that differs.
+  await page.getByRole('option', { name: 'DM', exact: true }).click()
+
   await page.getByRole('button', { name: /Ingest 2 manuscripts/ }).click()
 
   await expect(page.getByRole('region', { name: 'Batch summary' })).toBeVisible({ timeout: 5_000 })
@@ -594,8 +626,11 @@ test('administrator batch upload journey stages several manuscripts and polls th
   expect(submittedRows[0].idempotency_key).toMatch(/^[0-9a-f-]{36}$/)
   expect(submittedRows[1].idempotency_key).toMatch(/^[0-9a-f-]{36}$/)
   expect(submittedRows[0].idempotency_key).not.toBe(submittedRows[1].idempotency_key)
-  expect(submittedBody).toContain('name="program_id"')
-  expect(submittedBody).toContain('program-bscs')
+  // The classification travels per row now, not as one field for the request.
+  expect(submittedRows[0].program_id).toBe('program-bscs')
+  expect(submittedRows[0].specialization_id).toBe('specialization-dm')
+  expect(submittedRows[1].program_id).toBe('program-bsis')
+  expect(submittedBody).not.toContain('name="program_id"')
   expect(submittedBody).toContain('filename="first.pdf"')
   expect(submittedBody).toContain('filename="second.pdf"')
   expect(jobPolls).toBeGreaterThanOrEqual(2)

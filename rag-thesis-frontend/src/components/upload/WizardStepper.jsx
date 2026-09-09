@@ -13,22 +13,25 @@ function StepNode({ state, index, layoutGroup }) {
     <span
       className={cn(
         'relative flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-sm font-bold',
-        'transition-colors duration-300',
-        state === 'done' && 'bg-forest-600 text-white',
-        state === 'current' && 'text-forest-950',
-        // Was `glass opacity-50`, which halves the contrast of the numeral
-        // along with the chip. An explicit tonal surface keeps the text role
-        // at its audited ratio — see the note on --color-ink-* in index.css.
+        'transition-all duration-300',
+        state === 'done' && 'bg-forest-600 text-white shadow-md shadow-forest-900/25 ring-2 ring-forest-500/20',
+        state === 'current' && 'text-forest-950 font-black',
         state === 'upcoming' && 'border border-[var(--border)] bg-[var(--surface-2)] text-ink-faint',
       )}
     >
       {state === 'current' && (
-        <motion.span
-          layoutId={`${layoutGroup}-active`}
-          transition={indicatorSpring}
-          aria-hidden="true"
-          className="absolute inset-0 rounded-2xl bg-gradient-to-br from-gold-300 to-gold-400 shadow-lg shadow-gold-400/30"
-        />
+        <>
+          <motion.span
+            layoutId={`${layoutGroup}-active`}
+            transition={indicatorSpring}
+            aria-hidden="true"
+            className="absolute inset-0 rounded-2xl bg-gradient-to-br from-gold-300 via-gold-400 to-gold-500 shadow-lg shadow-gold-400/35 ring-2 ring-gold-400/40"
+          />
+          <span
+            aria-hidden="true"
+            className="absolute -inset-1 rounded-2xl bg-gold-400/20 blur-xs animate-pulse-glow pointer-events-none"
+          />
+        </>
       )}
       <span className="relative">
         {state === 'done' ? <Check size={16} strokeWidth={3} aria-hidden="true" /> : index + 1}
@@ -45,11 +48,14 @@ function Connector({ filled, vertical }) {
         'overflow-hidden rounded-full bg-[var(--border)]',
         vertical
           ? 'absolute bottom-0 left-[1.125rem] top-9 w-0.5 -translate-x-1/2'
-          : 'mx-2 mt-[1.0625rem] h-0.5 w-10 shrink-0 sm:mx-3 sm:w-16',
+          : 'mx-1.5 mt-[1.0625rem] h-0.5 w-6 sm:mx-3 sm:w-16 shrink-1 sm:shrink-0',
       )}
     >
       <motion.span
-        className={cn('block h-full w-full rounded-full bg-forest-600', vertical ? 'origin-top' : 'origin-left')}
+        className={cn(
+          'block h-full w-full rounded-full bg-gradient-to-b from-forest-600 to-forest-500',
+          vertical ? 'origin-top' : 'origin-left',
+        )}
         initial={false}
         animate={vertical ? { scaleY: filled ? 1 : 0 } : { scaleX: filled ? 1 : 0 }}
         transition={fillTransition}
@@ -94,15 +100,15 @@ export function WizardStepper({ steps, current, orientation = 'horizontal', onSe
               'group relative flex outline-none',
               vertical
                 ? 'w-full items-start gap-3 rounded-2xl px-2 py-1.5 text-left'
-                : 'flex-col items-center gap-1.5',
-              interactive && 'cursor-pointer transition-colors duration-200 hover:bg-[var(--accent)]',
+                : 'flex-col items-center gap-1.5 text-center',
+              interactive && 'cursor-pointer transition-all duration-200 hover:bg-[var(--accent)] active:scale-95 touch-manipulation',
             )}
           >
             <StepNode state={state} index={index} layoutGroup={layoutGroup} />
-            <span className={cn('min-w-0', vertical && 'pt-1.5')}>
+            <span className={cn('min-w-0', vertical ? 'pt-1.5' : 'text-center')}>
               <span
                 className={cn(
-                  'block text-xs font-semibold uppercase tracking-wider transition-colors duration-300',
+                  'block text-xs font-semibold uppercase tracking-wider transition-colors duration-300 text-center',
                   state === 'upcoming' ? 'text-ink-faint' : 'text-ink',
                 )}
               >

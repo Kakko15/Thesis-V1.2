@@ -289,15 +289,18 @@ export async function extractMetadataBatch(files) {
   })
   return data // { files: [{ index, filename, title, authors, year, department, error, status_code }] }
 }
+/**
+ * `rows` carries each manuscript's own title, authors, year, idempotency key
+ * and academic program; only the department and the category are request-level.
+ * The server still accepts a request-level `program_id` as the fallback for a
+ * row that names none, which this page no longer needs to send.
+ */
 export async function uploadBatch({ files, rows, defaults, onUploadProgress }) {
   const formData = new FormData()
   for (const file of files) formData.append('files', file)
   formData.append('rows', JSON.stringify(rows))
-  formData.append('track', defaults.track || '')
   formData.append('department', defaults.department || 'CCSICT')
   formData.append('thesis_category', defaults.thesis_category || 'student')
-  if (defaults.program_id) formData.append('program_id', defaults.program_id)
-  if (defaults.specialization_id) formData.append('specialization_id', defaults.specialization_id)
   const { data } = await api.post('/upload/batch', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     // The instance default of three minutes is sized for one manuscript; a
@@ -322,6 +325,14 @@ export async function scanDuplication(file, department = null) {
 }
 export async function getScanHistory() {
   const { data } = await api.get('/duplication/history')
+  return data
+}
+export async function deleteScanHistory(scanId) {
+  const { data } = await api.delete(`/duplication/history/${scanId}`)
+  return data
+}
+export async function clearScanHistory() {
+  const { data } = await api.delete('/duplication/history')
   return data
 }
 export async function scanDuplicationChat(scanId, question) {

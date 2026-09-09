@@ -48,6 +48,16 @@
             "title": "Index",
             "type": "integer"
           },
+          "program_code": {
+            "default": "",
+            "title": "Program Code",
+            "type": "string"
+          },
+          "specialization_code": {
+            "default": "",
+            "title": "Specialization Code",
+            "type": "string"
+          },
           "status_code": {
             "anyOf": [
               {
@@ -2366,6 +2376,28 @@
       }
     },
     "/duplication/history": {
+      "delete": {
+        "operationId": "clear_scan_history_duplication_history_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Clear Scan History",
+        "tags": [
+          "duplication"
+        ]
+      },
       "get": {
         "operationId": "get_history_duplication_history_get",
         "responses": {
@@ -2384,6 +2416,54 @@
           }
         ],
         "summary": "Get History",
+        "tags": [
+          "duplication"
+        ]
+      }
+    },
+    "/duplication/history/{scan_id}": {
+      "delete": {
+        "operationId": "delete_scan_duplication_history__scan_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "scan_id",
+            "required": true,
+            "schema": {
+              "title": "Scan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "The resource does not exist, or is not visible to this account."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Scan",
         "tags": [
           "duplication"
         ]
@@ -3314,7 +3394,7 @@
     },
     "/upload/batch": {
       "post": {
-        "description": "Stage and queue several manuscripts that share one classification.\n\n`rows` is a JSON list aligned with `files`: per-file title, authors, year,\nand the client-minted idempotency key. Envelope problems (too many files,\nmisaligned rows, a bad classification) are rejected before any file is\nread; per-file problems are reported in `results` and the request still\nreturns 202 so the accepted files are not lost.",
+        "description": "Stage and queue several manuscripts into one department.\n\n`rows` is a JSON list aligned with `files`: per-file title, authors, year,\nthe client-minted idempotency key, and optionally that manuscript's own\n`program_id` / `specialization_id`. The department and the thesis category\nstay request-level -- the department because the server pins it anyway --\nwhile the program is per row, because a batch is a shelf of theses from\nwhichever degrees the college awards. A row that omits it falls back to the\n`program_id` form field, which is what a client predating this sends.\n\nEnvelope problems (too many files, misaligned rows, an unusable shared\nclassification) are rejected before any file is read; per-file problems,\nincluding a row's own bad program, are reported in `results` and the\nrequest still returns 202 so the accepted files are not lost.",
         "operationId": "upload_batch_upload_batch_post",
         "requestBody": {
           "content": {

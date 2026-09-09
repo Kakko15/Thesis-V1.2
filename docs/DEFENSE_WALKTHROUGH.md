@@ -33,7 +33,9 @@ an OpenAI-compatible gateway without changing the model.
 Three things make it defensible, and they are the three you should repeat:
 **closed-domain** (it cannot answer from general knowledge), **citation-backed**
 (every claim traces to a retrieved passage), and **advisory** (it never
-auto-accepts or auto-rejects anything a human should decide).
+auto-accepts or auto-rejects anything a human should decide; the only thing it
+turns away on its own is a verbatim re-upload of a thesis already in the
+archive, which is a housekeeping fact rather than an academic judgement).
 
 ---
 
@@ -154,7 +156,14 @@ coverage** (what proportion of the draft has a close neighbour in the archive).
 Tiers are `clear`, `review_suggested` below 50%, `high_overlap` at or above 50%.
 
 **Then say the important part:** the verdict is **advisory**. The system never
-auto-rejects a topic. A human adviser decides.
+auto-rejects a topic. A human adviser decides. The ingest-time screen also
+names the **most similar archived thesis** so the adviser knows what to open.
+The one automatic refusal is an **exact duplicate**: every chunk of the upload
+already in the archive at 99.9% cosine or above, which means the same
+manuscript was indexed before. That job fails with the matched title instead
+of creating a second paper row. Two different theses about the same library
+(measured 94.94% highest passage, 26 of 27 chunks) are flagged, indexed, and
+left to faculty.
 
 ### 3.6 Upload / ingestion (admin)
 

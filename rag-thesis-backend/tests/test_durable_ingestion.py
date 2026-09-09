@@ -175,6 +175,39 @@ class TestPipeline:
         assert payload['p_paper']['redaction_stats'] == {'email': 1}
         assert len(payload['p_chunks'][0]['embedding']) == 768
 
+    def test_exact_duplicate_is_refused_before_commit_and_names_the_thesis(self, monkeypatch):
+        """A verbatim re-upload must not become a second paper row (2026-09-08)."""
+        content = pdf_bytes()
+        client = PipelineClient(content)
+        patch_pipeline(monkeypatch)
+        monkeypatch.setattr(ingestion, 'screen_new_submission', lambda *_args: {
+            'flagged': True, 'exact_duplicate': True, 'highest_similarity': 100.0,
+            'matched_chunk_count': 1, 'total_chunks': 1, 'verdict_level': 'exact_duplicate',
+            'matched_papers': [{'id': 'p1', 'title': 'Archived thesis', 'year': 2025}],
+            'most_similar_paper': {'id': 'p1', 'title': 'Archived thesis', 'year': 2025},
+        })
+        with pytest.raises(ingestion.DuplicateManuscriptIngestionError) as excinfo:
+            ingestion.process_ingestion_job(client, claimed_job(content), 'worker-1', lambda **_kw: True)
+        assert isinstance(excinfo.value, ingestion.PermanentIngestionError)
+        assert '"Archived thesis" (2025)' in excinfo.value.public_error
+        assert 'not indexed' in excinfo.value.public_error
+        assert not any(name == 'commit_upload_ingestion' for name, _ in client.rpc_calls)
+
+    def test_high_overlap_short_of_verbatim_is_still_committed(self, monkeypatch):
+        """26 of 27 chunks at 0.9494 is two theses on one topic, not a copy."""
+        content = pdf_bytes()
+        client = PipelineClient(content)
+        patch_pipeline(monkeypatch)
+        monkeypatch.setattr(ingestion, 'screen_new_submission', lambda *_args: {
+            'flagged': True, 'exact_duplicate': False, 'verdict_level': 'high_overlap',
+            'most_similar_paper': {'id': 'p1', 'title': 'Archived thesis'},
+        })
+        assert ingestion.process_ingestion_job(
+            client, claimed_job(content), 'worker-1', lambda **_kw: True) == JOB_ID
+        name, payload = client.rpc_calls[-1]
+        assert name == 'commit_upload_ingestion'
+        assert payload['p_paper']['duplication_scan']['most_similar_paper']['id'] == 'p1'
+
     def test_unreadable_scanned_pages_fail_before_commit(self, monkeypatch):
         """A corpus short its scanned pages must not look like a clean ingest."""
         content = pdf_bytes()
@@ -299,6 +332,26 @@ class TestRetryPolicy:
         failed_payload = next(payload for name, payload in client.calls if name == 'fail_upload_job')
         assert 'secret provider response' not in failed_payload['p_public_error']
         assert failed_payload['p_failure_category'] == 'RuntimeError'
+
+    def test_duplicate_rejection_publishes_the_matched_thesis(self):
+        """The one permanent failure whose message the uploader is meant to read."""
+        client = RpcClient({'fail_upload_job': True})
+        error = ingestion.DuplicateManuscriptIngestionError(
+            'This manuscript was not indexed because it is an exact duplicate of "Archived thesis" (2025).'
+        )
+        assert upload_queue.is_retryable_ingestion_error(error) is False
+        assert upload_queue.fail_job(client, JOB_ID, 'worker-1', error)
+        _, payload = next(call for call in client.calls if call[0] == 'fail_upload_job')
+        assert payload['p_public_error'] == error.public_error
+        assert payload['p_failure_category'] == 'DuplicateManuscriptIngestionError'
+
+    def test_other_permanent_failures_keep_the_fixed_public_line(self):
+        client = RpcClient({'fail_upload_job': True})
+        assert upload_queue.fail_job(
+            client, JOB_ID, 'worker-1', ingestion.PermanentIngestionError('provider said: quota 429 key=abc'),
+        )
+        _, payload = next(call for call in client.calls if call[0] == 'fail_upload_job')
+        assert payload['p_public_error'] == 'The manuscript could not be processed safely.'
 
     def test_heartbeat_marks_lease_invalid_after_authoritative_rejection(self, monkeypatch):
         monkeypatch.setattr(
@@ -723,6 +776,13 @@ class TestBatchUploadApi:
         _rows(('Only One Row Provided', '', '', KEY_A)),
         _rows(('Same Key Twice', '', '', KEY_A), ('Same Key Twice Again', '', '', KEY_A)),
         _rows(('Not A UUID Key', '', '', 'key-1'), ('Fine Key', '', '', KEY_B)),
+        # A major with no degree under it: falling back to the request-level
+        # program would file the manuscript under one that does not offer it.
+        json.dumps([
+            {'title': 'A Major With No Degree', 'idempotency_key': KEY_A,
+             'specialization_id': 'specialization-dm'},
+            {'title': 'A Perfectly Normal Row', 'idempotency_key': KEY_B},
+        ]),
     ])
     def test_envelope_problems_reject_the_whole_batch_before_any_read(self, monkeypatch, rows):
         client = BatchClient()
@@ -751,6 +811,12 @@ class TestBatchUploadApi:
         assert client.bucket.uploaded == []
 
     def test_classification_failure_rejects_the_whole_batch(self, monkeypatch):
+        """Rows may classify themselves, but the fallback is still envelope data.
+
+        Every row here leans on the request-level classification, so an
+        unusable one is known before a single manuscript is read and stays a
+        whole-batch 422 rather than twenty identical per-file rejections.
+        """
         client = BatchClient()
         monkeypatch.setattr(upload, 'sb', client)
 
@@ -764,6 +830,145 @@ class TestBatchUploadApi:
             )
         assert caught.value.status_code == 422
         assert client.reserves == [] and client.bucket.uploaded == []
+
+    def test_each_row_carries_its_own_program(self, monkeypatch):
+        """A batch is a shelf of theses, so its rows classify independently."""
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        seen = []
+
+        def resolve(*_args, **kwargs):
+            seen.append((kwargs['program_id'], kwargs['specialization_id']))
+            return SimpleNamespace(as_payload=lambda: {
+                'department_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                'program_id': kwargs['program_id'],
+                'specialization_id': kwargs['specialization_id'],
+                'track': '', 'legacy_track': None, 'classification_status': 'classified',
+            })
+        monkeypatch.setattr(upload, 'resolve_academic_selection', resolve)
+        response = self.call(
+            [upload_file(), upload_file()],
+            json.dumps([
+                {'title': 'A Computer Science Thesis', 'authors': '', 'year': '',
+                 'idempotency_key': KEY_A, 'program_id': 'program-bscs',
+                 'specialization_id': 'specialization-dm'},
+                {'title': 'An Information Systems Thesis', 'authors': '', 'year': '',
+                 'idempotency_key': KEY_B, 'program_id': 'program-bsis'},
+            ]),
+        )
+        assert (response.accepted, response.rejected) == (2, 0)
+        assert [reserve['p_request_payload']['program_id'] for reserve in client.reserves] == [
+            'program-bscs', 'program-bsis',
+        ]
+        assert client.reserves[0]['p_request_payload']['specialization_id'] == 'specialization-dm'
+        assert client.reserves[1]['p_request_payload']['specialization_id'] is None
+        # No row fell back, so the request-level classification is never resolved.
+        assert seen == [('program-bscs', 'specialization-dm'), ('program-bsis', None)]
+
+    def test_a_row_without_a_program_falls_back_to_the_request_level_one(self, monkeypatch):
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        seen = []
+
+        def resolve(*_args, **kwargs):
+            seen.append(kwargs['program_id'])
+            return SimpleNamespace(as_payload=lambda: {
+                'department_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                'program_id': kwargs['program_id'], 'specialization_id': None,
+                'track': '', 'legacy_track': None, 'classification_status': 'classified',
+            })
+        monkeypatch.setattr(upload, 'resolve_academic_selection', resolve)
+        response = self.call(
+            [upload_file(), upload_file()],
+            json.dumps([
+                {'title': 'A Row With Its Own Program', 'idempotency_key': KEY_A,
+                 'program_id': 'program-bsis'},
+                # '' rather than an absent key: this is what a form field sends.
+                {'title': 'A Row Using The Default', 'idempotency_key': KEY_B, 'program_id': ''},
+            ]),
+            program_id='program-bscs',
+        )
+        assert response.accepted == 2
+        assert [reserve['p_request_payload']['program_id'] for reserve in client.reserves] == [
+            'program-bsis', 'program-bscs',
+        ]
+        # The default is resolved first, before any file is read.
+        assert seen == ['program-bscs', 'program-bsis']
+
+    def test_one_rows_bad_program_never_rejects_its_neighbours(self, monkeypatch):
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+
+        def resolve(*_args, **kwargs):
+            if kwargs['program_id'] == 'program-archived':
+                raise HTTPException(422, 'Program does not belong to the selected department or is archived.')
+            return SimpleNamespace(as_payload=lambda: {
+                'department_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                'program_id': kwargs['program_id'], 'specialization_id': None,
+                'track': '', 'legacy_track': None, 'classification_status': 'classified',
+            })
+        monkeypatch.setattr(upload, 'resolve_academic_selection', resolve)
+        response = self.call(
+            [upload_file(), upload_file()],
+            json.dumps([
+                {'title': 'A Row Naming An Archived Program', 'idempotency_key': KEY_A,
+                 'program_id': 'program-archived'},
+                {'title': 'A Perfectly Good Manuscript', 'idempotency_key': KEY_B,
+                 'program_id': 'program-bsis'},
+            ]),
+        )
+        assert (response.accepted, response.rejected) == (1, 1)
+        assert response.results[0].status_code == 422
+        assert 'archived' in response.results[0].error
+        assert response.results[1].job_id
+        # The rejected row is refused before its manuscript is staged.
+        assert len(client.bucket.uploaded) == 1
+
+    def test_one_catalog_read_per_distinct_program_not_per_file(self, monkeypatch):
+        """Twenty files of two degrees cost two resolutions, not twenty."""
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        calls = []
+
+        def resolve(*_args, **kwargs):
+            calls.append(kwargs['program_id'])
+            return SimpleNamespace(as_payload=lambda: {
+                'department_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                'program_id': kwargs['program_id'], 'specialization_id': None,
+                'track': '', 'legacy_track': None, 'classification_status': 'classified',
+            })
+        monkeypatch.setattr(upload, 'resolve_academic_selection', resolve)
+        keys = [f'6{index}666666-6666-4666-8666-666666666666' for index in range(4)]
+        response = self.call(
+            [upload_file() for _ in keys],
+            json.dumps([
+                {'title': f'Manuscript Number {index}', 'idempotency_key': key,
+                 'program_id': 'program-bscs' if index % 2 else 'program-bsis'}
+                for index, key in enumerate(keys)
+            ]),
+        )
+        assert response.accepted == 4
+        assert calls == ['program-bsis', 'program-bscs']
+
+    def test_a_rejected_program_is_only_looked_up_once(self, monkeypatch):
+        client = BatchClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        calls = []
+
+        def resolve(*_args, **kwargs):
+            calls.append(kwargs['program_id'])
+            raise HTTPException(422, 'Unknown or archived department.')
+        monkeypatch.setattr(upload, 'resolve_academic_selection', resolve)
+        response = self.call(
+            [upload_file(), upload_file()],
+            json.dumps([
+                {'title': 'First Rejected Manuscript', 'idempotency_key': KEY_A, 'program_id': 'program-gone'},
+                {'title': 'Second Rejected Manuscript', 'idempotency_key': KEY_B, 'program_id': 'program-gone'},
+            ]),
+        )
+        assert response.accepted == 0
+        assert [result.status_code for result in response.results] == [422, 422]
+        assert calls == ['program-gone']
 
     def test_reused_key_with_different_content_is_a_per_file_conflict(self, monkeypatch):
         client = BatchClient(reserve_errors={

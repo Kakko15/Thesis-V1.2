@@ -1,7 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  archiveYears, filterArchivePapers, resolveArchivePrograms, resolveArchiveTracks,
+  SORT_OPTIONS,
+  archiveYears,
+  filterArchivePapers,
+  resolveArchivePrograms,
+  resolveArchiveTracks,
+  sortArchivePapers,
 } from './archiveFilters.js'
 
 const papers = [
@@ -103,4 +108,32 @@ test('normalized catalog options remain department-owned', () => {
   assert.deepEqual(resolveArchivePrograms({ departments, selectedDepartment: 'Unknown' }), {
     programs: [], specializations: [],
   })
+})
+
+test('sortArchivePapers orders papers deterministically by multiple criteria', () => {
+  const dataset = [
+    { id: '1', title: 'Banana AI', year: 2024, created_at: '2024-01-01T00:00:00Z', authors: 'Alice', abstract: 'Deep learning' },
+    { id: '2', title: 'Apple ML', year: 2026, created_at: '2026-05-01T00:00:00Z', authors: 'Bob', abstract: 'Neural networks' },
+    { id: '3', title: 'Cherry Data', year: 2025, created_at: '2025-03-01T00:00:00Z', authors: 'Charlie Apple', abstract: 'Vision' },
+  ]
+
+  // Title A-Z and Z-A
+  assert.deepEqual(sortArchivePapers(dataset, 'title_asc').map((p) => p.id), ['2', '1', '3'])
+  assert.deepEqual(sortArchivePapers(dataset, 'title_desc').map((p) => p.id), ['3', '1', '2'])
+
+  // Year descending and ascending
+  assert.deepEqual(sortArchivePapers(dataset, 'year_desc').map((p) => p.id), ['2', '3', '1'])
+  assert.deepEqual(sortArchivePapers(dataset, 'year_asc').map((p) => p.id), ['1', '3', '2'])
+
+  // Newest and Oldest by created_at
+  assert.deepEqual(sortArchivePapers(dataset, 'newest').map((p) => p.id), ['2', '3', '1'])
+  assert.deepEqual(sortArchivePapers(dataset, 'oldest').map((p) => p.id), ['1', '3', '2'])
+
+  // Relevance: 'Apple' in title ('Apple ML') beats author 'Charlie Apple'
+  assert.deepEqual(sortArchivePapers(dataset, 'relevance', 'Apple').map((p) => p.id), ['2', '3', '1'])
+
+  // Edge cases: null, empty
+  assert.deepEqual(sortArchivePapers([], 'newest'), [])
+  assert.deepEqual(sortArchivePapers(null, 'newest'), [])
+  assert.ok(SORT_OPTIONS.length >= 5)
 })

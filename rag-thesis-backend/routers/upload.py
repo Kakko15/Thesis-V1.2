@@ -46,7 +46,7 @@ from models import (
     UploadJobList,
     UploadJobStatus,
 )
-from routers.catalog import active_track_names
+from routers.catalog import active_programs, active_track_names
 from routers.openapi_responses import errors
 from services.cleanup import record_storage_cleanup
 from services.catalog import normalize_thesis_category, resolve_academic_selection
@@ -239,6 +239,145 @@ def _match_department(text: str, departments) -> str:
         if score > best_score:
             best_name, best_score = name, score
     return best_name
+
+
+# Programs are matched the way departments are, and for the same reason: the
+# 2026-09-08 report (see _match_department) showed that asking only "does this
+# code appear anywhere" sends every upload to whichever short row the catalog
+# returned first. Both matchers therefore score by the length of the longest
+# spelling that actually matched.
+#
+# A code shorter than this is not evidence on its own. `\b` already stops 'CA'
+# from matching inside 'card', but a page that prints a two-letter word for any
+# other reason would still outrank nothing at all, and a wrong program is worse
+# than a blank one the uploader has to fill.
+_MIN_CODE_MATCH_LENGTH = 3
+
+
+def _haystack(text: str) -> str:
+    """Title-page text as one casefolded line, so a wrapped name still matches."""
+    return _WHITESPACE.sub(' ', text or '').casefold()
+
+
+def _phrase_score(haystack: str, phrase: str) -> int:
+    """Length of `phrase` when the page spells it out, else 0."""
+    needle = _WHITESPACE.sub(' ', phrase or '').strip().casefold()
+    return len(needle) if needle and needle in haystack else 0
+
+
+def _code_score(haystack: str, code: str) -> int:
+    """Length of `code` when the page prints it as a whole word, else 0."""
+    normalized = (code or '').strip().casefold()
+    if len(normalized) < _MIN_CODE_MATCH_LENGTH:
+        return 0
+    return len(normalized) if re.search(rf'\b{re.escape(normalized)}\b', haystack) else 0
+
+
+def _entry_score(haystack: str, entry: Mapping[str, str]) -> int:
+    """How strongly the page names one catalog entry, by its longest spelling."""
+    return max(
+        _phrase_score(haystack, str(entry.get('name') or '')),
+        _code_score(haystack, str(entry.get('code') or '')),
+    )
+
+
+def _best_specialization(
+    haystack: str, program: Mapping[str, Any],
+) -> tuple[Mapping[str, str] | None, int]:
+    """The specialization of `program` the page names most specifically."""
+    best: Mapping[str, str] | None = None
+    best_score = 0
+    for specialization in (program.get('specializations') or []):
+        score = _entry_score(haystack, specialization)
+        if score > best_score:
+            best, best_score = specialization, score
+    return best, best_score
+
+
+def _match_program(
+    text: str, programs: Sequence[Mapping[str, Any]],
+) -> tuple[Mapping[str, Any] | None, Mapping[str, str] | None]:
+    """Resolve a title page to one academic program and its specialization.
+
+    A thesis title page states the degree it was submitted for -- 'Bachelor of
+    Science in Information Technology', usually with 'major in Web and Mobile
+    Application Development' under it -- which is exactly the pair the upload
+    form needs and the only classification field a reader cannot infer from the
+    title.
+
+    A specialization may nominate its own program: a page that prints only
+    'major in Data Mining' has still identified BSCS, because a specialization
+    belongs to exactly one program. It is never returned beside a different
+    program than the one that owns it, so BSIT can never come back carrying
+    Data Mining.
+
+    Returns `(None, None)` when nothing is named clearly enough. Blank is the
+    right answer for an unrecognised page: the uploader is shown an empty
+    required field rather than a plausible wrong program they have to notice.
+    """
+    haystack = _haystack(text)
+    if not haystack:
+        return None, None
+    best_program: Mapping[str, Any] | None = None
+    best_specialization: Mapping[str, str] | None = None
+    best_score = 0
+    for program in programs or []:
+        specialization, specialization_score = _best_specialization(haystack, program)
+        # The degree line and the major line are separate evidence, so the
+        # stronger of the two decides between two programs whose names share a
+        # prefix ('... in Information Technology' / '... in Information Systems').
+        score = max(_entry_score(haystack, program), specialization_score)
+        if score > best_score:
+            best_program, best_specialization, best_score = program, specialization, score
+    return best_program, best_specialization
+
+
+def _programs_in_department(
+    programs: Sequence[Mapping[str, Any]], department: str,
+) -> Sequence[Mapping[str, Any]]:
+    """The programs of one college, or every program when it is unknown.
+
+    `active_programs` carries each program's owning department precisely so the
+    match can be held inside one college, and scoring across the whole
+    university let a longer unrelated code win: a page naming BSIT scores 4 on
+    its code, which any 6-letter code printed anywhere on the same page beats.
+    ISU awards degrees in more than twenty programs, so the wrong-college
+    candidates outnumber the right-college ones by an order of magnitude.
+
+    Falling back to the full list when the department is unknown keeps the
+    previous behaviour for a page whose college the local pass could not read,
+    where narrowing to nothing would remove the autofill entirely.
+    """
+    wanted = (department or '').strip().casefold()
+    if not wanted:
+        return programs
+    scoped = [
+        program for program in programs or []
+        if str(program.get('department') or '').strip().casefold() == wanted
+    ]
+    return scoped or programs
+
+
+def _academic_codes(
+    text: str, programs: Sequence[Mapping[str, Any]], department: str = '',
+) -> dict[str, str]:
+    """The extractor's program fields for one manuscript.
+
+    Codes rather than ids on purpose: the client resolves them against the
+    department it has actually selected, so a program belonging to another
+    college is dropped there instead of being autofilled into a form that
+    cannot submit it. `department` is the college the local pass just read off
+    the same page, which keeps the match from ranging over the whole
+    university; the client-side drop is the second line of defence, not the
+    first, because it cannot catch a wrong program inside the right college.
+    """
+    program, specialization = _match_program(
+        text, _programs_in_department(programs, department),
+    )
+    return {
+        'program_code': str((program or {}).get('code') or ''),
+        'specialization_code': str((specialization or {}).get('code') or ''),
+    }
 
 
 def _canonical_department(value: str, departments) -> str:
@@ -483,11 +622,27 @@ def _title_page_texts(file_bytes: bytes) -> list[str]:
 
 
 @dataclass(frozen=True)
+class _UploadScope:
+    """Who uploads and into which department, for a whole request.
+
+    Resolved once even for a twenty-file batch, because neither the profile
+    read behind `resolve_effective_department` nor the category depends on the
+    individual manuscript.
+    """
+    user_id: str
+    department: str
+    category: str
+
+
+@dataclass(frozen=True)
 class _StagingContext:
-    """The batch-invariant half of a submission: who uploads, into which
-    department, and how the manuscript is classified. Resolved once per request
-    so a twenty-file batch performs the profile and catalog reads once, not
-    twenty times."""
+    """The scope plus one manuscript's academic classification.
+
+    The classification used to be batch-invariant too, and was resolved beside
+    the department. It is per manuscript now: a batch is a shelf of theses from
+    whichever programs the college awards, so one program per request meant
+    uploading the same shelf once per degree.
+    """
     user_id: str
     department: str
     category: str
@@ -501,30 +656,109 @@ def _parse_idempotency_key(value: str | None) -> str:
         raise HTTPException(400, 'Idempotency-Key must be a valid UUID') from error
 
 
-async def _resolve_staging_context(
+async def _resolve_upload_scope(
     user, *, department: str | None, thesis_category: str,
-    program_id: str | None, specialization_id: str | None, track: str,
-) -> _StagingContext:
-    department = await asyncio.to_thread(resolve_effective_department, user, department)
-    category = normalize_thesis_category(thesis_category)
+) -> _UploadScope:
+    return _UploadScope(
+        user_id=user.id,
+        department=await asyncio.to_thread(resolve_effective_department, user, department),
+        category=normalize_thesis_category(thesis_category),
+    )
+
+
+async def _resolve_classification(
+    scope: _UploadScope, *, program_id: str | None,
+    specialization_id: str | None, track: str,
+) -> dict:
     # The program requirement follows the manuscript, not the uploader:
     # a student thesis always belongs to an academic program, while faculty
     # research may sit outside the undergraduate catalog entirely.
     classification = await asyncio.to_thread(
         resolve_academic_selection,
         sb,
-        department_name=department,
+        department_name=scope.department,
         program_id=program_id,
         specialization_id=specialization_id,
         legacy_track=track,
-        require_program=category == 'student',
+        require_program=scope.category == 'student',
+    )
+    return classification.as_payload()
+
+
+async def _resolve_staging_context(
+    user, *, department: str | None, thesis_category: str,
+    program_id: str | None, specialization_id: str | None, track: str,
+) -> _StagingContext:
+    scope = await _resolve_upload_scope(
+        user, department=department, thesis_category=thesis_category,
+    )
+    payload = await _resolve_classification(
+        scope, program_id=program_id, specialization_id=specialization_id, track=track,
     )
     return _StagingContext(
-        user_id=user.id,
-        department=department,
-        category=category,
-        classification_payload=classification.as_payload(),
+        user_id=scope.user_id,
+        department=scope.department,
+        category=scope.category,
+        classification_payload=payload,
     )
+
+
+class _ClassificationCache:
+    """`resolve_academic_selection` memoised per distinct program pair.
+
+    Every row of a batch resolves its own program, but a shelf of twenty
+    manuscripts holds a handful of degrees at most. Caching by the pair keeps
+    the catalog reads proportional to the programs in the batch rather than to
+    its files, which is what the single shared resolution used to buy.
+
+    A pair that failed is cached as its own rejection, so ten rows naming the
+    same archived program cost one round trip, not ten.
+    """
+
+    def __init__(self, scope: _UploadScope, *, program_id: str | None,
+                 specialization_id: str | None, track: str):
+        self._scope = scope
+        self._default = (program_id or None, specialization_id or None)
+        self._track = track
+        self._payloads: dict[tuple[str | None, str | None], dict] = {}
+        self._failures: dict[tuple[str | None, str | None], HTTPException] = {}
+
+    async def context(
+        self, program_id: str | None = None, specialization_id: str | None = None,
+    ) -> _StagingContext:
+        """The staging context for one row, using its program or the default."""
+        key = (program_id, specialization_id) if program_id else self._default
+        if key in self._failures:
+            raise self._failures[key]
+        if key not in self._payloads:
+            try:
+                self._payloads[key] = await _resolve_classification(
+                    self._scope,
+                    program_id=key[0],
+                    specialization_id=key[1],
+                    # The legacy track translates the request-level default
+                    # only; a row that names its own program is already
+                    # classified and has no legacy spelling to translate.
+                    track=self._track if key == self._default else '',
+                )
+            except HTTPException as error:
+                self._failures[key] = error
+                raise
+        return _StagingContext(
+            user_id=self._scope.user_id,
+            department=self._scope.department,
+            category=self._scope.category,
+            classification_payload=self._payloads[key],
+        )
+
+    async def resolve_default(self) -> None:
+        """Resolve the request-level classification, raising if it is unusable.
+
+        Called before any file is read when at least one row falls back to it,
+        so a bad shared classification stays an envelope problem that rejects
+        the batch outright rather than twenty identical per-file failures.
+        """
+        await self.context()
 
 
 async def _stage_and_queue_one(
@@ -714,6 +948,13 @@ def _parse_batch_rows(raw: str, *, expected: int) -> list[BatchRow]:
         if key in seen:
             raise HTTPException(422, f'rows[{index}].idempotency_key repeats an earlier key')
         seen.add(key)
+        if row.specialization_id and not row.program_id:
+            # Falling back to the request-level program here would quietly file
+            # the manuscript under a degree whose specializations do not
+            # include the one the row asked for.
+            raise HTTPException(
+                422, f'rows[{index}].specialization_id needs that row to name its program_id',
+            )
     return rows
 
 
@@ -722,17 +963,20 @@ def _batch_filename(file: UploadFile, index: int) -> str:
 
 
 async def _stage_batch_file(
-    ctx: _StagingContext, index: int, file: UploadFile, row: BatchRow,
+    classifications: _ClassificationCache, index: int, file: UploadFile, row: BatchRow,
 ) -> BatchFileResult:
     """Stage one file of a batch, folding its outcome into a per-file result.
 
     A batch never fails as a whole because one manuscript was encrypted or
     oversized: the client renders each rejection beside its row and resubmits
-    only those files, under the same idempotency keys.
+    only those files, under the same idempotency keys. A row naming a program
+    that is archived, or that belongs to another college, is rejected the same
+    way -- its neighbours still queue.
     """
     base = {'index': index, 'filename': _batch_filename(file, index), 'idempotency_key': row.idempotency_key}
     try:
         _validate_metadata(row.title, row.authors, row.year, '')
+        ctx = await classifications.context(row.program_id, row.specialization_id)
         accepted = await _stage_and_queue_one(
             ctx, file, title=row.title, authors=row.authors, year=row.year,
             abstract='', idempotency_key=row.idempotency_key,
@@ -765,26 +1009,39 @@ async def upload_batch(
     specialization_id: Annotated[str | None, Form()] = None,
     thesis_category: Annotated[str, Form()] = 'student',
 ):
-    """Stage and queue several manuscripts that share one classification.
+    """Stage and queue several manuscripts into one department.
 
     `rows` is a JSON list aligned with `files`: per-file title, authors, year,
-    and the client-minted idempotency key. Envelope problems (too many files,
-    misaligned rows, a bad classification) are rejected before any file is
-    read; per-file problems are reported in `results` and the request still
-    returns 202 so the accepted files are not lost.
+    the client-minted idempotency key, and optionally that manuscript's own
+    `program_id` / `specialization_id`. The department and the thesis category
+    stay request-level -- the department because the server pins it anyway --
+    while the program is per row, because a batch is a shelf of theses from
+    whichever degrees the college awards. A row that omits it falls back to the
+    `program_id` form field, which is what a client predating this sends.
+
+    Envelope problems (too many files, misaligned rows, an unusable shared
+    classification) are rejected before any file is read; per-file problems,
+    including a row's own bad program, are reported in `results` and the
+    request still returns 202 so the accepted files are not lost.
     """
     _check_batch_size(files)
     parsed = _parse_batch_rows(rows, expected=len(files))
-    ctx = await _resolve_staging_context(
+    scope = await _resolve_upload_scope(
         user, department=department, thesis_category=thesis_category,
-        program_id=program_id, specialization_id=specialization_id, track=track,
     )
+    classifications = _ClassificationCache(
+        scope, program_id=program_id, specialization_id=specialization_id, track=track,
+    )
+    if any(not row.program_id for row in parsed):
+        # At least one row leans on the request-level classification, so it is
+        # still envelope data and still rejects the batch before any read.
+        await classifications.resolve_default()
     results: list[BatchFileResult] = []
     # Sequential on purpose: each file is read fully before validation, so
     # staging them concurrently would hold every manuscript of the batch in
     # memory at once, up to max_batch_files x max_upload_mb.
     for index, (file, row) in enumerate(zip(files, parsed)):
-        results.append(await _stage_batch_file(ctx, index, file, row))
+        results.append(await _stage_batch_file(classifications, index, file, row))
     accepted = sum(1 for result in results if result.job_id)
     return BatchUploadAccepted(accepted=accepted, rejected=len(results) - accepted, results=results)
 
@@ -1053,6 +1310,11 @@ def list_tracks(request: Request):
 # ---------------------------------------------------------------------------
 
 _METADATA_FIELDS = ('title', 'authors', 'year', 'department')
+# The program pair is matched locally against the catalog, never asked of the
+# model, so it is deliberately outside _METADATA_FIELDS: that tuple gates the
+# Gemini completion, and a page whose degree line is unrecognised must not buy
+# an AI call that cannot fill the field either.
+_ACADEMIC_FIELDS = ('program_code', 'specialization_code')
 # Gemini completions a batch extraction may run at once. Bounded because the
 # pool's EXTRACT slot rotates keys reactively: a twenty-way fan-out would trip
 # the capacity cooldown on every key before the first reply came back.
@@ -1060,7 +1322,7 @@ _EXTRACT_CONCURRENCY = 3
 
 
 def _empty_metadata() -> dict[str, str]:
-    return {field: '' for field in _METADATA_FIELDS}
+    return {field: '' for field in _METADATA_FIELDS + _ACADEMIC_FIELDS}
 
 
 def _load_department_names() -> list[dict[str, str]]:
@@ -1080,6 +1342,23 @@ def _load_department_names() -> list[dict[str, str]]:
         [{'name': row['name'], 'title': row.get('title') or ''} for row in rows]
         if rows else [{'name': 'CCSICT', 'title': ''}]
     )
+
+
+def _load_program_records() -> list[dict]:
+    """Program vocabulary for the local title-page match.
+
+    Best-effort by design: metadata extraction already succeeds without a
+    program, so a catalog read that fails must cost the uploader that one
+    autofill and nothing else. Every other field still comes back.
+    """
+    try:
+        return active_programs()
+    except Exception as error:
+        logger.warning(
+            'Program vocabulary unavailable; skipping program autofill (%s).',
+            type(error).__name__,
+        )
+        return []
 
 
 def _metadata_llm() -> ChatGoogleGenerativeAI:
@@ -1148,7 +1427,9 @@ async def _ai_completion(
 
 
 async def _extract_one(
-    file: UploadFile, dept_names: Sequence[Mapping[str, str]] | None = None,
+    file: UploadFile,
+    dept_names: Sequence[Mapping[str, str]] | None = None,
+    programs: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Local title-page pass first; Gemini only for what it leaves blank."""
     text, title_page_text = await _title_pages(file)
@@ -1156,10 +1437,19 @@ async def _extract_one(
         return {'title': '', 'authors': ''}
     if dept_names is None:
         dept_names = await asyncio.to_thread(_load_department_names)
+    if programs is None:
+        programs = await asyncio.to_thread(_load_program_records)
+    # The degree is stated on the title page, so it is read from the same text
+    # on both routes below rather than being asked of the model. It is matched
+    # after the local pass, not before, so the college that pass just read can
+    # scope the program vocabulary.
     local_data = _extract_title_page_metadata(title_page_text, dept_names)
+    academic = _academic_codes(
+        title_page_text, programs, local_data.get('department', ''),
+    )
     if all(local_data.get(field) for field in _METADATA_FIELDS):
-        return local_data
-    return await _ai_completion(local_data, text, title_page_text, dept_names)
+        return {**local_data, **academic}
+    return {**await _ai_completion(local_data, text, title_page_text, dept_names), **academic}
 
 
 @router.post('/extract-metadata', responses=errors(400, 413, 415, 422))
@@ -1183,7 +1473,10 @@ async def extract_metadata(
 
 def _extracted_file(index: int, filename: str, data: dict[str, str] | None = None,
                     **extra) -> BatchExtractedFile:
-    fields = {field: str((data or {}).get(field) or '') for field in _METADATA_FIELDS}
+    fields = {
+        field: str((data or {}).get(field) or '')
+        for field in _METADATA_FIELDS + _ACADEMIC_FIELDS
+    }
     return BatchExtractedFile(index=index, filename=filename, **fields, **extra)
 
 
@@ -1206,6 +1499,8 @@ async def extract_metadata_batch(
     """
     _check_batch_size(files)
     dept_names = await asyncio.to_thread(_load_department_names)
+    # Both vocabularies are read once for the whole batch, not once per file.
+    programs = await asyncio.to_thread(_load_program_records)
     results: list[BatchExtractedFile | None] = [None] * len(files)
     pending: list[tuple[int, str, dict[str, str], str, str]] = []
     for index, file in enumerate(files):
@@ -1224,7 +1519,14 @@ async def extract_metadata_batch(
         if not text.strip():
             results[index] = _extracted_file(index, filename)
             continue
-        local_data = _extract_title_page_metadata(title_page_text, dept_names)
+        # Every manuscript of a batch carries its own degree, so this is matched
+        # per file rather than once for the request, and after the local pass so
+        # the college it read scopes the program vocabulary.
+        page_data = _extract_title_page_metadata(title_page_text, dept_names)
+        academic = _academic_codes(
+            title_page_text, programs, page_data.get('department', ''),
+        )
+        local_data = {**page_data, **academic}
         if all(local_data.get(field) for field in _METADATA_FIELDS):
             results[index] = _extracted_file(index, filename, local_data)
             continue
@@ -1235,7 +1537,9 @@ async def extract_metadata_batch(
     async def complete(index: int, filename: str, local_data: dict[str, str], text: str, first_page: str) -> None:
         async with semaphore:
             data = await _ai_completion(local_data, text, first_page, dept_names)
-        results[index] = _extracted_file(index, filename, data)
+        # _ai_completion answers with the four model fields only; the locally
+        # matched program pair rides along beside them.
+        results[index] = _extracted_file(index, filename, {**local_data, **data})
 
     await asyncio.gather(*(complete(*entry) for entry in pending))
     return BatchExtractResponse(files=[result for result in results if result is not None])

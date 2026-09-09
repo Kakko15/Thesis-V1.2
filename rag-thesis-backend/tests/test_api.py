@@ -170,6 +170,8 @@ class TestAccessControl:
         ('get', '/papers'),
         ('get', '/sessions'),
         ('get', '/duplication/history'),
+        ('delete', '/duplication/history'),
+        ('delete', '/duplication/history/some-id'),
         ('get', '/analytics/overview'),
         ('get', '/analytics/users'),
         ('get', '/analytics/activity'),

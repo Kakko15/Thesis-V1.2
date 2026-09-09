@@ -144,6 +144,37 @@ def active_track_names(department: str | None = None) -> list[str]:
     ))
 
 
+def active_programs() -> list[dict]:
+    """Flat active-program vocabulary for the title-page metadata extractor.
+
+    `_nested_catalog` is the shape the frontend already renders, so flattening
+    it here rather than reading `programs` directly keeps both sides matching
+    on the same codes and the same active-only filter. Each entry carries the
+    owning department's `name` because a program code is only meaningful inside
+    its college.
+
+    On a pre-PI-04 schema `_nested_catalog` falls back to the program-less
+    legacy shape and this is empty, which the extractor treats as "no program
+    autofill" rather than an error.
+    """
+    return [
+        {
+            'department': str(department.get('name') or ''),
+            'code': str(program.get('code') or ''),
+            'name': str(program.get('name') or ''),
+            'specializations': [
+                {
+                    'code': str(specialization.get('code') or ''),
+                    'name': str(specialization.get('name') or ''),
+                }
+                for specialization in (program.get('specializations') or [])
+            ],
+        }
+        for department in _nested_catalog()
+        for program in (department.get('programs') or [])
+    ]
+
+
 # Both catalog reads are unauthenticated so the sign-up and landing surfaces can
 # populate their pickers, and both aggregate several unbounded table reads. An
 # explicit limit keeps them off the denial-of-wallet path.

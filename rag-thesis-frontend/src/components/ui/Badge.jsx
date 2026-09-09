@@ -1,9 +1,15 @@
 import { badgeToneClass, DEFAULT_BADGE_TONE } from '../../design/badgeTones.js'
 import { cn } from '../../lib/utils'
 
-export function Badge({ children, tone = DEFAULT_BADGE_TONE, className }) {
+/**
+ * `title` is passed explicitly rather than spreading unknown props: a badge is
+ * a label, and the only extra a caller has needed is a hover explanation for a
+ * number whose meaning is not obvious from the text beside it.
+ */
+export function Badge({ children, tone = DEFAULT_BADGE_TONE, className, title }) {
   return (
     <span
+      title={title}
       className={cn(
         'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide',
         badgeToneClass(tone),

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, Clock3, Database, RefreshCw, Server } from 'lucide-react'
 import { toast } from 'sonner'
@@ -13,9 +14,15 @@ import {
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { GlassCard } from '../../components/ui/GlassCard'
+import { PaginationFooter } from '../../components/ui/Pagination'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { TableScroller } from '../../components/ui/TableScroller'
 import { TableStateRow } from '../../components/ui/TableStateRow'
+import { paginateItems } from '../../lib/pagination'
+
+const WORKERS_PER_PAGE = 5
+const ALERTS_PER_PAGE = 5
+const JOBS_PER_PAGE = 10
 
 function Metric({ icon: Icon, label, value, tone = 'text-forest-500' }) {
   return (
@@ -39,11 +46,24 @@ function alertTone(alert) {
 
 export default function OperationsTab() {
   const queryClient = useQueryClient()
+  const [workerPage, setWorkerPage] = useState(1)
+  const [alertPage, setAlertPage] = useState(1)
+  const [jobPage, setJobPage] = useState(1)
+
   const summary = useQuery({ queryKey: ['operations-summary'], queryFn: getOperationsSummary, refetchInterval: 30_000 })
   const workers = useQuery({ queryKey: ['operations-workers'], queryFn: getIngestionWorkers, refetchInterval: 30_000 })
   const jobs = useQuery({ queryKey: ['operations-jobs'], queryFn: () => getOperationalJobs(100), refetchInterval: 15_000 })
   const alerts = useQuery({ queryKey: ['operations-alerts'], queryFn: () => getOperationalAlerts(100), refetchInterval: 30_000 })
   const retention = useQuery({ queryKey: ['retention-report'], queryFn: getRetentionReport })
+
+  const allWorkers = workers.data || []
+  const allAlerts = alerts.data || []
+  const allJobs = jobs.data || []
+
+  const paginatedWorkers = paginateItems(allWorkers, workerPage, WORKERS_PER_PAGE)
+  const paginatedAlerts = paginateItems(allAlerts, alertPage, ALERTS_PER_PAGE)
+  const paginatedJobs = paginateItems(allJobs, jobPage, JOBS_PER_PAGE)
+
   const refresh = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ['operations-summary'] }),
     queryClient.invalidateQueries({ queryKey: ['operations-workers'] }),
@@ -87,29 +107,41 @@ export default function OperationsTab() {
         <Metric icon={AlertTriangle} label="Failed jobs" value={summary.data?.failed_jobs} tone="text-flame-500" />
       </div>
       <div className="grid gap-5 xl:grid-cols-2">
-        <GlassCard className="overflow-hidden">
+        <GlassCard className="flex flex-col justify-between overflow-hidden [overflow-anchor:none]">
           <div className="border-b border-forest-900/10 p-5 dark:border-white/10"><h3 className="font-bold">Workers</h3></div>
-          <div className="divide-y divide-forest-900/10 dark:divide-white/10">
-            {(workers.data || []).map((worker) => (
-              <div key={worker.worker_id} className="flex items-center justify-between gap-4 p-4 text-xs">
+          <div className="flex flex-1 flex-col divide-y divide-forest-900/10 dark:divide-white/10 min-h-[325px] [overflow-anchor:none]">
+            {paginatedWorkers.map((worker) => (
+              <div key={worker.worker_id} className="flex min-h-[65px] items-center justify-between gap-4 p-4 text-xs">
                 <div><div className="font-mono font-semibold">{worker.worker_id}</div><div className="text-ink-faint">Last seen {localTime(worker.last_seen_at)}</div></div>
                 <div className="flex gap-2"><Badge tone={worker.state === 'degraded' ? 'flame' : 'forest'}>{worker.state}</Badge><Badge tone="neutral">Scanner: {worker.scanner_status}</Badge></div>
               </div>
             ))}
-            {!workers.data?.length && <p className="p-5 text-sm text-ink-muted">No worker has registered yet.</p>}
+            {!allWorkers.length && <p className="p-5 text-sm text-ink-muted">No worker has registered yet.</p>}
           </div>
+          <PaginationFooter
+            page={workerPage}
+            setPage={setWorkerPage}
+            total={allWorkers.length}
+            limit={WORKERS_PER_PAGE}
+          />
         </GlassCard>
-        <GlassCard className="overflow-hidden">
+        <GlassCard className="flex flex-col justify-between overflow-hidden [overflow-anchor:none]">
           <div className="border-b border-forest-900/10 p-5 dark:border-white/10"><h3 className="font-bold">Operational alerts</h3></div>
-          <div className="max-h-80 divide-y divide-forest-900/10 overflow-auto dark:divide-white/10">
-            {(alerts.data || []).map((alert) => (
-              <div key={alert.id} className="flex items-center justify-between gap-4 p-4 text-xs">
+          <div className="flex flex-1 flex-col divide-y divide-forest-900/10 dark:divide-white/10 min-h-[325px] [overflow-anchor:none]">
+            {paginatedAlerts.map((alert) => (
+              <div key={alert.id} className="flex min-h-[65px] items-center justify-between gap-4 p-4 text-xs">
                 <div><div className="font-semibold">{alert.alert_type.replaceAll('_', ' ')}</div><div className="text-ink-faint">{localTime(alert.last_seen_at)} · {alert.occurrence_count} occurrence(s)</div></div>
                 <div className="flex items-center gap-2"><Badge tone={alertTone(alert)}>{alert.status}</Badge>{alert.status === 'open' && <Button size="sm" variant="ghost" onClick={() => acknowledge(alert.id)}>Acknowledge</Button>}</div>
               </div>
             ))}
-            {!alerts.data?.length && <p className="p-5 text-sm text-ink-muted">No operational alerts.</p>}
+            {!allAlerts.length && <p className="p-5 text-sm text-ink-muted">No operational alerts.</p>}
           </div>
+          <PaginationFooter
+            page={alertPage}
+            setPage={setAlertPage}
+            total={allAlerts.length}
+            limit={ALERTS_PER_PAGE}
+          />
         </GlassCard>
       </div>
       <GlassCard className="p-5">
@@ -131,9 +163,39 @@ export default function OperationsTab() {
           )}
         </div></div>
       </GlassCard>
-      <GlassCard className="overflow-hidden">
+      <GlassCard className="flex flex-col justify-between overflow-hidden [overflow-anchor:none]">
         <div className="border-b border-forest-900/10 p-5 dark:border-white/10"><h3 className="font-bold">Recent durable jobs</h3></div>
-        <TableScroller label="Recent durable jobs"><table className="w-full text-left text-xs"><thead className="bg-forest-900/5 uppercase tracking-wider text-ink-muted dark:bg-white/5"><tr><th className="px-4 py-3">Job</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Attempt</th><th className="px-4 py-3">Updated</th></tr></thead><tbody><TableStateRow colSpan={5} empty={!jobs.data?.length} emptyLabel="No durable ingestion job has run yet." />{(jobs.data || []).map((job) => <tr key={job.id} className="border-t border-forest-900/10 dark:border-white/10"><td className="px-4 py-3 font-mono">{job.id.slice(0, 8)}</td><td className="px-4 py-3">{job.department}</td><td className="px-4 py-3"><Badge tone={job.status === 'failed' ? 'flame' : job.status === 'completed' ? 'forest' : 'neutral'}>{job.status}</Badge></td><td className="px-4 py-3">{job.attempt_count}/{job.max_attempts}</td><td className="px-4 py-3">{localTime(job.updated_at)}</td></tr>)}</tbody></table></TableScroller>
+        <TableScroller label="Recent durable jobs" className="flex-1 min-h-[490px] overflow-y-hidden [overflow-anchor:none]">
+          <table className="w-full text-left text-xs [overflow-anchor:none]">
+            <thead className="bg-forest-900/5 uppercase tracking-wider text-ink-muted dark:bg-white/5">
+              <tr className="h-[40px]">
+                <th className="px-4 py-3">Job</th>
+                <th className="px-4 py-3">Department</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Attempt</th>
+                <th className="px-4 py-3">Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              <TableStateRow colSpan={5} empty={!allJobs.length} emptyLabel="No durable ingestion job has run yet." />
+              {paginatedJobs.map((job) => (
+                <tr key={job.id} className="h-[45px] border-t border-forest-900/10 dark:border-white/10">
+                  <td className="px-4 py-3 font-mono">{job.id.slice(0, 8)}</td>
+                  <td className="px-4 py-3">{job.department}</td>
+                  <td className="px-4 py-3"><Badge tone={job.status === 'failed' ? 'flame' : job.status === 'completed' ? 'forest' : 'neutral'}>{job.status}</Badge></td>
+                  <td className="px-4 py-3">{job.attempt_count}/{job.max_attempts}</td>
+                  <td className="px-4 py-3">{localTime(job.updated_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableScroller>
+        <PaginationFooter
+          page={jobPage}
+          setPage={setJobPage}
+          total={allJobs.length}
+          limit={JOBS_PER_PAGE}
+        />
       </GlassCard>
     </div>
   )

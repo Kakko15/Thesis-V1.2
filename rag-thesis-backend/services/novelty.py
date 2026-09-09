@@ -7,8 +7,17 @@ calculates the similarity between texts, and if a new entry reaches an
 
 Runs inside the upload ingestion pipeline AFTER embedding but BEFORE the
 new chunks are indexed, so a manuscript is never compared against itself.
-Screening only flags — it never blocks ingestion: potential duplicates are
-surfaced to the administrator with their exact match percentage.
+Screening flags rather than blocks: potential duplicates are surfaced to the
+administrator with their exact match percentage and the archived thesis they
+most resemble, and faculty makes the call.
+
+The one exception is a verbatim copy. When every chunk of the new manuscript
+already sits in the archive at EXACT_DUPLICATE_SIMILARITY or above, the
+manuscript is already indexed under another paper row and indexing it again
+would only double every retrieval hit; `services/ingestion` refuses the job
+and names the thesis it duplicates. Added 2026-09-08 after a re-export of an
+archived BLIS thesis reached the "Thesis indexed!" screen flagged at 96.30%
+coverage instead of being turned away.
 """
 
 import logging
@@ -21,6 +30,14 @@ logger = logging.getLogger(__name__)
 
 _TOP_MATCHED_PAPERS = 3
 
+# A per-chunk cosine similarity this high only happens when the archived
+# passage is the same text. Identical input re-embedded returns vectors that
+# agree to about 1e-6, and pgvector reports `1 - (a <=> b)` in float, so an
+# exact `== 1.0` test would miss genuine copies. Two independently written
+# theses on the same library topic land in the 0.85-0.97 band (measured
+# 0.9494 highest passage on 2026-09-08) and must stay advisory.
+EXACT_DUPLICATE_SIMILARITY = 0.999
+
 
 def percent(value: float | int | None) -> float:
     """Normalize a public percentage while accepting legacy 0-1 ratios."""
@@ -28,7 +45,9 @@ def percent(value: float | int | None) -> float:
     return round(number * 100 if 0 < number <= 1 else number, 2)
 
 
-def verdict_for_coverage(matched_chunk_percentage: float) -> str:
+def verdict_for_coverage(matched_chunk_percentage: float, exact_duplicate: bool = False) -> str:
+    if exact_duplicate:
+        return 'exact_duplicate'
     if matched_chunk_percentage <= 0:
         return 'clear'
     if matched_chunk_percentage < 50:
@@ -41,6 +60,18 @@ def meets_duplication_threshold(similarity: float, threshold: float | None = Non
     return similarity >= (settings.duplication_threshold if threshold is None else threshold)
 
 
+def is_exact_duplicate(matches: list[dict], total_chunks: int) -> bool:
+    """True when every chunk of the manuscript is a verbatim archive passage.
+
+    Coverage alone is not enough: 26 of 27 chunks matching at 0.85-0.95 is two
+    theses about the same library, not one thesis uploaded twice. Every chunk
+    has to match, and every match has to be at the verbatim band.
+    """
+    if total_chunks <= 0 or len(matches) != total_chunks:
+        return False
+    return all(float(m.get('similarity', 0.0)) >= EXACT_DUPLICATE_SIMILARITY for m in matches)
+
+
 def aggregate_matches(matches: list[dict], total_chunks: int, threshold: float) -> dict:
     """Pure aggregation of per-chunk nearest-neighbor matches.
 
@@ -49,6 +80,7 @@ def aggregate_matches(matches: list[dict], total_chunks: int, threshold: float) 
     """
     coverage = (len(matches) / total_chunks) * 100 if total_chunks else 0.0
     highest = max((float(m.get('similarity', 0.0)) for m in matches), default=0.0)
+    exact_duplicate = is_exact_duplicate(matches, total_chunks)
 
     per_paper: dict[str, dict] = {}
     for m in matches:
@@ -62,24 +94,32 @@ def aggregate_matches(matches: list[dict], total_chunks: int, threshold: float) 
         reverse=True,
     )[:_TOP_MATCHED_PAPERS]
 
+    matched_papers = [
+        {
+            'id': pid,
+            'match_count': entry['match_count'],
+            'similarity': round(entry['highest_similarity'] * 100, 2),
+        }
+        for pid, entry in ranked
+    ]
+
     return {
         'flagged': bool(matches),
+        'exact_duplicate': exact_duplicate,
         'highest_similarity': percent(highest),
         'matched_chunk_percentage': round(coverage, 2),
         'matched_chunk_count': len(matches),
         'total_chunks': total_chunks,
-        'verdict_level': verdict_for_coverage(coverage),
+        'verdict_level': verdict_for_coverage(coverage, exact_duplicate),
         # One-release compatibility alias. New code uses matched_chunk_percentage.
         'duplication_percentage': round(coverage, 2),
         'threshold': round(threshold * 100, 2),
-        'matched_papers': [
-            {
-                'id': pid,
-                'match_count': entry['match_count'],
-                'similarity': round(entry['highest_similarity'] * 100, 2),
-            }
-            for pid, entry in ranked
-        ],
+        'matched_papers': matched_papers,
+        # The archived thesis this manuscript most resembles: the paper that
+        # absorbed the most chunks, ties broken by its closest passage. The
+        # same dict as matched_papers[0], so the metadata enrichment in
+        # screen_new_submission reaches it too.
+        'most_similar_paper': matched_papers[0] if matched_papers else None,
     }
 
 

@@ -185,7 +185,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       <Rise>
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="Department" required>
-            <div className="flex h-10 items-center gap-2 rounded-xl border border-forest-900/10 bg-forest-900/[0.035] px-3 text-sm font-semibold dark:border-white/10 dark:bg-white/[0.04]">
+            <div className="flex items-center gap-2 text-sm font-semibold text-ink">
               <Lock size={14} aria-hidden="true" />
               CCSICT
               <span className="ml-auto text-xs font-medium uppercase tracking-wider text-ink-faint">Assigned</span>
@@ -195,7 +195,6 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
             <Select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              className="h-10"
               aria-label="Account type"
             >
               <option value="student">Student</option>

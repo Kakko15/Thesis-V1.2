@@ -5,9 +5,11 @@ import {
   extractOwnedAvatarPath,
   formatDate,
   normalizePercent,
+  mostSimilarPaper,
   scanMetrics,
   timeAgo,
   verdictLabel,
+  verdictTone,
 } from './utils.js'
 
 test('normalizes legacy ratios and clamps invalid percentages', () => {
@@ -32,6 +34,19 @@ test('builds safe scan metrics from legacy and current records', () => {
     verdict: 'review_suggested',
   })
   assert.equal(verdictLabel('high_overlap'), 'High overlap—faculty review required')
+  assert.equal(verdictLabel('exact_duplicate'), 'Exact duplicate—not indexed')
+})
+
+test('names the archived thesis a screening most resembles', () => {
+  // The worker sends the top-ranked match twice: as matched_papers[0] and as
+  // most_similar_paper. Older records only have the list, so the helper falls
+  // back to its head rather than showing nothing.
+  const paper = { id: 'p1', title: 'Archived thesis', year: 2025, similarity: 94.94, match_count: 26 }
+  assert.deepEqual(mostSimilarPaper({ most_similar_paper: paper, matched_papers: [] }), paper)
+  assert.deepEqual(mostSimilarPaper({ matched_papers: [paper, { id: 'p2' }] }), paper)
+  assert.equal(mostSimilarPaper({ matched_papers: [] }), null)
+  assert.equal(mostSimilarPaper(null), null)
+  assert.equal(mostSimilarPaper('legacy-string'), null)
 })
 
 test('reports sub-one-percent coverage without rescaling it as a legacy ratio', () => {
@@ -90,4 +105,36 @@ test('accepts only avatar paths owned by the active user', () => {
   assert.equal(extractOwnedAvatarPath('u1/avatar.png', 'u1'), 'u1/avatar.png')
   assert.equal(extractOwnedAvatarPath(other, 'u1'), null)
   assert.equal(extractOwnedAvatarPath('invalid-url', 'u1'), null)
+})
+
+test('a screening verdict picks its own badge tone', () => {
+  // The archive card painted every flagged paper flame-red, and `flagged` is
+  // true when a single chunk matched. Twelve real CCSICT theses ingested on
+  // 2026-09-08 scored anywhere from 7.14% coverage (two chunks of shared
+  // institutional front matter) to 96.30%, and all twelve looked equally
+  // alarming, so the badge said nothing.
+  assert.equal(verdictTone('high_overlap'), 'critical')
+  assert.equal(verdictTone('exact_duplicate'), 'critical')
+  assert.equal(verdictTone('review_suggested'), 'warning')
+  assert.equal(verdictTone('clear'), 'neutral')
+  // An unknown or absent verdict must not shout.
+  assert.equal(verdictTone(undefined), 'neutral')
+  assert.equal(verdictTone('something-new'), 'neutral')
+
+  // Read through scanMetrics the way the card does. Every record the backend
+  // writes carries verdict_level, so this is the live path.
+  const toneFor = (record) => verdictTone(scanMetrics(record).verdict)
+  assert.equal(toneFor({
+    matched_chunk_count: 2, total_chunks: 28, verdict_level: 'review_suggested',
+  }), 'warning')
+  assert.equal(toneFor({
+    matched_chunk_count: 26, total_chunks: 27, verdict_level: 'high_overlap',
+  }), 'critical')
+
+  // A record predating verdict_level is graded by scanMetrics' own fallback,
+  // which reports review_suggested for any non-zero match rather than
+  // recomputing the band. It therefore reads gold, never red — the safe
+  // direction for a value nobody has scored.
+  assert.equal(toneFor({ matched_chunk_count: 0, total_chunks: 28 }), 'neutral')
+  assert.equal(toneFor({ matched_chunk_count: 26, total_chunks: 27 }), 'warning')
 })

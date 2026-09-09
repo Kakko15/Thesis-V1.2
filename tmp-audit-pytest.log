@@ -1,0 +1,118 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.6, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\Kazuha\Desktop\Thesis-V1\rag-thesis-backend
+configfile: pytest.ini
+testpaths: tests
+plugins: anyio-4.14.2, langsmith-0.10.10, cov-7.1.0
+collected 1179 items
+
+tests\test_activity.py ..                                                [  0%]
+tests\test_api.py .........................                              [  2%]
+tests\test_auth_authorization.py ................                        [  3%]
+tests\test_backup_monitoring.py ...................................      [  6%]
+tests\test_catalog.py .................                                  [  8%]
+tests\test_chat_endpoint_flows.py ...................................... [ 11%]
+................                                                         [ 12%]
+tests\test_chat_logic.py ......................................          [ 15%]
+tests\test_chat_notices.py ...........................................   [ 19%]
+tests\test_chunker.py ..............                                     [ 20%]
+tests\test_corpus_manifest.py ..........................                 [ 22%]
+tests\test_dependency_lock.py ..........                                 [ 23%]
+tests\test_dockerfile_contents.py ...                                    [ 24%]
+tests\test_document_processor.py ..................                      [ 25%]
+tests\test_duplication_flows.py ..........                               [ 26%]
+tests\test_durable_ingestion.py ........................................ [ 29%]
+..................                                                       [ 31%]
+tests\test_evaluation_exports.py ...                                     [ 31%]
+tests\test_evaluation_harness.py ..................................      [ 34%]
+tests\test_event_loop_responsiveness.py .............                    [ 35%]
+tests\test_export_openapi.py ...                                         [ 35%]
+tests\test_gemini_pool.py ....................................           [ 38%]
+tests\test_generation_truncation.py ...................                  [ 40%]
+tests\test_guest_budget.py .................                             [ 41%]
+tests\test_guest_turnstile.py ................                           [ 43%]
+tests\test_hardening_fixes.py .......................................... [ 46%]
+...................                                                      [ 48%]
+tests\test_index_provenance.py .........                                 [ 49%]
+tests\test_jmeter_summary.py ....                                        [ 49%]
+tests\test_legacy_location_backfill.py ..                                [ 49%]
+tests\test_metadata_field_shapes.py .............                        [ 50%]
+tests\test_migration_and_reindex.py ................                     [ 52%]
+tests\test_network_retry.py ...                                          [ 52%]
+tests\test_novelty.py ...................                                [ 54%]
+tests\test_operations_security.py .......................s.............. [ 57%]
+....................                                                     [ 58%]
+tests\test_prompt_contracts.py ......................................... [ 62%]
+......................................                                   [ 65%]
+tests\test_question_types.py ...............................             [ 68%]
+tests\test_rag_controls.py ............................................. [ 72%]
+........................................                                 [ 75%]
+tests\test_rate_limit.py .......                                         [ 76%]
+tests\test_readme_accuracy.py ................................           [ 78%]
+tests\test_release_fingerprint.py ....                                   [ 79%]
+tests\test_retriever.py ...........................................      [ 82%]
+tests\test_router_crud.py ......................................         [ 86%]
+tests\test_router_error_paths.py ....................................... [ 89%]
+..........................................................               [ 94%]
+tests\test_schema_consistency.py ................                        [ 95%]
+tests\test_security_upload_hardening.py ................                 [ 96%]
+tests\test_supabase_rls_integration.py ..ss                              [ 97%]
+tests\test_thesis_category.py .................                          [ 98%]
+tests\test_untrusted_prompt_framing.py ......                            [ 99%]
+tests\test_worker_concurrency.py .........                               [100%]
+
+=============================== tests coverage ================================
+_______________ coverage: platform win32, python 3.14.6-final-0 _______________
+
+Name                             Stmts   Miss   Cover
+-----------------------------------------------------
+config.py                          126      4  96.83%
+dependencies\auth.py               191      7  96.34%
+main.py                            149     11  92.62%
+models.py                          133      0 100.00%
+routers\analytics.py               270     23  91.48%
+routers\catalog.py                 108      2  98.15%
+routers\chat.py                    680     31  95.44%
+routers\departments.py              88      7  92.05%
+routers\duplication.py             184     15  91.85%
+routers\maintenance.py             104      4  96.15%
+routers\openapi_responses.py         3      0 100.00%
+routers\papers.py                   77      7  90.91%
+routers\sessions.py                 43      0 100.00%
+routers\settings.py                 41      4  90.24%
+routers\upload.py                  622     32  94.86%
+services\activity.py                14      0 100.00%
+services\catalog.py                 44     10  77.27%
+services\chat_notices.py            61      1  98.36%
+services\chunker.py                144     11  92.36%
+services\citations.py               72      2  97.22%
+services\cleanup.py                  9      3  66.67%
+services\db_errors.py               32     10  68.75%
+services\document_processor.py     161     17  89.44%
+services\embedder.py                20      7  65.00%
+services\filenames.py               13      2  84.62%
+services\gemini_pool.py             99      2  97.98%
+services\guards.py                  36      1  97.22%
+services\guest_budget.py            50      2  96.00%
+services\index_provenance.py        11      0 100.00%
+services\ingestion.py              125     25  80.00%
+services\llm_output.py              24      0 100.00%
+services\malware.py                 40      5  87.50%
+services\network_retry.py           45      1  97.78%
+services\novelty.py                 54      0 100.00%
+services\observability.py           11      4  63.64%
+services\operations.py             148      9  93.92%
+services\prompts.py                 65      0 100.00%
+services\question_types.py          23      0 100.00%
+services\rate_limiting.py           25      0 100.00%
+services\retriever.py              405     73  81.98%
+services\safe_logging.py            34      2  94.12%
+services\turnstile.py               75      1  98.67%
+services\upload_queue.py            96     15  84.38%
+workers\__init__.py                  0      0 100.00%
+workers\ingestion_worker.py        221     34  84.62%
+-----------------------------------------------------
+TOTAL                             4976    384  92.28%
+Required test coverage of 85% reached. Total coverage: 92.28%
+====================== 1176 passed, 3 skipped in 36.71s =======================
+EXIT=0

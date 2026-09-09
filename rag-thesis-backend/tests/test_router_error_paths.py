@@ -466,6 +466,158 @@ CATALOG = [
 ]
 
 
+PROGRAMS = [
+    {
+        'department': 'CCSICT', 'code': 'BSCS',
+        'name': 'Bachelor of Science in Computer Science',
+        'specializations': [{'code': 'DM', 'name': 'Data Mining'}],
+    },
+    {
+        'department': 'CCSICT', 'code': 'BSIT',
+        'name': 'Bachelor of Science in Information Technology',
+        'specializations': [
+            {'code': 'WMAD', 'name': 'Web and Mobile Application Development'},
+            {'code': 'NETSEC', 'name': 'Network and Security'},
+        ],
+    },
+    {
+        'department': 'CCSICT', 'code': 'BSIS',
+        'name': 'Bachelor of Science in Information Systems', 'specializations': [],
+    },
+    {
+        'department': 'CA', 'code': 'CAS',
+        'name': 'Diploma in Agricultural Sciences', 'specializations': [],
+    },
+]
+
+
+class TestProgramDetection:
+    """The academic program a title page states, matched against the catalog.
+
+    A thesis page names the degree it was submitted for, which is the one
+    classification field a reader cannot infer from the title -- and the field
+    that previously had to be picked by hand for every manuscript of a batch.
+    Scored like the department (see TestDepartmentDetection): longest spelling
+    wins, so the row order the catalog happens to return decides nothing.
+    """
+
+    DEGREE_PAGE = (
+        'ISABELA STATE UNIVERSITY\n'
+        'Echague, Isabela\n\n'
+        'College of Computing Studies, Information and\n'
+        'Communication Technology\n\n'
+        'In partial fulfillment of the requirements for the degree\n'
+        'Bachelor of Science in Information Technology\n'
+        'Major in Web and Mobile Application Development\n'
+    )
+
+    def test_the_degree_line_and_its_major_are_both_read(self):
+        assert upload._academic_codes(self.DEGREE_PAGE, PROGRAMS) == {
+            'program_code': 'BSIT', 'specialization_code': 'WMAD',
+        }
+
+    def test_a_degree_wrapped_across_lines_still_matches(self):
+        # The same collapse the department matcher needs: a title page breaks
+        # the degree name wherever the margin falls.
+        page = (
+            'in partial fulfilment of the requirements for the degree of Bachelor of\n'
+            'Science in Computer Science\nmajor in Data Mining\n'
+        )
+        assert upload._academic_codes(page, PROGRAMS) == {
+            'program_code': 'BSCS', 'specialization_code': 'DM',
+        }
+
+    def test_a_specialization_alone_identifies_its_own_program(self):
+        # A specialization belongs to exactly one program, so naming the major
+        # has named the degree.
+        assert upload._academic_codes('A study, major in Network and Security', PROGRAMS) == {
+            'program_code': 'BSIT', 'specialization_code': 'NETSEC',
+        }
+
+    def test_a_specialization_is_never_returned_under_another_program(self):
+        page = 'Bachelor of Science in Information Technology\nmajor in Data Mining\n'
+        program, specialization = upload._match_program(page, PROGRAMS)
+        assert program['code'] == 'BSIT'
+        # 'Data Mining' belongs to BSCS; BSIT would be rejected by
+        # services/catalog.py::resolve_academic_selection carrying it.
+        assert specialization is None
+
+    def test_two_degrees_sharing_a_prefix_resolve_to_the_longer_match(self):
+        assert upload._match_program(
+            'Bachelor of Science in Information Systems', PROGRAMS,
+        )[0]['code'] == 'BSIS'
+        assert upload._match_program(
+            'Bachelor of Science in Information Technology', PROGRAMS,
+        )[0]['code'] == 'BSIT'
+
+    def test_a_bare_code_is_matched_as_a_whole_word_and_case_is_ignored(self):
+        assert upload._match_program('Presented to CCSICT\nBSIS\n', PROGRAMS)[0]['code'] == 'BSIS'
+        assert upload._match_program('presented for bsis', PROGRAMS)[0]['code'] == 'BSIS'
+        # 'BSIS' inside a longer token is not the program being named.
+        assert upload._match_program('filename bsis2026.pdf', PROGRAMS)[0] is None
+
+    def test_the_page_college_keeps_another_college_out_of_the_match(self):
+        """A wrong-college program must not outscore the right-college one.
+
+        `active_programs` carries each program's owning department, and the
+        matcher used to ignore it and rank across the whole university. ISU
+        awards more than twenty degrees, so a longer name printed anywhere on
+        the page -- a partner college on a joint-endorsement line, a cited
+        title -- beats the four characters of the code that actually names the
+        degree.
+        """
+        page = 'BSIS\nendorsed by the Diploma in Agricultural Sciences faculty\n'
+        # Unscoped, the longer wrong-college name wins.
+        assert upload._match_program(page, PROGRAMS)[0]['code'] == 'CAS'
+        # Told the college the same page named, it cannot.
+        assert upload._academic_codes(page, PROGRAMS, 'CCSICT') == {
+            'program_code': 'BSIS', 'specialization_code': '',
+        }
+
+    def test_an_unreadable_college_still_matches_against_everything(self):
+        # Narrowing to nothing would remove the autofill for a page whose
+        # college the local pass could not read, which is worse than a wide
+        # match: the department is a separate field the uploader can fix.
+        assert upload._academic_codes(self.DEGREE_PAGE, PROGRAMS, '') == {
+            'program_code': 'BSIT', 'specialization_code': 'WMAD',
+        }
+
+    def test_a_college_with_no_programs_falls_back_to_the_full_catalog(self):
+        # A pre-PI-04 project, or a college whose programs are all archived,
+        # must not silently lose the autofill either.
+        assert upload._academic_codes(self.DEGREE_PAGE, PROGRAMS, 'CED') == {
+            'program_code': 'BSIT', 'specialization_code': 'WMAD',
+        }
+
+    def test_the_college_is_matched_case_and_padding_insensitively(self):
+        assert upload._academic_codes(self.DEGREE_PAGE, PROGRAMS, '  ccsict ') == {
+            'program_code': 'BSIT', 'specialization_code': 'WMAD',
+        }
+
+    def test_a_short_code_is_never_evidence_on_its_own(self):
+        short = [{'code': 'DM', 'name': 'Doctor of Medicine', 'specializations': []}]
+        assert upload._match_program('Submitted to the DM committee', short)[0] is None
+
+    def test_a_page_naming_no_degree_leaves_both_fields_blank(self):
+        for page in ('An untitled draft about databases.', '', '   '):
+            assert upload._academic_codes(page, PROGRAMS) == {
+                'program_code': '', 'specialization_code': '',
+            }
+
+    def test_an_empty_vocabulary_is_not_an_error(self):
+        # _load_program_records returns [] when the catalog read fails, and the
+        # rest of the extraction must still come back.
+        assert upload._academic_codes(self.DEGREE_PAGE, []) == {
+            'program_code': '', 'specialization_code': '',
+        }
+
+    def test_the_program_vocabulary_failing_never_fails_the_extraction(self, monkeypatch):
+        def broken():
+            raise RuntimeError('catalog down')
+        monkeypatch.setattr(upload, 'active_programs', broken)
+        assert upload._load_program_records() == []
+
+
 class TestDepartmentDetection:
     """The 2026-09-08 report: every ingest autofilled the department as CA.
 
@@ -1072,7 +1224,8 @@ class TestBatchExtractEndpoint:
         assert files[1]['status_code'] == 415 and files[1]['filename'] == 'notes.txt'
         assert files[2] == {
             'index': 2, 'filename': 'blank.pdf', 'title': '', 'authors': '', 'year': '',
-            'department': '', 'error': None, 'status_code': None,
+            'department': '', 'program_code': '', 'specialization_code': '',
+            'error': None, 'status_code': None,
         }
 
     def test_llm_completions_run_together_but_never_more_than_three_at_once(self, upload_client, monkeypatch):
@@ -1115,4 +1268,7 @@ class TestBatchExtractEndpoint:
             files={'file': ('thesis.pdf', _pdf_bytes(('Some cover line',)), 'application/pdf')},
         )
         assert response.status_code == 200
-        assert response.json() == {'title': '', 'authors': '', 'year': '', 'department': ''}
+        assert response.json() == {
+            'title': '', 'authors': '', 'year': '', 'department': '',
+            'program_code': '', 'specialization_code': '',
+        }

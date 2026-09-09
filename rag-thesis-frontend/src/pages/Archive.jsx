@@ -1,32 +1,53 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, BookMarked, Trash2, Library, Lock, X, ShieldAlert, AlertTriangle } from 'lucide-react'
+import { BookMarked, Trash2, Library, Lock, X, ShieldAlert, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
-import { Input, Select } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ConfirmDialog, Modal } from '../components/ui/Modal'
 import { PageTransition, staggerContainer, staggerItem } from '../components/ui/Motion'
 import { Button } from '../components/ui/Button'
-import { formatDate, normalizePercent, scanMetrics, verdictLabel } from '../lib/utils'
-import { THESIS_CATEGORIES, isFacultyThesis, thesisCategoryLabel } from '../lib/catalog'
+import { GooglePagination } from '../components/ui/Pagination'
+import {
+  cn, formatDate, normalizePercent, scanMetrics, verdictLabel, verdictTone,
+} from '../lib/utils'
+import { isFacultyThesis, thesisCategoryLabel } from '../lib/catalog'
 import { slotKeys } from '../lib/keys'
 import { useArchiveCatalog } from './archive/useArchiveCatalog'
+import { ArchiveFiltersBar } from './archive/ArchiveFiltersBar'
 
 const ARCHIVE_SKELETONS = slotKeys(6, 'archive-card')
+
+// The panel behind the card badge, keyed off the same verdict so the two
+// cannot disagree — a gold badge opening onto a red panel would just move the
+// confusion one click deeper.
+const SCREENING_SURFACE = {
+  critical: 'border-flame-500/25 bg-flame-500/8',
+  warning: 'border-gold-400/30 bg-gold-400/8',
+  neutral: 'border-[var(--border)] bg-[var(--surface-2)]',
+}
+const SCREENING_ICON = {
+  critical: 'text-flame-500',
+  warning: 'text-gold-500',
+  neutral: 'text-ink-faint',
+}
 
 function ScreeningDetail({ scan }) {
   if (!scan?.flagged) return null
   const metrics = scanMetrics(scan)
+  const tone = verdictTone(metrics.verdict)
   return (
     <div>
       <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">
         Duplication screening (at upload)
       </div>
-      <div className="mt-1.5 rounded-xl border border-flame-500/25 bg-flame-500/8 px-3.5 py-2.5 text-xs leading-relaxed">
+      <div className={cn(
+        'mt-1.5 rounded-xl border px-3.5 py-2.5 text-xs leading-relaxed',
+        SCREENING_SURFACE[tone] ?? SCREENING_SURFACE.neutral,
+      )}>
         <div className="flex items-center gap-1.5 font-semibold">
-          <ShieldAlert size={13} className="shrink-0 text-flame-500" />
+          <ShieldAlert size={13} className={cn('shrink-0', SCREENING_ICON[tone] ?? SCREENING_ICON.neutral)} />
           {verdictLabel(metrics.verdict)}
         </div>
         <div className="mt-2 grid gap-1 opacity-75 sm:grid-cols-2">
@@ -61,7 +82,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           announced twice. */}
       <GlassCard
         hover
-        className="group flex h-full cursor-pointer flex-col p-5"
+        className="group flex h-full cursor-pointer flex-col p-5 active:scale-[0.98] transition-all duration-200 touch-manipulation"
         onClick={() => onOpen(paper)}
       >
         <div className="flex items-start justify-between gap-2">
@@ -101,7 +122,16 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           {paper.year && <Badge tone="neutral">{paper.year}</Badge>}
           {paper.department && <Badge tone="neutral">{paper.department}</Badge>}
           {paper.duplication_scan?.flagged && (
-            <Badge tone="flame">
+            /* `title` because the number is not self-explanatory: it is the
+               share of this thesis's own chunks that matched anything already
+               archived, not how much of it is copied. */
+            <Badge
+              tone={verdictTone(screening.verdict)}
+              title={
+                `${screening.matchedChunks} of ${screening.totalChunks} passages matched an `
+                + `archived thesis at or above the screening threshold — ${verdictLabel(screening.verdict).toLowerCase()}`
+              }
+            >
               <ShieldAlert size={11} /> {screening.coverage.toFixed(2)}% matched coverage
             </Badge>
           )}
@@ -115,6 +145,7 @@ function ArchiveResults({
   isLoading,
   isError,
   filtered,
+  paginated,
   papers,
   isAdmin,
   onDelete,
@@ -124,7 +155,7 @@ function ArchiveResults({
 }) {
   if (isLoading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid min-h-[380px] content-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {ARCHIVE_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-44" />)}
       </div>
     )
@@ -160,15 +191,16 @@ function ArchiveResults({
       </GlassCard>
     )
   }
+  const displayPapers = paginated || filtered
   return (
     <motion.div
       variants={staggerContainer}
       initial="hidden"
       animate="show"
-      className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      className="grid min-h-[380px] content-start gap-4 sm:grid-cols-2 lg:grid-cols-3"
     >
       <AnimatePresence>
-        {filtered.map((paper) => (
+        {displayPapers.map((paper) => (
           <PaperCard
             key={paper.id}
             paper={paper}
@@ -182,6 +214,42 @@ function ArchiveResults({
   )
 }
 
+function ArchiveDetailModal({ detail, onClose }) {
+  return (
+    <Modal open={Boolean(detail)} onClose={onClose} title={detail?.title} size="lg">
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <Badge tone={isFacultyThesis(detail) ? 'gold' : 'forest'}>
+            {thesisCategoryLabel(detail?.thesis_category)}
+          </Badge>
+          {detail?.track && <Badge tone="forest">{detail.track}</Badge>}
+          {detail?.department && <Badge tone="neutral">{detail.department}</Badge>}
+          {detail?.year && <Badge tone="gold">{detail.year}</Badge>}
+          <Badge tone="neutral">Indexed {formatDate(detail?.created_at)}</Badge>
+        </div>
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Authors</div>
+          <p className="mt-1 text-sm">{detail?.authors || 'Unknown'}</p>
+        </div>
+        {detail?.abstract && (
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Abstract</div>
+            <p className="mt-1 max-h-56 overflow-y-auto text-sm leading-relaxed opacity-80">
+              {detail.abstract}
+            </p>
+          </div>
+        )}
+        <ScreeningDetail scan={detail?.duplication_scan} />
+        <div className="glass flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs text-ink-muted">
+          <Lock size={13} className="shrink-0 text-gold-400" />
+          Full text is available only through AI-mediated synthesis in Chat — this protects the
+          author's intellectual property.
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 export default function Archive() {
   const { isAdmin, isSuperadmin, department: userDepartment } = useAuth()
   const archive = useArchiveCatalog({ isSuperadmin, userDepartment })
@@ -190,11 +258,13 @@ export default function Archive() {
     filters, setFilter, clearFilters, activeTracks, trackLabel,
     programs, specializations, refetch,
     deleteTarget, setDeleteTarget, detail, setDetail, busy, submitDelete,
+    page, setPage, paginated, pageSize,
+    sortBy, setSortBy, sortOptions,
   } = archive
   const hasFilters = Object.values(filters).some(Boolean)
 
   return (
-    <PageTransition className="mx-auto max-w-6xl space-y-6">
+    <PageTransition className="mx-auto flex min-h-[calc(100vh-14rem)] max-w-6xl flex-col space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
@@ -210,53 +280,22 @@ export default function Archive() {
         </div>
       </div>
 
-      {/* Filters */}
-      <GlassCard className="grid items-center gap-3 p-4 sm:grid-cols-2 xl:grid-cols-12">
-        <div className="relative sm:col-span-2 xl:col-span-4">
-          <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
-          <Input
-            className="pl-11"
-            placeholder="Search titles, authors, abstracts…"
-            value={filters.query}
-            onChange={(e) => setFilter('query', e.target.value)}
-          />
-        </div>
-        {programs.length > 0 ? (
-          <Select value={filters.program_id} onChange={(e) => setFilter('program_id', e.target.value)} className="min-w-0 xl:col-span-2" aria-label="Filter by academic program" title={programs.find((program) => program.id === filters.program_id)?.name}>
-            <option value="">All programs</option>
-            {programs.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}
-          </Select>
-        ) : activeTracks.length > 0 ? (
-          <Select value={filters.track} onChange={(e) => setFilter('track', e.target.value)} className="min-w-0 xl:col-span-2" aria-label={`Filter by ${trackLabel}`} title={filters.track || undefined}>
-            <option value="">All {trackLabel}s</option>
-            {activeTracks.map((t) => <option key={t} value={t}>{t}</option>)}
-          </Select>
-        ) : null}
-        {specializations.length > 0 && (
-          <Select value={filters.specialization_id} onChange={(e) => setFilter('specialization_id', e.target.value)} className="min-w-0 xl:col-span-2" aria-label="Filter by academic specialization" title={specializations.find((specialization) => specialization.id === filters.specialization_id)?.name}>
-            <option value="">All specializations</option>
-            {specializations.map((specialization) => (
-              <option key={specialization.id} value={specialization.id}>{specialization.code} — {specialization.name}</option>
-            ))}
-          </Select>
-        )}
-        {isSuperadmin && (
-          <Select value={filters.department} onChange={(e) => setFilter('department', e.target.value)} className="min-w-0 xl:col-span-2" aria-label="Filter by department" title={filters.department || undefined}>
-            <option value="">All depts</option>
-            {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
-          </Select>
-        )}
-        <Select value={filters.thesis_category} onChange={(e) => setFilter('thesis_category', e.target.value)} className="min-w-0 xl:col-span-2" aria-label="Filter by thesis category">
-          <option value="">All categories</option>
-          {THESIS_CATEGORIES.map((category) => (
-            <option key={category.value} value={category.value}>{category.label}</option>
-          ))}
-        </Select>
-        <Select value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="min-w-0 xl:col-span-2" aria-label="Filter by year">
-          <option value="">All years</option>
-          {years.map((y) => <option key={y} value={y}>{y}</option>)}
-        </Select>
-      </GlassCard>
+      {/* Google-Style Search, Filter Chips & Sorting Bar */}
+      <ArchiveFiltersBar
+        filters={filters}
+        setFilter={setFilter}
+        clearFilters={clearFilters}
+        programs={programs}
+        specializations={specializations}
+        activeTracks={activeTracks}
+        trackLabel={trackLabel}
+        departments={departments}
+        years={years}
+        isSuperadmin={isSuperadmin}
+        sortBy={sortBy}
+        setSortBy={setSortBy}
+        sortOptions={sortOptions}
+      />
 
       <div className="flex min-h-8 flex-wrap items-center justify-between gap-2" aria-live="polite">
         <p className="text-xs font-medium text-ink-muted">
@@ -267,51 +306,38 @@ export default function Archive() {
         )}
       </div>
 
-      {/* Grid */}
-      <ArchiveResults
-        isLoading={isLoading}
-        isError={papersError}
-        filtered={filtered}
-        papers={papers}
-        isAdmin={isAdmin}
-        onDelete={setDeleteTarget}
-        onOpen={setDetail}
-        onClear={clearFilters}
-        onRetry={() => refetch()}
-      />
+      {/* Results and Pagination container: statically anchored */}
+      <div className="flex flex-1 flex-col justify-between gap-6">
+        <ArchiveResults
+          isLoading={isLoading}
+          isError={papersError}
+          filtered={filtered}
+          paginated={paginated}
+          papers={papers}
+          isAdmin={isAdmin}
+          onDelete={setDeleteTarget}
+          onOpen={setDetail}
+          onClear={clearFilters}
+          onRetry={() => refetch()}
+        />
+
+        {/* Pagination matching DailyUI Challenge #085 */}
+        {!isLoading && !papersError && filtered.length > 0 && (
+          <div className="mt-auto flex justify-center border-t border-forest-900/10 pt-6 pb-6 dark:border-white/10">
+            <GooglePagination
+              page={page}
+              setPage={setPage}
+              total={filtered.length}
+              limit={pageSize}
+              showJump={true}
+              hideOnSinglePage={false}
+            />
+          </div>
+        )}
+      </div>
 
       {/* Detail modal — metadata only (indirect access model) */}
-      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail?.title} size="lg">
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <Badge tone={isFacultyThesis(detail) ? 'gold' : 'forest'}>
-              {thesisCategoryLabel(detail?.thesis_category)}
-            </Badge>
-            {detail?.track && <Badge tone="forest">{detail.track}</Badge>}
-            {detail?.department && <Badge tone="neutral">{detail.department}</Badge>}
-            {detail?.year && <Badge tone="gold">{detail.year}</Badge>}
-            <Badge tone="neutral">Indexed {formatDate(detail?.created_at)}</Badge>
-          </div>
-          <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Authors</div>
-            <p className="mt-1 text-sm">{detail?.authors || 'Unknown'}</p>
-          </div>
-          {detail?.abstract && (
-            <div>
-              <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Abstract</div>
-              <p className="mt-1 max-h-56 overflow-y-auto text-sm leading-relaxed opacity-80">
-                {detail.abstract}
-              </p>
-            </div>
-          )}
-          <ScreeningDetail scan={detail?.duplication_scan} />
-          <div className="glass flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs text-ink-muted">
-            <Lock size={13} className="shrink-0 text-gold-400" />
-            Full text is available only through AI-mediated synthesis in Chat — this protects the
-            author's intellectual property.
-          </div>
-        </div>
-      </Modal>
+      <ArchiveDetailModal detail={detail} onClose={() => setDetail(null)} />
 
       <ConfirmDialog
         open={!!deleteTarget}

@@ -2,9 +2,17 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiErrorMessage, deletePaper, getDepartments, getTracks, listPapers } from '../../api'
+import { paginateItems } from '../../lib/pagination'
 import {
-  archiveYears, filterArchivePapers, resolveArchivePrograms, resolveArchiveTracks,
+  SORT_OPTIONS,
+  archiveYears,
+  filterArchivePapers,
+  resolveArchivePrograms,
+  resolveArchiveTracks,
+  sortArchivePapers,
 } from './archiveFilters'
+
+export const ARCHIVE_PAGE_SIZE = 6
 
 export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
   const queryClient = useQueryClient()
@@ -15,6 +23,8 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [detail, setDetail] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [page, setPage] = useState(1)
+  const [sortBy, setSortByState] = useState('newest')
 
   const papersQuery = useQuery({ queryKey: ['papers'], queryFn: () => listPapers(null) })
   const { data: tracks = [] } = useQuery({ queryKey: ['tracks'], queryFn: getTracks })
@@ -35,24 +45,42 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
   )
   const years = useMemo(() => archiveYears(papers), [papers])
   const filtered = useMemo(
-    () => filterArchivePapers(papers, { ...filters, superadmin: isSuperadmin }),
-    [filters, isSuperadmin, papers],
+    () => {
+      const matched = filterArchivePapers(papers, { ...filters, superadmin: isSuperadmin })
+      return sortArchivePapers(matched, sortBy, filters.query)
+    },
+    [filters, isSuperadmin, papers, sortBy],
+  )
+  const paginated = useMemo(
+    () => paginateItems(filtered, page, ARCHIVE_PAGE_SIZE),
+    [filtered, page],
   )
 
-  const setFilter = (key, value) => setFilters((current) => {
-    const next = { ...current, [key]: value }
-    if (key === 'department') {
-      next.track = ''
-      next.program_id = ''
-      next.specialization_id = ''
-    }
-    if (key === 'program_id') next.specialization_id = ''
-    return next
-  })
-  const clearFilters = () => setFilters({
-    query: '', track: '', program_id: '', specialization_id: '', year: '', department: '',
-    thesis_category: '',
-  })
+  const setSortBy = (value) => {
+    setPage(1)
+    setSortByState(value)
+  }
+
+  const setFilter = (key, value) => {
+    setPage(1)
+    setFilters((current) => {
+      const next = { ...current, [key]: value }
+      if (key === 'department') {
+        next.track = ''
+        next.program_id = ''
+        next.specialization_id = ''
+      }
+      if (key === 'program_id') next.specialization_id = ''
+      return next
+    })
+  }
+  const clearFilters = () => {
+    setPage(1)
+    setFilters({
+      query: '', track: '', program_id: '', specialization_id: '', year: '', department: '',
+      thesis_category: '',
+    })
+  }
   const submitDelete = async () => {
     if (!deleteTarget?.id) return
     setBusy(true)
@@ -83,6 +111,13 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
     setDetail,
     busy,
     submitDelete,
+    page,
+    setPage,
+    paginated,
+    pageSize: ARCHIVE_PAGE_SIZE,
+    sortBy,
+    setSortBy,
+    sortOptions: SORT_OPTIONS,
     ...trackOptions,
     ...programOptions,
   }

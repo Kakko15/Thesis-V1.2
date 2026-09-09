@@ -31,6 +31,28 @@ class MalwareDetectedIngestionError(PermanentIngestionError):
     """Raised when a private staged manuscript fails malware scanning."""
 
 
+class DuplicateManuscriptIngestionError(PermanentIngestionError):
+    """Raised when every chunk of the manuscript is already in the archive verbatim.
+
+    Carries a `public_error` the uploader may see. Other permanent failures
+    publish a fixed sentence because their messages can quote provider
+    responses; this one is composed here from archive metadata the same
+    uploader can already read on the archive page.
+    """
+
+    def __init__(self, public_error: str) -> None:
+        super().__init__(public_error)
+        self.public_error = public_error
+
+
+def _describe_archived_paper(paper: dict | None) -> str:
+    if not paper:
+        return 'an archived thesis'
+    title = str(paper.get('title') or '').strip() or 'an untitled thesis'
+    year = paper.get('year')
+    return f'"{title}" ({year})' if year else f'"{title}"'
+
+
 def _staged_pdf_bytes(client, source_path: str) -> bytes:
     content = client.storage.from_('pdfs').download(source_path)
     if isinstance(content, bytearray):
@@ -148,6 +170,17 @@ def process_ingestion_job(client, job: dict, worker_id: str,
         message='Screening the manuscript against the department archive...',
     )
     duplication_scan = screen_new_submission(embeddings, department)
+    if duplication_scan.get('exact_duplicate'):
+        # Every chunk already sits in the archive verbatim, so this manuscript
+        # is indexed under another paper row. Committing it again would double
+        # every retrieval hit and make the archive cite the same passage twice.
+        # Anything short of verbatim stays advisory and is committed flagged.
+        raise DuplicateManuscriptIngestionError(
+            'This manuscript was not indexed because it is an exact duplicate of '
+            f'{_describe_archived_paper(duplication_scan.get("most_similar_paper"))}, '
+            f'which is already in the archive: all {duplication_scan.get("total_chunks", 0)} '
+            f'passages matched at {duplication_scan.get("highest_similarity", 0)}% similarity.'
+        )
 
     year_value = str(payload.get('year') or '')
     year_int = int(year_value) if year_value.isdigit() else None
