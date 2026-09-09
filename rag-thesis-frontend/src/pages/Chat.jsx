@@ -135,11 +135,11 @@ function Composer({
   sending, verifying, onStop, textareaRef, sendKey, children,
 }) {
   return (
-    <div className="border-t border-forest-900/10 p-4 dark:border-white/10">
+    <div className="border-t border-forest-900/10 p-3 sm:p-4 dark:border-white/10">
       {children}
       <form
         onSubmit={(e) => { e.preventDefault(); onSend() }}
-        className="glass flex items-end gap-2 rounded-[1.4rem] p-2"
+        className="glass flex items-end gap-2 rounded-[1.4rem] p-2 transition-shadow focus-within:ring-2 focus-within:ring-[var(--primary)]/30"
       >
         <textarea
           ref={textareaRef}
@@ -170,7 +170,7 @@ function Composer({
           onStop={onStop}
         />
       </form>
-      <p className="mt-2 text-center text-xs text-ink-faint">{footnote}</p>
+      <p className="mt-2 text-center text-[11px] sm:text-xs text-ink-faint line-clamp-2 sm:line-clamp-none">{footnote}</p>
     </div>
   )
 }
@@ -468,7 +468,7 @@ function ResponseMenuItem({ icon: Icon, children, onClick }) {
       type="button"
       role="menuitem"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-forest-900/8 focus-visible:bg-forest-900/8 focus-visible:outline-none dark:hover:bg-white/10 dark:focus-visible:bg-white/10"
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)] focus-visible:bg-[var(--accent)] focus-visible:text-[var(--accent-foreground)] focus-visible:outline-none"
     >
       <Icon size={16} className="shrink-0 text-forest-700 dark:text-forest-300" />
       {children}
@@ -1284,7 +1284,7 @@ export default function Chat() {
         )}
 
         {/* Messages */}
-        <div className="flex-1 space-y-6 overflow-x-hidden overflow-y-auto px-4 py-6 sm:px-6">
+        <div className="flex-1 space-y-6 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-6 sm:px-6">
           {messages.length === 0 && !sending ? (
             <div className="flex h-full flex-col items-center justify-center">
               <EmptyState

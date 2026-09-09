@@ -161,7 +161,7 @@ set search_path = public
 as $$
 begin
   update public.upload_jobs
-  set status = 'queued', stage = 'extract', progress = 8,
+  set status = 'queued', stage = 'queued', progress = 8,
       message = 'Queued for durable processing...', source_stored = true,
       next_retry_at = now(), updated_at = now()
   where id = p_job_id and owner_id = p_owner_id and status = 'staging';

@@ -6,6 +6,28 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## Ingest-time screen names the nearest thesis and refuses verbatim re-uploads - 2026-09-08
+
+Uploading a BLIS 2026 thesis about the ISU Echague library produced a flagged ingest at
+96.30% matched-chunk coverage and 94.94% highest passage against another BLIS 2026 thesis
+about the same library. Two changes to `services/novelty.py` and `services/ingestion.py`:
+
+1. **The screen reports the most similar archived thesis.** `aggregate_matches` adds
+   `most_similar_paper`, the paper that absorbed the most chunks with ties broken by its
+   closest passage, enriched with title, authors, and year. The upload outcome panel opens
+   with it, and the completion toast names it.
+2. **A verbatim copy is not indexed.** `is_exact_duplicate` is true only when every chunk
+   matched and every match is at `EXACT_DUPLICATE_SIMILARITY = 0.999` or above. That case
+   raises `DuplicateManuscriptIngestionError`, a `PermanentIngestionError` whose public
+   message names the archived thesis, before any commit. Anything short of verbatim,
+   including the measured 94.94% case, stays advisory and is committed flagged exactly as
+   before.
+
+The 0.85 duplication threshold, `match_chunks`, and `check_topic_duplication` are
+unchanged, so `/duplication/scan` and every Objective 2 figure are unaffected. The 0.999
+band rather than `== 1.0` exists because re-embedding identical text and pgvector's float
+cosine leave noise of roughly 1e-6.
+
 ## Silent OCR loss closed before corpus ingestion - 2026-09-07
 
 Extracting the twelve staged manuscripts on the development host, before any approval or

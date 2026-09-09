@@ -30,8 +30,8 @@ function ChoiceGrid({ value, options, onChange }) {
             className={cn(
               'relative flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl border px-2 py-3 text-xs font-semibold transition-all duration-200',
               active
-                ? 'border-[var(--primary)] bg-[var(--primary-container)] text-[var(--primary-container-foreground)] shadow-md'
-                : 'border-[var(--border)] bg-[var(--surface-1)] hover:-translate-y-0.5 hover:bg-[var(--accent)]',
+                ? 'border-[var(--primary)] bg-[var(--accent)] text-[var(--accent-foreground)] shadow-md'
+                : 'border-[var(--border)] bg-[var(--surface-1)] hover:-translate-y-0.5 hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)]',
             )}
           >
             {swatch ? (

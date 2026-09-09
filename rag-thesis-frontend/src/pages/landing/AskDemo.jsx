@@ -248,7 +248,11 @@ export function AskDemo() {
                     <span className="animate-caret ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.18em] rounded-full bg-forest-600 dark:bg-forest-300" />
                   </>
                 ) : (
-                  <span className="opacity-45">
+                  /* 45% alpha over the composer surface measured 2.8:1 --
+                     this is a simulated placeholder, but it is still text a
+                     sighted reader reads, so it uses the audited muted token
+                     rather than fading the foreground below AA. */
+                  <span className="text-ink-muted">
                     {typed || 'Ask IskAI about CCSICT thesis research…'}
                   </span>
                 )}

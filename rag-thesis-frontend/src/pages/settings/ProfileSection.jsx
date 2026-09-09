@@ -150,18 +150,16 @@ export function ProfileSection() {
 
         <div className="mt-6 space-y-4">
           <div>
-            <label htmlFor="settings-full-name" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-ink-muted">
-              Full name
-            </label>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <Input
                 id="settings-full-name"
+                label="Full name"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
                 placeholder="e.g. Juan Dela Cruz"
                 className="flex-1"
               />
-              <Button onClick={handleSave} loading={saving} disabled={!dirty || !fullName.trim()}>
+              <Button onClick={handleSave} loading={saving} disabled={!dirty || !fullName.trim()} className="h-14 rounded-2xl px-6 shrink-0">
                 {dirty ? <><Check size={15} /> Save</> : 'Saved'}
               </Button>
             </div>

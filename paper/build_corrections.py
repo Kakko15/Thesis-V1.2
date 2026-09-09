@@ -715,6 +715,36 @@ def apply_figures(xml, src, verbose=True):
     return xml, media
 
 
+# The one automatic refusal, added 2026-09-09.
+#
+# Section 3.3's screening paragraph closed with "the system never automatically
+# accepts or rejects a topic", which the implementation contradicted from
+# 2026-09-08: `services/ingestion.py` refuses a manuscript whose every chunk
+# already matches an archived passage at `EXACT_DUPLICATE_SIMILARITY` (0.999),
+# because that manuscript is already indexed under an existing paper row and a
+# second copy would double every retrieval hit. The 85% parameter the paper
+# defines still only flags, so the correction narrows an absolute claim rather
+# than restating the threshold. Recorded in
+# `rag-thesis-backend/evaluation/iso25010_evidence.md` under the same date.
+#
+# The needle is the paragraph as PROSE6 leaves it, not the 2026-08-09 original,
+# so this list is applied after the others for the same reason PROSE10 is.
+PROSE11 = [
+    ('the system never automatically accepts or rejects a topic.',
+     'the system never automatically accepts or rejects a topic. The single '
+     'exception is a verbatim re-submission: when every chunk of an uploaded '
+     'manuscript already matches an archived passage at 99.9% cosine similarity '
+     'or above, that manuscript is already indexed under an existing record, so '
+     'ingestion is refused and reports the archived thesis it duplicates rather '
+     'than creating a second record for the same text. Every outcome short of '
+     'verbatim is indexed with its flag and left to faculty judgment, including '
+     'the highest overlap observed during evaluation (96.30% matched-chunk '
+     'coverage at 94.94% highest passage similarity, between two distinct '
+     'theses studying the same library).',
+     1, 'P11-1 3.3 verbatim re-submission refusal'),
+]
+
+
 def build(verbose=True):
     xml = D.read_xml(SRC)
     for old, new, label in CELLS:
@@ -726,7 +756,7 @@ def build(verbose=True):
     if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding')
     for old, new, n, label in (
         PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5 + PROSE6 + PROSE7 + PROSE8 + PROSE9
-        + PROSE10
+        + PROSE10 + PROSE11
     ):
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')

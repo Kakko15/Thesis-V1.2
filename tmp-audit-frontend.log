@@ -1,0 +1,121 @@
+=== LINT ===
+
+> rag-thesis-frontend@1.0.0 lint
+> eslint .
+
+LINT_EXIT=0
+=== TEST:COVERAGE ===
+✔ clampPercent survives nulls, junk and out-of-range readings (0.3365ms)
+✔ stageView maps the staging alias onto the first worker stage (0.65ms)
+✔ stageView marks earlier stages done and only in-flight statuses active (0.3592ms)
+✔ a completed job reports every stage done and a full bar (0.395ms)
+✔ stageView tolerates no job at all (0.3161ms)
+✔ only a step the wizard has moved past is interactive (0.2963ms)
+✔ the rail drops its summary once the review panel owns the same data (0.2587ms)
+✔ the rail steps aside entirely once the job is over (0.2872ms)
+✔ summaryRows lists only the fields that have been filled in (0.5165ms)
+✔ summaryRows omits an unpicked program and specialization (0.1865ms)
+✔ formatFileSize switches to kilobytes below a megabyte (0.1697ms)
+✔ only fields the extractor actually returned are credited to it (0.292ms)
+ℹ tests 195
+ℹ suites 7
+ℹ pass 195
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 510.704
+ℹ start of coverage report
+ℹ ------------------------------------------------------------------------------
+ℹ file                  | line % | branch % | funcs % | uncovered lines
+ℹ ------------------------------------------------------------------------------
+ℹ src                   |        |          |         | 
+ℹ  components           |        |          |         | 
+ℹ   three               |        |          |         | 
+ℹ    sceneCapability.js | 100.00 |   100.00 |  100.00 | 
+ℹ  design               |        |          |         | 
+ℹ   badgeTones.js       | 100.00 |   100.00 |  100.00 | 
+ℹ   contrast.js         | 100.00 |   100.00 |  100.00 | 
+ℹ   tokens.js           | 100.00 |   100.00 |  100.00 | 
+ℹ  lib                  |        |          |         | 
+ℹ   apiErrors.js        | 100.00 |    96.43 |  100.00 | 
+ℹ   catalog.js          | 100.00 |    94.34 |  100.00 | 
+ℹ   idleSession.js      | 100.00 |   100.00 |  100.00 | 
+ℹ   keys.js             | 100.00 |   100.00 |  100.00 | 
+ℹ   pagination.js       | 100.00 |    87.50 |  100.00 | 
+ℹ   permissions.js      | 100.00 |   100.00 |  100.00 | 
+ℹ   privilegedMfa.js    | 100.00 |   100.00 |  100.00 | 
+ℹ   utils.js            |  84.78 |    88.71 |   88.89 | 5-6 13-20 27-35 136-137
+ℹ  pages                |        |          |         | 
+ℹ   archive             |        |          |         | 
+ℹ    archiveFilters.js  | 100.00 |    68.89 |  100.00 | 
+ℹ   auth                |        |          |         | 
+ℹ    authUtils.js       |  90.18 |    74.42 |   88.24 | 47-49 105-112
+ℹ   chat                |        |          |         | 
+ℹ    messageNotice.js   | 100.00 |   100.00 |  100.00 | 
+ℹ    responseActions.js |  66.20 |    42.11 |   77.78 | 16-29 45-54
+ℹ    transcript.js      | 100.00 |    92.86 |  100.00 | 
+ℹ   novelty             |        |          |         | 
+ℹ    report.js          |  75.44 |    80.00 |   75.00 | 44-57
+ℹ   upload              |        |          |         | 
+ℹ    batchState.js      |  99.51 |    88.33 |  100.00 | 340-341
+ℹ    uploadState.js     | 100.00 |    84.09 |  100.00 | 
+ℹ    wizardSteps.js     | 100.00 |   100.00 |  100.00 | 
+ℹ ------------------------------------------------------------------------------
+ℹ all files             |  96.28 |    87.15 |   96.79 | 
+ℹ ------------------------------------------------------------------------------
+ℹ end of coverage report
+COV_EXIT=0
+=== BUILD ===
+dist/assets/AdminOverview-D1NrmHin.js          9.92 kB │ gzip:   3.37 kB
+dist/assets/ThesisCards-D1YQ7l9C.js            9.94 kB │ gzip:   4.06 kB
+dist/assets/Novelty-DsdFN2Tv.js               16.95 kB │ gzip:   5.67 kB
+dist/assets/IngestScene3D-DlP_7x8t.js         17.36 kB │ gzip:   4.81 kB
+dist/assets/Archive-BKQrzqih.js               19.77 kB │ gzip:   5.65 kB
+dist/assets/WizardStep-B-b1hZUo.js            21.86 kB │ gzip:   7.70 kB
+dist/assets/SystemManagementTab-BROFTevQ.js   23.41 kB │ gzip:   5.77 kB
+dist/assets/Settings-PKhVmbyk.js              27.52 kB │ gzip:   8.24 kB
+dist/assets/es2015-DpCLFM-u.js                30.34 kB │ gzip:  10.67 kB
+dist/assets/UploadBatch-B_B37yBL.js           32.82 kB │ gzip:   9.54 kB
+dist/assets/Chat-DjiKYAFg.js                  35.35 kB │ gzip:  11.70 kB
+dist/assets/Login-Bu3cSwtF.js                 39.50 kB │ gzip:  11.67 kB
+dist/assets/Landing-CGNIcv2Y.js               41.13 kB │ gzip:  11.74 kB
+dist/assets/Upload-DVoZPk4r.js                41.80 kB │ gzip:  11.35 kB
+dist/assets/Input-BKWPF-Ck.js                 42.18 kB │ gzip:  13.32 kB
+dist/assets/lib-DT0xRXFp.js                  115.66 kB │ gzip:  35.04 kB
+dist/assets/utils-D-ylJmJL.js                123.08 kB │ gzip:  32.18 kB
+dist/assets/motion-k9SyVedm.js               143.19 kB │ gzip:  47.10 kB
+dist/assets/index-BmWax4gu.js                180.19 kB │ gzip:  51.66 kB
+dist/assets/vendor-D_8aNHtP.js               244.34 kB │ gzip:  79.28 kB
+dist/assets/api-BZ5FYNPe.js                  259.82 kB │ gzip:  72.22 kB
+dist/assets/OverviewCharts-DCbT1TFq.js       374.19 kB │ gzip: 107.08 kB
+dist/assets/useSceneRuntime-BxoXSZfT.js      868.59 kB │ gzip: 232.08 kB
+
+[33m[33m[PLUGIN_TIMINGS] [0mYour build spent significant time in plugins. Here is a breakdown:
+  - rolldown:vite-resolve (37%)
+  - vite:css-post (26%)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+[39m
+[32m✓ built in 8.93s[39m
+BUILD_EXIT=0
+=== BUDGET ===
+
+> rag-thesis-frontend@1.0.0 bundle:budget
+> node scripts/check-bundle-budget.mjs
+
+Eager payload: 323.3 kB gzipped across 12 files (budget 330 kB)
+      2.4 kB  Button-Bl1d3CZl.js
+     12.9 kB  Input-BKWPF-Ck.js
+     69.8 kB  api-BZ5FYNPe.js
+      0.1 kB  check-DJw0y7N6.js
+     10.3 kB  es2015-DpCLFM-u.js
+       50 kB  index-BmWax4gu.js
+     23.7 kB  index-XzX4C-nV.css
+      0.2 kB  keys-C_MMUT_6.js
+     45.5 kB  motion-k9SyVedm.js
+      0.5 kB  rolldown-runtime-CNC7AqOf.js
+     31.2 kB  utils-D-ylJmJL.js
+     76.5 kB  vendor-D_8aNHtP.js
+
+Bundle budget OK.
+BUDGET_EXIT=0

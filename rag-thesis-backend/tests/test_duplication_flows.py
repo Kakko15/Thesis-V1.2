@@ -24,6 +24,7 @@ class Query:
     def in_(self, *_args): return self
     def order(self, *_args, **_kwargs): return self
     def limit(self, *_args): return self
+    def delete(self): return self
     def update(self, payload): self.payload = payload; return self
 
     def insert(self, payload):
@@ -41,6 +42,16 @@ class Client:
         self.table_rows = {name: list(values) for name, values in table_rows.items()}
     def rpc(self, _name, _args): return Query(self.rpc_rows.pop(0))
     def table(self, name): return Query(self.table_rows[name].pop(0))
+
+
+def delete_request(path='/duplication/history'):
+    """slowapi's wrapper needs a real Request, so the rate-limited history
+    deletions cannot be called with a stand-in object."""
+    return Request({
+        'type': 'http', 'method': 'DELETE', 'path': path, 'headers': [],
+        'query_string': b'', 'client': ('127.0.0.1', 1234),
+        'server': ('test', 80), 'scheme': 'http',
+    })
 
 
 def upload_file():
@@ -193,3 +204,55 @@ class TestDuplicationChat:
     def test_history_is_owner_scoped(self, monkeypatch):
         monkeypatch.setattr(duplication, 'sb', Client([], {'scan_history': [[{'id': 's1'}]]}))
         assert duplication.get_history(SimpleNamespace(id='u1')) == [{'id': 's1'}]
+
+    def test_delete_scan_removes_owned_record(self, monkeypatch):
+        client = Client([], {'scan_history': [[{'id': 's1'}], []]})
+        monkeypatch.setattr(duplication, 'sb', client)
+        result = duplication.delete_scan(delete_request(), 's1', SimpleNamespace(id='u1'))
+        assert result == {'deleted': True, 'id': 's1'}
+
+    def test_delete_scan_missing_raises_404(self, monkeypatch):
+        client = Client([], {'scan_history': [[]]})
+        monkeypatch.setattr(duplication, 'sb', client)
+        with pytest.raises(HTTPException) as exc:
+            duplication.delete_scan(delete_request(), 'missing', SimpleNamespace(id='u1'))
+        assert exc.value.status_code == 404
+
+    def test_delete_scan_reads_a_malformed_id_as_absent(self, monkeypatch):
+        """`scan_history.id` is a uuid column, so a mistyped path segment is
+        rejected by Postgres instead of matching no rows. That is a 404, not the
+        500 the route answered before the guard was added."""
+        class Rejecting:
+            def table(self, _name): return self
+            def select(self, *_a): return self
+            def eq(self, *_a): return self
+            def limit(self, *_a): return self
+            def execute(self):
+                raise RuntimeError(
+                    'invalid input syntax for type uuid: "not-a-uuid"'
+                )
+
+        monkeypatch.setattr(duplication, 'sb', Rejecting())
+        with pytest.raises(HTTPException) as exc:
+            duplication.delete_scan(delete_request(), 'not-a-uuid', SimpleNamespace(id='u1'))
+        assert exc.value.status_code == 404
+
+    def test_delete_scan_still_raises_an_unrelated_database_error(self, monkeypatch):
+        """Only the invalid-identifier reading is downgraded; a real outage
+        must not be reported to the researcher as a missing record."""
+        class Broken:
+            def table(self, _name): return self
+            def select(self, *_a): return self
+            def eq(self, *_a): return self
+            def limit(self, *_a): return self
+            def execute(self): raise RuntimeError('connection refused')
+
+        monkeypatch.setattr(duplication, 'sb', Broken())
+        with pytest.raises(RuntimeError):
+            duplication.delete_scan(delete_request(), 's1', SimpleNamespace(id='u1'))
+
+    def test_clear_scan_history_deletes_all_owned_records(self, monkeypatch):
+        client = Client([], {'scan_history': [[]]})
+        monkeypatch.setattr(duplication, 'sb', client)
+        result = duplication.clear_scan_history(delete_request(), SimpleNamespace(id='u1'))
+        assert result == {'deleted': True}

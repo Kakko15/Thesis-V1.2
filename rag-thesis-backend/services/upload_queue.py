@@ -133,7 +133,10 @@ def schedule_retry(client, job: dict, worker_id: str, error: BaseException) -> b
 
 
 def fail_job(client, job_id: str, worker_id: str, error: BaseException) -> bool:
-    public_error = (
+    # Only an error class that deliberately composes a message for the
+    # uploader (DuplicateManuscriptIngestionError) publishes its own text; every
+    # other message may quote a provider response and stays behind a fixed line.
+    public_error = str(getattr(error, 'public_error', '') or '') or (
         'The manuscript could not be processed safely.'
         if isinstance(error, PermanentIngestionError)
         else 'The thesis could not be safely indexed after the allowed retries.'

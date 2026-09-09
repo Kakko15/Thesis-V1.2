@@ -1,6 +1,6 @@
 from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 # CCSICT academic tracks (thesis paper, Section 3.2.1)
 CCSICT_TRACKS = [
@@ -160,11 +160,28 @@ class BatchRow(BaseModel):
     One JSON list rather than repeated multipart fields: repeated fields
     silently misalign when a value is blank, while a list is validated as a
     whole and length-checked against the files once.
+
+    The academic program is per row because a batch is a shelf of theses, not
+    one thesis in twenty parts: CCSICT alone awards five degrees, so requiring
+    a single program for the request meant one batch per program. A row that
+    omits it falls back to the request-level `program_id` form field.
     """
     title: str
     authors: str = ''
     year: str = ''
     idempotency_key: str
+    program_id: Optional[str] = None
+    specialization_id: Optional[str] = None
+
+    @field_validator('program_id', 'specialization_id', mode='before')
+    @classmethod
+    def _blank_is_absent(cls, value):
+        """An empty string from the form means "use the batch default".
+
+        Without this, '' would reach resolve_academic_selection as a program id
+        and be rejected as unknown rather than falling back.
+        """
+        return value or None
 
 
 class BatchExtractedFile(BaseModel):
@@ -174,6 +191,10 @@ class BatchExtractedFile(BaseModel):
     authors: str = ''
     year: str = ''
     department: str = ''
+    # Codes, not ids: the client resolves them inside the department it has
+    # actually selected, so a program from another college is dropped there.
+    program_code: str = ''
+    specialization_code: str = ''
     error: Optional[str] = None
     status_code: Optional[int] = None
 

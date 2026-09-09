@@ -41,7 +41,13 @@ export function BentoFeatures() {
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800">
                       <Sparkles size={14} className="text-gold-300" />
                     </div>
-                    <p className="opacity-80">
+                    {/* Dimmed by colour, not by a blanket alpha. `opacity-80`
+                        also dimmed the citation chips nested inside, dropping
+                        their gold-on-gold text from 5.58:1 to 3.63:1 and
+                        failing the landing axe matrix; `text-ink-muted` is the
+                        audited body token and leaves the chips at full
+                        strength. */}
+                    <p className="text-ink-muted">
                       Example: retrieved archive passages are summarized with source markers
                       <span className={cn(citationChip, 'mx-1')}>[1]</span>
                       <span className={citationChip}>[2]</span>

@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   AUTOFILLABLE_KEYS, PIPELINE_STAGES, WIZARD_STEPS,
-  autofilledKeys, clampPercent, formatFileSize, isTerminalJob, railMode, stageView, stepInteraction,
-  summaryRows,
+  autofilledKeys, clampPercent, extractionDepartment, formatFileSize, isTerminalJob, railMode,
+  stageView, stepInteraction, summaryRows,
 } from './wizardSteps.js'
 import { UPLOAD_STEPS } from './uploadState.js'
 
@@ -37,6 +37,10 @@ test('stageView maps the staging alias onto the first worker stage', () => {
   const missingStage = stageView({ status: 'queued', progress: 4 })
   assert.equal(missingStage.index, 0)
   assert.equal(missingStage.stages[0].active, true)
+
+  const queuedStage = stageView({ status: 'queued', stage: 'queued', progress: 8 })
+  assert.equal(queuedStage.index, 0)
+  assert.equal(queuedStage.stages[0].active, true)
 })
 
 test('stageView marks earlier stages done and only in-flight statuses active', () => {
@@ -136,4 +140,39 @@ test('only fields the extractor actually returned are credited to it', () => {
   assert.deepEqual(autofilledKeys(), [])
   assert.deepEqual(autofilledKeys({ abstract: 'not autofillable' }), [])
   assert.ok(AUTOFILLABLE_KEYS.includes('department'))
+})
+
+test('the department the extractor is credited with is only the one it read', () => {
+  // A superadmin whose title page named no college: the form still has to hold
+  // one, but nothing may be claimed for it. Crediting the fallback left the
+  // "Autofilled" chip permanently lit on the department Select.
+  const blank = extractionDepartment({
+    isSuperadmin: true, extracted: '', current: 'CCSICT', enforced: 'CCSICT',
+  })
+  assert.equal(blank.department, 'CCSICT')
+  assert.equal(blank.extractedDepartment, '')
+  assert.deepEqual(autofilledKeys({ department: blank.extractedDepartment }), [])
+
+  // A page that did name one is credited, and the form follows it.
+  const named = extractionDepartment({
+    isSuperadmin: true, extracted: 'CA', current: 'CCSICT', enforced: 'CCSICT',
+  })
+  assert.equal(named.department, 'CA')
+  assert.deepEqual(autofilledKeys({ department: named.extractedDepartment }), ['department'])
+
+  // Everyone else is pinned by the server, so their department is never read
+  // off the page and never claimed, whatever the extractor replied.
+  const pinned = extractionDepartment({
+    isSuperadmin: false, extracted: 'CA', current: 'CCSICT', enforced: 'CCSICT',
+  })
+  assert.equal(pinned.department, 'CCSICT')
+  assert.deepEqual(autofilledKeys({ department: pinned.extractedDepartment }), [])
+
+  // Whitespace is not a department.
+  assert.equal(extractionDepartment({
+    isSuperadmin: true, extracted: '   ', current: 'CCSICT', enforced: 'CCSICT',
+  }).extractedDepartment, '')
+
+  // Called with nothing at all it must not throw or invent a college.
+  assert.deepEqual(extractionDepartment(), { extractedDepartment: '', department: '' })
 })

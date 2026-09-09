@@ -88,3 +88,31 @@ test('autofill provenance is recorded per key and cleared on first edit', () => 
   state = uploadReducer(state, { type: 'set-autofilled', keys: undefined })
   assert.deepEqual(state.autofilled, {})
 })
+
+test('set-form drops the autofill claims whose value it changed', () => {
+  // A Select is edited through set-form, so without this the extractor went on
+  // being credited for a department or program the uploader had since changed
+  // — and the chips had to be left off those fields entirely to avoid lying.
+  let state = createUploadState('CCSICT')
+  state = uploadReducer(state, {
+    type: 'set-form',
+    value: (form) => ({ ...form, department: 'CCSICT', program_id: 'p-bscs', title: 'An Extracted Title' }),
+  })
+  state = uploadReducer(state, { type: 'set-autofilled', keys: ['title', 'department', 'program_id'] })
+
+  // Picking a different program clears its claim and nothing else.
+  state = uploadReducer(state, {
+    type: 'set-form',
+    value: (form) => ({ ...form, program_id: 'p-blis', specialization_id: '', track: 'BLIS' }),
+  })
+  assert.deepEqual(state.autofilled, { title: true, department: true })
+
+  // Re-selecting the same value changes nothing, so the map keeps its identity
+  // and the chips do not re-render.
+  const before = state.autofilled
+  state = uploadReducer(state, { type: 'set-form', value: (form) => ({ ...form, program_id: 'p-blis' }) })
+  assert.equal(state.autofilled, before)
+
+  state = uploadReducer(state, { type: 'set-form', value: (form) => ({ ...form, department: 'CAS' }) })
+  assert.deepEqual(state.autofilled, { title: true })
+})

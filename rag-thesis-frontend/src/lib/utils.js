@@ -79,10 +79,47 @@ export function scanMetrics(scan = {}) {
   }
 }
 
+/**
+ * The archived thesis a screening record most resembles, or null.
+ *
+ * The backend ranks matched papers by absorbed chunk count, then closest
+ * passage, and repeats the head of that list as `most_similar_paper`. Records
+ * written before 2026-09-08 only carry the list.
+ */
+export function mostSimilarPaper(scan) {
+  const record = scan && typeof scan === 'object' && !Array.isArray(scan) ? scan : {}
+  if (record.most_similar_paper && typeof record.most_similar_paper === 'object') return record.most_similar_paper
+  const [head] = Array.isArray(record.matched_papers) ? record.matched_papers : []
+  return head && typeof head === 'object' ? head : null
+}
+
 export function verdictLabel(level) {
+  if (level === 'exact_duplicate') return 'Exact duplicate—not indexed'
   if (level === 'high_overlap') return 'High overlap—faculty review required'
   if (level === 'review_suggested') return 'Review suggested'
   return 'Clear'
+}
+
+/**
+ * The badge tone a screening verdict deserves.
+ *
+ * The archive card used to paint every flagged paper flame-red, and `flagged`
+ * is true when a *single* chunk matched: a thesis at 7.14% coverage (2 chunks
+ * of shared institutional boilerplate out of 28) shouted exactly as loudly as
+ * one at 96.30%. Theses from one college in one year legitimately share front
+ * matter and a methodology chapter, so that reading is common and the uniform
+ * red trained people to ignore the badge that matters.
+ *
+ * The bands are the backend's (services/novelty.py::verdict_for_coverage):
+ * under 50% coverage is `review_suggested`, 50% and over is `high_overlap`,
+ * and `exact_duplicate` is every chunk verbatim — the worker refuses that job,
+ * so the level only reaches this UI through a failed job's screening record.
+ * Semantic aliases rather than hues, so the audited AA pairings still apply.
+ */
+export function verdictTone(level) {
+  if (level === 'exact_duplicate' || level === 'high_overlap') return 'critical'
+  if (level === 'review_suggested') return 'warning'
+  return 'neutral'
 }
 
 export function extractOwnedAvatarPath(publicUrl, userId) {

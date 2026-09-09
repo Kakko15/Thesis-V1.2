@@ -71,9 +71,15 @@ function EmailCard() {
         </div>
       ) : (
         <>
-          <div className="flex gap-2">
-            <Input value={email} onChange={(event) => setEmail(event.target.value)} className="flex-1" aria-label="Email address" />
-            <Button variant="secondary" loading={loading} onClick={handleUpdate} disabled={email === user?.email || !email}>
+          <div className="flex items-center gap-2">
+            <Input
+              label="Email address"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="flex-1"
+              aria-label="Email address"
+            />
+            <Button variant="secondary" className="h-14 rounded-2xl px-6 shrink-0" loading={loading} onClick={handleUpdate} disabled={email === user?.email || !email}>
               Update
             </Button>
           </div>
@@ -151,16 +157,17 @@ function PasswordCard() {
       ) : (
         <div className="space-y-3">
           <SecurityCheck variant="inline" action="password_reset" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <Input
+              label="New password"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="New password (min. 8 chars)"
+              placeholder="Min. 8 chars with uppercase, number, symbol"
               className="flex-1"
               aria-label="New password"
             />
-            <Button variant="secondary" loading={loading} onClick={handleRequest} disabled={!isStrongPassword(password) || captcha.blocked}>
+            <Button variant="secondary" className="h-14 rounded-2xl px-6 shrink-0" loading={loading} onClick={handleRequest} disabled={!isStrongPassword(password) || captcha.blocked}>
               Update
             </Button>
           </div>

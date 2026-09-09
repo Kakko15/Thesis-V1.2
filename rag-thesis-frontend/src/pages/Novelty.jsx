@@ -7,13 +7,17 @@ import {
   ShieldCheck, FileSearch, FileText, X, History, Send,
   MessageSquareText, Sparkles, ScanSearch, AlertTriangle, Download, Info,
 } from 'lucide-react'
-import { scanDuplication, getScanHistory, scanDuplicationChat, apiErrorMessage, isRetryableFailure, getDepartments } from '../api'
+import {
+  scanDuplication, getScanHistory, deleteScanHistory, clearScanHistory,
+  scanDuplicationChat, apiErrorMessage, isRetryableFailure, getDepartments,
+} from '../api'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { ProgressRing } from '../components/ui/ProgressRing'
 import { EmptyState } from '../components/ui/EmptyState'
+import { ConfirmDialog } from '../components/ui/Modal'
 import { PageTransition } from '../components/ui/Motion'
 import { Skeleton } from '../components/ui/Skeleton'
 import { Select } from '../components/ui/Input'
@@ -276,6 +280,10 @@ export default function Novelty() {
   const [activeScan, setActiveScan] = useState(null)
   const [scanning, setScanning] = useState(false)
   const [department, setDepartment] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const queryClient = useQueryClient()
 
   const {
@@ -296,6 +304,39 @@ export default function Novelty() {
   const effectiveDepartment = isSuperadmin
     ? (department || userDepartment || 'CCSICT')
     : (userDepartment || 'CCSICT')
+
+  const handleDeleteScan = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await deleteScanHistory(deleteTarget.id)
+      if (activeScan?.id === deleteTarget.id) {
+        setActiveScan(null)
+      }
+      await queryClient.invalidateQueries({ queryKey: ['scan-history'] })
+      toast.success('Scan removed from history')
+      setDeleteTarget(null)
+    } catch (err) {
+      toast.error('Could not remove scan', { description: apiErrorMessage(err) })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const handleClearAll = async () => {
+    setClearing(true)
+    try {
+      await clearScanHistory()
+      setActiveScan(null)
+      await queryClient.invalidateQueries({ queryKey: ['scan-history'] })
+      toast.success('All scan history cleared')
+      setConfirmClearOpen(false)
+    } catch (err) {
+      toast.error('Could not clear history', { description: apiErrorMessage(err) })
+    } finally {
+      setClearing(false)
+    }
+  }
 
   const runScan = async (file) => {
     setScanning(true)
@@ -364,8 +405,21 @@ export default function Novelty() {
 
         {/* History timeline */}
         <GlassCard className="h-fit p-5">
-          <div className="mb-4 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-ink-faint">
-            <History size={13} /> Scan history
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-ink-faint">
+              <History size={13} aria-hidden="true" /> Scan history
+            </div>
+            {history.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmClearOpen(true)}
+                className="h-auto px-2 py-1 text-xs font-semibold text-ink-muted hover:bg-flame-500/10 hover:text-flame-500"
+              >
+                Clear all
+              </Button>
+            )}
           </div>
           {loadingHistory ? (
             <div className="space-y-2">{HISTORY_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-16" />)}</div>
@@ -390,29 +444,45 @@ export default function Novelty() {
                 const metrics = scanMetrics(scan)
                 const active = activeScan?.id === scan.id
                 return (
-                  <button
+                  <div
                     key={scan.id}
-                    onClick={() => setActiveScan(scan)}
                     className={cn(
-                      'w-full rounded-2xl p-3.5 text-left transition-colors duration-200',
+                      'group flex items-center gap-1.5 rounded-2xl p-1.5 transition-colors duration-200',
                       active
                         ? 'bg-forest-600/12 dark:bg-forest-400/12'
                         : 'hover:bg-forest-900/6 dark:hover:bg-white/6',
                     )}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-semibold">{scan.filename}</span>
-                      <span
-                        className={cn(
-                          'shrink-0 font-display text-sm font-extrabold',
-                          metrics.coverage >= 50 ? 'text-flame-500' : metrics.coverage > 0 ? 'text-gold-text dark:text-gold-300' : 'text-forest-700 dark:text-forest-300',
-                        )}
-                      >
-                        {metrics.coverage.toFixed(0)}%
-                      </span>
-                    </div>
-                    <div className="mt-1 text-xs text-ink-faint">{timeAgo(scan.created_at)}</div>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveScan(scan)}
+                      className="min-w-0 flex-1 rounded-xl p-2 text-left active:scale-[0.98] transition-transform touch-manipulation"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-semibold" title={scan.filename}>{scan.filename}</span>
+                        <span
+                          className={cn(
+                            'shrink-0 font-display text-sm font-extrabold',
+                            metrics.coverage >= 50 ? 'text-flame-500' : metrics.coverage > 0 ? 'text-gold-text dark:text-gold-300' : 'text-forest-700 dark:text-forest-300',
+                          )}
+                        >
+                          {metrics.coverage.toFixed(0)}%
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-xs text-ink-faint">{timeAgo(scan.created_at)}</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDeleteTarget(scan)
+                      }}
+                      aria-label={`Remove scan ${scan.filename}`}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-flame-500/10 hover:text-flame-500 focus-visible:ring-2 focus-visible:ring-[var(--ring)] sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100"
+                    >
+                      <X size={14} aria-hidden="true" />
+                    </button>
+                  </div>
                 )
               })}
             </div>
@@ -422,6 +492,28 @@ export default function Novelty() {
       {isSuperadmin && departmentsError && (
         <p role="alert" className="text-xs text-flame-500">Department choices could not be loaded. The enforced default remains active.</p>
       )}
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => !deleting && setDeleteTarget(null)}
+        onConfirm={handleDeleteScan}
+        title="Remove this scan?"
+        message={`"${deleteTarget?.filename}" and its advisory report will be permanently removed.`}
+        confirmLabel="Remove scan"
+        danger
+        loading={deleting}
+      />
+
+      <ConfirmDialog
+        open={confirmClearOpen}
+        onClose={() => !clearing && setConfirmClearOpen(false)}
+        onConfirm={handleClearAll}
+        title="Clear all scan history?"
+        message="All novelty check records and advisory reports will be permanently removed."
+        confirmLabel="Clear all"
+        danger
+        loading={clearing}
+      />
     </PageTransition>
   )
 }

@@ -32,9 +32,20 @@ function stateWithFiles(...files) {
   return batchReducer(createBatchState('CCSICT'), { type: 'add-rows', files })
 }
 
-function readyDefaults() {
-  return { ...emptyBatchDefaults('CCSICT'), program_id: 'p1', requires_specialization: false }
-}
+const CATALOG = [{
+  id: 'dept-ccsict',
+  name: 'CCSICT',
+  programs: [
+    {
+      id: 'p-bscs', code: 'BSCS', name: 'Bachelor of Science in Computer Science',
+      specializations: [{ id: 's-dm', code: 'DM', name: 'Data Mining' }],
+    },
+    {
+      id: 'p-bsis', code: 'BSIS', name: 'Bachelor of Science in Information Systems',
+      specializations: [],
+    },
+  ],
+}]
 
 test('fileValidationError accepts PDFs under 25 MB and rejects everything else', () => {
   assert.equal(fileValidationError(pdf('thesis.pdf')), null)
@@ -97,63 +108,150 @@ test('apply-extraction fills blank fields by index and records per-file rejectio
   assert.ok(state.rows.every((row) => row.extracted))
 })
 
-test('splitMetadataErrors sends title and year to the row and classification to the defaults', () => {
+test('splitMetadataErrors keeps each manuscript’s own program with its row', () => {
+  // The program moved out of the shared card: a batch is a shelf of theses
+  // from whatever degrees the college awards, so it is a row's own field and
+  // its complaint belongs beside that row, not above the whole table.
   const row = { title: 'abc', authors: '', year: '1900' }
   const { rowErrors, defaultErrors } = splitMetadataErrors(row, emptyBatchDefaults('CCSICT'))
-  assert.deepEqual(Object.keys(rowErrors).sort(), ['title', 'year'])
-  assert.deepEqual(Object.keys(defaultErrors), ['program_id'])
+  assert.deepEqual(Object.keys(rowErrors).sort(), ['program_id', 'title', 'year'])
+  assert.deepEqual(defaultErrors, {})
+
   const faculty = splitMetadataErrors(
     { title: 'A Long Enough Title', authors: '', year: '' },
     { ...emptyBatchDefaults('CCSICT'), thesis_category: 'faculty' },
   )
   assert.deepEqual(faculty.rowErrors, {})
   assert.deepEqual(faculty.defaultErrors, {})
+
+  // The department is the one classification field still shared, so it is the
+  // only one that can land on the shared card.
   const specialization = splitMetadataErrors(
-    { title: 'A Long Enough Title', authors: '', year: '' },
-    { ...emptyBatchDefaults(''), program_id: 'p1', requires_specialization: true },
+    { title: 'A Long Enough Title', program_id: 'p-bscs', requires_specialization: true },
+    emptyBatchDefaults(''),
   )
-  assert.deepEqual(Object.keys(specialization.defaultErrors).sort(), ['department', 'specialization_id'])
+  assert.deepEqual(Object.keys(specialization.rowErrors), ['specialization_id'])
+  assert.deepEqual(Object.keys(specialization.defaultErrors), ['department'])
 })
 
-test('validateBatch reports per-row and shared errors and flags rejected files', () => {
+test('validateBatch reports each row separately and flags rejected files', () => {
   let state = stateWithFiles(pdf('a.pdf'), pdf('b.pdf'))
   const [a, b] = state.rows
   state = batchReducer(state, { type: 'set-row-field', id: a.id, key: 'title', value: 'A Complete Thesis Title' })
+  state = batchReducer(state, { type: 'patch-row', id: a.id, patch: { program_id: 'p-bsis' } })
   state = batchReducer(state, { type: 'apply-extraction', files: [{ index: 1, error: 'Malformed or unreadable PDF' }] })
-  const invalid = validateBatch(state.rows, emptyBatchDefaults('CCSICT'))
+  const defaults = emptyBatchDefaults('CCSICT')
+  const invalid = validateBatch(state.rows, defaults)
   assert.equal(invalid.valid, false)
+  // The classified row is clean even though its neighbour has no program: one
+  // unclassified manuscript no longer holds up the rest of the batch.
   assert.equal(invalid.rowErrorsById[a.id], undefined)
   assert.match(invalid.rowErrorsById[b.id].title, /title/)
+  assert.match(invalid.rowErrorsById[b.id].program_id, /academic program/)
   assert.match(invalid.rowErrorsById[b.id].file, /Remove this file/)
-  assert.deepEqual(Object.keys(invalid.defaultErrors), ['program_id'])
+  assert.deepEqual(invalid.defaultErrors, {})
 
   const cleaned = batchReducer(state, { type: 'remove-row', id: b.id })
-  const valid = validateBatch(cleaned.rows, readyDefaults())
+  const valid = validateBatch(cleaned.rows, defaults)
   assert.equal(valid.valid, true)
   assert.deepEqual(valid.rowErrorsById, {})
-  assert.deepEqual(validateBatch([], readyDefaults()).defaultErrors, { rows: 'Add at least one manuscript' })
+  assert.deepEqual(validateBatch([], defaults).defaultErrors, { rows: 'Add at least one manuscript' })
+})
+
+test('a batch may mix programs, so two rows validate against their own', () => {
+  let state = stateWithFiles(pdf('cs.pdf'), pdf('is.pdf'))
+  const [cs, is] = state.rows
+  for (const row of state.rows) {
+    state = batchReducer(state, { type: 'set-row-field', id: row.id, key: 'title', value: 'A Complete Thesis Title' })
+  }
+  state = batchReducer(state, {
+    type: 'patch-row', id: cs.id, patch: { program_id: 'p-bscs', requires_specialization: true },
+  })
+  state = batchReducer(state, { type: 'patch-row', id: is.id, patch: { program_id: 'p-bsis' } })
+  const defaults = emptyBatchDefaults('CCSICT')
+  // BSCS needs a specialization and BSIS does not; only the BSCS row complains.
+  let result = validateBatch(state.rows, defaults)
+  assert.match(result.rowErrorsById[cs.id].specialization_id, /specialization/)
+  assert.equal(result.rowErrorsById[is.id], undefined)
+
+  state = batchReducer(state, { type: 'patch-row', id: cs.id, patch: { specialization_id: 's-dm' } })
+  result = validateBatch(state.rows, defaults)
+  assert.equal(result.valid, true)
+})
+
+test('apply-extraction resolves each title page against the batch department', () => {
+  let state = stateWithFiles(pdf('a.pdf'), pdf('b.pdf'), pdf('c.pdf'), pdf('d.pdf'))
+  state = batchReducer(state, {
+    type: 'patch-row', id: state.rows[3].id, patch: { program_id: 'p-bsis', track: 'BSIS' },
+  })
+  state = batchReducer(state, {
+    type: 'apply-extraction',
+    departments: CATALOG,
+    files: [
+      { index: 0, title: 'A', program_code: 'BSCS', specialization_code: 'DM' },
+      { index: 1, title: 'B', program_code: 'BSIS' },
+      // A program from another college: resolved inside CCSICT it is nothing,
+      // so the row keeps an empty program rather than an unsubmittable one.
+      { index: 2, title: 'C', program_code: 'ABCOM' },
+      { index: 3, title: 'D', program_code: 'BSCS', specialization_code: 'DM' },
+    ],
+  })
+  assert.deepEqual(
+    state.rows.map((row) => [row.program_id, row.specialization_id, row.track]),
+    [
+      ['p-bscs', 's-dm', 'Data Mining'],
+      ['p-bsis', '', 'BSIS'],
+      ['', '', ''],
+      // Already chosen by hand, so extraction leaves it alone.
+      ['p-bsis', '', 'BSIS'],
+    ],
+  )
+  assert.equal(state.rows[0].requires_specialization, true)
+  assert.equal(state.rows[1].requires_specialization, false)
+})
+
+test('apply-program sets one classification across every row', () => {
+  let state = stateWithFiles(pdf('a.pdf'), pdf('b.pdf'), pdf('c.pdf'))
+  state = batchReducer(state, {
+    type: 'apply-extraction',
+    files: [{ index: 2, error: 'Malformed or unreadable PDF' }],
+    departments: CATALOG,
+  })
+  const selection = {
+    program_id: 'p-bscs', specialization_id: 's-dm',
+    requires_specialization: true, track: 'Data Mining',
+  }
+  state = batchReducer(state, { type: 'apply-program', selection })
+  // The rejected row is left out: it is being removed, not classified.
+  assert.deepEqual(state.rows.map((row) => row.program_id), ['p-bscs', 'p-bscs', ''])
+
+  // Changing the department clears them all: a program belongs to one college.
+  const cleared = batchReducer(state, {
+    type: 'apply-program',
+    selection: { program_id: '', specialization_id: '', requires_specialization: false, track: '' },
+  })
+  assert.deepEqual(cleared.rows.map((row) => row.program_id), ['', '', ''])
 })
 
 test('set-row-errors and set-default-errors store validation output', () => {
   let state = stateWithFiles(pdf('a.pdf'))
   const [a] = state.rows
   state = batchReducer(state, { type: 'set-row-errors', errorsById: { [a.id]: { title: 'Enter the full thesis title' } } })
-  state = batchReducer(state, { type: 'set-default-errors', errors: { program_id: 'Select the academic program' } })
+  state = batchReducer(state, { type: 'set-default-errors', errors: { department: 'Select the department' } })
   assert.equal(state.rows[0].errors.title, 'Enter the full thesis title')
-  assert.equal(state.defaultErrors.program_id, 'Select the academic program')
+  assert.equal(state.defaultErrors.department, 'Select the department')
   state = batchReducer(state, { type: 'set-row-errors', errorsById: {} })
   assert.deepEqual(state.rows[0].errors, {})
 })
 
-test('defaults actions update the shared classification', () => {
+test('defaults actions update the two fields the batch really shares', () => {
   let state = createBatchState('CCSICT')
   state = batchReducer(state, { type: 'set-defaults-field', key: 'thesis_category', value: 'faculty' })
   assert.equal(state.defaults.thesis_category, 'faculty')
-  state = batchReducer(state, { type: 'set-defaults', value: (current) => ({ ...current, program_id: 'p1', track: 'BSCS' }) })
-  assert.equal(state.defaults.program_id, 'p1')
-  assert.equal(state.defaults.track, 'BSCS')
-  state = batchReducer(state, { type: 'set-defaults', value: emptyBatchDefaults('CAS') })
+  state = batchReducer(state, { type: 'set-defaults', value: (current) => ({ ...current, department: 'CAS' }) })
   assert.equal(state.defaults.department, 'CAS')
+  state = batchReducer(state, { type: 'set-defaults', value: emptyBatchDefaults('CCSICT') })
+  assert.deepEqual(state.defaults, { department: 'CCSICT', thesis_category: 'student' })
 })
 
 test('apply-submit-results assigns jobs or per-row rejections by index', () => {
@@ -304,6 +402,7 @@ test('step, flag, progress, poll-error and reset actions', () => {
 })
 
 test('stageLabel names every worker stage and batchProgress averages accepted rows', () => {
+  assert.equal(stageLabel('queued'), 'In queue')
   assert.equal(stageLabel('embed'), 'Embedding (768d)')
   assert.equal(stageLabel('store'), 'Securing source')
   assert.equal(stageLabel('done'), 'Indexed')

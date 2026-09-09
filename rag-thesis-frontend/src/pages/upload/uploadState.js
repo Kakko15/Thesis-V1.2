@@ -35,6 +35,27 @@ function withoutAutofilled(autofilled, key) {
   return next
 }
 
+/**
+ * Drop every claim whose value the patch actually changed.
+ *
+ * `set-field` clears one key because it is given one key. `set-form` replaces
+ * whole slices of the form -- picking a program rewrites four fields at once --
+ * so it has to compare instead. Without this the Selects could carry no
+ * provenance marker at all: a chip left on `department` after a superadmin
+ * chose a different one credits the extractor with a value it never produced,
+ * and a marker that lies is worse than none.
+ *
+ * Returns the same object by identity when nothing claimed changed, so the
+ * chips do not re-render on every keystroke.
+ */
+function withoutChangedClaims(autofilled, before, after) {
+  const stale = Object.keys(autofilled).filter((key) => before[key] !== after[key])
+  if (stale.length === 0) return autofilled
+  const next = { ...autofilled }
+  for (const key of stale) delete next[key]
+  return next
+}
+
 export function uploadReducer(state, action) {
   switch (action.type) {
     case 'set-step': return {
@@ -53,7 +74,10 @@ export function uploadReducer(state, action) {
       form: { ...state.form, [action.key]: action.value },
       autofilled: withoutAutofilled(state.autofilled, action.key),
     }
-    case 'set-form': return { ...state, form: typeof action.value === 'function' ? action.value(state.form) : action.value }
+    case 'set-form': {
+      const form = typeof action.value === 'function' ? action.value(state.form) : action.value
+      return { ...state, form, autofilled: withoutChangedClaims(state.autofilled, state.form, form) }
+    }
     case 'set-errors': return { ...state, errors: action.errors }
     case 'set-job': return { ...state, job: action.job }
     case 'set-submitting': return { ...state, submitting: action.value }

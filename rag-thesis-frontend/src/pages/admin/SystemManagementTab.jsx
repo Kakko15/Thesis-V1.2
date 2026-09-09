@@ -21,18 +21,17 @@ import { isFacultyThesis } from '../../lib/catalog'
 import { avatarPublicUrl } from '../../lib/avatar'
 import { TableScroller } from '../../components/ui/TableScroller'
 import { TableStateRow } from '../../components/ui/TableStateRow'
+import { PaginationFooter } from '../../components/ui/Pagination'
 
 function PaginationControls({ page, setPage, total, limit }) {
-  const totalPages = Math.ceil(total / limit)
-  if (total <= limit) return null
   return (
-    <div className="flex items-center justify-between border-t border-forest-900/10 px-6 py-3 dark:border-white/10">
-      <div className="text-xs text-ink-muted">Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total}</div>
-      <div className="flex gap-2">
-        <Button size="sm" variant="secondary" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1} className="h-auto px-3 py-1 text-xs">Prev</Button>
-        <Button size="sm" variant="secondary" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages} className="h-auto px-3 py-1 text-xs">Next</Button>
-      </div>
-    </div>
+    <PaginationFooter
+      page={page}
+      setPage={setPage}
+      total={total}
+      limit={limit}
+      className="px-6"
+    />
   )
 }
 
@@ -238,12 +237,12 @@ function DepartmentsManagement() {
 
   return (
     <>
-    <GlassCard className="overflow-hidden mb-6">
+    <GlassCard className="flex flex-col justify-between overflow-hidden mb-6">
       <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex items-center justify-between">
         <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">Departments & Tracks Configuration</div>
         <Button size="sm" onClick={startCreate} disabled={editingId !== null}><Plus size={14} className="mr-1" /> Add Dept</Button>
       </div>
-      <TableScroller label="Departments and tracks configuration">
+      <TableScroller label="Departments and tracks configuration" className="flex-1 min-h-[300px]">
         <table className="w-full text-left text-sm">
           <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
             <tr>
@@ -509,7 +508,7 @@ export default function SystemManagementTab() {
 
   return (
     <div className="space-y-6">
-      <GlassCard className="overflow-hidden">
+      <GlassCard className="flex flex-col justify-between overflow-hidden">
         <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-col gap-4 sm:flex-row sm:items-center justify-between">
           <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">User Directory</div>
           <div className="flex flex-wrap gap-2 items-center">
@@ -543,7 +542,7 @@ export default function SystemManagementTab() {
             </Select>
           </div>
         </div>
-        <TableScroller label="User directory">
+        <TableScroller label="User directory" className="flex-1 min-h-[350px]">
           <table className="w-full text-left text-sm">
             <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
               <tr>
@@ -708,7 +707,7 @@ export default function SystemManagementTab() {
         </>
       )}
 
-      <GlassCard className="overflow-hidden">
+      <GlassCard className="flex flex-col justify-between overflow-hidden">
         <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-col gap-4 sm:flex-row sm:items-center justify-between">
           <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">Database Papers & Buckets</div>
           <div className="flex flex-wrap gap-2 items-center">
@@ -729,7 +728,7 @@ export default function SystemManagementTab() {
             )}
           </div>
         </div>
-        <TableScroller label="Database papers and buckets">
+        <TableScroller label="Database papers and buckets" className="flex-1 min-h-[350px]">
           <table className="w-full text-left text-sm">
             <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
               <tr>

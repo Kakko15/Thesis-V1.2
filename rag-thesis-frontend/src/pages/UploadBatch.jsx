@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -18,17 +18,21 @@ import { AnimatedCounter, PageTransition, staggerContainer, staggerItem } from '
 import { ConfirmDialog } from '../components/ui/Modal'
 import { TableScroller } from '../components/ui/TableScroller'
 import { Dropzone } from '../components/upload/Dropzone'
-import { RailHeading, WizardRail } from '../components/upload/WizardRail'
+import { WizardStepper } from '../components/upload/WizardStepper'
 import { WizardStep } from '../components/upload/WizardStep'
 import { useAuth } from '../context/AuthContext'
 import { cn } from '../lib/utils'
-import { THESIS_CATEGORIES } from '../lib/catalog'
+import {
+  THESIS_CATEGORIES, departmentPrograms, programSelectionById, specializationSelection,
+} from '../lib/catalog'
 import {
   ACTIVE_BATCH_STORAGE_KEY, BATCH_STEPS, BATCH_WIZARD_STEPS, MAX_BATCH_FILES,
-  activeJobIds, allTerminal, batchProgress, batchRailMode, batchReducer, batchSummary, createBatchState,
+  activeJobIds, allTerminal, batchProgress, batchReducer, batchSummary, createBatchState,
   restoreActiveBatch, serializeActiveBatch, stageLabel, statusLabel, statusTone, validateBatch,
 } from './upload/batchState'
 import { formatFileSize } from './upload/wizardSteps'
+
+const IngestScene3D = lazy(() => import('../components/three/IngestScene3D'))
 
 // One read for every job of the batch each tick; the list endpoint sits under
 // the global request limit, not the ten-a-minute upload limit.
@@ -45,38 +49,40 @@ function StepActions({ children }) {
   )
 }
 
-function SectionHeading({ id, icon: Icon, title, hint, children }) {
+function SectionHeading({ id, icon: Icon, title, children }) {
   return (
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)]/60 pb-3">
       <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300 ring-1 ring-forest-500/20 shadow-xs">
           <Icon size={15} aria-hidden="true" />
         </span>
-        <div className="min-w-0">
-          <h2 id={id} className="font-display text-sm font-bold">{title}</h2>
-          {hint && <p className="text-xs text-ink-muted">{hint}</p>}
-        </div>
+        <h2 id={id} className="font-display text-sm font-bold text-ink">{title}</h2>
       </div>
       {children}
     </div>
   )
 }
 
-/** How full the batch is. Lives in the rail, where the batch's identity is. */
+/** How full the batch is. Compact, modern Material 3 status badge. */
 function CapacityMeter({ count, totalBytes }) {
   const percent = Math.round((count / MAX_BATCH_FILES) * 100)
   return (
-    <div>
-      <RailHeading>Batch</RailHeading>
-      <p className="text-xs font-semibold">{count} / {MAX_BATCH_FILES} manuscripts selected</p>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-forest-900/10 dark:bg-white/10" aria-hidden="true">
+    <div className="flex items-center gap-3.5 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)]/80 px-4 py-2 shadow-xs backdrop-blur-xs">
+      <div>
+        <p className="text-xs font-bold text-ink whitespace-nowrap">
+          {count} / {MAX_BATCH_FILES} manuscripts selected
+        </p>
+        <p className="text-[10px] font-medium text-ink-muted">
+          {count > 0 ? `${formatFileSize(totalBytes)} in total` : 'Ready for upload'}
+        </p>
+      </div>
+      <div className="w-16 sm:w-20 h-2 overflow-hidden rounded-full bg-forest-900/10 dark:bg-white/10" aria-hidden="true">
         <motion.div
-          className={cn('h-full rounded-full', count >= MAX_BATCH_FILES ? 'bg-gold-400' : 'bg-forest-600')}
+          className={cn('h-full rounded-full', count >= MAX_BATCH_FILES ? 'bg-gold-400' : 'bg-gradient-to-r from-forest-600 to-forest-500')}
           animate={{ width: `${percent}%` }}
           transition={{ duration: 0.4 }}
         />
       </div>
-      {count > 0 && <p className="mt-1.5 text-[11px] text-ink-faint">{formatFileSize(totalBytes)} in total</p>}
     </div>
   )
 }
@@ -117,28 +123,21 @@ function SelectedFiles({ rows, onRemove }) {
   )
 }
 
+/**
+ * What the whole batch really shares.
+ *
+ * The academic program used to sit here too, which is why ingesting a shelf of
+ * theses meant one batch per degree. It moved into the table, one picker per
+ * manuscript; these two are shared because they genuinely are — the backend
+ * pins the department for everyone but a superadmin.
+ */
 function BatchDefaultsForm({ defaults, errors, departments, isSuperadmin, enforcedDepartment, loadingDepts, onChange }) {
-  const currentDept = departments.find((d) => d.name === defaults.department)
-  const programs = currentDept?.programs || []
-  const program = programs.find((item) => item.id === defaults.program_id)
-  const specializations = program?.specializations || []
-  const programsUnavailable = !defaults.department || programs.length === 0
-  const programHint = programsUnavailable
-    ? 'Choose a department first'
-    : defaults.thesis_category === 'faculty'
-      ? 'Optional for faculty research'
-      : 'Validated against the official catalog'
-  // Two columns, one control per cell. This was sm:grid-cols-3 with the
-  // specialization stacked under the program inside its Field, which left the
-  // three columns ending at different heights and the specialization with no
-  // label of its own. Mirrors components/upload/MetadataForm.jsx.
-  //
-  // nameFromLabel={false} on every Select: Field would otherwise lend its
+  // nameFromLabel={false} on the Selects: Field would otherwise lend its
   // visible label as aria-labelledby, which outranks the aria-label the batch
-  // journey matches these comboboxes by (e2e/critical-flows.spec.js:579-582).
+  // journey matches these comboboxes by (e2e/critical-flows.spec.js).
   return (
     <div className="grid gap-5 rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] p-4 sm:grid-cols-2 sm:p-5">
-      <Field label="Thesis category" required hint="Who authored the manuscripts" nameFromLabel={false}>
+      <Field label="Thesis category" required nameFromLabel={false}>
         <Select
           value={defaults.thesis_category}
           onChange={(event) => onChange({ thesis_category: event.target.value })}
@@ -149,18 +148,20 @@ function BatchDefaultsForm({ defaults, errors, departments, isSuperadmin, enforc
           ))}
         </Select>
       </Field>
-      {/* Department leads the program: it decides which programs load at all. */}
       {isSuperadmin ? (
         <Field
           label="Department"
           error={errors.department}
           required
-          hint="Programs below are filtered by this"
           nameFromLabel={false}
         >
-          <Select value={defaults.department} onChange={(event) => onChange({
-            department: event.target.value, track: '', program_id: '', specialization_id: '', requires_specialization: false,
-          })} error={errors.department} disabled={loadingDepts} aria-label="Select thesis department">
+          <Select
+            value={defaults.department}
+            onChange={(event) => onChange({ department: event.target.value })}
+            error={errors.department}
+            disabled={loadingDepts}
+            aria-label="Select thesis department"
+          >
             <option value="">Select a Department…</option>
             {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
           </Select>
@@ -171,57 +172,72 @@ function BatchDefaultsForm({ defaults, errors, departments, isSuperadmin, enforc
            it cannot be changed; it used to be a bare Badge in an input-shaped
            box under a required asterisk. */
         <Field label="Department">
-          <div className="flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm font-semibold">
+          <div className="flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-[var(--foreground)]">
             <Lock size={14} aria-hidden="true" />
             {enforcedDepartment}
             <span className="ml-auto text-xs font-medium uppercase tracking-wider text-ink-faint">Assigned</span>
           </div>
         </Field>
       )}
-      {/* Widens to the full row when the chosen program has no specializations,
-          so the reveal beside it never leaves a dead cell. */}
-      <div className={cn('min-w-0', specializations.length === 0 && 'sm:col-span-2')}>
-        <Field
-          label="Academic program"
-          error={errors.program_id}
-          required={defaults.thesis_category !== 'faculty'}
-          hint={programHint}
-          nameFromLabel={false}
-        >
-          <Select value={defaults.program_id} onChange={(event) => {
-            const next = programs.find((item) => item.id === event.target.value)
-            onChange({
-              program_id: event.target.value,
-              specialization_id: '',
-              requires_specialization: Boolean(next?.specializations?.length),
-              track: next?.specializations?.length ? '' : (next?.code || ''),
-            })
-          }} error={errors.program_id} disabled={programsUnavailable} aria-label="Select academic program">
-            <option value="">Select program…</option>
-            {programs.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
-          </Select>
-        </Field>
-      </div>
-      {specializations.length > 0 && (
-        <Field
-          label="Specialization"
-          error={errors.specialization_id}
-          required
-          hint="Required for the selected program"
-          nameFromLabel={false}
-        >
-          <Select value={defaults.specialization_id} onChange={(event) => {
-            const next = specializations.find((item) => item.id === event.target.value)
-            onChange({ specialization_id: event.target.value, track: next?.name || '' })
-          }} error={errors.specialization_id} aria-label="Select academic specialization">
-            <option value="">Select specialization…</option>
-            {specializations.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
-          </Select>
-        </Field>
-      )}
     </div>
   )
 }
+
+/**
+ * Set one program across every row at once.
+ *
+ * Per-manuscript programs are what a mixed shelf needs, but a shelf from a
+ * single program is still the common case, and twenty identical dropdowns to
+ * say so would trade one chore for a worse one. Explicitly a bulk edit rather
+ * than a default the rows inherit: after it runs, each row owns its value and
+ * shows it, so there is one place to read what a manuscript will be filed as.
+ */
+function ProgramBulkBar({ programs, disabled, onApply }) {
+  const [selection, setSelection] = useState({ program_id: '', specialization_id: '' })
+  const program = programs.find((item) => item.id === selection.program_id)
+  const specializations = program?.specializations || []
+  // Keyed off the resolved program, not the raw id: a superadmin switching
+  // department remounts this bar, but the guard must hold even before that, or
+  // "Apply to all" could stamp every row with a program of the old college.
+  const incomplete = !program || (specializations.length > 0 && !selection.specialization_id)
+
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] p-3">
+      <span className="min-w-0 basis-full text-xs font-semibold uppercase tracking-wider text-ink-muted sm:basis-auto sm:shrink-0">
+        Same program for all
+      </span>
+      <div className="min-w-[11rem] flex-1">
+        <Select
+          value={selection.program_id}
+          onChange={(event) => setSelection(programSelectionById(programs, event.target.value))}
+          disabled={disabled || programs.length === 0}
+          aria-label="Select a program for every manuscript"
+        >
+          <option value="">Select program…</option>
+          {programs.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
+        </Select>
+      </div>
+      {specializations.length > 0 && (
+        <div className="min-w-[11rem] flex-1">
+          <Select
+            value={selection.specialization_id}
+            onChange={(event) => setSelection((current) => ({
+              ...current, ...specializationSelection(specializations, event.target.value),
+            }))}
+            aria-label="Select a specialization for every manuscript"
+          >
+            <option value="">Select specialization…</option>
+            {specializations.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
+          </Select>
+        </div>
+      )}
+      <Button variant="outline" size="sm" className="shrink-0" disabled={disabled || incomplete} onClick={() => onApply(selection)}>
+        Apply to all rows
+      </Button>
+    </div>
+  )
+}
+
 /**
  * A title field that grows to fit what it holds.
  *
@@ -256,65 +272,110 @@ function AutoGrowTitle({ value, ...props }) {
   return <Textarea ref={ref} value={value} {...props} />
 }
 
+/**
+ * The error line for a row cell whose control does not render its own.
+ *
+ * `Input` and `Textarea` only emit their `FieldErrorHint` when they are given a
+ * `label`; these cells label themselves with `CardLabel` plus an `aria-label`,
+ * so the bare branch renders nothing and the message has to come from here.
+ * `Select` is the exception -- it renders its hint whenever it has an `error`,
+ * and that copy is what its `aria-describedby` points at -- so the program and
+ * specialization cells deliberately do not use this. Rendering both put the
+ * same sentence on screen twice, announced it twice, and tripped a strict-mode
+ * violation in the batch upload E2E on 2026-09-09.
+ *
+ * Styled to match `FieldErrorHint` so the four cells of the grid read as one
+ * row whichever of the two paths produced the line.
+ */
 function FieldError({ message }) {
   if (!message) return null
-  return <p className="mt-1 text-[11px] font-medium text-[var(--destructive)]">{message}</p>
+  return <span role="alert" className="block pt-1.5 text-xs font-medium text-flame-500">{message}</span>
 }
 
-function ReviewRow({ row, index, onChange, onRemove }) {
+function CardLabel({ children, required }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-ink-faint"
+    >
+      {children}
+      {required && <span className="ml-0.5 text-flame-500">*</span>}
+    </span>
+  )
+}
+
+/**
+ * One manuscript of the batch, as a card.
+ *
+ * This was a six-column table inside the wizard's content well. A real batch
+ * carries filenames like "BLIS BEYOND GRADUATION MAPPING CAREER PATHS THROUGH
+ * ALUMNI PROFILING AT ISABELA STATE UNIVERSITY - ECHAGUE.pdf", which pushed the
+ * table past 1500px inside a ~610px column, so every field except the filename
+ * sat behind a horizontal scrollbar nobody found. The batch then failed
+ * validation on a program the uploader could not see, and the only feedback was
+ * "Check the highlighted fields" pointing at nothing.
+ *
+ * A card wraps instead of scrolling, so the fields are visible at any width.
+ */
+function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
   const set = (key) => (event) => onChange(row.id, key, event.target.value)
   const hasErrors = Object.keys(row.errors).length > 0
   const rejected = Boolean(row.extractError)
+  const program = programs.find((item) => item.id === row.program_id)
+  const specializations = program?.specializations || []
+
   return (
-    <motion.tr
+    <motion.li
       layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
+      exit={{ opacity: 0, scale: 0.98 }}
       transition={{ duration: 0.25, delay: index * 0.03 }}
       className={cn(
-        'align-top transition-colors',
-        rejected ? 'bg-flame-500/5' : hasErrors ? 'bg-gold-400/5' : '',
+        'rounded-2xl border p-4 transition-colors',
+        rejected
+          ? 'border-flame-500/25 bg-flame-500/5'
+          : hasErrors
+            ? 'border-gold-400/40 bg-gold-400/5'
+            : 'border-[var(--border)] bg-[var(--surface-1)]',
       )}
     >
-      <td className="w-48 px-3 py-3">
-        <div className="flex items-start gap-2.5">
-          <span className={cn(
-            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl',
-            rejected ? 'bg-flame-500/10 text-flame-500' : 'bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300',
-          )}>
-            {rejected ? <FileWarning size={15} /> : <FileText size={15} />}
-          </span>
-          <div className="min-w-0">
-            <div className="truncate text-xs font-semibold" title={row.name}>{row.name}</div>
-            <div className="text-[11px] text-ink-faint">{formatFileSize(row.size)}</div>
-            <div className="mt-1.5">
-              {rejected ? (
-                <Badge tone="flame"><XCircle size={11} /> Rejected</Badge>
-              ) : row.extracted ? (
-                <Badge tone="forest"><Sparkles size={11} /> Autofilled</Badge>
-              ) : (
-                <Badge tone="neutral">Manual</Badge>
-              )}
-            </div>
+      <div className="flex items-start gap-3">
+        <span className={cn(
+          'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl',
+          rejected ? 'bg-flame-500/10 text-flame-500' : 'bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300',
+        )}>
+          {rejected ? <FileWarning size={16} /> : <FileText size={16} />}
+        </span>
+        {/* min-w-0 is what lets the filename truncate: without it the flex item
+            takes its content's width and pushes the card open. */}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold" title={row.name}>{row.name}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+            <span>PDF · {formatFileSize(row.size)}</span>
+            {rejected ? (
+              <Badge tone="flame"><XCircle size={11} /> Rejected</Badge>
+            ) : row.extracted ? (
+              <Badge tone="forest"><Sparkles size={11} /> Autofilled</Badge>
+            ) : (
+              <Badge tone="neutral">Manual</Badge>
+            )}
           </div>
         </div>
-      </td>
+        <Button variant="ghost" size="icon-sm" onClick={() => onRemove(row.id)} aria-label={`Remove ${row.name}`}>
+          <Trash2 size={14} />
+        </Button>
+      </div>
+
       {rejected ? (
-        <td colSpan={3} className="px-3 py-3">
-          <div className="flex h-full flex-wrap items-center justify-between gap-3 rounded-xl border border-flame-500/25 bg-flame-500/5 px-4 py-3 text-xs">
-            <span className="flex items-center gap-2 text-ink">
-              <AlertTriangle size={14} className="shrink-0 text-flame-500" />
-              {row.extractError}. Remove this file to continue.
-            </span>
-            <Button variant="outline" size="sm" onClick={() => onRemove(row.id)} aria-label={`Remove ${row.name}`}>
-              <Trash2 size={13} /> Remove file
-            </Button>
-          </div>
-        </td>
+        <p className="mt-3 flex items-center gap-2 rounded-xl border border-flame-500/25 bg-flame-500/5 px-3 py-2.5 text-xs text-ink">
+          <AlertTriangle size={14} className="shrink-0 text-flame-500" />
+          {row.extractError}. Remove this file to continue.
+        </p>
       ) : (
-        <>
-          <td className="min-w-[14rem] px-3 py-3">
+        <div className="mt-4 space-y-3">
+          <div>
+            <CardLabel required>Title</CardLabel>
             <AutoGrowTitle
               value={row.title}
               onChange={set('title')}
@@ -325,49 +386,85 @@ function ReviewRow({ row, index, onChange, onRemove }) {
               aria-label={`Title for ${row.name}`}
             />
             <FieldError message={row.errors.title} />
-          </td>
-          <td className="min-w-[10rem] px-3 py-3">
-            <Input value={row.authors} onChange={set('authors')} placeholder="Dela Cruz, J., Santos, M." aria-label={`Authors for ${row.name}`} />
-          </td>
-          <td className="min-w-[5.5rem] px-3 py-3">
-            <Input value={row.year} onChange={set('year')} placeholder={`e.g. ${new Date().getFullYear()}`} inputMode="numeric" maxLength={4} error={row.errors.year} aria-label={`Year for ${row.name}`} />
-            <FieldError message={row.errors.year} />
-          </td>
-        </>
+          </div>
+          {/* Authors take the room; year, program and specialization are short
+              and sit beside each other until the card gets narrow. */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+              <CardLabel>Authors</CardLabel>
+              <Input
+                value={row.authors}
+                onChange={set('authors')}
+                placeholder="Dela Cruz, J., Santos, M."
+                aria-label={`Authors for ${row.name}`}
+              />
+            </div>
+            <div className="min-w-0">
+              <CardLabel required>Year</CardLabel>
+              <Input
+                value={row.year}
+                onChange={set('year')}
+                placeholder={`e.g. ${new Date().getFullYear()}`}
+                inputMode="numeric"
+                maxLength={4}
+                error={row.errors.year}
+                aria-label={`Year for ${row.name}`}
+              />
+              <FieldError message={row.errors.year} />
+            </div>
+            <div className="min-w-0">
+              <CardLabel required>Program</CardLabel>
+              <Select
+                value={row.program_id}
+                onChange={(event) => onPatch(row.id, programSelectionById(programs, event.target.value))}
+                error={row.errors.program_id}
+                disabled={programs.length === 0}
+                aria-label={`Program for ${row.name}`}
+              >
+                <option value="">Select program…</option>
+                {programs.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}
+              </Select>
+            </div>
+            {/* Only some programs carry one, so the cell reveals itself rather
+                than reserving an empty slot in every card. */}
+            {specializations.length > 0 && (
+              <div className="min-w-0">
+                <CardLabel required>Specialization</CardLabel>
+                <Select
+                  value={row.specialization_id}
+                  onChange={(event) => onPatch(row.id, specializationSelection(specializations, event.target.value))}
+                  error={row.errors.specialization_id}
+                  aria-label={`Specialization for ${row.name}`}
+                >
+                  <option value="">Select…</option>
+                  {specializations.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}
+                </Select>
+              </div>
+            )}
+          </div>
+        </div>
       )}
-      <td className="w-10 px-2 py-3 text-right">
-        {!rejected && (
-          <Button variant="ghost" size="icon-sm" onClick={() => onRemove(row.id)} aria-label={`Remove ${row.name}`}>
-            <Trash2 size={14} />
-          </Button>
-        )}
-      </td>
-    </motion.tr>
+    </motion.li>
   )
 }
 
-function ReviewTable({ rows, onChange, onRemove }) {
+function ReviewList({ rows, programs, onChange, onPatch, onRemove }) {
   return (
-    <TableScroller label="Batch metadata review" className="overflow-hidden rounded-2xl border border-[var(--border)]">
-      <table className="w-full min-w-[46rem] text-sm">
-        <thead className="bg-[var(--surface-2)] text-left text-[11px] uppercase tracking-wider text-ink-faint">
-          <tr>
-            <th className="px-3 py-2.5 font-semibold">Manuscript</th>
-            <th className="px-3 py-2.5 font-semibold">Title</th>
-            <th className="px-3 py-2.5 font-semibold">Authors</th>
-            <th className="px-3 py-2.5 font-semibold">Year</th>
-            <th className="px-2 py-2.5"><span className="sr-only">Remove</span></th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-[var(--border)]">
-          <AnimatePresence initial={false}>
-            {rows.map((row, index) => (
-              <ReviewRow key={row.id} row={row} index={index} onChange={onChange} onRemove={onRemove} />
-            ))}
-          </AnimatePresence>
-        </tbody>
-      </table>
-    </TableScroller>
+    <ul className="space-y-3" aria-label="Batch metadata review">
+      <AnimatePresence initial={false}>
+        {rows.map((row, index) => (
+          <ReviewCard
+            key={row.id}
+            row={row}
+            index={index}
+            programs={programs}
+            onChange={onChange}
+            onPatch={onPatch}
+            onRemove={onRemove}
+          />
+        ))}
+      </AnimatePresence>
+    </ul>
   )
 }
 
@@ -377,12 +474,13 @@ function rowPresentation(row) {
   }
   const job = row.job ?? {}
   const status = job.status ?? 'queued'
+  const terminal = status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'expired'
   return {
     tone: statusTone(status),
     label: statusLabel(status),
     message: job.error || job.message || '',
     progress: job.progress ?? 0,
-    stage: status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'expired' ? '' : stageLabel(job.stage),
+    stage: terminal ? '' : status === 'queued' ? 'In queue' : stageLabel(job.stage),
   }
 }
 
@@ -402,7 +500,7 @@ function ProgressRow({ row, onCancel }) {
   const canCancel = Boolean(row.jobId && row.job?.can_cancel && !row.job?.cancel_requested)
   return (
     <tr className="align-top">
-      <td className="max-w-[16rem] px-3 py-3">
+      <td className="max-w-[14rem] sm:max-w-[16rem] px-3 py-3">
         <div className="flex items-start gap-2.5">
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-forest-600/10 dark:bg-gold-400/15">
             <StatusIcon status={status} submitError={row.submitError} />
@@ -413,8 +511,8 @@ function ProgressRow({ row, onCancel }) {
           </div>
         </div>
       </td>
-      <td className="px-3 py-3"><Badge tone={tone}>{label}</Badge></td>
-      <td className="min-w-[11rem] px-3 py-3">
+      <td className="px-3 py-3 whitespace-nowrap"><Badge tone={tone}>{label}</Badge></td>
+      <td className="min-w-[10rem] sm:min-w-[11rem] px-3 py-3">
         <div className="h-2 overflow-hidden rounded-full bg-forest-900/10 dark:bg-white/10" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label={`Progress for ${row.name}`}>
           <motion.div
             className={cn(
@@ -434,7 +532,7 @@ function ProgressRow({ row, onCancel }) {
           <span>{progress}%</span>
         </div>
       </td>
-      <td className="min-w-[14rem] px-3 py-3 text-xs text-ink-muted">
+      <td className="min-w-[12rem] sm:min-w-[14rem] px-3 py-3 text-xs text-ink-muted">
         {message}
         {status === 'retry_wait' && (
           <div className="mt-1 text-[11px] text-gold-600 dark:text-gold-300">Automatic retry {row.job.attempt_count}/{row.job.max_attempts}</div>
@@ -443,10 +541,10 @@ function ProgressRow({ row, onCancel }) {
           <div className="mt-1 text-[11px]">{row.job.chunks} embedded chunks</div>
         )}
       </td>
-      <td className="px-2 py-3 text-right">
+      <td className="w-28 px-4 py-3 text-right whitespace-nowrap">
         {canCancel && (
-          <Button variant="ghost" size="sm" onClick={() => onCancel(row)} aria-label={`Cancel upload of ${row.name}`}>
-            <Ban size={13} /> Cancel
+          <Button variant="ghost" size="sm" onClick={() => onCancel(row)} aria-label={`Cancel upload of ${row.name}`} className="whitespace-nowrap">
+            <Ban size={13} aria-hidden="true" /> Cancel
           </Button>
         )}
       </td>
@@ -456,15 +554,15 @@ function ProgressRow({ row, onCancel }) {
 
 function ProgressTable({ rows, onCancel }) {
   return (
-    <TableScroller label="Batch ingestion progress" className="overflow-hidden rounded-2xl border border-[var(--border)]">
-      <table className="w-full min-w-[44rem] text-sm">
+    <TableScroller label="Batch ingestion progress" className="rounded-2xl border border-[var(--border)]">
+      <table className="w-full min-w-[42rem] text-sm">
         <thead className="bg-[var(--surface-2)] text-left text-[11px] uppercase tracking-wider text-ink-faint">
           <tr>
             <th className="px-3 py-2.5 font-semibold">Manuscript</th>
             <th className="px-3 py-2.5 font-semibold">Status</th>
             <th className="px-3 py-2.5 font-semibold">Progress</th>
             <th className="px-3 py-2.5 font-semibold">Details</th>
-            <th className="px-2 py-2.5"><span className="sr-only">Actions</span></th>
+            <th className="w-28 px-4 py-2.5 text-right font-semibold"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[var(--border)]">
@@ -549,8 +647,78 @@ function IngestingStep({
   rows, summary, finished, pollError, submitting, rejectedRows,
   onCancel, onResumePolling, onRetryRejected, onReset, onViewArchive,
 }) {
+  const progress = batchProgress(rows)
+
   return (
     <div className="space-y-6">
+      {/* 3D Batch Ingestion Visualizer & Telemetry Header */}
+      <div className="grid gap-6 lg:grid-cols-12 items-center">
+        <div className="lg:col-span-7">
+          <div className="relative overflow-hidden rounded-3xl border border-[var(--border)] bg-gradient-to-b from-[var(--surface-1)] to-[var(--surface-2)]/60 shadow-xl shadow-forest-950/5">
+            <Suspense
+              fallback={
+                <div className="flex h-64 w-full items-center justify-center rounded-3xl bg-[var(--surface-2)]/40 animate-pulse">
+                  <span className="text-xs font-mono font-medium text-ink-faint">Initializing 3D Vector Space…</span>
+                </div>
+              }
+            >
+              <IngestScene3D
+                progress={progress}
+                stage={finished ? 'Completed' : 'Batch Ingestion'}
+                stageKey={finished ? 'index' : (progress < 20 ? 'download' : progress < 40 ? 'malware_scan' : progress < 60 ? 'extract' : progress < 80 ? 'embed' : 'index')}
+              />
+            </Suspense>
+          </div>
+        </div>
+
+        <div className="lg:col-span-5 space-y-3.5">
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/80 p-5 shadow-xs backdrop-blur-xs">
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-forest-500 animate-pulse" />
+                <span className="text-xs font-bold uppercase tracking-wider text-ink">
+                  {finished ? 'Batch Completed' : 'Concurrent Workers Active'}
+                </span>
+              </div>
+              <span className="font-display text-base sm:text-lg font-extrabold text-forest-700 dark:text-gold-300 tabular-nums">
+                {progress}%
+              </span>
+            </div>
+            <div
+              className="h-2.5 overflow-hidden rounded-full bg-forest-900/10 dark:bg-white/10"
+              role="progressbar"
+              aria-valuenow={progress}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Overall batch progress"
+            >
+              <motion.div
+                className="h-full rounded-full bg-gradient-to-r from-forest-600 via-forest-500 to-gold-400"
+                initial={false}
+                animate={{ width: `${progress}%` }}
+                transition={{ duration: 0.5 }}
+              />
+            </div>
+            <p className="mt-2.5 text-xs text-ink-muted">
+              {summary.completed} of {summary.total} indexed · {summary.processing + summary.queued} active jobs
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 text-center">
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/80 p-3 shadow-xs">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-ink-faint">Manuscripts</span>
+              <span className="font-display text-lg font-extrabold text-ink">{summary.total}</span>
+            </div>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/80 p-3 shadow-xs">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-ink-faint">Status</span>
+              <span className="font-display text-sm font-bold text-forest-700 dark:text-gold-300 mt-1 block">
+                {finished ? 'Finished' : 'Processing'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {finished && <FinishedBanner summary={summary} />}
       <BatchOverview summary={summary} />
       <ProgressTable rows={rows} onCancel={onCancel} />
@@ -562,8 +730,6 @@ function IngestingStep({
           </Button>
         </div>
       )}
-      {/* Only while work is outstanding. Once it is done the banner above, the
-          rail's ring and this line all reported the same count three times. */}
       {!finished && (
         <p className="text-center text-sm text-ink-muted">
           The durable worker processes these in the background. You can leave and come back;
@@ -689,9 +855,26 @@ export default function UploadBatch() {
     }
   }, [summary.completed, queryClient])
 
+  // The department decides which programs exist, so every row's classification
+  // is read from the one currently selected.
+  const programs = departmentPrograms(departments, defaults.department)
+
   const setStep = (value) => dispatch({ type: 'set-step', step: value })
-  const updateDefaults = (patch) => dispatch({ type: 'set-defaults', value: (current) => ({ ...current, ...patch }) })
+  const updateDefaults = (patch) => {
+    dispatch({ type: 'set-defaults', value: (current) => ({ ...current, ...patch }) })
+    // A program belongs to one college, so changing the department invalidates
+    // every row's. Clearing them is the honest outcome: leaving the codes in
+    // place would show a classification the upload would be rejected for.
+    if (patch.department !== undefined) {
+      dispatch({
+        type: 'apply-program',
+        selection: { program_id: '', specialization_id: '', requires_specialization: false, track: '' },
+      })
+    }
+  }
   const changeRow = (id, key, value) => dispatch({ type: 'set-row-field', id, key, value })
+  const patchRow = (id, patch) => dispatch({ type: 'patch-row', id, patch })
+  const applyProgramToAll = (selection) => dispatch({ type: 'apply-program', selection })
   const removeRow = (id) => dispatch({ type: 'remove-row', id })
 
   const continueToReview = async () => {
@@ -700,7 +883,9 @@ export default function UploadBatch() {
     toast.info('Extracting metadata from the title pages…')
     try {
       const response = await extractMetadataBatch(rows.map((row) => row.file))
-      dispatch({ type: 'apply-extraction', files: response.files })
+      // The catalog goes in so each row's extracted program code resolves
+      // inside the department this batch is being filed under.
+      dispatch({ type: 'apply-extraction', files: response.files, departments })
       const rejected = response.files.filter((entry) => entry.error).length
       if (rejected) {
         toast.warning(`${rejected} file${rejected === 1 ? ' was' : 's were'} rejected`, {
@@ -737,6 +922,7 @@ export default function UploadBatch() {
         rows: targets.map((row) => ({
           title: row.title.trim(), authors: row.authors.trim(), year: row.year.trim(),
           idempotency_key: row.idempotencyKey,
+          program_id: row.program_id, specialization_id: row.specialization_id,
         })),
         defaults,
         onUploadProgress: (event) => {
@@ -765,7 +951,6 @@ export default function UploadBatch() {
 
   const rejectedRows = rows.filter((row) => row.submitError && row.file)
   const extractionRejects = rows.filter((row) => row.extractError)
-  const autofilled = rows.filter((row) => row.extracted && !row.extractError).length
 
   const confirmCancellation = async () => {
     const row = cancelTarget
@@ -806,146 +991,154 @@ export default function UploadBatch() {
 
   const finished = step === BATCH_STEPS.ingesting && allTerminal(rows)
   const totalBytes = rows.reduce((sum, row) => sum + (row.size || 0), 0)
-  const railMode = batchRailMode(step)
-  const progress = batchProgress(rows)
-
   return (
     <PageTransition className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
+          <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl text-ink">
             Batch <span className="text-gradient-isu">Upload</span>
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-ink-muted">
-            Ingest several thesis manuscripts at once. Titles, authors, and years are read from each title page;
-            the category, program, and department are shared by the whole batch.
+            Ingest several thesis manuscripts at once. Titles, authors, years, and the academic program
+            are read from each title page; only the category and department are shared by the whole batch.
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => navigate('/upload')}>
+        <Button variant="secondary" size="sm" onClick={() => navigate('/upload')} className="shadow-xs hover:shadow-md transition-all">
           <ArrowLeft size={14} /> Single upload
         </Button>
       </div>
 
-      <GlassCard className="overflow-hidden p-0">
-        <div className="grid lg:grid-cols-[16rem_minmax(0,1fr)]">
-          <WizardRail
-            steps={BATCH_WIZARD_STEPS}
-            step={step}
-            mode={railMode}
-            progress={progress}
-            progressLabel="Overall batch progress"
-            statusLabel={finished ? 'Finished' : 'Ingesting'}
-            caption={`${summary.completed} of ${summary.total} indexed`}
-            onSelectStep={step < BATCH_STEPS.ingesting ? setStep : undefined}
-          >
-            {railMode === 'summary' && <CapacityMeter count={rows.length} totalBytes={totalBytes} />}
-          </WizardRail>
+      <GlassCard className="overflow-hidden p-0 border border-[var(--border)] shadow-xl backdrop-blur-md rounded-3xl">
+        {/* Modern Horizontal Stepper & Batch Capacity Header */}
+        {step < BATCH_STEPS.ingesting && (
+          <div className="border-b border-[var(--border)]/70 bg-[var(--surface-1)]/80 px-3.5 py-4 sm:px-8 backdrop-blur-xs">
+            <div className="relative flex flex-col items-center justify-center gap-4 lg:flex-row">
+              <WizardStepper
+                steps={BATCH_WIZARD_STEPS}
+                current={step}
+                orientation="horizontal"
+                onSelect={step < BATCH_STEPS.ingesting ? setStep : undefined}
+              />
+              <div className="shrink-0 lg:absolute lg:right-0 lg:top-1/2 lg:-translate-y-1/2">
+                <CapacityMeter count={rows.length} totalBytes={totalBytes} />
+              </div>
+            </div>
+          </div>
+        )}
 
-          <div className="min-w-0 p-5 sm:p-7">
-            {departmentsError && (
-              <div role="alert" className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-flame-500/25 bg-flame-500/10 p-3 text-xs">
-                <span className="flex items-center gap-2"><AlertTriangle size={14} aria-hidden="true" /> Department metadata is unavailable.</span>
-                <Button variant="ghost" size="sm" onClick={() => retryDepartments()}>Retry</Button>
+        <div className="min-w-0 p-3.5 sm:p-7 md:p-8">
+          {departmentsError && (
+            <div role="alert" className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-flame-500/25 bg-flame-500/10 p-3 text-xs">
+              <span className="flex items-center gap-2"><AlertTriangle size={14} aria-hidden="true" /> Department metadata is unavailable.</span>
+              <Button variant="ghost" size="sm" onClick={() => retryDepartments()}>Retry</Button>
+            </div>
+          )}
+
+          <WizardStep stepKey={step} direction={direction}>
+            {step === BATCH_STEPS.files && (
+              <div className="max-w-3xl mx-auto space-y-6">
+                <Dropzone
+                  multiple
+                  disabled={rows.length >= MAX_BATCH_FILES}
+                  onFiles={(files) => dispatch({ type: 'add-rows', files })}
+                />
+                <SelectedFiles rows={rows} onRemove={removeRow} />
+                <StepActions>
+                  <p className="text-xs text-ink-faint">
+                    {rows.length === 0
+                      ? 'Choose one or more PDFs to continue.'
+                      : 'Title pages are read next, then you check every record.'}
+                  </p>
+                  <Button disabled={rows.length === 0 || extracting} loading={extracting} onClick={continueToReview} className="group">
+                    {extracting ? 'Reading title pages…' : 'Continue'}
+                    <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                  </Button>
+                </StepActions>
               </div>
             )}
 
-            <WizardStep stepKey={step} direction={direction}>
-              {step === BATCH_STEPS.files && (
-                <>
-                  <Dropzone
-                    multiple
-                    disabled={rows.length >= MAX_BATCH_FILES}
-                    onFiles={(files) => dispatch({ type: 'add-rows', files })}
+            {step === BATCH_STEPS.review && (
+              <div className="space-y-7">
+                <section aria-labelledby="batch-shared-heading">
+                  <SectionHeading id="batch-shared-heading" icon={Layers} title="Shared details" />
+                  <BatchDefaultsForm
+                    defaults={defaults}
+                    errors={defaultErrors}
+                    departments={departments}
+                    isSuperadmin={isSuperadmin}
+                    enforcedDepartment={enforcedDepartment}
+                    loadingDepts={loadingDepts}
+                    onChange={updateDefaults}
                   />
-                  <SelectedFiles rows={rows} onRemove={removeRow} />
-                  <StepActions>
-                    <p className="text-xs text-ink-faint">
-                      {rows.length === 0
-                        ? 'Choose one or more PDFs to continue.'
-                        : 'Title pages are read next, then you check every record.'}
-                    </p>
-                    <Button disabled={rows.length === 0 || extracting} loading={extracting} onClick={continueToReview} className="group">
-                      {extracting ? 'Reading title pages…' : 'Continue'}
-                      <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-                    </Button>
-                  </StepActions>
-                </>
-              )}
+                </section>
 
-              {step === BATCH_STEPS.review && (
-                <div className="space-y-7">
-              <section aria-labelledby="batch-shared-heading">
-                <SectionHeading id="batch-shared-heading" icon={Layers} title="Shared classification" hint="Set once, applied to every manuscript below" />
-                <BatchDefaultsForm
-                  defaults={defaults}
-                  errors={defaultErrors}
-                  departments={departments}
-                  isSuperadmin={isSuperadmin}
-                  enforcedDepartment={enforcedDepartment}
-                  loadingDepts={loadingDepts}
-                  onChange={updateDefaults}
-                />
-              </section>
-
-              <section aria-labelledby="batch-rows-heading">
-                <SectionHeading
-                  id="batch-rows-heading"
-                  icon={Sparkles}
-                  title="Manuscript metadata"
-                  hint={`${autofilled} of ${rows.length} autofilled from the title page. Edit anything that reads wrong.`}
-                >
-                  {extractionRejects.length > 0 && (
-                    <Button variant="outline" size="sm" onClick={() => extractionRejects.forEach((row) => removeRow(row.id))}>
-                      <Trash2 size={13} /> Remove {extractionRejects.length} rejected
-                    </Button>
-                  )}
-                </SectionHeading>
-                {defaultErrors.rows && <p role="alert" className="mb-2 text-xs text-[var(--destructive)]">{defaultErrors.rows}</p>}
-                <ReviewTable rows={rows} onChange={changeRow} onRemove={removeRow} />
-              </section>
-
-              {submitting && (
-                <div>
-                  <div className="h-2 overflow-hidden rounded-full bg-forest-900/10 dark:bg-white/10" role="progressbar" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100} aria-label="Upload progress">
-                    <div className="h-full rounded-full bg-gradient-to-r from-forest-600 via-forest-500 to-gold-400 transition-[width] duration-300" style={{ width: `${uploadProgress}%` }} />
-                  </div>
-                  <p className="mt-1 text-center text-xs text-ink-muted">Uploading manuscripts… {uploadProgress}%</p>
-                </div>
-              )}
-                  <StepActions>
-                    <Button variant="ghost" onClick={() => setStep(BATCH_STEPS.files)} disabled={submitting}>
-                      <ArrowLeft size={15} aria-hidden="true" /> Back
-                    </Button>
-                    <div className="flex items-center gap-3">
-                      <span className="hidden text-xs text-ink-faint sm:inline">Each manuscript becomes its own durable job.</span>
-                      {/* Primary, not the gold container variant, matching the
-                          single wizard: gold resolves to --secondary-container
-                          and reads quieter than the decisive action deserves. */}
-                      <Button loading={submitting} disabled={rows.length === 0} onClick={() => submitRows(rows)}>
-                        <UploadCloud size={16} aria-hidden="true" /> Ingest {rows.length} manuscript{rows.length === 1 ? '' : 's'}
+                <section aria-labelledby="batch-rows-heading">
+                  <SectionHeading
+                    id="batch-rows-heading"
+                    icon={Sparkles}
+                    title="Manuscript metadata"
+                  >
+                    {extractionRejects.length > 0 && (
+                      <Button variant="outline" size="sm" onClick={() => extractionRejects.forEach((row) => removeRow(row.id))}>
+                        <Trash2 size={13} /> Remove {extractionRejects.length} rejected
                       </Button>
-                    </div>
-                  </StepActions>
-                </div>
-              )}
+                    )}
+                  </SectionHeading>
+                  {defaultErrors.rows && <p role="alert" className="mb-2 text-xs text-[var(--destructive)]">{defaultErrors.rows}</p>}
+                  <ProgramBulkBar
+                    key={defaults.department}
+                    programs={programs}
+                    disabled={submitting}
+                    onApply={applyProgramToAll}
+                  />
+                  <ReviewList
+                    rows={rows}
+                    programs={programs}
+                    onChange={changeRow}
+                    onPatch={patchRow}
+                    onRemove={removeRow}
+                  />
+                </section>
 
-              {step === BATCH_STEPS.ingesting && (
-                <IngestingStep
-                  rows={rows}
-                  summary={summary}
-                  finished={finished}
-                  pollError={pollError}
-                  submitting={submitting}
-                  rejectedRows={rejectedRows}
-                  onCancel={setCancelTarget}
-                  onResumePolling={resumePolling}
-                  onRetryRejected={() => submitRows(rejectedRows)}
-                  onReset={reset}
-                  onViewArchive={() => navigate('/archive')}
-                />
-              )}
-            </WizardStep>
-          </div>
+                {submitting && (
+                  <div>
+                    <div className="h-2 overflow-hidden rounded-full bg-forest-900/10 dark:bg-white/10" role="progressbar" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100} aria-label="Upload progress">
+                      <div className="h-full rounded-full bg-gradient-to-r from-forest-600 via-forest-500 to-gold-400 transition-[width] duration-300" style={{ width: `${uploadProgress}%` }} />
+                    </div>
+                    <p className="mt-1 text-center text-xs text-ink-muted">Uploading manuscripts… {uploadProgress}%</p>
+                  </div>
+                )}
+
+                <StepActions>
+                  <Button variant="ghost" onClick={() => setStep(BATCH_STEPS.files)} disabled={submitting}>
+                    <ArrowLeft size={15} aria-hidden="true" /> Back
+                  </Button>
+                  <div className="flex items-center gap-3">
+                    <span className="hidden text-xs text-ink-faint sm:inline">Each manuscript becomes its own durable job.</span>
+                    <Button loading={submitting} disabled={rows.length === 0} onClick={() => submitRows(rows)}>
+                      <UploadCloud size={16} aria-hidden="true" /> Ingest {rows.length} manuscript{rows.length === 1 ? '' : 's'}
+                    </Button>
+                  </div>
+                </StepActions>
+              </div>
+            )}
+
+            {step === BATCH_STEPS.ingesting && (
+              <IngestingStep
+                rows={rows}
+                summary={summary}
+                finished={finished}
+                pollError={pollError}
+                submitting={submitting}
+                rejectedRows={rejectedRows}
+                onCancel={setCancelTarget}
+                onResumePolling={resumePolling}
+                onRetryRejected={() => submitRows(rejectedRows)}
+                onReset={reset}
+                onViewArchive={() => navigate('/archive')}
+              />
+            )}
+          </WizardStep>
         </div>
       </GlassCard>
 

@@ -19,6 +19,7 @@ from dependencies.auth import require_novelty_access, resolve_effective_departme
 from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.chunker import split_document, validate_chunk_records
+from services.db_errors import is_invalid_identifier
 from services.index_provenance import retrieval_provenance_params
 from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
@@ -491,3 +492,45 @@ def get_history(user: NoveltyUser):
         .execute()
     )
     return res.data or []
+
+
+# Screening history is the researcher's own record rather than an archive
+# artifact, so both deletions are owner-scoped on the read *and* on the write:
+# the select decides the status code and the delete carries the same
+# `user_id` filter, so a guessed id cannot remove another account's row even if
+# the check above were ever reordered away. Rated like the follow-up questions
+# on the same page -- a destructive endpoint should not be free to hammer, and
+# clearing a history is a handful of clicks, not a bulk operation.
+@router.delete('/history/{scan_id}', responses=errors(404))
+@limiter.limit(settings.rate_limit_followup)
+def delete_scan(request: Request, scan_id: str, user: NoveltyUser):
+    try:
+        res = (
+            sb.table('scan_history')
+            .select('id')
+            .eq('id', scan_id)
+            .eq('user_id', user.id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as error:
+        # `scan_history.id` is a uuid column, so a mistyped id is rejected by
+        # Postgres rather than returning no rows. That is an absent record, not
+        # an outage: without this the route answered 500 to a bad path segment.
+        # Same reading as routers/upload.py::upload_status.
+        if is_invalid_identifier(error):
+            raise HTTPException(404, 'Scan record not found') from error
+        raise
+    if not res.data:
+        raise HTTPException(404, 'Scan record not found')
+    sb.table('scan_history').delete().eq('id', scan_id).eq('user_id', user.id).execute()
+    log_activity(user.id, 'scan_history_delete', {'scan_id': scan_id})
+    return {'deleted': True, 'id': scan_id}
+
+
+@router.delete('/history')
+@limiter.limit(settings.rate_limit_followup)
+def clear_scan_history(request: Request, user: NoveltyUser):
+    sb.table('scan_history').delete().eq('user_id', user.id).execute()
+    log_activity(user.id, 'scan_history_clear', {})
+    return {'deleted': True}

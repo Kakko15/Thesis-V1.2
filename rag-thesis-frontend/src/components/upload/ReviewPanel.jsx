@@ -20,8 +20,14 @@ const cellRise = {
 
 function Cell({ label, children, wide }) {
   return (
-    <motion.div variants={cellRise} className={cn('min-w-0', wide && 'sm:col-span-2')}>
-      <dt className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">{label}</dt>
+    <motion.div
+      variants={cellRise}
+      className={cn(
+        'min-w-0 rounded-xl border border-[var(--border)]/70 bg-[var(--surface-2)]/40 p-3.5 transition-colors hover:bg-[var(--surface-2)]/70',
+        wide && 'sm:col-span-2',
+      )}
+    >
+      <dt className="text-[10px] font-bold uppercase tracking-wider text-ink-faint">{label}</dt>
       <dd className="mt-1">{children}</dd>
     </motion.div>
   )
@@ -29,24 +35,21 @@ function Cell({ label, children, wide }) {
 
 /**
  * The seven worker stages, named up front.
- *
- * This replaces a dense grey paragraph that described the same pipeline in
- * prose. Collapsed it costs three lines; expanded it is the same list the
- * progress timeline is about to walk through, so the next screen is already
- * familiar.
  */
 function PipelinePreview() {
   const [open, setOpen] = useState(false)
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/80 backdrop-blur-xs">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
-        className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left outline-none transition-colors duration-200 hover:bg-[var(--surface-2)]"
+        className="flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left outline-none transition-colors duration-200 hover:bg-[var(--surface-2)]/60"
       >
-        <ShieldCheck size={15} className="shrink-0 text-forest-700 dark:text-gold-300" aria-hidden="true" />
-        <span className="min-w-0 flex-1 text-xs font-semibold">What happens on submit</span>
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-forest-500/15 text-forest-700 dark:text-gold-300">
+          <ShieldCheck size={16} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1 text-xs font-bold uppercase tracking-wider text-ink">What happens on submit</span>
         <ChevronDown
           size={16}
           aria-hidden="true"
@@ -62,18 +65,21 @@ function PipelinePreview() {
             transition={{ duration: duration.medium, ease: easing.standard }}
             className="overflow-hidden"
           >
-            <div className="space-y-3 px-4 pb-4">
-              <ol className="grid gap-1.5 sm:grid-cols-2">
+            <div className="space-y-3 px-4 pb-4.5 pt-1">
+              <ol className="grid gap-2 sm:grid-cols-2">
                 {PIPELINE_STAGES.map((stage, index) => (
-                  <li key={stage.key} className="flex items-center gap-2 text-xs text-ink-muted">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[var(--surface-3)] text-[10px] font-bold text-ink-muted">
+                  <li
+                    key={stage.key}
+                    className="flex items-center gap-2.5 rounded-xl border border-[var(--border)]/60 bg-[var(--surface-2)]/50 px-2.5 py-1.5 text-xs text-ink-muted"
+                  >
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-forest-600/15 text-[10px] font-mono font-bold text-forest-700 dark:text-gold-300">
                       {index + 1}
                     </span>
-                    {stage.label}
+                    <span className="truncate font-medium">{stage.label}</span>
                   </li>
                 ))}
               </ol>
-              <p className="text-xs leading-relaxed text-ink-muted">
+              <p className="text-xs leading-relaxed text-ink-muted bg-[var(--surface-2)]/30 rounded-xl p-3 border border-[var(--border)]/40">
                 The manuscript is cleaned (headers, footers, page numbers, TOC, and bibliography
                 stripped), split into 800-token chunks with metadata tags, embedded via Gemini, and
                 indexed in the pgvector archive. The original PDF is stored privately.
@@ -88,37 +94,38 @@ function PipelinePreview() {
 
 /**
  * Step 3: the record exactly as the archive will store it.
- *
- * A single tonal panel rather than the old `.glass` card nested inside the
- * page's `surface-glass` card — two blurred translucent layers over each other
- * muddied both.
  */
 export function ReviewPanel({ file, form, program, specialization }) {
   return (
     <motion.div variants={listStagger} initial="hidden" animate="show" className="space-y-5">
-      <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]">
+      <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/80 shadow-xs backdrop-blur-xs">
         <motion.div
           variants={cellRise}
-          className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-5 py-4"
+          className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-2)]/80 px-5 py-4"
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800 text-gold-300">
-            <FileText size={17} aria-hidden="true" />
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold" title={file?.name}>{file?.name}</span>
-            <span className="block text-xs text-ink-faint">PDF · {formatFileSize(file?.size)}</span>
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800 text-gold-300 shadow-md shadow-forest-900/20">
+              <FileText size={19} aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <span className="block truncate text-sm font-bold text-ink" title={file?.name}>{file?.name}</span>
+              <span className="block text-xs text-ink-muted">PDF · {formatFileSize(file?.size)}</span>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-forest-500/12 px-3 py-1 text-[11px] font-semibold text-forest-700 dark:text-forest-300 border border-forest-500/25">
+            <ShieldCheck size={13} aria-hidden="true" /> Verified for Ingestion
           </span>
         </motion.div>
 
-        <dl className="grid gap-x-6 gap-y-4 px-5 py-5 sm:grid-cols-2">
+        <dl className="grid gap-3.5 p-4 sm:p-5 sm:grid-cols-2">
           <Cell label="Title" wide>
-            <span className="font-display block text-sm font-bold leading-snug">{form.title}</span>
+            <span className="font-display block text-base font-extrabold leading-snug text-ink">{form.title}</span>
           </Cell>
           <Cell label="Authors">
-            <span className="block text-sm font-medium leading-snug">{form.authors || '—'}</span>
+            <span className="block text-sm font-medium leading-snug text-ink">{form.authors || '—'}</span>
           </Cell>
           <Cell label="Year">
-            <span className="block text-sm font-medium">{form.year || '—'}</span>
+            <span className="block text-sm font-mono font-medium text-ink">{form.year || '—'}</span>
           </Cell>
           <Cell label="Category">
             <Badge tone={form.thesis_category === 'faculty' ? 'gold' : 'forest'}>

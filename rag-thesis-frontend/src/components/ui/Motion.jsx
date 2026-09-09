@@ -4,14 +4,19 @@ import { usePreferences } from '../../context/PreferencesContext'
 import { cn } from '../../lib/utils'
 import { contentKeys } from '../../lib/keys'
 
-/** Route-level page transition wrapper. */
+/** Route-level page transition wrapper. Optimized for 60/120fps hardware acceleration. */
 export function PageTransition({ children, className }) {
+  const { reducedMotion } = usePreferences()
+  if (reducedMotion) {
+    return <div className={className}>{children}</div>
+  }
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16, filter: 'blur(6px)' }}
-      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      exit={{ opacity: 0, y: -12, filter: 'blur(4px)' }}
-      transition={{ duration: 0.45, ease: [0.2, 0, 0, 1] }}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+      style={{ willChange: 'opacity, transform' }}
       className={className}
     >
       {children}
@@ -20,13 +25,18 @@ export function PageTransition({ children, className }) {
 }
 
 /** Scroll-triggered reveal (fires once). */
-export function Reveal({ children, delay = 0, y = 28, className, once = true }) {
+export function Reveal({ children, delay = 0, y = 16, className, once = true }) {
+  const { reducedMotion } = usePreferences()
+  if (reducedMotion) {
+    return <div className={className}>{children}</div>
+  }
   return (
     <motion.div
       initial={{ opacity: 0, y }}
       whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once, margin: '-80px' }}
-      transition={{ duration: 0.7, delay, ease: [0.2, 0, 0, 1] }}
+      viewport={{ once, margin: '-50px' }}
+      transition={{ duration: 0.5, delay, ease: [0.16, 1, 0.3, 1] }}
+      style={{ willChange: 'opacity, transform' }}
       className={className}
     >
       {children}
@@ -37,11 +47,15 @@ export function Reveal({ children, delay = 0, y = 28, className, once = true }) 
 /** Staggered container + item helpers. */
 export const staggerContainer = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
+  show: { transition: { staggerChildren: 0.06, delayChildren: 0.08 } },
 }
 export const staggerItem = {
-  hidden: { opacity: 0, y: 24 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.2, 0, 0, 1] } },
+  hidden: { opacity: 0, y: 14 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.45, ease: [0.16, 1, 0.3, 1] },
+  },
 }
 
 /** Spring-animated number counter. */

@@ -19,13 +19,13 @@ const rowMotion = {
 export function RailFileChip({ file }) {
   if (!file) return null
   return (
-    <motion.div {...rowMotion} layout className="flex items-center gap-2.5 rounded-2xl bg-[var(--surface-2)] p-2.5">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800 text-gold-300">
-        <FileText size={15} aria-hidden="true" />
+    <motion.div {...rowMotion} layout className="flex items-center gap-2.5 rounded-2xl border border-[var(--border)]/70 bg-[var(--surface-2)]/80 p-2.5 shadow-xs backdrop-blur-xs">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800 text-gold-300 shadow-xs">
+        <FileText size={16} aria-hidden="true" />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-xs font-semibold" title={file.name}>{file.name}</span>
-        <span className="block text-[11px] text-ink-faint">PDF · {formatFileSize(file.size)}</span>
+        <span className="block truncate text-xs font-bold text-ink" title={file.name}>{file.name}</span>
+        <span className="block text-[11px] font-medium text-ink-muted">PDF · {formatFileSize(file.size)}</span>
       </span>
     </motion.div>
   )
@@ -35,21 +35,28 @@ export function RailFileChip({ file }) {
 export function RailSummaryList({ rows }) {
   if (rows.length === 0) {
     return (
-      <p className="text-[11px] leading-relaxed text-ink-faint">
-        Details you enter appear here as you go.
-      </p>
+      <div className="rounded-xl border border-dashed border-[var(--border)] p-3 text-center">
+        <p className="text-[11px] leading-relaxed text-ink-faint">
+          Details you enter appear here as you go.
+        </p>
+      </div>
     )
   }
   return (
-    <dl className="space-y-2.5">
+    <dl className="space-y-2">
       <AnimatePresence initial={false} mode="popLayout">
         {rows.map((row) => (
-          <motion.div key={row.key} {...rowMotion} layout>
+          <motion.div
+            key={row.key}
+            {...rowMotion}
+            layout
+            className="rounded-xl border border-[var(--border)]/60 bg-[var(--surface-2)]/50 p-2.5 shadow-xs"
+          >
             <dt className="text-[10px] font-bold uppercase tracking-wider text-ink-faint">{row.label}</dt>
-            <dd className="mt-0.5">
+            <dd className="mt-1">
               {row.tone
                 ? <Badge tone={row.tone}>{row.value}</Badge>
-                : <span className="block break-words text-xs font-medium leading-snug">{row.value}</span>}
+                : <span className="block break-words text-xs font-semibold leading-snug text-ink">{row.value}</span>}
             </dd>
           </motion.div>
         ))}
@@ -60,7 +67,12 @@ export function RailSummaryList({ rows }) {
 
 /** Small caption above a block inside the rail. */
 export function RailHeading({ children }) {
-  return <p className="mb-2.5 text-[10px] font-bold uppercase tracking-wider text-ink-faint">{children}</p>
+  return (
+    <p className="mb-2.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-muted">
+      <span className="h-1.5 w-1.5 rounded-full bg-forest-500" />
+      <span>{children}</span>
+    </p>
+  )
 }
 
 // The ring's default palette reddens as the number climbs, which is right for
