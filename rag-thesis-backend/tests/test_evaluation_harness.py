@@ -1,5 +1,6 @@
 """Regression tests for the defense-critical Objective 2 evaluation harness."""
 
+import argparse
 import asyncio
 import importlib.util
 import json
@@ -16,6 +17,9 @@ from evaluation.run_comparison import (
     _rank_biserial_correlation,
     _ranked_contexts,
     _run_pathways,
+    answering_configuration,
+    configuration_differences,
+    guard_checkpoint_provenance,
     is_unattempted,
     sanitize_evaluation_rows,
     statistical_treatment,
@@ -366,6 +370,104 @@ def test_a_checkpoint_round_trips_as_json_lines(tmp_path):
     )
     assert _load_checkpoint(checkpoint)[7]['baseline']['answer_correctness'] == 0.1
     assert _load_checkpoint(tmp_path / 'missing.jsonl') == {}
+
+
+# --- ...but it must not resume across a changed instrument ------------------
+
+
+def _manifest(**overrides):
+    """A release manifest shaped like `scripts.release_fingerprint.build_manifest`."""
+    manifest = {
+        'schema_version': 4,
+        'git_commit': 'aaaaaaa',
+        'runtime': {'python': '3.14.6', 'python_implementation': 'CPython'},
+        'models': {'chat': 'gemini-3.6-flash', 'verdict': 'gemini-3.5-flash-lite',
+                   'embedding': 'models/gemini-embedding-001'},
+        'prompt_version': 'p1',
+        'generation_contract': {'max_output_tokens': 2000},
+        'generation_route': {'gateway_enabled': False},
+        'rag_contract': {'retrieval_threshold': 0.3},
+        'index_fingerprint': {'embedding_model': 'models/gemini-embedding-001'},
+        'input_sha256': {'rag-thesis-backend/services/prompts.py': 'hash-a'},
+    }
+    manifest.update(overrides)
+    return manifest
+
+
+def _parser():
+    return argparse.ArgumentParser(prog='run_comparison')
+
+
+def test_the_commit_alone_does_not_invalidate_a_checkpoint():
+    """A README commit moves git_commit and nothing a reader would see.
+
+    Keying on it would refuse a legitimate resume, which is how a guard earns a
+    reputation for being worth disabling. input_sha256 covers the files that can
+    actually change an answer.
+    """
+    assert 'git_commit' not in answering_configuration(_manifest())
+    unchanged = configuration_differences(
+        answering_configuration(_manifest()),
+        answering_configuration(_manifest(git_commit='bbbbbbb')),
+    )
+    assert unchanged == []
+
+
+def test_a_changed_input_is_named_by_file_rather_than_as_a_blanket_key():
+    differences = configuration_differences(
+        answering_configuration(_manifest()),
+        answering_configuration(_manifest(
+            input_sha256={'rag-thesis-backend/services/prompts.py': 'hash-b'},
+        )),
+    )
+    assert differences == ['input_sha256.rag-thesis-backend/services/prompts.py']
+
+
+def test_the_configuration_is_recorded_when_a_checkpoint_is_created(tmp_path):
+    provenance = tmp_path / 'run.provenance.json'
+    guard_checkpoint_provenance(_parser(), provenance, _manifest(), [tmp_path / 'absent.jsonl'])
+    assert json.loads(provenance.read_text(encoding='utf-8')) == answering_configuration(_manifest())
+
+
+def test_an_unchanged_configuration_resumes(tmp_path):
+    provenance = tmp_path / 'run.provenance.json'
+    checkpoint = tmp_path / 'run.pathways.jsonl'
+    guard_checkpoint_provenance(_parser(), provenance, _manifest(), [checkpoint])
+    checkpoint.write_text('{"id": 1}\n', encoding='utf-8')
+    # A different commit, same answering configuration: this is the interrupted
+    # run the checkpoint exists for.
+    guard_checkpoint_provenance(
+        _parser(), provenance, _manifest(git_commit='bbbbbbb'), [checkpoint],
+    )
+
+
+def test_a_changed_model_refuses_to_resume_and_names_what_moved(tmp_path, capsys):
+    """F10: the checkpoint namespace is the dataset digest, so changing the model
+    and re-running the same dataset replayed every recorded answer from disk
+    while the report stamped the current manifest over it."""
+    provenance = tmp_path / 'run.provenance.json'
+    checkpoint = tmp_path / 'run.pathways.jsonl'
+    guard_checkpoint_provenance(_parser(), provenance, _manifest(), [checkpoint])
+    checkpoint.write_text('{"id": 1}\n', encoding='utf-8')
+
+    changed = _manifest(models={'chat': 'some-other-model'})
+    with pytest.raises(SystemExit):
+        guard_checkpoint_provenance(_parser(), provenance, changed, [checkpoint])
+    message = capsys.readouterr().err
+    assert 'models' in message
+    assert '--fresh' in message
+
+
+def test_a_checkpoint_with_no_recorded_configuration_refuses_to_resume(tmp_path, capsys):
+    """Every checkpoint written before this guard existed is in this state, and
+    there is no way to tell what produced it."""
+    checkpoint = tmp_path / 'run.pathways.jsonl'
+    checkpoint.write_text('{"id": 1}\n', encoding='utf-8')
+    with pytest.raises(SystemExit):
+        guard_checkpoint_provenance(
+            _parser(), tmp_path / 'run.provenance.json', _manifest(), [checkpoint],
+        )
+    assert '--fresh' in capsys.readouterr().err
 
 
 def test_a_persistent_provider_error_is_excluded_rather_than_fatal(monkeypatch):

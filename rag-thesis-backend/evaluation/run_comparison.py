@@ -388,6 +388,102 @@ def _load_checkpoint(path: Path) -> dict:
     return done
 
 
+# The parts of the release manifest that decide what an answer SAYS, which is
+# what a resumed row has to have been produced under to be poolable with a fresh
+# one. `git_commit` is deliberately excluded: it moves when a README changes,
+# which would refuse a legitimate resume, while `input_sha256` already covers
+# every source file whose content can alter a result.
+_ANSWERING_CONFIGURATION_KEYS = (
+    'schema_version',
+    'runtime',
+    'models',
+    'prompt_version',
+    'generation_contract',
+    'generation_route',
+    'rag_contract',
+    'index_fingerprint',
+    'input_sha256',
+)
+
+
+def answering_configuration(manifest: dict) -> dict:
+    """The subset of `build_manifest()` a checkpoint must agree with to be reused."""
+    return {key: manifest[key] for key in _ANSWERING_CONFIGURATION_KEYS if key in manifest}
+
+
+def configuration_differences(recorded: dict, current: dict) -> list[str]:
+    """Name what changed between two answering configurations.
+
+    `input_sha256` is expanded to the individual file that moved, because
+    "input_sha256 changed" is true of any code edit anywhere and tells the
+    operator nothing they can act on.
+    """
+    differences: list[str] = []
+    for key in sorted(set(recorded) | set(current)):
+        before, after = recorded.get(key), current.get(key)
+        if before == after:
+            continue
+        if key == 'input_sha256' and isinstance(before, dict) and isinstance(after, dict):
+            differences.extend(
+                f'{key}.{name}' for name in sorted(set(before) | set(after))
+                if before.get(name) != after.get(name)
+            )
+            continue
+        differences.append(key)
+    return differences
+
+
+def guard_checkpoint_provenance(parser, provenance_path: Path, manifest: dict,
+                                checkpoints: list[Path]) -> None:
+    """Refuse to resume a checkpoint produced under a different configuration.
+
+    The checkpoint namespace is the dataset digest, which stops answers
+    collected against one dataset being spliced into results reported for
+    another. It says nothing about the rest of the instrument: change the model,
+    the route, the prompt version, a RAG constant, the index contract or any
+    hashed source file, re-run the same dataset, and every already-recorded
+    query was replayed from disk while the report stamped the CURRENT manifest
+    over it. The run then claimed a configuration that had not produced the
+    answers it was reporting, and `--fresh` was the only defence -- a flag
+    applied from memory. Audited 2026-09-12 (F10 of the 2026-09-05 review).
+
+    So the configuration is recorded beside the checkpoint when it is created
+    and compared before it is reused. A mismatch is refused rather than silently
+    discarded: throwing away a long run's work is the operator's decision, and
+    `--fresh` is how they make it.
+
+    One gap remains, stated so it is not mistaken for covered: the index
+    fingerprint is the index CONTRACT (embedding model, dimensions, chunking and
+    preprocessing versions), not an inventory of the corpus. Re-ingesting
+    different manuscripts under identical settings fingerprints the same, so a
+    changed corpus still needs `--fresh`.
+    """
+    current = answering_configuration(manifest)
+    resumable = [path.name for path in checkpoints if path.exists()]
+    if not resumable:
+        provenance_path.write_text(
+            json.dumps(current, indent=2, ensure_ascii=False, sort_keys=True),
+            encoding='utf-8',
+        )
+        return
+    if not provenance_path.exists():
+        parser.error(
+            f'{", ".join(resumable)} exists but {provenance_path.name} does not, so there is '
+            'no record of the configuration those answers were produced under. Re-run with '
+            '--fresh to discard them and start clean.'
+        )
+    recorded = json.loads(provenance_path.read_text(encoding='utf-8'))
+    differences = configuration_differences(recorded, current)
+    if differences:
+        changed = '\n  - '.join(differences)
+        parser.error(
+            f'the configuration changed since {", ".join(resumable)} was written, so resuming '
+            'would pool answers from two different instruments and report them under the '
+            f'current manifest. Changed:\n  - {changed}\n'
+            'Re-run with --fresh to discard the checkpoint and measure this configuration.'
+        )
+
+
 async def _run_pathways(queries: list[dict], checkpoint: Path | None = None) -> list[dict]:
     """Process queries through the baseline and exact deployed guest RAG path.
 
@@ -715,13 +811,20 @@ def main():
             'results/checkpoints/<run-id>.*.jsonl and resumes from it, so an '
             'interrupted run continues instead of restarting. Defaults to the '
             'dataset SHA-256 prefix, which means a re-run of the same dataset '
-            'resumes automatically and a changed dataset starts clean.'
+            'resumes automatically and a changed dataset starts clean. The '
+            'answering configuration is recorded beside the checkpoint and a '
+            'resume under a changed one is refused, so the namespace bounds the '
+            'dataset and the record bounds everything else.'
         ),
     )
     parser.add_argument(
         '--fresh',
         action='store_true',
-        help='Ignore and overwrite any existing checkpoint for this run id.',
+        help=(
+            'Discard any existing checkpoint for this run id and start clean. '
+            'This is how a configuration change is accepted: the resume guard '
+            'refuses rather than deciding to throw away a long run for you.'
+        ),
     )
     args = parser.parse_args()
 
@@ -742,16 +845,29 @@ def main():
     stamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
 
     # Keyed on the dataset digest by default so a resumed run can never splice
-    # answers collected against one instrument into results reported for
-    # another. Change the dataset and the run id changes with it.
+    # answers collected against one dataset into results reported for another.
+    # Change the dataset and the run id changes with it. The dataset is only one
+    # of the instrument's dimensions, though: `guard_checkpoint_provenance`
+    # below is what covers the model, route, prompt, RAG constants and hashed
+    # source, none of which move the run id.
     run_id = args.run_id or sha256_file(dataset_path)[:12]
     checkpoint_dir = RESULTS_DIR / 'checkpoints'
     checkpoint_dir.mkdir(exist_ok=True)
     pathways_checkpoint = checkpoint_dir / f'{run_id}.pathways.jsonl'
     scores_checkpoint = checkpoint_dir / f'{run_id}.scores.jsonl'
+    provenance_path = checkpoint_dir / f'{run_id}.provenance.json'
     if args.fresh:
-        for path in (pathways_checkpoint, scores_checkpoint):
+        for path in (pathways_checkpoint, scores_checkpoint, provenance_path):
             path.unlink(missing_ok=True)
+
+    # Built once here rather than at report time, because the same manifest both
+    # gates the checkpoint below and is published as `reproducibility.release`.
+    # Two calls could disagree, and the one that mattered would be the one that
+    # was not checked.
+    release = build_manifest()
+    guard_checkpoint_provenance(
+        parser, provenance_path, release, [pathways_checkpoint, scores_checkpoint],
+    )
 
     print(f'Running {len(queries)} queries through both pathways (run id {run_id})...')
     rows = run_pathways(queries, pathways_checkpoint)
@@ -791,7 +907,7 @@ def main():
             'metrics': ['answer_correctness', 'faithfulness', 'context_precision'],
         },
         'reproducibility': {
-            'release': build_manifest(),
+            'release': release,
             'golden_dataset_sha256': sha256_file(dataset_path),
             'evaluation_requirements_sha256': sha256_file(
                 Path(__file__).parent / 'requirements-eval.txt'
