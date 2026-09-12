@@ -657,6 +657,19 @@ PROSE10 = [
     # of answerable queries is asserted here. Ground truth:
     # evaluation/golden_dataset.json (corpus_coverage, coverage_basis) and
     # evaluation/run_comparison.py (DECLARABLE_COVERAGE, by_corpus_coverage).
+    #
+    # Revised 2026-09-13. This paragraph used to say three queries were negative
+    # controls and five were "scoped by their own wording" to an unreleased
+    # track, "both known in advance to have no answer". Drafting the forty
+    # ground truths falsified the second half: two of those five (18 and 20) ask
+    # about "CCSICT web development theses", which the released BSIS and BSCS
+    # corpus answers once that is read as theses that built web systems rather
+    # than as the BSIT/WMAD specialization. It also showed the field had no
+    # value for an absence inside a program that WAS released, which seventeen
+    # queries record, so `absent_topic` was added. The counts a reader could
+    # check are still not asserted here: the drafted strata are researcher
+    # determinations awaiting the same panel validation as the ground truths,
+    # and quoting them would present unvalidated work as settled.
     ("To eliminate researcher bias and ensure academic neutrality, these 'Ground Truth' "
      'answers will be validated by a panel of three CCSICT faculty members prior to '
      'serving as the absolute mathematical benchmark for the Ragas evaluation.',
@@ -665,13 +678,19 @@ PROSE10 = [
      'serving as the absolute mathematical benchmark for the Ragas evaluation. Because '
      'the released corpus covers three of the six catalog categories, each of the forty '
      'queries also declares its corpus coverage, recording whether a released manuscript '
-     'can answer it at all. Three (3) queries are the original negative controls and five '
-     '(5) are scoped by their own wording to a program or specialization the department '
-     'did not release; both are known in advance to have no answer in the corpus. For the '
-     'remaining thirty-two (32) the determination is a judgement about content and is '
-     'made by the same panel when it drafts the ground truth, because a query about '
-     'CCSICT theses in general cannot be classified from the catalog category it was '
-     'written to probe. Where the corpus holds no evidence, an explicit statement to that '
+     'can answer it at all. Four strata are distinguished. A query is present when a '
+     'released manuscript answers it; absent_topic when the programs it draws on were '
+     'released and none of their manuscripts covers the subject; absent_unreleased when '
+     'its own wording scopes it to a program or specialization the department did not '
+     'release, so that no manuscript could have answered it whatever it contained; and '
+     'absent_by_design for the three (3) negative controls, which are absent by '
+     'construction. The two absences are reported separately because they are different '
+     'findings about the archive: one would close if the department released more of it, '
+     'the other would not. Apart from the negative controls the stratum is a judgement '
+     'about content, taken when the ground truth is drafted and validated together with '
+     'it, because a query about CCSICT theses in general cannot be classified from the '
+     'catalog category it was written to probe. Where the corpus holds no evidence, an '
+     'explicit statement to that '
      'effect is the correct response rather than a wrong answer, so Answer Correctness is '
      'interpreted on the queries the corpus can answer and every stratum is reported '
      'separately as well as pooled.',
