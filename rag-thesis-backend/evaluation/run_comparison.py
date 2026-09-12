@@ -136,7 +136,20 @@ _CONTEXT_HEADER = re.compile(r'^\[(\d+)\][^\n]*\n', flags=re.MULTILINE)
 # both directions. A formal run is refused while any query is still
 # undetermined. See evaluation/golden_dataset.json
 # validation.instrument_revisions (2026-09-07).
-CORPUS_COVERAGE = ('present', 'absent_unreleased', 'absent_by_design')
+#
+# The two absences are separated because they are different findings about the
+# library, and reporting them as one would answer neither question a reader has.
+# `absent_unreleased` means the department released no manuscript from the
+# program or specialization the query is scoped to, so the corpus could not
+# answer whatever anyone wrote. `absent_topic` means the programs the query
+# draws on WERE released and simply do not cover the subject: a real gap in the
+# archive rather than an artifact of what was handed over. The distinction was
+# always in the drafting workflow (validation.workflow step 4, "Those are
+# different findings, and preserving the distinction is why the stratum
+# exists"), but until 2026-09-13 there was no value to record the second one in,
+# so seventeen queries were being forced into `absent_unreleased` against that
+# stratum's own definition. See validation.instrument_revisions (2026-09-13).
+CORPUS_COVERAGE = ('present', 'absent_topic', 'absent_unreleased', 'absent_by_design')
 UNDETERMINED_COVERAGE = 'undetermined'
 DECLARABLE_COVERAGE = CORPUS_COVERAGE + (UNDETERMINED_COVERAGE,)
 
