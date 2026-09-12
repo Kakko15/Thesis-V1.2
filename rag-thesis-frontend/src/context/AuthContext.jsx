@@ -1,4 +1,5 @@
 import { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabaseClient'
 import { getFeaturePermissions } from '../api'
 import { avatarPublicUrl } from '../lib/avatar'
@@ -40,6 +41,43 @@ export const AuthProvider = ({ children }) => {
   // A count rather than a flag, so a prompt the reader dismissed can be
   // raised again by the next refusal instead of staying silent for good.
   const [privilegedMfaRefusals, setPrivilegedMfaRefusals] = useState(0)
+
+  const queryClient = useQueryClient()
+  // Which account the cached data below currently belongs to. `undefined` means
+  // "not yet resolved", which is why it is distinct from `null` (signed out).
+  const identityRef = useRef(
+    initialE2EFixture ? (initialE2EFixture.user?.id ?? null) : undefined,
+  )
+
+  /**
+   * Drop every cached response before a different account is published.
+   *
+   * The QueryClient is created in src/main.jsx ABOVE this provider, so its
+   * cache is not tied to a session and nothing here used to clear it. The
+   * private keys are unscoped — ['sessions'], ['scan-history'], ['users'],
+   * ['papers'], ['analytics-overview'], ['operations-*'] — and the defaults are
+   * staleTime 30s with gcTime 30min. Signing out and signing in as someone else
+   * in the same tab is a client-side navigation (AppShell calls navigate('/'),
+   * IdleSessionGuard calls navigate(loginPath), neither reloads the document),
+   * so the second reader saw the first reader's saved conversations, novelty
+   * reports and department user list — served straight from cache with no
+   * request, for the first 30 seconds, and as stale-while-revalidate for half
+   * an hour. Reproduced by source review on 2026-09-12.
+   *
+   * `clear()` rather than per-key removal on purpose: it also cancels requests
+   * already in flight, which would otherwise resolve into the new identity's
+   * cache, and it cannot be defeated by a future query key that nobody
+   * remembered to add to an allow-list.
+   */
+  const forgetPreviousAccount = useCallback((nextUserId) => {
+    const previous = identityRef.current
+    if (previous === nextUserId) return
+    identityRef.current = nextUserId
+    // First resolution of a fresh tab: there is no earlier account's data to
+    // drop, and clearing here would cancel the landing page's own prefetches.
+    if (previous === undefined) return
+    queryClient.clear()
+  }, [queryClient])
 
   const checkMfa = useCallback(async (currentUser) => {
     if (!currentUser) {
@@ -100,6 +138,9 @@ export const AuthProvider = ({ children }) => {
 
   const syncSession = useCallback(async (session) => {
     const currentUser = session?.user ?? null
+    // Before anything observes the new identity, so no component can render the
+    // previous account's cached rows under it.
+    forgetPreviousAccount(currentUser?.id ?? null)
     await checkMfa(currentUser)
     setUser(currentUser)
     if (currentUser) {
@@ -115,11 +156,12 @@ export const AuthProvider = ({ children }) => {
       setFeatures(null)
     }
     setLoading(false)
-  }, [checkMfa, fetchProfile, loadFeatures])
+  }, [checkMfa, fetchProfile, loadFeatures, forgetPreviousAccount])
 
   const reloadSession = useCallback(async () => {
     if (isE2ETestMode) {
       const fixture = readE2EAuthFixture()
+      forgetPreviousAccount(fixture?.user?.id ?? null)
       setUser(fixture?.user ?? null)
       setProfile(fixture?.profile ?? null)
       setFeatures(fixture?.features ?? null)
@@ -131,7 +173,7 @@ export const AuthProvider = ({ children }) => {
     }
     const { data: { session } } = await supabase.auth.getSession()
     await syncSession(session)
-  }, [syncSession])
+  }, [syncSession, forgetPreviousAccount])
 
   useEffect(() => {
     if (isE2ETestMode) return undefined
@@ -226,12 +268,25 @@ export const AuthProvider = ({ children }) => {
     signOut: async () => {
       if (isE2ETestMode) {
         clearE2EAuthFixture()
+        forgetPreviousAccount(null)
         setUser(null)
         setProfile(null)
         setFeatures(null)
         return
       }
+      // Dropped here as well as in syncSession: onAuthStateChange is what
+      // normally carries the sign-out through, and clearing before the network
+      // round trip shortens the window in which a screen still mounted over the
+      // old identity keeps showing it.
+      forgetPreviousAccount(null)
       await supabase.auth.signOut()
+      // Again once the token is actually dead. A query observer still mounted
+      // during the round trip above refetches as soon as its data is removed,
+      // and that refetch still carried the old access token, so it would land
+      // back in the cache after the first clear. The sign-in of the next
+      // account clears again and is what ultimately closes the hole, but there
+      // is no reason to leave the data sitting there until then.
+      queryClient.clear()
     },
     broadcastFeatureUpdate: () => {
       broadcastChannelRef.current?.send({ type: 'broadcast', event: 'features_updated', payload: {} })

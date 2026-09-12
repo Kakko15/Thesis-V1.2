@@ -347,6 +347,75 @@ def get_role_features() -> dict:
         logger.exception('Failed to fetch role features (%s)', type(e).__name__)
     return {}
 
+def _feature_enabled(role: str, feature: str) -> bool:
+    """Whether `role` may use `feature`, falling back to the documented default.
+
+    `get_role_features` returns `{}` when `system_settings` is unreachable, and
+    the two guards below treat that as a refusal. That is right for `upload` and
+    `novelty`, which default to False: failing closed matches the policy. It is
+    the wrong answer for `chat` and `archive`, which default to True for both
+    non-privileged roles -- refusing those on a transient read failure would
+    take the whole library offline for every student and faculty member, which
+    is a worse outcome than a toggle going briefly unenforced. So those two read
+    through to the same `DEFAULT_FEATURES` the frontend mirrors in
+    `src/lib/permissions.js`, and only an explicitly stored `false` denies.
+
+    Imported inside the function because `routers.settings` imports this module;
+    at module scope the two would be a cycle.
+    """
+    from routers.settings import DEFAULT_FEATURES
+
+    features = get_role_features()
+    configured = features.get(role) if isinstance(features, dict) else None
+    if isinstance(configured, dict) and isinstance(configured.get(feature), bool):
+        return configured[feature]
+    return bool((DEFAULT_FEATURES.get(role) or {}).get(feature))
+
+
+# The role-feature matrix names four features, and until 2026-09-12 only two of
+# them were enforced anywhere but the browser. `novelty` had
+# `require_novelty_access` and `upload` had `require_upload_access`; `chat` and
+# `archive` had no server-side guard at all, so turning either off for a role
+# changed only `canChat` / `canArchive` in the React context and any student
+# could still call POST /chat and GET /papers directly. The superadmin screen
+# presents all four as access controls, so two of them were telling the truth
+# and two were decoration.
+#
+# Deliberately NOT calling `_require_privileged_mfa` for an administrator here,
+# unlike the upload and novelty guards. Those protect privileged operations;
+# reading the archive and asking a research question are ordinary user features,
+# and requiring aal2 for them would lock an administrator out of the library
+# itself the moment REQUIRE_PRIVILEGED_MFA was enabled.
+def _require_feature(user, feature: str, refusal: str):
+    role = get_user_role(user.id)
+    if role in (ROLE_ADMIN, ROLE_SUPERADMIN):
+        return user
+    if _feature_enabled(role, feature):
+        return user
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=refusal)
+
+
+def require_chat_access(user=Security(get_optional_user)):
+    """Guests are always allowed; a signed-in role must have `chat` enabled.
+
+    Optional rather than required authentication, because guest chat is a
+    documented feature of this deployment and the matrix only describes the
+    signed-in roles.
+    """
+    if user is None:
+        return None
+    return _require_feature(
+        user, 'chat', 'Research chat is not enabled for your role.',
+    )
+
+
+def require_archive_access(user=Security(get_current_user)):
+    """Allows admins, and any role whose `archive` feature is enabled."""
+    return _require_feature(
+        user, 'archive', 'Archive access is not enabled for your role.',
+    )
+
+
 def require_novelty_access(
     user=Security(get_current_user),
     credentials: HTTPAuthorizationCredentials = Security(security),

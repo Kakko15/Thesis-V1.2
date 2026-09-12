@@ -93,9 +93,30 @@ def _substantive_units(answer: str) -> list[str]:
 def enforce_citation_coverage(answer: str, sources: list[dict]) -> str:
     """Deterministically repair marker range and substantive-unit coverage.
 
-    This runs only after the bounded AI repair attempt. It never creates a new
-    source: invalid markers and uncited units are mapped to the first retrieved
-    evidence citation, preserving the documented structural-only guarantee.
+    This runs only after the bounded AI repair attempt, as the last rung before
+    the grounded fallback.
+
+    It used to map every out-of-range marker AND every uncited substantive unit
+    onto `allowed[0]` whatever the context held, and call that "structural".
+    That is sound only while every block on the table comes from the SAME
+    thesis. Once the context spans several theses -- the ordinary grounded path
+    selects up to five chunks across as many papers -- nothing about the answer
+    says an uncited claim came from paper 1 rather than paper 3, or from nowhere
+    at all. `validate_citations` then passed, and the reader was shown one
+    specific thesis as the authority for a sentence the model never attributed
+    to it. In a library whose product is the citation that is the most damaging
+    thing this file could do, and it was invisible: the answer looked better
+    cited afterwards, not worse. Audited 2026-09-12.
+
+    So the repair is now gated on the PAPER, not on the marker count. When every
+    source is a chunk of one thesis the assignment is forced rather than
+    guessed: the citation a reader actually sees is the thesis, the whole draft
+    was generated from that thesis, and choosing between its chunks cannot
+    misattribute it. That keeps the overview and exact-paper paths repairable,
+    which is where a model dropping its own markers is both common and harmless.
+    Across several theses the answer is left as the model wrote it, fails
+    validation, and the caller serves the grounded retrieval fallback: a visibly
+    hedged answer instead of a confidently misattributed one.
     """
     allowed = sorted({
         source_citation_id(source, position)
@@ -103,8 +124,14 @@ def enforce_citation_coverage(answer: str, sources: list[dict]) -> str:
     })
     if not allowed:
         return answer or ''
-    fallback = allowed[0]
     repaired = normalize_citation_markers(answer)
+    paper_ids = {source.get('id') for source in sources}
+    # A single, identified thesis. An unidentified source is not treated as
+    # "the same paper" as another unidentified one -- with nothing to compare,
+    # the safe reading is that they may differ.
+    if len(paper_ids) != 1 or not next(iter(paper_ids)):
+        return repaired
+    fallback = allowed[0]
     repaired = _CITATION.sub(
         lambda match: match.group(0) if int(match.group(1)) in allowed else f'[{fallback}]',
         repaired,

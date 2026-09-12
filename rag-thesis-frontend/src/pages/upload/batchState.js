@@ -377,18 +377,35 @@ export function batchProgress(rows) {
   return Math.round(total / accepted.length)
 }
 
-/** Rows that carry a job, reduced to what a refreshed page can still show. */
-export function serializeActiveBatch(rows) {
-  return JSON.stringify(rows.filter((row) => row.jobId).map((row) => ({
-    id: row.id, name: row.name, size: row.size, title: row.title,
-    idempotencyKey: row.idempotencyKey, jobId: row.jobId,
-  })))
+/**
+ * Rows that carry a job, reduced to what a refreshed page can still show.
+ *
+ * Stamped with the account that queued them. sessionStorage is per tab but is
+ * NOT cleared by signing out, and the restore below runs on mount with no idea
+ * who is signed in, so one reader's manuscript filenames and titles were
+ * restored into the next reader's table when two people used the same tab in
+ * turn. The job ids themselves are owner-scoped server-side and simply 404, but
+ * the titles had already rendered. Audited 2026-09-12.
+ */
+export function serializeActiveBatch(rows, ownerId) {
+  return JSON.stringify({
+    ownerId: ownerId ?? null,
+    rows: rows.filter((row) => row.jobId).map((row) => ({
+      id: row.id, name: row.name, size: row.size, title: row.title,
+      idempotencyKey: row.idempotencyKey, jobId: row.jobId,
+    })),
+  })
 }
 
-export function restoreActiveBatch(json) {
-  if (!json) return null
+export function restoreActiveBatch(json, ownerId) {
+  if (!json || !ownerId) return null
   try {
-    const entries = JSON.parse(json)
+    const stored = JSON.parse(json)
+    // A bare array is the pre-2026-09-12 shape, which recorded no owner. There
+    // is no way to tell whose manuscripts those are, so they are discarded
+    // rather than shown to whoever happens to be signed in now.
+    if (!stored || Array.isArray(stored) || stored.ownerId !== ownerId) return null
+    const entries = stored.rows
     if (!Array.isArray(entries) || entries.length === 0) return null
     return entries
       .filter((entry) => entry && typeof entry.jobId === 'string' && typeof entry.id === 'string')

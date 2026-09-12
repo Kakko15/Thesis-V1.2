@@ -751,25 +751,26 @@ function IngestingStep({
   )
 }
 
-function readStoredBatch() {
+function readStoredBatch(ownerId) {
   try {
-    return restoreActiveBatch(sessionStorage.getItem(ACTIVE_BATCH_STORAGE_KEY))
+    return restoreActiveBatch(sessionStorage.getItem(ACTIVE_BATCH_STORAGE_KEY), ownerId)
   } catch {
     return null
   }
 }
 
-function writeStoredBatch(rows) {
+function writeStoredBatch(rows, ownerId) {
   try {
     if (allTerminal(rows)) sessionStorage.removeItem(ACTIVE_BATCH_STORAGE_KEY)
-    else sessionStorage.setItem(ACTIVE_BATCH_STORAGE_KEY, serializeActiveBatch(rows))
+    else sessionStorage.setItem(ACTIVE_BATCH_STORAGE_KEY, serializeActiveBatch(rows, ownerId))
   } catch {
     // Storage may be unavailable (private mode); the page still works without resume.
   }
 }
 
 export default function UploadBatch() {
-  const { isSuperadmin, department: userDepartment } = useAuth()
+  const { user, isSuperadmin, department: userDepartment } = useAuth()
+  const ownerId = user?.id ?? null
   const enforcedDepartment = userDepartment || 'CCSICT'
   const [state, dispatch] = useReducer(batchReducer, enforcedDepartment, createBatchState)
   const { step, direction, rows, defaults, defaultErrors, extracting, submitting, uploadProgress } = state
@@ -800,18 +801,20 @@ export default function UploadBatch() {
   // Resume a batch whose jobs were queued before a refresh. Only the job ids
   // and titles survive; the files themselves cannot be restored.
   useEffect(() => {
-    if (restoredRef.current) return
+    // Waits for the identity: a batch is only ever restored to the account that
+    // queued it, so there is nothing to read until we know who that is.
+    if (restoredRef.current || !ownerId) return
     restoredRef.current = true
-    const stored = readStoredBatch()
+    const stored = readStoredBatch(ownerId)
     if (stored) {
       pollStartedRef.current = Date.now()
       dispatch({ type: 'restore', rows: stored })
     }
-  }, [])
+  }, [ownerId])
 
   useEffect(() => {
-    if (step === BATCH_STEPS.ingesting) writeStoredBatch(rows)
-  }, [rows, step])
+    if (step === BATCH_STEPS.ingesting) writeStoredBatch(rows, ownerId)
+  }, [rows, step, ownerId])
 
   const ids = activeJobIds(rows)
   const idsKey = ids.join(',')
@@ -876,6 +879,33 @@ export default function UploadBatch() {
   const patchRow = (id, patch) => dispatch({ type: 'patch-row', id, patch })
   const applyProgramToAll = (selection) => dispatch({ type: 'apply-program', selection })
   const removeRow = (id) => dispatch({ type: 'remove-row', id })
+
+  /**
+   * Add files, and say so when the batch could not take all of them.
+   *
+   * `addRows` drops duplicates and then slices to MAX_BATCH_FILES. Both are
+   * right, and both used to happen in silence: dragging twenty-five manuscripts
+   * onto a page that shows "20 / 20 selected" left five of them unaccounted
+   * for, and the reader's only clue was a count they had no reason to be
+   * totalling themselves.
+   */
+  const addFiles = (files) => {
+    const incoming = Array.from(files ?? [])
+    const room = Math.max(0, MAX_BATCH_FILES - rows.length)
+    const present = new Set(rows.map((row) => `${row.name} ${row.size}`))
+    const fresh = incoming.filter((file) => !present.has(`${file.name} ${file.size}`))
+    const duplicates = incoming.length - fresh.length
+    const overflow = Math.max(0, fresh.length - room)
+    dispatch({ type: 'add-rows', files: incoming })
+    if (overflow) {
+      toast.warning(`${overflow} file${overflow === 1 ? ' was' : 's were'} not added`, {
+        description: `A batch holds at most ${MAX_BATCH_FILES} manuscripts. Ingest these first, then start another batch.`,
+      })
+    }
+    if (duplicates) {
+      toast.info(`${duplicates} file${duplicates === 1 ? ' is' : 's are'} already in this batch`)
+    }
+  }
 
   const continueToReview = async () => {
     if (rows.length === 0) return
@@ -1040,7 +1070,7 @@ export default function UploadBatch() {
                 <Dropzone
                   multiple
                   disabled={rows.length >= MAX_BATCH_FILES}
-                  onFiles={(files) => dispatch({ type: 'add-rows', files })}
+                  onFiles={addFiles}
                 />
                 <SelectedFiles rows={rows} onRemove={removeRow} />
                 <StepActions>

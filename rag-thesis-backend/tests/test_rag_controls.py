@@ -290,6 +290,32 @@ class TestCitationValidation:
         valid, errors = validate_citations(repaired, self.SOURCES)
         assert valid and errors == []
 
+    def test_coverage_repair_never_attributes_a_claim_across_theses(self):
+        """The repair may choose between chunks of one thesis, never between theses.
+
+        Every source above is a chunk of p1, so stapling `[1]` onto an uncited
+        unit names the thesis the whole draft was generated from and cannot
+        misattribute it. Once the context spans two theses that stops being
+        true: nothing in the answer says the claim came from p1 rather than p2.
+        The old repair picked the first source anyway and `validate_citations`
+        passed, so the reader was shown a specific thesis as the authority for a
+        sentence the model never attributed to it. Audited 2026-09-12.
+
+        Leaving it uncited is what makes validation fail, which is what makes
+        routers/chat.py serve the grounded fallback instead.
+        """
+        across = [
+            {'citation_id': 1, 'id': 'p1', 'chunk_id': 11},
+            {'citation_id': 2, 'id': 'p2', 'chunk_id': 21},
+        ]
+        answer = 'Supported scope [1].\n\nAn uncited limitation.\n\nAnother claim [99].'
+        repaired = enforce_citation_coverage(answer, across)
+        assert repaired == answer
+        valid, errors = validate_citations(repaired, across)
+        assert not valid
+        assert any('uncited substantive unit' in error for error in errors)
+        assert any('out-of-range' in error for error in errors)
+
     def test_a_unit_containing_another_is_patched_in_either_order(self):
         """Order-independence: the old string match happened to work when the
         shorter unit came first and silently mis-patched when it came second."""

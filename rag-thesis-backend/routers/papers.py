@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from dependencies.auth import get_current_user, require_admin, sb
+from dependencies.auth import get_current_user, require_admin, require_archive_access, sb
 from models import PaperOut
 from routers.openapi_responses import errors
 from services.activity import log_activity
@@ -19,6 +19,11 @@ router = APIRouter(prefix='/papers', tags=['papers'])
 
 # The Supabase SDK returns an opaque user record, so Any is the honest type.
 CurrentUser = Annotated[Any, Depends(get_current_user)]
+# Browsing the archive is one of the four toggles in the role-feature matrix,
+# and until 2026-09-12 it was the only guard the matrix claimed that the API did
+# not actually apply — turning `archive` off hid the page and left GET /papers
+# open to any approved account.
+ArchiveUser = Annotated[Any, Depends(require_archive_access)]
 AdminUser = Annotated[Any, Depends(require_admin)]
 
 
@@ -34,7 +39,7 @@ def _ready_papers_query(fields: str, department: str | None):
 
 @router.get('', response_model=list[PaperOut], responses=errors(503))
 def list_papers(
-    user: CurrentUser,
+    user: ArchiveUser,
     department: str | None = None,
     program_id: str | None = None,
     specialization_id: str | None = None,

@@ -10,6 +10,7 @@ import html
 import logging
 from typing import Annotated, Any
 
+import fitz
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
@@ -28,6 +29,7 @@ from services.filenames import sanitize_filename
 from services.guards import REFUSAL_MESSAGE, prohibited_reason
 from services import gemini_pool
 from services.llm_output import coerce_text
+from services.malware import MalwareDetected, MalwareScannerUnavailable, scan_pdf
 from services.novelty import percent, verdict_for_coverage
 from services.rate_limiting import limiter
 
@@ -154,7 +156,58 @@ def _match_chunks_against_archive(
     return match_scores, text_pairs
 
 
-@router.post('/scan', responses=errors(400, 413, 415, 422, 502))
+def _reject_unsafe_scan_upload(file_bytes: bytes, suffix: str) -> None:
+    """Apply the ingestion pipeline's structural and malware checks to a scan.
+
+    Mirrors `services/ingestion.py::_validate_staged_pdf` and
+    `routers/upload.py::_validate_pdf_upload` rather than sharing a helper with
+    them, matching how those two already stand beside each other: each owns the
+    HTTP or pipeline error vocabulary of its own caller.
+
+    Blocking on purpose -- PyMuPDF parsing plus a ClamAV round trip -- so the
+    caller runs it in a worker thread like every other blocking step here.
+
+    `scan_pdf` is a plain ClamAV INSTREAM scan despite the name, so a .txt
+    manuscript goes through it too; and it returns immediately when
+    `malware_scan_mode` is `disabled`, which is what keeps development and the
+    test suite unchanged.
+    """
+    if suffix == 'pdf':
+        try:
+            document = fitz.open(stream=file_bytes, filetype='pdf')
+            if document.needs_pass:
+                document.close()
+                raise HTTPException(
+                    422, 'Encrypted or password-protected PDFs are not accepted',
+                )
+            page_count = document.page_count
+            document.close()
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise HTTPException(422, 'Malformed or unreadable PDF') from error
+        if page_count < 1:
+            raise HTTPException(422, 'PDF must contain at least one page')
+        if page_count > settings.max_pdf_pages:
+            raise HTTPException(
+                422, f'PDF exceeds the {settings.max_pdf_pages}-page safety limit',
+            )
+    try:
+        scan_pdf(file_bytes)
+    except MalwareDetected as error:
+        raise HTTPException(
+            422, 'The uploaded manuscript failed malware scanning',
+        ) from error
+    except MalwareScannerUnavailable as error:
+        # Fail closed, as ingestion does: an unscanned manuscript is not an
+        # acceptable substitute for a scanned one in a deployment that asked
+        # for scanning at all.
+        raise HTTPException(
+            503, 'Malware scanning is unavailable. Please retry in a moment.',
+        ) from error
+
+
+@router.post('/scan', responses=errors(400, 413, 415, 422, 502, 503))
 @limiter.limit(settings.rate_limit_scan)
 async def scan_duplication(
     request: Request,
@@ -189,6 +242,18 @@ async def scan_duplication(
     safe_filename = sanitize_filename(
         file.filename, default_stem='manuscript', force_suffix=suffix,
     )
+
+    # Audited 2026-09-12: this path accepted a manuscript on the strength of its
+    # extension, MIME type and leading %PDF- alone, while the ingestion pipeline
+    # applies three further checks to the very same kind of file
+    # (services/ingestion.py::_validate_staged_pdf and
+    # routers/upload.py::_validate_pdf_upload). The asymmetry mattered twice
+    # over: a 25 MB PDF declaring fifty thousand pages ran PyMuPDF and the OCR
+    # fallback over every one of them with no ceiling, and no manuscript reaching
+    # this endpoint was ever scanned for malware -- including in production,
+    # where `validate_production_services` refuses to start without ClamAV
+    # precisely so that no uploaded file goes unscanned.
+    await asyncio.to_thread(_reject_unsafe_scan_upload, file_bytes, suffix)
 
     try:
         document = await asyncio.to_thread(extract_document, file_bytes, file.filename)

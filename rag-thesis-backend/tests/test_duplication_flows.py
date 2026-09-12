@@ -1,6 +1,8 @@
 import asyncio
+from io import BytesIO
 from types import SimpleNamespace
 
+import fitz
 import pytest
 from fastapi import HTTPException, Request, UploadFile
 
@@ -54,8 +56,27 @@ def delete_request(path='/duplication/history'):
     })
 
 
+def _pdf_bytes(pages=1):
+    """A real PDF, built the way tests/test_security_upload_hardening.py does.
+
+    The scan endpoint now applies the ingestion pipeline's structural checks
+    before extraction -- PyMuPDF must be able to open the file, it must not be
+    encrypted, and its page count must sit inside `max_pdf_pages` -- so the
+    `b'%PDF-dummy'` stand-in this used to send is refused as malformed. That
+    refusal is correct and is covered on its own below; it is not what these
+    scan tests are about, so they carry a document that actually parses.
+    """
+    document = fitz.open()
+    for index in range(pages):
+        page = document.new_page()
+        page.insert_text((72, 72), f'Draft page {index + 1}')
+    value = document.tobytes()
+    document.close()
+    return value
+
+
 def upload_file():
-    return UploadFile(filename='draft.pdf', file=__import__('io').BytesIO(b'%PDF-dummy'))
+    return UploadFile(filename='draft.pdf', file=BytesIO(_pdf_bytes()))
 
 
 def fake_llm(reply=None, *, fail_with=None):
@@ -96,6 +117,61 @@ def prepare(monkeypatch):
     monkeypatch.setattr(duplication, 'is_noise_chunk', lambda *_: False)
     monkeypatch.setattr(duplication, 'embed_texts', lambda *_: [[0.1] * 768])
     monkeypatch.setattr(duplication, 'log_activity', lambda *_args, **_kwargs: None)
+
+
+class TestScanUploadIsHardenedLikeIngestion:
+    """The scan path used to trust an extension, a MIME type and a `%PDF-` prefix.
+
+    Everything it accepted then went through PyMuPDF and the OCR fallback with
+    no page ceiling, and no file reaching it was ever scanned for malware --
+    while the ingestion pipeline applied all three checks to the very same kind
+    of manuscript, and production refuses to start without ClamAV precisely so
+    that nothing uploaded goes unscanned. Audited 2026-09-12.
+    """
+
+    def test_a_file_pymupdf_cannot_open_is_refused_before_extraction(self, monkeypatch):
+        monkeypatch.setattr(duplication, 'resolve_effective_department', lambda *_: 'CCSICT')
+        monkeypatch.setattr(duplication, 'extract_document', lambda *_: (_ for _ in ()).throw(
+            AssertionError('a malformed PDF must never reach extraction'),
+        ))
+        malformed = UploadFile(filename='draft.pdf', file=BytesIO(b'%PDF-dummy'))
+        with pytest.raises(HTTPException) as refused:
+            asyncio.run(run_scan(malformed, None, SimpleNamespace(id='u1')))
+        assert refused.value.status_code == 422
+
+    def test_a_manuscript_past_the_page_ceiling_is_refused(self, monkeypatch):
+        monkeypatch.setattr(duplication, 'resolve_effective_department', lambda *_: 'CCSICT')
+        monkeypatch.setattr(duplication.settings, 'max_pdf_pages', 2)
+        monkeypatch.setattr(duplication, 'extract_document', lambda *_: (_ for _ in ()).throw(
+            AssertionError('an oversized manuscript must never reach extraction'),
+        ))
+        oversized = UploadFile(filename='draft.pdf', file=BytesIO(_pdf_bytes(pages=3)))
+        with pytest.raises(HTTPException) as refused:
+            asyncio.run(run_scan(oversized, None, SimpleNamespace(id='u1')))
+        assert refused.value.status_code == 422
+
+    def test_malware_is_refused_and_an_unavailable_scanner_fails_closed(self, monkeypatch):
+        monkeypatch.setattr(duplication, 'resolve_effective_department', lambda *_: 'CCSICT')
+        monkeypatch.setattr(duplication, 'extract_document', lambda *_: (_ for _ in ()).throw(
+            AssertionError('an unscanned manuscript must never reach extraction'),
+        ))
+
+        def infected(_payload):
+            raise duplication.MalwareDetected('infected')
+
+        monkeypatch.setattr(duplication, 'scan_pdf', infected)
+        with pytest.raises(HTTPException) as detected:
+            asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
+        assert detected.value.status_code == 422
+
+        def unavailable(_payload):
+            raise duplication.MalwareScannerUnavailable('down')
+
+        monkeypatch.setattr(duplication, 'scan_pdf', unavailable)
+        with pytest.raises(HTTPException) as offline:
+            asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
+        # Fails closed, as ingestion does: unscanned is not a substitute for clean.
+        assert offline.value.status_code == 503
 
 
 class TestNoveltyScan:

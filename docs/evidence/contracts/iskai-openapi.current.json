@@ -2505,6 +2505,9 @@
           },
           "502": {
             "description": "An upstream AI service was unavailable or returned an error."
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
           }
         },
         "security": [

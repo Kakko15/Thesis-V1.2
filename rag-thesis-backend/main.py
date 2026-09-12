@@ -29,6 +29,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from config import settings
 from services.rate_limiting import limiter
+from services.request_limits import BodySizeLimitMiddleware
 from services.safe_logging import configure_safe_logging
 
 logging.basicConfig(
@@ -170,6 +171,14 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+# Registered after the header middleware and before CORS, which by the reverse
+# ordering below puts it OUTSIDE everything that touches the request and INSIDE
+# CORS. Outside matters because FastAPI reads the whole body before it resolves
+# a single dependency, so authentication cannot be what stops an oversized
+# upload; inside CORS matters because a 413 the browser cannot read is reported
+# as an opaque network failure rather than the real status.
+app.add_middleware(BodySizeLimitMiddleware)
+
 # Registered last on purpose. Starlette applies middleware in reverse
 # registration order, so this leaves CORS as the OUTERMOST layer and every
 # response carries its headers - including rate-limit rejections and errors
@@ -179,7 +188,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    # PATCH is here because the API serves it: routers/catalog.py exposes
+    # PATCH /catalog/programs/{id} and PATCH /catalog/specializations/{id}.
+    # Omitting it meant the browser preflight for those two was rejected, so a
+    # documented superadmin operation was unreachable from any browser while
+    # working perfectly from curl and the OpenAPI docs page. Keep this list in
+    # step with the methods the routers actually declare.
+    allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allow_headers=['Authorization', 'Content-Type', 'X-Guest-ID', 'Idempotency-Key', 'X-Turnstile-Token'],
     # The guest-chat guard signals "solve the challenge" via this header.
     expose_headers=['X-Guest-Verification'],

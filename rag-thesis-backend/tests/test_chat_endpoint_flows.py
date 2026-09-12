@@ -646,10 +646,21 @@ class TestChatPersistence:
         ]
 
         class Query:
+            def __init__(self): self._limit = None
             def select(self, *_args): return self
             def eq(self, *_args): return self
             def order(self, *_args, **_kwargs): return self
-            def execute(self): return SimpleNamespace(data=rows)
+            # The loader bounds this read rather than pulling a whole
+            # transcript, so the double honours the bound too: without it the
+            # slice would be exercised against rows PostgREST would never have
+            # returned, which is the shape of the bug the limit exists to fix.
+            def limit(self, count):
+                self._limit = count
+                return self
+            def execute(self):
+                return SimpleNamespace(
+                    data=rows if self._limit is None else rows[:self._limit],
+                )
 
         monkeypatch.setattr(chat, 'sb', SimpleNamespace(table=lambda _name: Query()))
         first = {'question': 'q1', 'answer': 'a1', 'sources': []}
