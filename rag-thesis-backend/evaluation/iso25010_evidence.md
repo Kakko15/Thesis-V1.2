@@ -6,6 +6,105 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## Security audit remediation and revalidation - 2026-09-12, reviewed at `4847209`
+
+A source review of the repository found ten defects, and all ten were fixed in the same
+pass. Nine sit outside the evaluated pipeline. One does not, and that one is why this
+section exists.
+
+### The change that affects measured behaviour
+
+`services/citations.py::enforce_citation_coverage` is the last rung of the citation repair
+ladder, below the bounded AI repair and above the grounded fallback. It used to map every
+out-of-range marker and every uncited substantive unit onto the first retrieved source,
+whatever the context held, after which `validate_citations` passed. That is sound only
+while every block on the table is a chunk of one thesis. The ordinary grounded path selects
+up to five chunks across as many papers, so on those answers the repair named a specific
+thesis as the authority for a claim the model had never attributed to it — and the failure
+was invisible in exactly the wrong direction, because the answer looked *better* cited
+afterwards.
+
+The repair is now gated on the paper rather than on the marker count. When every source is
+a chunk of one identified thesis it behaves as before: the citation a reader sees is the
+thesis, the whole draft came from that thesis, and choosing between its chunks cannot
+misattribute it. Across several theses the answer is left as the model wrote it, which
+fails validation, which serves the grounded retrieval fallback.
+
+Expected effect on Objective 2, none of it measured yet: a higher grounded-fallback rate on
+multi-thesis questions; Ragas Faithfulness no longer credited for repaired attributions the
+retrieved context did not support; and Answer Correctness possibly lower on questions where
+the fabricated citation happened to land on the right thesis. **No Objective 2 figure in
+this repository was measured after this change.** The comparison must be re-run before any
+figure is quoted beside it.
+
+### What is unchanged
+
+The frozen contract in `config.py` is untouched: 800/100-token chunking, 768 dimensions,
+the 0.30 retrieval threshold, five context blocks, the 0.85 duplication threshold, the
+candidate pool and the per-paper cap. So are `PROMPT_VERSION`, `CHUNKING_VERSION`,
+`PREPROCESSING_VERSION`, every model name and every pinned dependency version.
+`match_chunks` and `check_topic_duplication` are unchanged, so retrieval selects the same
+evidence for the same question. Only what happens to an answer whose citations cannot be
+honestly repaired has changed.
+
+### A gap this exposes in the release manifest
+
+`scripts/release_fingerprint.py` hashes `routers/chat.py`, `services/prompts.py`,
+`services/retriever.py` and `services/question_types.py`, but not `services/citations.py`.
+The fingerprint does move for this release, because `routers/chat.py` changed — but it
+would **not** have moved for a change to the repair ladder alone. Citation handling decides
+what attribution reaches the reader, which is the same argument already recorded for
+retrieval selection, and it belongs in the hashed inputs. Not changed here, because
+altering the manifest's input set is a separate decision with its own version bump.
+
+### The other nine fixes
+
+None touches retrieval, generation, chunking or scoring.
+
+| Area | Defect | Fix |
+|---|---|---|
+| Frontend session | The QueryClient is created above `AuthProvider`, private query keys carry no account, and sign-out is a client-side navigation — so a second reader in the same tab was served the first reader's saved conversations, novelty reports and department user list from cache | Cache cleared on every identity change, before the new identity is published |
+| API ingress | FastAPI parses the body before it resolves dependencies and Starlette spools file parts past 1 MB to disk, so an unauthenticated caller could write a body of any size to disk before receiving 401 | `services/request_limits.py`, a body ceiling on the declared length and on the receive channel, registered inside CORS and outside everything else |
+| Authorization | The role-feature matrix names four features; only `novelty` and `upload` were enforced by the API, so disabling `chat` or `archive` hid the page and left the endpoint open | `require_chat_access` and `require_archive_access` |
+| Novelty scan | `/duplication/scan` accepted a manuscript on its extension, MIME type and `%PDF-` prefix alone: no page ceiling, no encryption check, and no malware scan even where ClamAV is a startup requirement | The ingestion pipeline's checks applied before extraction, failing closed when the scanner is unavailable |
+| Guest cost ceiling | The shared daily allowance booked one generation per turn, while a turn can make up to four model calls (follow-up rewrite, duplication summary, citation repair, coverage repair) | All four booked; the rewrite, which precedes the first paid call, can still refuse |
+| Frontend session | An in-flight batch upload is kept in `sessionStorage`, which survives sign-out, and was restored on mount with no owner check | The stored batch is stamped with its owner and restored only to that account |
+| API contract | CORS omitted PATCH while `/catalog/programs/{id}` and `/catalog/specializations/{id}` are PATCH, making a documented superadmin operation unreachable from a browser | PATCH added to `allow_methods` |
+| Chat history | The prompt-edit path read a whole transcript with no limit, bounded only by PostgREST's `db-max-rows`, which truncates silently — so past it an edit resolved against a partial transcript and deleted from a different boundary than it read from | Bounded read and a ranged delete, both against an explicit ceiling |
+| Upload UI | Files past the twenty-file batch cap, and duplicates, were dropped without a message | Both reported |
+
+### Revalidation
+
+Toolchain unchanged: `.venv`, Python 3.14, the CI pytest and pylint commands.
+
+| Criterion | Instrument | Observed result | Status |
+|---|---|---|---|
+| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 1,194 passed and 3 opt-in external integration tests skipped; 92.07% coverage (5,122 statements, 406 missed) | Passed |
+| Backend maintainability | Pylint, the CI command (`routers services dependencies workers main.py config.py models.py`) | 10.00/10 | Passed |
+| Frontend unit tests and coverage | Node test runner with `--experimental-test-coverage`, gated at 85/80/85 | 197 passed across 7 suites; 96.36% lines, 87.09% branches, 96.81% functions | Passed |
+| API contract drift gate | `tests/test_export_openapi.py` against `docs/evidence/contracts/iskai-openapi.current.json` | Regenerated for the intentional change; sha256 `d036f65f3c700b91ea8bbd48a028526e5878cb2abe4abfdb8d05884eb6213b9d` | Passed |
+| Frontend maintainability | ESLint, the flat config, via `npm run lint` | 0 errors, 0 warnings | Passed |
+| Critical browser journeys and accessibility matrix | Playwright with @axe-core/playwright | Not run in this pass | Not run |
+| Objective 2 comparison | `evaluation/run_comparison.py` | Not re-run; see the citation change above | Pending |
+
+The ESLint row is a change from every earlier pass recorded in this file, which reported
+one standing warning: the `Archive.jsx` complexity advisory, first noted 2026-08-30. It no
+longer appears. The rule that produced it is still configured and still a warning
+(`complexity: ['warn', 24]` in `eslint.config.js`), so this is the advisory being resolved
+rather than silenced — `Archive.jsx` was decomposed into `src/pages/archive/*` in the
+interim. Recorded here because a clean run that used to carry a known advisory invites the
+opposite reading.
+
+The backend suite grew by twelve tests, 1,185 collected to 1,197. The additions cover the
+body ceiling (`tests/test_request_limits.py`, which takes `services/request_limits.py` to
+100%), the three structural checks now applied to a novelty scan, and the citation repair
+refusing to attribute a claim across theses. The three duplication-scan tests that failed
+on first run did so because their fixture sent `b'%PDF-dummy'`, which the new check
+correctly rejects; they now carry a PDF that parses.
+
+As in every pass recorded here, `ALLOW_DISPOSABLE_SUPABASE_TESTS` was not set, so the three
+live disposable-project checks are skipped rather than run.
+
 ## Ingest-time screen names the nearest thesis and refuses verbatim re-uploads - 2026-09-08
 
 Uploading a BLIS 2026 thesis about the ISU Echague library produced a flagged ingest at
