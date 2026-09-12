@@ -42,3 +42,47 @@ _ISOLATED_TEST_ENV = {
 
 for _name, _value in _ISOLATED_TEST_ENV.items():
     os.environ[_name] = _value
+
+
+def _warn_unless_pinned_interpreter() -> None:
+    """Name the cause when the suite is run outside the pinned environment.
+
+    The README requires a venv called ``.venv`` because that is where
+    ``requirements.lock`` is installed. Running the suite from a system Python
+    instead picks up whatever versions happen to be there, and the first symptom
+    is not a test failure: ``pytest.ini`` names
+    ``starlette.exceptions.StarletteDeprecationWarning`` as a filter category,
+    pytest resolves filter categories by importing them while it PARSES the
+    config, and a Starlette without that class aborts the whole run with
+
+        AttributeError: module 'starlette.exceptions' has no attribute
+        'StarletteDeprecationWarning'
+
+    before a single test is collected. That reads like a library bug rather
+    than "wrong interpreter", and it cost a full debugging detour on
+    2026-09-12. Anyone reproducing this artifact would hit the same wall.
+
+    A warning rather than a hard failure, deliberately. CI installs from
+    ``requirements.lock`` into the job's own environment with no ``.venv`` at
+    all (`.github/workflows/quality.yml`), and a developer may have a working
+    equivalent under another name. The aim is to name the cause, not to add a
+    second way for the suite to refuse to run.
+    """
+    if os.environ.get('CI'):
+        return
+    expected = Path(__file__).resolve().parents[1] / '.venv'
+    try:
+        if Path(sys.prefix).resolve() == expected.resolve():
+            return
+    except OSError:
+        pass
+    print(
+        f'\nWARNING: pytest is running from {sys.prefix}, not {expected}.\n'
+        '         The pinned dependencies live in .venv; results from another\n'
+        '         interpreter are not comparable to the recorded evidence.\n'
+        '         Activate it first:  .\\.venv\\Scripts\\Activate.ps1\n',
+        file=sys.stderr,
+    )
+
+
+_warn_unless_pinned_interpreter()
