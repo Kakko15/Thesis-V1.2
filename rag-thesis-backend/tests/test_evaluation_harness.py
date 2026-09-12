@@ -133,12 +133,29 @@ class TestGoldenDatasetStrata:
     def test_the_declared_counts_are_what_the_paper_quotes(self, dataset):
         counts = Counter(query['corpus_coverage'] for query in dataset['queries'])
         assert len(dataset['queries']) == 40
+        assert counts['present'] == 16
+        assert counts['absent_topic'] == 17
+        assert counts['absent_unreleased'] == 4
         assert counts['absent_by_design'] == 3
-        assert counts['absent_unreleased'] == 5
-        assert counts[UNDETERMINED_COVERAGE] == 32
-        assert counts['present'] == 0, (
-            'no query may be marked present until its ground truth is drafted from the corpus'
+        assert counts[UNDETERMINED_COVERAGE] == 0, (
+            'every stratum was determined when the ground truths were drafted on '
+            '2026-09-12; a row back on undetermined has lost its ground truth'
         )
+
+    def test_a_drafted_row_is_complete_and_matches_its_stratum(self, dataset):
+        """Workflow steps 2 and 4, pinned against the shipped instrument.
+
+        `validate_formal_dataset` enforces both, but only on the dataset it is
+        handed. These are the facts about the file in this repository, which is
+        what a panel member opens and what a formal run will load.
+        """
+        for query in dataset['queries']:
+            for field in ('ground_truth', 'source_thesis'):
+                value = str(query[field]).strip()
+                assert value and not value.upper().startswith('REPLACE:'), query['id']
+            # Step 4: an absence names no source thesis, whichever absence it is.
+            names_a_source = str(query['source_thesis']).strip().casefold() != 'none'
+            assert names_a_source == (query['corpus_coverage'] == 'present'), query['id']
 
     def test_negative_controls_are_exactly_the_absent_by_design_stratum(self, dataset):
         controls = {q['id'] for q in dataset['queries'] if q['query_type'] == 'negative_control'}
@@ -150,9 +167,13 @@ class TestGoldenDatasetStrata:
     def test_unreleased_queries_name_an_unreleased_track_in_their_own_text(self, dataset):
         """The one determination that can be made without reading the corpus.
 
-        A query is absent_unreleased a priori only when its wording scopes it to
-        a program or specialization CCSICT did not release. A question about
-        "CCSICT theses" generally is undetermined, however its category reads.
+        A query is absent_unreleased only when its wording scopes it to a program
+        or specialization CCSICT did not release, so that nothing anyone wrote
+        could have answered it. A question about "CCSICT theses" generally is not
+        that, however its category reads: when the released manuscripts turn out
+        not to cover it, the finding is a gap in the archive and the stratum is
+        absent_topic. This test is what caught fifteen rows being drafted into
+        absent_unreleased before that value existed (revision 2026-09-13).
         """
         unreleased = ('web development', 'network security', 'bsdsa')
         for query in dataset['queries']:
@@ -162,9 +183,16 @@ class TestGoldenDatasetStrata:
             assert any(track in question for track in unreleased), query['id']
 
     def test_the_revision_record_covers_every_query_it_restratified(self, dataset):
-        revision = dataset['validation']['instrument_revisions'][-1]
-        assert revision['date'] == '2026-09-07'
-        assert set(revision['affected_ids']) == {q['id'] for q in dataset['queries']}
+        revisions = dataset['validation']['instrument_revisions']
+        every_id = {query['id'] for query in dataset['queries']}
+        by_date = {revision['date']: revision for revision in revisions}
+        # 2026-09-07 gave every query a stratum field; 2026-09-13 drafted every
+        # ground truth, moved all forty off `undetermined` and introduced
+        # absent_topic. Both touched the whole instrument, and a reader comparing
+        # against a pre-2026-09-13 copy needs each recorded, not only the latest.
+        for date in ('2026-09-07', '2026-09-13'):
+            assert set(by_date[date]['affected_ids']) == every_id, date
+        assert revisions[-1]['date'] == '2026-09-13'
 
 
 def test_formal_dataset_validation_rejects_placeholders_and_incomplete_signoff():
