@@ -8,9 +8,10 @@ This file reports only observed command results. Pending external measurements a
 
 ## Security audit remediation and revalidation - 2026-09-12, reviewed at `4847209`
 
-A source review of the repository found ten defects, and all ten were fixed in the same
-pass. Nine sit outside the evaluated pipeline. One does not, and that one is why this
-section exists.
+A source review of the repository found eleven defects, and all eleven were fixed in the
+same pass. Nine sit outside the evaluated pipeline. One does not, and that one is why this
+section exists. The eleventh is in the evaluation harness itself and is recorded at the end
+of this section, because it decides whether a re-run may reuse anything measured before it.
 
 ### The change that affects measured behaviour
 
@@ -79,13 +80,57 @@ Toolchain unchanged: `.venv`, Python 3.14, the CI pytest and pylint commands.
 
 | Criterion | Instrument | Observed result | Status |
 |---|---|---|---|
-| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 1,194 passed and 3 opt-in external integration tests skipped; 92.07% coverage (5,122 statements, 406 missed) | Passed |
+| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 1,200 passed and 3 opt-in external integration tests skipped; 92.07% coverage (5,122 statements, 406 missed) | Passed |
 | Backend maintainability | Pylint, the CI command (`routers services dependencies workers main.py config.py models.py`) | 10.00/10 | Passed |
 | Frontend unit tests and coverage | Node test runner with `--experimental-test-coverage`, gated at 85/80/85 | 197 passed across 7 suites; 96.36% lines, 87.09% branches, 96.81% functions | Passed |
 | API contract drift gate | `tests/test_export_openapi.py` against `docs/evidence/contracts/iskai-openapi.current.json` | Regenerated for the intentional change; sha256 `d036f65f3c700b91ea8bbd48a028526e5878cb2abe4abfdb8d05884eb6213b9d` | Passed |
 | Frontend maintainability | ESLint, the flat config, via `npm run lint` | 0 errors, 0 warnings | Passed |
 | Critical browser journeys and accessibility matrix | Playwright with @axe-core/playwright | Not run in this pass | Not run |
 | Objective 2 comparison | `evaluation/run_comparison.py` | Not re-run; see the citation change above | Pending |
+
+### The harness can no longer resume across a changed configuration
+
+Found while checking the one prior finding this pass had left unverified, and directly
+relevant to the re-run the citation change requires. The checkpoint namespace was the
+dataset digest alone, so changing the model, the route, the prompt version, a RAG constant,
+the index contract or any hashed source file and re-running the same dataset replayed every
+already-recorded query from disk — while the report stamped the current `build_manifest()`
+over it. A run could publish a manifest describing code that had not produced the answers
+it reported, and `--fresh` was the only defence.
+
+It was reachable rather than live, and the first draft of this section said otherwise. The
+correction is kept in place rather than silently applied, because the overstatement was in
+the direction that flatters the finding. `e9591c80b9f1` is the digest of
+`evaluation/dev_smoke_dataset.json`, a three-query development instrument, not of the
+Golden Dataset: `results/checkpoints/e9591c80b9f1.pathways.jsonl` held all three queries of
+a run that completed, and `comparison_20260903_200643.json` records that digest as its
+`golden_dataset_sha256` only because the field names whatever dataset was passed — its own
+`queries_total: 3` and its `the Golden Dataset must contain 30-50 queries` validation issue
+both identify which. The Golden Dataset hashes to `9655bf9bcd95`, so a default-run-id run
+would have opened a clean namespace and never touched that file. Pooling needed an explicit
+`--run-id` or a re-run of the smoke dataset itself — both routine while iterating on the
+harness, and that smoke dataset is what every retained artifact in `results/` came from. On
+either path `routers/chat.py` is a hashed manifest input and the citation fix changed it,
+so the manifest had moved while the answers had not. That checkpoint has been deleted.
+
+`run_comparison.py` now writes the answering configuration to
+`<run-id>.provenance.json` when a checkpoint is created and refuses to resume when it
+differs, naming what moved down to the individual file. `git_commit` is excluded from the
+comparison so a docs commit cannot refuse a legitimate resume. Three gaps remain stated
+rather than closed: the index fingerprint is the index contract, not a corpus inventory, so
+a re-ingested corpus under identical settings still needs `--fresh`; Ragas score reuse
+is still keyed on the query id rather than on the answer text scored; and the compared set
+is the manifest's, so `evaluation/run_comparison.py` itself is outside it even though its
+digest is already published as `reproducibility.evaluation_script_sha256` — editing the
+harness and resuming is the same shape as the finding, one level up. Widening the set is a
+decision about the manifest's inputs, and belongs with that version bump, alongside
+`services/citations.py`.
+
+This fix and its six tests postdated the first revalidation run, which recorded 1,194. The
+suite was re-run once they landed and the table above is that second run: the six tests are
+the whole of the 1,194 → 1,200 difference. Coverage is unchanged at 92.07% because
+`evaluation/` sits outside both the coverage scope and the CI lint target, which name
+`routers services dependencies workers main.py config.py models.py`.
 
 The ESLint row is a change from every earlier pass recorded in this file, which reported
 one standing warning: the `Archive.jsx` complexity advisory, first noted 2026-08-30. It no
