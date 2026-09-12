@@ -20,7 +20,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from config import settings
-from dependencies.auth import get_optional_user, resolve_effective_department, sb
+from dependencies.auth import require_chat_access, resolve_effective_department, sb
 from models import ChatRequest, ChatResponse, DuplicationAlert
 from routers.openapi_responses import errors
 from services.activity import log_activity
@@ -70,7 +70,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/chat', tags=['chat'])
 
 # Guests resolve to None; authenticated callers get an opaque Supabase record.
-OptionalUser = Annotated[Any, Depends(get_optional_user)]
+# The guard also enforces the role-feature matrix's `chat` toggle, which until
+# 2026-09-12 existed only in the browser.
+OptionalUser = Annotated[Any, Depends(require_chat_access)]
 
 llm = ChatGoogleGenerativeAI(
     model=settings.gemini_chat_model,
@@ -579,6 +581,31 @@ def _charge_guest_generation(*texts: str) -> guest_budget.BudgetDecision:
     return guest_budget.charge(guest_budget.estimate_charge(*texts))
 
 
+async def _charge_guest_extra(user, *texts) -> guest_budget.BudgetDecision:
+    """Book one of a guest turn's ADDITIONAL model calls, or nothing if signed in.
+
+    The single charge before generation books one call: the prompt it measures
+    plus one worst-case completion. A turn can make up to four. The follow-up
+    rewrite runs before it, and the citation repair, the multi-paper coverage
+    repair and the duplication summary run beside or after it -- each a full
+    Gemini chat call, none of them measured, so a guest's real spend could be
+    several times what the shared daily allowance recorded. Audited 2026-09-12;
+    `services/guest_budget.py` only ever claimed retrieval *embeddings* were
+    excluded, not whole generations.
+
+    The caller decides whether the decision can still refuse. Before the first
+    paid call it can; for a repair of an answer already generated it cannot --
+    abandoning that reply mid-flight would show the reader a broken response to
+    save a call that has already been made. Booking it anyway is what keeps the
+    day's counter honest, which is what refuses the NEXT request. This is the
+    same reasoning `guest_budget.charge` documents for a refused request that
+    still increments.
+    """
+    if user:
+        return guest_budget.ALLOWED_UNLIMITED
+    return await asyncio.to_thread(_charge_guest_generation, *texts)
+
+
 # The four generation prompts live in services/prompts.py, composed from shared
 # rule blocks. They were four hand-maintained copies of one rule set and had
 # already drifted: the verbatim/IP rule and the refusal rule existed only on the
@@ -605,19 +632,32 @@ def get_no_relevant_message(department: str | None = None) -> str:
 _coerce_answer = coerce_text
 
 
+# A conversation nobody will reach: the browser sends `edit_from_turn` as a
+# position in the transcript it is displaying, and a session this long is a
+# runaway, not a reader. It exists so the two reads below are bounded by
+# something this code chose rather than by PostgREST's `db-max-rows` — which is
+# a per-project setting, defaults to 1000, and silently truncated both reads
+# with no marker, so past it the edit resolved against a partial transcript and
+# deleted from a different boundary than it read from.
+_MAX_TRANSCRIPT_ROWS = 500
+
+
 def _history_before_turn(session_id: str, before_turn: int) -> list[dict]:
     """The newest answered exchanges that precede `before_turn`.
 
-    The whole ordered transcript is read because the browser counts every
-    stored row as a turn, notices included, and this has to land on the same
-    boundary `_truncate_session_from_turn` deletes from -- which reads the
-    session the same way, for the same reason.
+    The ordered transcript is read up to `before_turn` because the browser
+    counts every stored row as a turn, notices included, and this has to land on
+    the same boundary `_truncate_session_from_turn` deletes from -- which reads
+    the session the same way, for the same reason.
     """
+    if before_turn <= 0:
+        return []
     rows = (
         sb.table('chat_messages')
         .select('question, answer, sources, kind')
         .eq('session_id', session_id)
         .order('created_at', desc=False)
+        .limit(min(before_turn, _MAX_TRANSCRIPT_ROWS))
         .execute()
     ).data or []
     answered = [
@@ -701,14 +741,20 @@ def _truncate_session_from_turn(
 ) -> None:
     """Delete the edited saved turn and every later branch turn."""
     _ensure_session_owner(session_id, user_id, department)
+    # Asks Postgres for exactly the tail to delete rather than reading the whole
+    # transcript and slicing it in Python. The old read had no limit, so it was
+    # bounded only by PostgREST's `db-max-rows`, which truncates silently: the
+    # same ceiling that made `_history_before_turn` resolve an edit against a
+    # partial transcript also decided how much of the branch this deleted.
     rows = (
         sb.table('chat_messages')
         .select('id')
         .eq('session_id', session_id)
         .order('created_at', desc=False)
+        .range(turn, turn + _MAX_TRANSCRIPT_ROWS - 1)
         .execute()
     ).data or []
-    stale_ids = [row['id'] for row in rows[turn:] if row.get('id')]
+    stale_ids = [row['id'] for row in rows if row.get('id')]
     if stale_ids:
         sb.table('chat_messages').delete().in_('id', stale_ids).execute()
 
@@ -1607,11 +1653,29 @@ async def _chat_impl_unstamped(
             if reference_sources:
                 referenced_paper_id = reference_sources[0].get('id')
             if not effective_question:
-                effective_question = (
-                    _resolve_specific_paper_followup(req.question, reference_sources[0])
-                    if reference_sources
-                    else await _rewrite_followup(req.question, prior_questions, reference_sources)
-                )
+                if reference_sources:
+                    effective_question = _resolve_specific_paper_followup(
+                        req.question, reference_sources[0],
+                    )
+                else:
+                    # The rewrite is a full Gemini call and it runs BEFORE the
+                    # generation charge, so for a guest it is the first paid
+                    # call of the turn and is still refusable here.
+                    rewrite_budget = await _charge_guest_extra(
+                        user, req.question, chat_history_str,
+                    )
+                    if not rewrite_budget.allowed:
+                        background_tasks.add_task(
+                            log_activity, None, 'chat_query_budget_exhausted', {
+                                'question_length': len(req.question),
+                                'stage': 'followup_rewrite',
+                                'charged': rewrite_budget.charged,
+                            },
+                        )
+                        return _guest_budget_response(req.session_id)
+                    effective_question = await _rewrite_followup(
+                        req.question, prior_questions, reference_sources,
+                    )
         rewritten_block = prohibited_reason(effective_question)
         if rewritten_block:
             background_tasks.add_task(log_activity, user.id if user else None, 'chat_query_blocked', {
@@ -1749,6 +1813,11 @@ async def _chat_impl_unstamped(
                 'resolved_question': effective_question,
             }
         )
+        if alert_data:
+            # `_invoke_generation` runs the duplication summary as a SECOND
+            # concurrent Gemini call whenever there is an alert, which the single
+            # generation charge above does not cover.
+            await _charge_guest_extra(user, str(alert_data.get('matched_abstract') or ''))
         async with safe_trace('rag.generation', metadata={
             'department': effective_department,
             'source_count': len(sources),
@@ -1811,6 +1880,10 @@ async def _chat_impl_unstamped(
         and _missing_referenced_papers(answer, sources, plural_paper_ids)
     ):
         try:
+            # Booked, not refused: the answer already exists and abandoning it
+            # to save a call that is about to be made anyway would only show the
+            # reader a worse reply. The counter is what refuses the next turn.
+            await _charge_guest_extra(user, answer, req.question, context)
             repaired_plural, _ = prompts.strip_no_evidence_sentinel(
                 await _repair_multi_paper_coverage(answer, req.question, context, sources)
             )
@@ -1869,6 +1942,8 @@ async def _chat_impl_unstamped(
             citation_errors.append(f'missing referenced papers: {missing_papers}')
         if not valid:
             try:
+                # Booked for the same reason as the coverage repair above.
+                await _charge_guest_extra(user, answer, context)
                 repaired = normalize_citation_markers(
                     await _repair_citations(answer, context, sources)
                 )

@@ -367,8 +367,8 @@ test('serialize and restore round-trip only rows that carry a job', () => {
     type: 'apply-submit-results',
     results: [{ index: 0, job_id: 'job-a', status: 'queued' }, { index: 1, error: 'nope', status_code: 415 }],
   })
-  const json = serializeActiveBatch(state.rows)
-  const restored = restoreActiveBatch(json)
+  const json = serializeActiveBatch(state.rows, 'user-alice')
+  const restored = restoreActiveBatch(json, 'user-alice')
   assert.equal(restored.length, 1)
   assert.equal(restored[0].id, state.rows[0].id)
   assert.equal(restored[0].idempotencyKey, state.rows[0].idempotencyKey)
@@ -378,11 +378,35 @@ test('serialize and restore round-trip only rows that carry a job', () => {
   assert.equal(restored[0].job.status, 'queued')
   const restoredState = batchReducer(createBatchState(), { type: 'restore', rows: restored })
   assert.equal(restoredState.step, BATCH_STEPS.ingesting)
-  assert.equal(restoreActiveBatch(null), null)
-  assert.equal(restoreActiveBatch('not json'), null)
-  assert.equal(restoreActiveBatch('[]'), null)
-  assert.equal(restoreActiveBatch('{"jobId": "x"}'), null)
+  assert.equal(restoreActiveBatch(null, 'user-alice'), null)
+  assert.equal(restoreActiveBatch('not json', 'user-alice'), null)
+  assert.equal(restoreActiveBatch('[]', 'user-alice'), null)
+  assert.equal(restoreActiveBatch('{"jobId": "x"}', 'user-alice'), null)
   assert.equal(typeof ACTIVE_BATCH_STORAGE_KEY, 'string')
+})
+
+test('a stored batch is never restored to a different account', () => {
+  let state = stateWithFiles(pdf('alice-thesis.pdf'))
+  state = batchReducer(state, {
+    type: 'set-row-field', id: state.rows[0].id, key: 'title', value: 'Alice private title',
+  })
+  state = batchReducer(state, {
+    type: 'apply-submit-results',
+    results: [{ index: 0, job_id: 'job-a', status: 'queued' }],
+  })
+  const json = serializeActiveBatch(state.rows, 'user-alice')
+
+  // sessionStorage survives a sign-out, so the next reader in the same tab used
+  // to see Alice's filenames and titles restored into their own table.
+  assert.equal(restoreActiveBatch(json, 'user-bob'), null)
+  // An unresolved identity restores nothing rather than guessing.
+  assert.equal(restoreActiveBatch(json, null), null)
+  assert.equal(restoreActiveBatch(json, undefined), null)
+  // The owner still gets their own batch back across a reload.
+  assert.equal(restoreActiveBatch(json, 'user-alice').length, 1)
+  // The pre-owner-stamp shape carries no owner, so it is discarded.
+  const legacy = JSON.stringify([{ id: 'r1', jobId: 'job-a', title: 'Alice private title' }])
+  assert.equal(restoreActiveBatch(legacy, 'user-alice'), null)
 })
 
 test('step, flag, progress, poll-error and reset actions', () => {
