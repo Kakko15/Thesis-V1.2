@@ -320,6 +320,20 @@ is roughly 80 model calls before scoring adds ~160 more. The run id defaults to
 the dataset's SHA-256 prefix, so re-running the same dataset resumes and a
 changed dataset starts clean. Use `--fresh` to discard a checkpoint deliberately.
 
+**Resuming is bounded by the configuration, not just the dataset.** The run id
+covers the dataset and nothing else, so the answering configuration is recorded
+beside the checkpoint in `<run-id>.provenance.json` and compared before anything
+is reused. Change the model, the route, the prompt version, a RAG constant, the
+index contract, or any source file the release manifest hashes, and the resume is
+refused with the changed key named; `--fresh` is how you accept it. Without this
+a re-run replayed old answers from disk while stamping the current manifest over
+them, so the report claimed a configuration that had not produced its own
+results. The commit hash is deliberately excluded from the comparison, so a docs
+commit cannot refuse a legitimate resume. Two things the guard cannot see, both
+of which still need `--fresh`: a changed corpus behind an unchanged index
+contract, and whether a Ragas score was computed against the answer it is now
+attached to.
+
 **Provider outages are never scored.** On an exhausted quota `/chat` returns
 HTTP 200 carrying a capacity notice, and trips a 60-second process-wide cooldown
 during which every following question returns that notice without being

@@ -1,8 +1,8 @@
 # Codebase and security audit — 2026-09-12
 
-Reviewed commit: `4847209`. Ten defects were found and all ten were fixed in the same pass; this report is the record of both.
+Reviewed commit: `4847209`. Eleven defects were found and all eleven were fixed in the same pass; this report is the record of both.
 
-This is a source review with local verification, not a certification and not a live penetration test. No live account, manuscript, database, storage object or deployment was touched. Application code *was* changed, unlike the 2026-09-05 review — that report recorded findings only, and seven of its twelve were still open here.
+This is a source review with local verification, not a certification and not a live penetration test. No live account, manuscript, database, storage object or deployment was touched. Application code *was* changed, unlike the 2026-09-05 review — that report recorded findings only, and eight of its twelve were still open here.
 
 In source references, `backend/` means `rag-thesis-backend/` and `frontend/` means `rag-thesis-frontend/`.
 
@@ -28,6 +28,7 @@ Severity reflects demonstrated behaviour and prerequisites, not a CVSS calculati
 | A08 | Low | CORS omits PATCH, which the catalog API serves | F12 | Fixed |
 | A09 | Low | The prompt-edit path reads a transcript with no bound | — | Fixed |
 | A10 | Low | Files past the batch cap are dropped silently | — | Fixed |
+| A11 | Medium | The evaluation harness resumes a checkpoint under a changed configuration | F10 | Fixed |
 
 ---
 
@@ -138,6 +139,24 @@ Sources: `frontend/src/pages/upload/batchState.js:124`.
 
 **Fix.** Both the overflow and the duplicate count are reported.
 
+### A11 — The evaluation harness resumes a checkpoint under a changed configuration
+
+Sources: `backend/evaluation/run_comparison.py`, `run_id` derivation, `_load_checkpoint`, `_run_pathways`, `_score_with_ragas` and the report's `reproducibility` block.
+
+The checkpoint namespace was `sha256_file(dataset_path)[:12]` — the dataset digest and nothing else. `_load_checkpoint` keyed rows by query id and recorded no metadata about what produced them, and `_run_pathways` replayed any matching id verbatim, so the current code never ran for that query. The report then built `reproducibility.release` from `build_manifest()`, the environment as it stood at report time. A run could therefore publish a manifest describing code that had not produced the answers it was reporting. `--fresh` was the only defence, applied from memory.
+
+This is F10. It was reachable rather than live, and the first draft of this report said otherwise; the correction is recorded here rather than quietly applied, because an overstated finding is exactly what a panel checks. `e9591c80b9f1` is the digest of `evaluation/dev_smoke_dataset.json`, a three-query development instrument — not of the Golden Dataset. `evaluation/results/checkpoints/e9591c80b9f1.pathways.jsonl` therefore held all three queries of a run that *completed*, not 3 of 40 from one that was interrupted. `comparison_20260903_200643.json` records that digest as its `golden_dataset_sha256` because the field names whatever dataset was passed; its own `queries_total: 3` and its `the Golden Dataset must contain 30-50 queries` validation issue both say which one that was. The Golden Dataset hashes to `9655bf9bcd95` and has since `347aa86`, so a default-run-id run would have opened a clean namespace and never touched that file.
+
+What made it reachable is that the namespace is the only thing bounding a resume. Pooling needed either an explicit `--run-id e9591c80b9f1` or a re-run of the smoke dataset itself — both routine while iterating on the harness, and the smoke dataset is what every retained artifact in `evaluation/results/` was produced from. On either path `routers/chat.py` is one of `build_manifest()`'s hashed inputs and A05 changed it, so the manifest had moved while the answers had not. That checkpoint has been deleted.
+
+One accidental protection existed on that path. Those three rows carry no `corpus_coverage`, so they trip the schema-drift warning and force `formal_result: false`. That guard catches a *field* being added, not a *configuration* changing, so a checkpoint written once the field existed would have replayed without it. It is also not what stands between this repository and a false formal result today: the Golden Dataset is still an unfilled template — forty `REPLACE:` ground truths, forty `REPLACE:` source theses, thirty-two undetermined strata and a blank faculty panel — so `validate_formal_dataset` refuses the run outright and every artifact in `evaluation/results/` carries `formal_result: false`. This guard matters for the first run *after* that dataset is validated, which is the run whose integrity nothing else was protecting.
+
+**Fix.** The answering configuration is written to `<run-id>.provenance.json` when a checkpoint is created and compared before it is reused. A mismatch is refused, naming what moved — down to the individual file for `input_sha256`, because "input_sha256 changed" is true of any edit anywhere. `git_commit` is deliberately excluded from the comparison: it moves when a README changes, and a guard that refuses legitimate resumes is one that gets disabled. A checkpoint with no recorded configuration — every checkpoint written before this existed — is also refused. `--fresh` is how an operator accepts the change, so discarding a long run stays their decision rather than the tool's.
+
+The manifest is now built once and used for both the gate and the published `reproducibility.release`, so the two cannot disagree.
+
+Three residual gaps, stated so they are not mistaken for covered. The index fingerprint is the index *contract* — embedding model, dimensions, chunking and preprocessing versions — not an inventory of the corpus, so re-ingesting different manuscripts under identical settings still fingerprints the same and still needs `--fresh`. `_score_with_ragas` continues to key score reuse on the query id rather than on the answer text scored; in practice both checkpoints are created and deleted together, so they stay in step, but the binding is by convention rather than construction. And the compared set is the manifest's, so it covers every file `build_manifest()` hashes and nothing else: `evaluation/run_comparison.py` itself is not among them, even though it holds `_run_pathways`, the baseline prompt and `sanitize_evaluation_rows`. Its digest *is* computed and published as `reproducibility.evaluation_script_sha256`, so adding that one key to `_ANSWERING_CONFIGURATION_KEYS` would close it — editing the harness and resuming is the same shape as F10, one level up. Left for the same reason as `services/citations.py`: widening the compared set is a decision about the manifest's input set, not a bug fix, and it belongs with that version bump.
+
 ---
 
 ## Verification
@@ -146,12 +165,16 @@ Executed by the maintainer after the fixes landed, inside `.venv` on Python 3.14
 
 | Instrument | Result |
 |---|---|
-| PyTest with pytest-cov, `--cov-fail-under=85` | 1,194 passed, 3 skipped; 92.07% coverage (5,122 statements, 406 missed) |
+| PyTest with pytest-cov, `--cov-fail-under=85` | 1,200 passed, 3 skipped; 92.07% coverage (5,122 statements, 406 missed) |
 | Pylint, the CI command | 10.00/10 |
 | Node test runner, gated at 85/80/85 | 197 passed across 7 suites; 96.36% lines, 87.09% branches, 96.81% functions |
 | `tests/test_export_openapi.py` | Contract regenerated for the intentional change; sha256 `d036f65f3c700b91ea8bbd48a028526e5878cb2abe4abfdb8d05884eb6213b9d` |
 
-Twelve tests were added: `tests/test_request_limits.py` covers the body ceiling and takes `services/request_limits.py` to 100%, including the case that matters most — a declared length over the ceiling is refused with the application never running at all; three tests cover the structural checks now applied to a novelty scan; and one pins the citation repair refusing to attribute a claim across theses.
+Twelve tests were added before that run: `tests/test_request_limits.py` covers the body ceiling and takes `services/request_limits.py` to 100%, including the case that matters most — a declared length over the ceiling is refused with the application never running at all; three tests cover the structural checks now applied to a novelty scan; and one pins the citation repair refusing to attribute a claim across theses.
+
+A11 and its six tests in `tests/test_evaluation_harness.py` were written after the first run of this table, which recorded 1,194. The suite was re-run once they landed and the table above is that second run: the six tests are the whole of the 1,194 → 1,200 difference, and coverage is unchanged at 92.07% because `evaluation/` is outside the measured packages — the CI gate names `routers services dependencies workers main.py config.py models.py` and nothing else. For the same reason `evaluation/run_comparison.py` is unlinted by CI; run directly it scores 9.97/10, the single message being `C0302` for crossing 1,000 lines.
+
+One caveat on the toolchain, since this is a versioned artifact: the `.venv` these figures come from is Python **3.14.6**, while the Dockerfile asserts exactly 3.14.7 and CI installs 3.14.7. The numbers are sound, but they were not measured on the interpreter the paper's tables record.
 
 Three duplication-scan tests failed on the first run because their fixture sent `b'%PDF-dummy'`, which the new check correctly rejects as malformed. They now carry a PDF that parses, and the refusal they used to depend on is covered explicitly.
 
@@ -176,4 +199,6 @@ Of the 2026-09-05 review's twelve, seven are addressed above. Of the rest:
 - **F03** (unknown queue outcome deleting a committed job's source) and **F07** (saved-chat editing deleting history before the replacement persists) both appear closed: the staging path now re-reads authoritative job state and refuses to compensate a job that advanced, and truncation runs only after generation has returned.
 - **F04** (AAL2 not consistently enforced) appears addressed across the privileged guards. Note that A03 deliberately does not extend it to chat and archive.
 - **F06** (rotating a supplied guest ID resets per-guest limits) remains true by design, bounded by the per-IP ceiling and Turnstile.
-- **F10** (evaluation resuming stale checkpoints under changed configuration) was **not** re-verified in this pass. It is the one prior finding whose current status is unknown, and it bears directly on Objective 2 — worth checking before the comparison is re-run.
+- **F10** was re-verified, found open and live, and fixed; it is recorded above as A11.
+
+That leaves F03, F04 and F07 as the three whose closure was inferred from reading the current code rather than reproduced, and F06 as the one accepted by design.
