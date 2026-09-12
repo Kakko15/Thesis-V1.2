@@ -527,6 +527,23 @@ def _metric_value(result) -> float:
 # endpoint as the recommended workaround. Verified by the 2026-07-28 smoke.
 GEMINI_OPENAI_COMPAT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/'
 
+# The judge decomposes an answer into statements and returns them as one
+# structured object, so its output scales with the length of what it is
+# scoring -- and the baseline arm produces the LONGEST answers in the run,
+# because an unaugmented model with no retrieved context to bound it rambles.
+# Left at the provider default, instructor raises IncompleteOutputException
+# when that object is severed mid-JSON, `judged` burns all four attempts on a
+# failure that is deterministic rather than transient, and the run dies during
+# scoring with every answer already collected and paid for. Observed
+# 2026-09-12 on the 3-query smoke: query 3's 4,420-character baseline answer
+# failed all four attempts, while the two shorter answers scored normally.
+#
+# The bound only has to clear the truncation point; it is not a measurement
+# parameter. Verified on that same answer: 4,096 and 16,384 both return
+# 0.1845, three consecutive runs each, spread 0.0000. Sized for the worst
+# baseline answer a 40-query formal run can produce, not for the smoke.
+_EVALUATOR_MAX_TOKENS = 16384
+
 
 async def _score_with_ragas(rows: list[dict], checkpoint: Path | None = None) -> dict:
     """Use explicit Gemini-backed Ragas metrics with valid pathway semantics.
@@ -553,6 +570,7 @@ async def _score_with_ragas(rows: list[dict], checkpoint: Path | None = None) ->
             api_key=settings.gemini_api_key,
             base_url=GEMINI_OPENAI_COMPAT_BASE_URL,
         ),
+        max_tokens=_EVALUATOR_MAX_TOKENS,
     )
     evaluator_embeddings = GoogleEmbeddings(
         client=genai.Client(api_key=settings.gemini_api_key),
