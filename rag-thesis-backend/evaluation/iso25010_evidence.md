@@ -246,7 +246,10 @@ Three consequences were applied in code rather than left to the formal run:
    `tests/test_corpus_manifest.py` pins the constant so a future release moves the paper
    and the PI-08 protocol with it.
 2. **The Golden Dataset keeps all forty queries and declares a coverage stratum for
-   each** — 3 `absent_by_design`, 5 `absent_unreleased`, 32 `undetermined`. Deleting the
+   each.** As released on 2026-09-07 that was 3 `absent_by_design`, 5
+   `absent_unreleased` and 32 `undetermined`; drafting the ground truths on 2026-09-12
+   resolved all forty, and the instrument now reads 16 `present`, 17 `absent_topic`, 4
+   `absent_unreleased`, 3 `absent_by_design` (revision 2026-09-13). Deleting the
    queries the corpus cannot answer would have narrowed the catalog-wide scope the
    methodology declares and hidden the department release limit; leaving them unmarked
    would have let a correct refusal count as an accuracy failure.
@@ -269,8 +272,37 @@ Three consequences were applied in code rather than left to the formal run:
    be answered whatever the manuscripts contain — so those are the only queries marked in
    advance. The other 32 are `undetermined` until the panel drafts their ground truth.
    `tests/test_evaluation_harness.py::TestGoldenDatasetStrata` pins the counts, requires a
-   `coverage_basis` on every query, and asserts that no query is marked `present` before
-   its ground truth exists.
+   `coverage_basis` on every query, and asserts that each row's `source_thesis` agrees
+   with its stratum.
+
+   **Drafting the ground truths exposed a second defect in the same field, and it was
+   the drafting that found it rather than review.** The instrument's own workflow already
+   required a drafter to say which absence a row records — "no manuscript from that
+   program was released, or the released manuscripts do not cover the topic", calling
+   them different findings and naming that distinction as the reason the stratum exists —
+   but `corpus_coverage` had exactly one absent value that was not the negative-control
+   one, and its definition names the first cause only. Seventeen of the forty record the
+   second: they ask about "CCSICT theses" generally, and the released BSCS, BSIS and BLIS
+   manuscripts simply do not cover them. Filing those under `absent_unreleased` would
+   have asserted a programmatic cause the corpus contradicts — for query 12, that CCSICT
+   withheld the program, when all five BSCS manuscripts are in the corpus and none
+   performs sentiment analysis. Fifteen of the seventeen were caught by this
+   repository's own
+   `test_unreleased_queries_name_an_unreleased_track_in_their_own_text`, which requires
+   an `absent_unreleased` query to name an unreleased track in its own wording. A fourth
+   value, `absent_topic`, was added on 2026-09-13. The distinction earns a stratum
+   because the two absences say different things about the library: one is an artifact of
+   which manuscripts the department handed over and would close if it handed over more,
+   the other is a real gap in the archive that a complete release would not close. They
+   are reported separately in `by_corpus_coverage`.
+
+   Two queries moved the other way. 18 and 20 ask about "CCSICT web development theses";
+   the 2026-09-07 assignment read that as the BSIT/Web and Mobile Application Development
+   specialization and marked them unanswerable in advance, while drafting read it as
+   theses that built web-delivered systems — which the released BSIS and BSCS corpus does
+   answer. They are now `present`. This re-derives two of the five determinations the
+   workflow says to confirm rather than re-derive, so it is recorded in
+   `validation.instrument_revisions` rather than left to version control.
 3. **`run_comparison.py` reports Answer Correctness per stratum as well as pooled**
    (`by_corpus_coverage` in the results JSON). Faithfulness and Context Precision stay
    split by response kind in `summarize_rag_diagnostics`, not by coverage. The pooled
@@ -282,10 +314,15 @@ Three consequences were applied in code rather than left to the formal run:
    `rows_without_corpus_coverage`, warned about, and disqualify `formal_result`, rather
    than sitting in the pooled mean while silently missing from every stratum.
 
-**Still outstanding, unchanged:** all 40 ground truths and all 40 source-thesis fields
-are `REPLACE:` placeholders, `validated_by_faculty_panel` is `false`, and the corpus
-lock, its receipt and the four PI-08 approvals do not exist. The release narrows the
-corpus; it does not unblock Objective 2. A sample of twelve theses across three of six
+**Still outstanding.** All 40 ground truths and all 40 source-thesis fields were drafted
+from the released manuscripts on 2026-09-12 and written into the instrument on
+2026-09-13, so the `REPLACE:` placeholders are gone and no query is `undetermined`. What
+that does *not* do is validate them: they are researcher drafts, `validated_by_faculty_panel`
+is still `false`, the three panel records are still blank, and PI-08 forbids a researcher
+signing for an approver, so `validate_formal_dataset` still refuses a formal run on
+exactly those two grounds. The corpus lock, its receipt and the four PI-08 approvals do
+not exist. The release narrowed the corpus and the drafting cleared the path to a
+measurement; neither unblocks Objective 2. A sample of twelve theses across three of six
 catalog categories is a stated limitation of the study, not a property of the
 architecture, and Sections 1.3, 3.1.3 and 3.2.1 now say so.
 
