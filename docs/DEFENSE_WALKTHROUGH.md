@@ -9,9 +9,13 @@ Re-read from the database on 2026-09-02: the archive holds **3** ready papers
 and 29 chunks, but only the **2** CCSICT ones (26 chunks) are reachable — the
 third sits in the inactive CAS department. See the demo-day checklist in §8.
 
-Re-verified on **2026-09-03** against commit `9cb3659`: the quality table in §6
-carries that revision's figures, and the live index provenance was read the same
-day — all three active indexes are `gemini-embedding-001`, verified.
+Re-verified on **2026-09-13** against commit `da4e60f`: the quality table in §6
+carries that revision's figures. The Objective 2 comparison completed on the same
+day and is no longer pending — see §3.2, §3.4 and §5, limitation 2, all of which
+said the opposite until this revision.
+
+Re-verified on **2026-09-03** against commit `9cb3659`: the live index provenance
+was read that day — all three active indexes are `gemini-embedding-001`, verified.
 
 Corrected on 2026-08-31: the archive holds **2** ready papers, not 3; the
 embedding model is `gemini-embedding-001`; grounded answers measured 4.5–11.4 s
@@ -122,9 +126,10 @@ matrix — `tests/test_rag_controls.py::TestRequestGuard`, which collects exactl
 you know the guard is right, that is the answer, and it is a number they can
 reproduce with `pytest tests/test_rag_controls.py::TestRequestGuard`.
 
-Do **not** claim the guard was re-verified against Objective 2 results. There are
-none yet: every artifact in `evaluation/results/` is `formal_result: false`, and
-the Golden Dataset is still unvalidated placeholders (§5, limitation 2).
+Do **not** claim the guard was re-verified against Objective 2 results. It was
+not: the guard's evidence is the 40-case matrix above, and the Objective 2 run is
+a separate measurement that does not exercise it. The Objective 2 result itself
+now exists — see §3.4 — so the reason has changed, but the claim to avoid has not.
 
 ### 3.3 Login → dashboard
 
@@ -188,10 +193,20 @@ ingestion pipeline view), **System Management** (users, roles, feature
 permissions, departments), **Operations** (workers, queue depth, alerts,
 retention dry run).
 
-**Point at the Ragas notice on the Overview tab.** It says no
-baseline-versus-RAG scores are shown until the Golden Dataset is faculty
-validated. That is deliberate: it prevents placeholder numbers being mistaken for
-findings. Volunteering this makes you look rigorous rather than incomplete.
+**The Ragas notice on the Overview tab is now out of date — do not point at it
+as a live statement.** It reads "Ragas comparison pending faculty validation … no
+baseline-versus-RAG scores are displayed until the Golden Dataset is completed,
+faculty-validated, and evaluated" (`src/pages/admin/AdminOverview.jsx:174`). All
+three of those conditions were met on 2026-09-13. What is still true is narrower:
+the scores are not displayed *in the application*, because the app is the library
+system and the comparison is a research artifact that lives in
+`evaluation/results/` and in `docs/evidence/OBJECTIVE_2_COMPARISON_2026-09-13.html`.
+
+If a panelist reads the notice aloud, say that: the gate it describes has since
+been satisfied, the result exists, and the app deliberately does not render
+research figures. The alternative — trimming the notice to the part that is still
+true — is a one-line frontend change that has not been made, so the notice on
+screen will say what it says.
 
 ---
 
@@ -294,9 +309,20 @@ in the repository's audit reports.
    `scripts/release_fingerprint.py` records `generation_route` — the enabled flag
    and the gateway host, never the credential — so a reported result can always
    be traced to the provider that actually produced it.
-2. **Objective 2 results are pending.** The baseline-versus-RAG comparison needs
-   the locked twelve-thesis corpus and faculty-validated ground truth. Nothing is
-   displayed until then, on purpose.
+2. **Objective 2 has a result; the corpus lock does not.** The three-member panel
+   validated all forty ground truths on 2026-09-13 and the comparison ran the same
+   day: 40/40 scored, `formal_result: true`, pooled Answer Correctness 0.2169 →
+   0.3024, paired t-test p = 3.222e-05. Say the next sentence before you are asked:
+   the figure §3.2.5 of the paper quotes is the **present** stratum — the sixteen
+   questions the released corpus can actually answer — and that one is **not**
+   significant (+0.060, p = 0.126, 95% CI [−0.019, +0.139]). Pooled significance is
+   carried by the absence strata, which is what they exist to measure. Eight of the
+   sixteen covered queries returned the grounded fallback after citation validation
+   discarded an answer it could not cite, and that trade is the largest single lever
+   on the quoted number. What remains outstanding is the PI-08 corpus lock, its
+   receipt, and the four institutional approvals: the panel validated the
+   *instrument*, not the corpus release. Full detail and every figure:
+   `evaluation/iso25010_evidence.md`, 2026-09-13 block.
 3. **Context Precision cannot be computed for the baseline** — a baseline with no
    retriever has no retrieved contexts to rank. It is a RAG-only diagnostic. The
    headline comparison is on paired **Answer Correctness** against faculty ground
@@ -320,7 +346,7 @@ in the repository's audit reports.
 
 ## 6. Quality evidence you can quote
 
-Every row below was re-measured **2026-09-03** against `da9e931` by exit code,
+Every row below was re-measured **2026-09-13** against `da4e60f` by exit code,
 not by reading the printed summary: the backend and frontend suites, Pylint,
 ESLint, Playwright with its axe matrix and the npm audit locally, and the CI row
 against the GitHub check-runs API. Two rows are not local measurements and say
@@ -330,17 +356,33 @@ development host. Everything is dated in `evaluation/iso25010_evidence.md`.
 
 | Instrument | Result |
 |---|---|
-| Backend tests (PyTest, gated ≥85%) | **970 passed, 3 skipped, 91.58% coverage** (4,277 statements, 360 missed) |
+| Backend tests (PyTest, gated ≥85%) | **1,201 passed, 3 skipped, 92.07% coverage** (5,122 statements, 406 missed) |
 | Backend lint (Pylint) | **10.00/10** |
-| Frontend tests | **130 passed** — 95.15% lines, 90.09% branches, 95.24% functions |
-| Frontend lint (ESLint) | **0 errors, 1 warning** (`Archive.jsx` complexity 27 > 24; advisory, the gate still exits 0) |
-| Browser journeys (Playwright) | **24 passed** |
+| Frontend tests | **197 passed** across 7 suites — 96.36% lines, 87.09% branches, 96.81% functions |
+| Frontend lint (ESLint) | **0 errors, 0 warnings** — the `Archive.jsx` complexity warning recorded on 2026-09-03 is gone |
+| Browser journeys (Playwright) | **26 passed** |
 | Reliability (SonarQube 26.7.0.124771) | Gate **PASSED** — 0 bugs, 0 vulnerabilities, 0 hotspots; Reliability **A**, Security **A**, Maintainability **A**; duplication 1.3% (2026-09-01 local scan; green in CI on `9cb3659`) |
 | Accessibility (axe-core 4.12.1, WCAG 2.2 AA) | **0 blocking, 0 advisory** over 55 scans — 11 surfaces × 4 theme/contrast states at 1280 px, plus dark-standard at 360 px |
 | Production dependency audit | **0 vulnerabilities** (npm, production tree); **0 advisories** (pip-audit over the 98-package hash-pinned lock, in CI) |
 | Dependency integrity | **98 packages hash-locked, 2,353 SHA-256 hashes**, `--require-hashes` |
 | Container images | Digest-pinned; SBOM emitted per commit; the backend image built from `9cb3659` starts with both entrypoints importing (the image from `da9e931` could not, and CI now runs that import check) |
-| CI | **6 checks, all green** on `9cb3659` ([run 33680548573](https://github.com/Kakko15/Thesis-V1.2/actions/runs/33680548573)) |
+| CI | **7 jobs, all green** on `da4e60f` ([run 34754563747](https://github.com/Kakko15/Thesis-V1.2/actions/runs/34754563747)) |
+
+### Objective 2 — the comparison itself
+
+§6's table is Objective 4 (internal quality). Objective 2 is a separate artifact and
+a panelist will ask for it by name:
+
+| What to open | Path |
+|---|---|
+| The visual summary — forest plot by stratum, all 40 paired differences, diagnostics by response kind, full table | `docs/evidence/OBJECTIVE_2_COMPARISON_2026-09-13.html` (open in a browser) |
+| The raw result, every per-query row and the provenance block | `rag-thesis-backend/evaluation/results/comparison_20260913_064053.json` |
+| The narrative, with what the run does and does not establish | `evaluation/iso25010_evidence.md`, 2026-09-13 block |
+| The instrument the panel signed | `rag-thesis-backend/evaluation/golden_dataset.json` |
+
+Lead with the stratum caveat rather than the pooled p-value (§5, limitation 2). A
+panelist who checks the evidence file will find the paper committed to the `present`
+stratum, and you want to have said so first.
 
 If asked about defect history, the honest and impressive answer is:
 > A full audit found 20 defects. Independent passes during remediation found 17
