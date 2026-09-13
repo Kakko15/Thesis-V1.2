@@ -1,6 +1,6 @@
 {
   "description": "Golden Dataset for Objective 2 (thesis paper, Section 3.2.1). Forty standardized academic queries spanning the CCSICT academic catalog -- the Data Mining, Web and Mobile Application Development, and Network and Security specializations, and the BSDSA, BSIS and BLIS programs, which carry no specialization and are therefore identified by program code (services/catalog.py::resolve_academic_selection) -- plus cross-track and negative-control items. Every ground_truth answer must be derived directly from the archived CCSICT thesis corpus and validated by a panel of three CCSICT faculty members before serving as the absolute mathematical benchmark for the Ragas evaluation. The corpus CCSICT released on 2026-09-07 holds twelve manuscripts covering BSCS Data Mining, BSIS and BLIS only, so every query also carries corpus_coverage, which records whether the released corpus can support an answer at all: present (16), absent_topic (17 queries whose subject the released BSCS, BSIS and BLIS manuscripts do not cover, which is a gap in the archive rather than a consequence of which manuscripts were released), absent_unreleased (4 queries whose own text is scoped to a program or specialization the department did not release, so no manuscript could have answered them whatever it contained) and absent_by_design (the 3 negative controls, absent by construction). Each stratum was determined query by query when the ground truths were drafted on 2026-09-12 and never inferred from the category label, which records which part of the catalog a query was written to probe, not which manuscripts exist. undetermined remains declarable for a query still awaiting that judgement, and validate_formal_dataset refuses a formal run while any query carries it. Accuracy is interpreted on the present stratum and refusal behaviour on the absent strata; run_comparison.py reports Answer Correctness both pooled and split this way.",
-  "validated_by_faculty_panel": false,
+  "validated_by_faculty_panel": true,
   "validation": {
     "workflow": [
       "1. Ingest the released twelve-thesis corpus into the system.",
@@ -12,19 +12,19 @@
     ],
     "panel": [
       {
-        "name": "",
-        "position": "",
-        "date_validated": ""
+        "name": "Dr. Benchie L. Maribao",
+        "position": "CONTENT PANEL",
+        "date_validated": "2026-09-13"
       },
       {
-        "name": "",
-        "position": "",
-        "date_validated": ""
+        "name": "Dr. Joe G. Lagarteja",
+        "position": "TECHNICAL PANEL",
+        "date_validated": "2026-09-13"
       },
       {
-        "name": "",
-        "position": "",
-        "date_validated": ""
+        "name": "Dr. Albert A. Vinluan",
+        "position": "PANEL CHAIR",
+        "date_validated": "2026-09-13"
       }
     ],
     "instrument_revisions": [
