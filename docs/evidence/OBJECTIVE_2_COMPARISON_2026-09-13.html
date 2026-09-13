@@ -1,0 +1,684 @@
+<title>CCSICT Baseline vs RAG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --plane:#f7f8fa; --surface:#fbfcfd; --surface-2:#f1f4f8;
+  --ink:#10141b; --ink-2:#4d5666; --muted:#828b99;
+  --grid:#e4e8ee; --axis:#c8cfd9; --hair:rgba(16,20,27,.10);
+  --rag:#2a78d6; --base:#77808e; --neg:#e34948; --notice:#eb6834;
+  --flag:#8a6100; --flag-bg:rgba(250,178,25,.13);
+  --shadow:0 1px 2px rgba(16,20,27,.05), 0 8px 24px -18px rgba(16,20,27,.35);
+  --sans:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --serif:"Spectral", Georgia, "Times New Roman", serif;
+  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --plane:#0e1116; --surface:#161a21; --surface-2:#1d222b;
+    --ink:#eef1f5; --ink-2:#a8b2c0; --muted:#7d8797;
+    --grid:#232a35; --axis:#333c49; --hair:rgba(238,241,245,.11);
+    --rag:#3987e5; --base:#8892a2; --neg:#e66767; --notice:#d95926;
+    --flag:#e8b54a; --flag-bg:rgba(250,178,25,.10);
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:#0e1116; --surface:#161a21; --surface-2:#1d222b;
+  --ink:#eef1f5; --ink-2:#a8b2c0; --muted:#7d8797;
+  --grid:#232a35; --axis:#333c49; --hair:rgba(238,241,245,.11);
+  --rag:#3987e5; --base:#8892a2; --neg:#e66767; --notice:#d95926;
+  --flag:#e8b54a; --flag-bg:rgba(250,178,25,.10);
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.8);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--plane); color:var(--ink);
+  font-family:var(--sans); font-size:15px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px; margin:0 auto; padding-inline:20px; padding-block:40px 64px}
+
+.eyebrow{
+  font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted); margin:0 0 10px;
+}
+h1{
+  font-family:var(--serif); font-weight:600; font-size:clamp(30px,5.2vw,46px);
+  line-height:1.12; letter-spacing:-.012em; margin:0 0 14px; text-wrap:balance;
+}
+.standfirst{
+  font-family:var(--serif); font-size:clamp(16px,2.2vw,19px); line-height:1.55;
+  color:var(--ink-2); max-width:64ch; margin:0 0 28px;
+}
+.standfirst em{font-style:italic}
+
+.prov{
+  display:grid; grid-template-columns:repeat(4,1fr); gap:1px;
+  background:var(--hair); border:1px solid var(--hair); border-radius:10px;
+  overflow:hidden; margin:0 0 40px;
+}
+.prov div{background:var(--surface); padding:12px 14px}
+.prov dt{
+  font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--muted); margin:0 0 4px;
+}
+.prov dd{margin:0; font-family:var(--mono); font-size:12.5px; color:var(--ink); word-break:break-word}
+
+.kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; margin-bottom:46px}
+.kpi{
+  background:var(--surface); border:1px solid var(--hair); border-radius:12px;
+  padding:18px 18px 16px; box-shadow:var(--shadow); display:flex; flex-direction:column;
+}
+.kpi.flagged{border-color:color-mix(in srgb, var(--flag) 42%, transparent); background:var(--flag-bg)}
+.kpi-label{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--muted);
+}
+.kpi-val{font-size:34px; font-weight:600; line-height:1.1; letter-spacing:-.02em; margin-top:6px}
+.kpi-val small{font-size:16px; font-weight:500; color:var(--ink-2); letter-spacing:0}
+.kpi-sub{font-size:12.5px; color:var(--ink-2); margin-top:5px; line-height:1.45}
+.kpi-sub b{font-weight:600; color:var(--ink)}
+.chip{
+  display:inline-flex; align-items:center; gap:5px; font-family:var(--mono);
+  font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--flag);
+  border:1px solid color-mix(in srgb, var(--flag) 40%, transparent);
+  border-radius:999px; padding:2px 8px; margin-top:9px; align-self:flex-start;
+}
+
+section{margin-bottom:46px}
+h2{
+  font-family:var(--serif); font-weight:600; font-size:clamp(21px,3vw,27px);
+  letter-spacing:-.01em; margin:0 0 6px; text-wrap:balance;
+}
+h2 .mono-em{font-family:var(--mono); font-style:normal; font-size:.84em}
+.lede{color:var(--ink-2); max-width:68ch; margin:0 0 20px; font-size:14.5px}
+.card{
+  background:var(--surface); border:1px solid var(--hair); border-radius:12px;
+  padding:22px 20px 16px; box-shadow:var(--shadow);
+}
+.figcap{
+  font-size:12.5px; color:var(--muted); margin:14px 2px 0; line-height:1.5;
+  padding-top:12px; border-top:1px solid var(--grid);
+}
+.figcap b{color:var(--ink-2); font-weight:500}
+
+.legend{display:flex; flex-wrap:wrap; gap:16px; margin:0 2px 16px; padding:0; list-style:none}
+.legend li{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--ink-2)}
+.swatch{width:11px; height:11px; border-radius:3px; flex:none}
+.swatch.line{width:14px; height:3px; border-radius:2px}
+.swatch.dot{width:10px; height:10px; border-radius:50%; background:var(--notice)}
+
+/* min-width is what actually gives .scroller something to scroll: without it a
+   width:100% SVG scales down to an unreadable smear on a phone instead of
+   overflowing its container. */
+.chart{width:100%; min-width:720px; height:auto; display:block; overflow:visible}
+.chart text{font-family:var(--mono); fill:var(--muted); font-size:11px}
+.chart .rowlab{font-family:var(--sans); font-size:12.5px; fill:var(--ink); font-weight:500}
+.chart .rowsub{font-family:var(--mono); font-size:10.5px; fill:var(--muted)}
+.chart .val{font-family:var(--mono); font-size:11.5px; fill:var(--ink-2)}
+.chart .val-em{fill:var(--ink); font-weight:500}
+.hit{fill:transparent; cursor:pointer; outline:none}
+.hit:focus-visible{fill:color-mix(in srgb, var(--rag) 13%, transparent)}
+.scroller{overflow-x:auto; margin-inline:-4px; padding-inline:4px}
+
+#tip{
+  position:fixed; z-index:50; pointer-events:none; opacity:0; transform:translate(-50%,-100%);
+  background:var(--surface); color:var(--ink); border:1px solid var(--hair);
+  border-radius:9px; box-shadow:var(--shadow); padding:9px 11px; font-size:12.5px;
+  line-height:1.5; min-width:170px; transition:opacity .1s ease;
+}
+#tip[data-on="1"]{opacity:1}
+#tip .tip-h{font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:5px}
+#tip .tip-r{display:flex; justify-content:space-between; gap:18px; font-variant-numeric:tabular-nums}
+#tip .tip-r span:last-child{font-family:var(--mono)}
+
+.callout{
+  border-left:3px solid var(--notice); background:var(--surface);
+  border-radius:0 10px 10px 0; padding:18px 20px; margin-top:20px;
+  border-top:1px solid var(--hair); border-right:1px solid var(--hair); border-bottom:1px solid var(--hair);
+}
+.callout h3{font-family:var(--sans); font-size:14px; font-weight:600; margin:0 0 8px}
+.callout p{margin:0 0 10px; font-size:14px; color:var(--ink-2)}
+.callout p:last-child{margin-bottom:0}
+code{
+  font-family:var(--mono); font-size:12.5px;
+  background:var(--surface-2); padding:1px 5px; border-radius:4px; color:var(--ink);
+}
+
+details{border:1px solid var(--hair); border-radius:12px; background:var(--surface); box-shadow:var(--shadow)}
+summary{
+  cursor:pointer; padding:15px 20px; font-weight:600; font-size:14.5px;
+  list-style:none; display:flex; justify-content:space-between; align-items:center; gap:12px;
+}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+"; font-family:var(--mono); color:var(--muted); font-size:17px}
+details[open] summary::after{content:"\2013"}
+summary:focus-visible{outline:2px solid var(--rag); outline-offset:-2px; border-radius:12px}
+.tscroll{overflow-x:auto; border-top:1px solid var(--grid)}
+table{border-collapse:collapse; width:100%; font-size:12.5px; font-variant-numeric:tabular-nums}
+th,td{padding:7px 12px; text-align:right; white-space:nowrap; border-bottom:1px solid var(--grid)}
+th:first-child,td:first-child,
+th:nth-child(2),td:nth-child(2),
+th:nth-child(3),td:nth-child(3){text-align:left}
+thead th{
+  font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--muted); font-weight:400; position:sticky; top:0; background:var(--surface);
+}
+tbody tr:last-child td{border-bottom:none}
+td.d-pos{color:var(--rag)} td.d-neg{color:var(--neg)}
+.tag{
+  font-family:var(--mono); font-size:10px; letter-spacing:.05em; padding:1px 6px;
+  border-radius:999px; border:1px solid var(--hair); color:var(--ink-2);
+}
+.tag.notice{color:var(--notice); border-color:color-mix(in srgb, var(--notice) 40%, transparent)}
+
+footer{margin-top:52px; padding-top:22px; border-top:1px solid var(--grid); color:var(--muted); font-size:12.5px}
+footer h3{font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:400; margin:0 0 10px}
+.hashes{display:grid; gap:7px; margin:0}
+.hashes div{display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline}
+.hashes code{font-size:10.5px; color:var(--ink-2); word-break:break-all; background:none; padding:0}
+.hashes b{font-weight:500; color:var(--ink-2); font-size:12px}
+
+@media (max-width:760px){
+  .prov{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:560px){
+  .wrap{padding-block:28px 44px}
+  .kpi-val{font-size:29px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Objective 2 &middot; Comparative Performance Analysis</p>
+  <h1>Does retrieval beat parametric memory?</h1>
+  <p class="standfirst">
+    Forty faculty-validated queries, each answered twice &mdash; once by unaugmented Gemini relying on
+    parametric memory, once by the RAG pipeline constrained to the CCSICT vector archive &mdash; and
+    scored against the panel's reference answers with Ragas Answer Correctness.
+    <em>The pooled answer is yes. The stratum the paper actually quotes is less certain, and this
+    page shows why.</em>
+  </p>
+
+  <dl class="prov">
+    <div><dt>Run id</dt><dd>5e8fb7f21db6</dd></div>
+    <div><dt>Date</dt><dd>2026-09-13</dd></div>
+    <div><dt>Run commit</dt><dd>770bad4</dd></div>
+    <div><dt>Chat model</dt><dd>gemini-3.6-flash</dd></div>
+    <div><dt>Judge</dt><dd>gemini-3.5-flash-lite</dd></div>
+    <div><dt>Route</dt><dd>direct &middot; no gateway</dd></div>
+    <div><dt>Prompt</dt><dd>iskai-prompt-v4</dd></div>
+    <div><dt>Scored</dt><dd>40 / 40</dd></div>
+  </dl>
+
+  <div class="kpis">
+    <div class="kpi">
+      <span class="kpi-label">Pooled Answer Correctness</span>
+      <span class="kpi-val">0.302<small> vs 0.217</small></span>
+      <span class="kpi-sub">RAG against baseline across all 40 paired queries &mdash; a mean gain of <b>+0.086</b>.</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">Paired t-test</span>
+      <span class="kpi-val">3.2<small>&times;10<sup>&minus;5</sup></small></span>
+      <span class="kpi-sub">t = 4.699, n = 40. Shapiro-Wilk p = 0.160 selected the parametric branch.</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">Effect size</span>
+      <span class="kpi-val">0.743<small> d<sub>z</sub></small></span>
+      <span class="kpi-sub">Medium-to-large, on the pooled paired differences.</span>
+    </div>
+    <div class="kpi flagged">
+      <span class="kpi-label">Present stratum</span>
+      <span class="kpi-val">0.126<small> p</small></span>
+      <span class="kpi-sub">The 16 questions the corpus actually covers &mdash; <b>+0.060</b>, interval crosses zero.</span>
+      <span class="chip">Not significant</span>
+    </div>
+  </div>
+
+  <section>
+    <h2>The effect, split by what the corpus could support</h2>
+    <p class="lede">
+      Every query carries a <code>corpus_coverage</code> stratum, recorded when its ground truth was
+      drafted. Section 3.2.5 quotes <b>present</b> as the accuracy figure, because it is the only
+      stratum with a corpus-derived ground truth to be accurate against. Dots are the mean paired
+      difference; whiskers are the 95% confidence interval.
+    </p>
+    <div class="card">
+      <ul class="legend">
+        <li><span class="swatch" style="background:var(--rag)"></span>Mean paired difference (RAG &minus; baseline)</li>
+        <li><span class="swatch line" style="background:var(--axis)"></span>95% confidence interval</li>
+        <li><span class="swatch line" style="background:var(--ink-2)"></span>No difference</li>
+      </ul>
+      <div class="scroller"><svg id="forest" class="chart" viewBox="0 0 900 300" role="img"
+        aria-label="Mean paired difference with 95 percent confidence intervals for the pooled set and each coverage stratum. The present stratum interval crosses zero."></svg></div>
+      <p class="figcap">
+        <b>Three of four strata clear zero; present does not.</b> Its interval runs from &minus;0.019 to
+        +0.139, so at n = 16 the gain on covered questions is directionally positive but not
+        established. absent_unreleased (n = 4) and absent_by_design (n = 3) reach significance on too
+        few pairs to carry a claim alone.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Every paired difference, one column per query</h2>
+    <p class="lede">
+      This is the input to the t-test, sorted by size rather than by query id. Twenty-nine of the
+      forty differences favour retrieval; eleven favour the baseline.
+    </p>
+    <div class="card">
+      <ul class="legend">
+        <li><span class="swatch" style="background:var(--rag)"></span>Colour &mdash; RAG scored higher</li>
+        <li><span class="swatch" style="background:var(--neg)"></span>Colour &mdash; baseline scored higher</li>
+        <li><span class="swatch dot"></span>Marked &mdash; returned a notice, not an answer (8 queries)</li>
+      </ul>
+      <div class="scroller"><svg id="deltas" class="chart" viewBox="0 0 900 340" role="img"
+        aria-label="Forty paired differences sorted ascending, drawn as columns above and below zero. Seven are negative."></svg></div>
+      <p class="figcap">
+        <b>Hover or focus any column</b> for its query id, stratum, response kind and both scores; the
+        full table sits at the foot of this page. The largest single gain, +0.439, is query 31 &mdash; an
+        inventory-systems question the archive answers well.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Why <em class="mono-em">present</em> underperforms</h2>
+    <p class="lede">
+      Eight of the sixteen covered queries returned the grounded retrieval fallback instead of an
+      answer. Retrieval was not the cause: all eight retrieved the full five context blocks at cosine
+      similarity 0.67&ndash;0.74, far above the 0.30 threshold. They were discarded at structural
+      citation validation.
+    </p>
+    <div class="card">
+      <ul class="legend">
+        <li><span class="swatch" style="background:var(--rag)"></span>Answers (n = 32)</li>
+        <li><span class="swatch" style="background:var(--notice)"></span>Notices (n = 8)</li>
+      </ul>
+      <div class="scroller"><svg id="diag" class="chart" viewBox="0 0 900 250" role="img"
+        aria-label="Faithfulness and context precision compared between answers and notices. Faithfulness is 0.78 for answers against 0.20 for notices."></svg></div>
+      <p class="figcap">
+        <b>The diagnostics split cleanly along response kind</b>, which is what makes the mechanism
+        measurable rather than speculative. Context Precision is low in both groups and is a separate,
+        still-open retrieval-ranking question.
+      </p>
+    </div>
+    <div class="callout">
+      <h3>The mechanism, from the run log</h3>
+      <p>
+        Five of the eight logged <code>Citation repair remained invalid</code> &mdash; both the model
+        repair and the deterministic <code>enforce_citation_coverage</code> pass left a substantive unit
+        uncited. The other three logged <code>Citation repair failed (TruncatedGeneration)</code>, where
+        the repair call itself hit the 2,000-token output ceiling that applies when no gateway is
+        configured.
+      </p>
+      <p>
+        The fallback is deliberate: the pipeline discards an answer it cannot cite rather than stapling
+        markers onto uncited claims. What this run adds is the price of that trade on covered questions
+        &mdash; and it is the largest single lever on the figure Section 3.2.5 quotes.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <details>
+      <summary><span>All 40 queries &mdash; the table view</span></summary>
+      <div class="tscroll"><table>
+        <thead><tr>
+          <th scope="col">Query</th><th scope="col">Stratum</th><th scope="col">Kind</th>
+          <th scope="col">Baseline</th><th scope="col">RAG</th><th scope="col">&Delta;</th>
+          <th scope="col">Faith.</th><th scope="col">Ctx. prec.</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table></div>
+    </details>
+  </section>
+
+  <footer>
+    <h3>Artifact hashes &mdash; SHA-256, as committed</h3>
+    <div class="hashes">
+      <div><b>golden_dataset.json</b><code>5E8FB7F21DB6BE3CF0F1DED2323B9F613E3919CD6D46000A4D23FD63D11D5CFA</code></div>
+      <div><b>comparison_20260913_064053.json</b><code>DC01CBBC34B5925663A69157E83B3D83950687BC673B049389C01384B2E6BCB1</code></div>
+      <div><b>comparison_20260913_064053.csv</b><code>F1657C30A014D94B14042354E6692C522B983ACB0F6931EF046345029FA6B32B</code></div>
+    </div>
+    <p style="margin-top:16px">
+      Reproduce with <code>python -m evaluation.run_comparison</code> from
+      <code>rag-thesis-backend/</code>, with the gateway unset,
+      <code>APP_ENVIRONMENT=development</code> and <code>GUEST_DAILY_TOKEN_BUDGET=0</code>.
+      The run id is the dataset's own SHA-256 prefix, so a changed instrument starts a new run
+      rather than resuming this one.
+    </p>
+  </footer>
+</div>
+
+<div id="tip" role="status" aria-live="polite"></div>
+
+<script>
+const Q = [
+{"id":1,"cov":"absent_topic","kind":"answer","base":0.2699,"rag":0.1863,"faith":1.0,"cp":0.7},
+{"id":2,"cov":"absent_topic","kind":"answer","base":0.1992,"rag":0.2964,"faith":1.0,"cp":1.0},
+{"id":3,"cov":"present","kind":"answer","base":0.2321,"rag":0.1861,"faith":1.0,"cp":0.0},
+{"id":4,"cov":"absent_topic","kind":"answer","base":0.1962,"rag":0.3023,"faith":0.8571,"cp":0.0},
+{"id":5,"cov":"absent_topic","kind":"answer","base":0.1931,"rag":0.3444,"faith":0.8333,"cp":0.3333},
+{"id":6,"cov":"present","kind":"notice","base":0.1776,"rag":0.2788,"faith":0.0,"cp":0.3333},
+{"id":7,"cov":"present","kind":"notice","base":0.2542,"rag":0.1779,"faith":0.5,"cp":0.0},
+{"id":8,"cov":"absent_topic","kind":"answer","base":0.1978,"rag":0.2156,"faith":0.8,"cp":0.0},
+{"id":9,"cov":"present","kind":"answer","base":0.2548,"rag":0.4241,"faith":1.0,"cp":0.5},
+{"id":10,"cov":"present","kind":"answer","base":0.1829,"rag":0.1941,"faith":0.7143,"cp":0.0},
+{"id":11,"cov":"present","kind":"answer","base":0.1917,"rag":0.2677,"faith":1.0,"cp":0.0},
+{"id":12,"cov":"absent_topic","kind":"answer","base":0.1901,"rag":0.174,"faith":1.0,"cp":0.0},
+{"id":13,"cov":"absent_topic","kind":"answer","base":0.1842,"rag":0.4481,"faith":0.7143,"cp":0.5833},
+{"id":14,"cov":"present","kind":"notice","base":0.1833,"rag":0.166,"faith":0.5,"cp":0.0},
+{"id":15,"cov":"present","kind":"notice","base":0.1828,"rag":0.176,"faith":0.0,"cp":0.3333},
+{"id":16,"cov":"absent_topic","kind":"answer","base":0.1986,"rag":0.3386,"faith":1.0,"cp":0.0},
+{"id":17,"cov":"absent_topic","kind":"answer","base":0.1997,"rag":0.3519,"faith":1.0,"cp":0.0},
+{"id":18,"cov":"present","kind":"answer","base":0.2091,"rag":0.2104,"faith":1.0,"cp":0.0},
+{"id":19,"cov":"absent_topic","kind":"answer","base":0.2057,"rag":0.2033,"faith":0.75,"cp":0.325},
+{"id":20,"cov":"present","kind":"notice","base":0.2878,"rag":0.1844,"faith":0.0,"cp":0.0},
+{"id":21,"cov":"absent_topic","kind":"answer","base":0.1914,"rag":0.3385,"faith":0.6,"cp":0.0},
+{"id":22,"cov":"absent_unreleased","kind":"answer","base":0.2044,"rag":0.4404,"faith":0.4,"cp":0.0},
+{"id":23,"cov":"absent_unreleased","kind":"answer","base":0.1885,"rag":0.4371,"faith":0.6,"cp":0.0},
+{"id":24,"cov":"absent_topic","kind":"answer","base":0.2009,"rag":0.3099,"faith":0.8182,"cp":0.0},
+{"id":25,"cov":"absent_topic","kind":"answer","base":0.1999,"rag":0.3063,"faith":0.5,"cp":0.0},
+{"id":26,"cov":"absent_unreleased","kind":"answer","base":0.2049,"rag":0.2902,"faith":0.4444,"cp":0.0},
+{"id":27,"cov":"absent_topic","kind":"answer","base":0.195,"rag":0.3011,"faith":0.8333,"cp":1.0},
+{"id":28,"cov":"absent_topic","kind":"answer","base":0.1915,"rag":0.1792,"faith":0.8,"cp":0.3333},
+{"id":29,"cov":"absent_unreleased","kind":"answer","base":0.1986,"rag":0.2726,"faith":0.5,"cp":0.0},
+{"id":30,"cov":"absent_topic","kind":"answer","base":0.1933,"rag":0.2067,"faith":0.2308,"cp":0.3333},
+{"id":31,"cov":"present","kind":"answer","base":0.1955,"rag":0.634,"faith":1.0,"cp":0.0},
+{"id":32,"cov":"present","kind":"notice","base":0.2266,"rag":0.1892,"faith":0.0,"cp":0.0},
+{"id":33,"cov":"present","kind":"notice","base":0.2654,"rag":0.1676,"faith":0.2,"cp":0.0},
+{"id":34,"cov":"absent_topic","kind":"answer","base":0.2063,"rag":0.3822,"faith":0.125,"cp":0.0},
+{"id":35,"cov":"present","kind":"answer","base":0.3104,"rag":0.3934,"faith":0.6667,"cp":0.0},
+{"id":36,"cov":"present","kind":"notice","base":0.1972,"rag":0.4802,"faith":0.4,"cp":0.0},
+{"id":37,"cov":"present","kind":"answer","base":0.3313,"rag":0.5148,"faith":1.0,"cp":0.0},
+{"id":38,"cov":"absent_by_design","kind":"answer","base":0.2728,"rag":0.3912,"faith":0.75,"cp":1.0},
+{"id":39,"cov":"absent_by_design","kind":"answer","base":0.1922,"rag":0.3256,"faith":1.0,"cp":1.0},
+{"id":40,"cov":"absent_by_design","kind":"answer","base":0.3198,"rag":0.4098,"faith":1.0,"cp":0.0}
+];
+Q.forEach(q => { q.d = +(q.rag - q.base).toFixed(4); });
+
+const STRATA = [
+  {label:"All 40 queries",    sub:"pooled",             n:40, d:0.0855, lo:0.0487,  hi:0.1223, p:"3.2×10⁻⁵", sig:true},
+  {label:"present",           sub:"corpus covers it",   n:16, d:0.0601, lo:-0.0189, hi:0.1391, p:"0.126",  sig:false},
+  {label:"absent_topic",      sub:"gap in the archive", n:17, d:0.0866, lo:0.0414,  hi:0.1318, p:"0.0009", sig:true},
+  {label:"absent_unreleased", sub:"track not released", n:4,  d:0.1610, lo:0.0111,  hi:0.3108, p:"0.042",  sig:true},
+  {label:"absent_by_design",  sub:"negative controls",  n:3,  d:0.1139, lo:0.0593,  hi:0.1685, p:"0.012",  sig:true}
+];
+
+const NS = "http://www.w3.org/2000/svg";
+const el = (n, a) => {
+  const e = document.createElementNS(NS, n);
+  for (const k in (a || {})) e.setAttribute(k, a[k]);
+  return e;
+};
+const fmt = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(3);
+
+const tip = document.getElementById("tip");
+let tipAnchor = null;
+
+function placeTip(target){
+  if (!target || !target.getBoundingClientRect) return;
+  const box = target.getBoundingClientRect();
+  tip.style.left = Math.min(Math.max(box.left + box.width / 2, 100), window.innerWidth - 100) + "px";
+  tip.style.top = Math.max(box.top - 8, 76) + "px";
+}
+
+function showTip(target, title, rows){
+  tip.innerHTML = '<div class="tip-h"></div>' + rows.map(() =>
+    '<div class="tip-r"><span></span><span></span></div>').join("");
+  tip.querySelector(".tip-h").textContent = title;
+  const cells = tip.querySelectorAll(".tip-r");
+  rows.forEach((r, i) => {
+    cells[i].children[0].textContent = r[0];
+    cells[i].children[1].textContent = r[1];
+  });
+  tipAnchor = target;
+  placeTip(target);
+  tip.dataset.on = "1";
+}
+const hideTip = () => { tip.dataset.on = "0"; tipAnchor = null; };
+
+function bindHit(hit, title, rows){
+  const on = () => showTip(hit, title, rows);
+  hit.addEventListener("mouseenter", on);
+  hit.addEventListener("focus", on);
+  hit.addEventListener("mouseleave", hideTip);
+  hit.addEventListener("blur", hideTip);
+}
+
+// Focusing a mark that is off-screen scrolls it into view, and that scroll used
+// to fire *after* the focus handler and hide the tooltip that focus had just
+// opened — so the first mark a keyboard user landed on in each chart showed
+// nothing. Reposition instead of hiding while the anchor still holds focus.
+function onScroll(){
+  if (tipAnchor && document.activeElement === tipAnchor) placeTip(tipAnchor);
+  else hideTip();
+}
+
+/* ---- chart 1: forest plot of mean difference + 95% CI ---- */
+(function forest(){
+  const svg = document.getElementById("forest");
+  const W = 900, L = 196, R = 846, T = 52, rowH = 48;
+  const dMin = -0.06, dMax = 0.34;
+  const x = v => L + (v - dMin) / (dMax - dMin) * (R - L);
+  const lastY = T + rowH * 4;
+
+  for (let t = -0.05; t <= 0.3001; t += 0.05){
+    const tv = +t.toFixed(2), gx = x(tv), zero = Math.abs(tv) < 1e-9;
+    svg.appendChild(el("line", {x1:gx, x2:gx, y1:T - 18, y2:lastY + 22,
+      stroke: zero ? "var(--ink-2)" : "var(--grid)", "stroke-width": zero ? 1.5 : 1}));
+    const lab = el("text", {x:gx, y:lastY + 40, "text-anchor":"middle"});
+    lab.textContent = zero ? "0" : (tv > 0 ? "+" : "−") + Math.abs(tv).toFixed(2);
+    if (zero) lab.setAttribute("fill", "var(--ink-2)");
+    svg.appendChild(lab);
+  }
+  const zl = el("text", {x:x(0), y:T - 28, "text-anchor":"middle", fill:"var(--ink-2)"});
+  zl.textContent = "no difference";
+  svg.appendChild(zl);
+
+  STRATA.forEach((s, i) => {
+    const y = T + i * rowH;
+    if (i === 1){
+      // Ends before the value-label column (x=R+16) so no single label sits on
+      // the band edge.
+      svg.appendChild(el("rect", {x:12, y:y - 20, width:R + 2 - 12, height:rowH - 8, rx:7, fill:"var(--flag-bg)"}));
+      svg.appendChild(el("line", {x1:12, x2:W - 22, y1:y - 25, y2:y - 25, stroke:"var(--grid)", "stroke-width":1}));
+    }
+    const lab = el("text", {x:20, y:y + 1, class:"rowlab"});
+    lab.textContent = s.label;
+    svg.appendChild(lab);
+    const sub = el("text", {x:20, y:y + 16, class:"rowsub"});
+    sub.textContent = s.sub + " · n=" + s.n;
+    svg.appendChild(sub);
+
+    svg.appendChild(el("line", {x1:x(s.lo), x2:x(s.hi), y1:y, y2:y,
+      stroke:"var(--axis)", "stroke-width":2, "stroke-linecap":"round"}));
+    [s.lo, s.hi].forEach(v => svg.appendChild(el("line",
+      {x1:x(v), x2:x(v), y1:y - 5, y2:y + 5, stroke:"var(--axis)", "stroke-width":2, "stroke-linecap":"round"})));
+    svg.appendChild(el("circle", {cx:x(s.d), cy:y, r:6.5, fill:"var(--rag)",
+      stroke:"var(--surface)", "stroke-width":2}));
+
+    const v = el("text", {x:R + 16, y:y + 4, class:"val" + (i < 2 ? " val-em" : "")});
+    v.textContent = fmt(s.d);
+    svg.appendChild(v);
+
+    const hit = el("rect", {x:12, y:y - 20, width:W - 24, height:rowH - 6, class:"hit", tabindex:"0", rx:7});
+    bindHit(hit, s.label, [
+      ["Mean difference", fmt(s.d)],
+      ["95% CI", fmt(s.lo) + " … " + fmt(s.hi)],
+      ["p-value", s.p],
+      ["Pairs", String(s.n)],
+      ["Significant", s.sig ? "yes" : "no"]
+    ]);
+    svg.appendChild(hit);
+  });
+})();
+
+/* ---- chart 2: 40 paired differences, diverging columns ---- */
+(function deltas(){
+  const svg = document.getElementById("deltas");
+  const L = 54, R = 876, T = 34, B = 276;
+  const dMin = -0.15, dMax = 0.46;
+  const y = v => B - (v - dMin) / (dMax - dMin) * (B - T);
+  const sorted = Q.slice().sort((a, b) => a.d - b.d);
+  const band = (R - L) / sorted.length, bw = Math.min(band - 2, 16);
+
+  for (let t = -0.1; t <= 0.4001; t += 0.1){
+    const tv = +t.toFixed(1), gy = y(tv), zero = Math.abs(tv) < 1e-9;
+    svg.appendChild(el("line", {x1:L - 8, x2:R, y1:gy, y2:gy,
+      stroke: zero ? "var(--ink-2)" : "var(--grid)", "stroke-width": zero ? 1.5 : 1}));
+    const lab = el("text", {x:L - 14, y:gy + 4, "text-anchor":"end"});
+    lab.textContent = zero ? "0" : (tv > 0 ? "+" : "−") + Math.abs(tv).toFixed(1);
+    if (zero) lab.setAttribute("fill", "var(--ink-2)");
+    svg.appendChild(lab);
+  }
+  const ax = el("text", {x:L - 14, y:T - 12, "text-anchor":"end"});
+  ax.textContent = "Δ";
+  svg.appendChild(ax);
+
+  sorted.forEach((q, i) => {
+    const cx = L + i * band + band / 2, up = q.d >= 0;
+    const yTop = up ? y(q.d) : y(0), h = Math.max(Math.abs(y(q.d) - y(0)), 1);
+    const r = Math.min(4, h, bw / 2);
+    const x0 = cx - bw / 2, x1 = cx + bw / 2;
+    const path = up
+      ? "M" + x0 + "," + (yTop + h) + " L" + x0 + "," + (yTop + r) +
+        " Q" + x0 + "," + yTop + " " + (x0 + r) + "," + yTop +
+        " L" + (x1 - r) + "," + yTop + " Q" + x1 + "," + yTop + " " + x1 + "," + (yTop + r) +
+        " L" + x1 + "," + (yTop + h) + " Z"
+      : "M" + x0 + "," + yTop + " L" + x0 + "," + (yTop + h - r) +
+        " Q" + x0 + "," + (yTop + h) + " " + (x0 + r) + "," + (yTop + h) +
+        " L" + (x1 - r) + "," + (yTop + h) + " Q" + x1 + "," + (yTop + h) + " " + x1 + "," + (yTop + h - r) +
+        " L" + x1 + "," + yTop + " Z";
+    // Colour encodes ONE thing: the sign of the difference. Response kind is a
+    // second dimension and rides a second channel (a marker), so the legend's
+    // entries stay mutually exclusive and the red bars really are the losses.
+    svg.appendChild(el("path", {d:path, fill: up ? "var(--rag)" : "var(--neg)"}));
+    if (q.kind === "notice"){
+      svg.appendChild(el("circle", {cx:cx, cy: up ? yTop - 9 : yTop + h + 9, r:4,
+        fill:"var(--notice)", stroke:"var(--surface)", "stroke-width":2}));
+    }
+
+    const hit = el("rect", {x:cx - band / 2, y:T - 18, width:band, height:B - T + 36,
+      class:"hit", tabindex:"0"});
+    bindHit(hit, "Query " + q.id, [
+      ["Stratum", q.cov],
+      ["Response", q.kind],
+      ["Baseline", q.base.toFixed(3)],
+      ["RAG", q.rag.toFixed(3)],
+      ["Difference", fmt(q.d)]
+    ]);
+    svg.appendChild(hit);
+  });
+
+  const lo = sorted[0], hi = sorted[sorted.length - 1];
+  // Dropped clear of the notice-marker row: the low end of the sort is where the
+  // notices cluster, and at +17 this label ran through the NEXT bar's marker.
+  const t1 = el("text", {x:L + band / 2 + 10, y:y(lo.d) + 31, class:"val", "text-anchor":"start"});
+  t1.textContent = "Q" + lo.id + " " + fmt(lo.d);
+  svg.appendChild(t1);
+  const t2 = el("text", {x:L + (sorted.length - 1) * band + band / 2 - 8, y:y(hi.d) - 10,
+    class:"val val-em", "text-anchor":"end"});
+  t2.textContent = "Q" + hi.id + " " + fmt(hi.d);
+  svg.appendChild(t2);
+
+  const cap = el("text", {x:L, y:B + 44});
+  cap.textContent = "40 queries, sorted by difference →";
+  svg.appendChild(cap);
+})();
+
+/* ---- chart 3: RAG-only diagnostics by response kind ---- */
+(function diag(){
+  const svg = document.getElementById("diag");
+  const L = 148, R = 782, T = 26, B = 176;
+  const groups = [
+    {name:"Faithfulness",      a:0.7793, n:0.2000},
+    {name:"Context Precision", a:0.2221, n:0.0833}
+  ];
+  const x = v => L + v * (R - L);
+  const rowY = [T + 12, T + 94];
+  const barH = 22, gap = 2;
+
+  for (let t = 0; t <= 1.0001; t += 0.25){
+    const gx = x(t);
+    svg.appendChild(el("line", {x1:gx, x2:gx, y1:T - 6, y2:B,
+      stroke: t === 0 ? "var(--axis)" : "var(--grid)", "stroke-width":1}));
+    const lab = el("text", {x:gx, y:B + 20, "text-anchor":"middle"});
+    lab.textContent = t.toFixed(2);
+    svg.appendChild(lab);
+  }
+
+  groups.forEach((g, gi) => {
+    const gy = rowY[gi];
+    const name = el("text", {x:L - 16, y:gy + barH + 2, "text-anchor":"end", class:"rowlab"});
+    name.textContent = g.name;
+    svg.appendChild(name);
+
+    [["Answers · n=32", g.a, "var(--rag)"], ["Notices · n=8", g.n, "var(--notice)"]]
+      .forEach((s, si) => {
+        const by = gy + si * (barH + gap), w = Math.max(x(s[1]) - L, 2), r = Math.min(4, w, barH / 2);
+        const path = "M" + L + "," + by +
+          " L" + (L + w - r) + "," + by + " Q" + (L + w) + "," + by + " " + (L + w) + "," + (by + r) +
+          " L" + (L + w) + "," + (by + barH - r) + " Q" + (L + w) + "," + (by + barH) + " " + (L + w - r) + "," + (by + barH) +
+          " L" + L + "," + (by + barH) + " Z";
+        svg.appendChild(el("path", {d:path, fill:s[2]}));
+        const v = el("text", {x:L + w + 10, y:by + barH - 6, class:"val val-em"});
+        v.textContent = s[1].toFixed(3);
+        svg.appendChild(v);
+
+        const hit = el("rect", {x:L, y:by, width:R - L, height:barH, class:"hit", tabindex:"0"});
+        bindHit(hit, g.name, [[s[0], s[1].toFixed(4)]]);
+        svg.appendChild(hit);
+      });
+  });
+
+  const note = el("text", {x:L - 16, y:B + 44, "text-anchor":"start"});
+  note.setAttribute("x", String(L - 16));
+  note.textContent = "Ragas score (0–1), RAG pathway only — the baseline has no retrieved context to measure.";
+  svg.appendChild(note);
+})();
+
+/* ---- table view ---- */
+(function table(){
+  const tb = document.getElementById("tbody");
+  const frag = document.createDocumentFragment();
+  Q.forEach(q => {
+    const tr = document.createElement("tr");
+    const cells = [
+      [String(q.id), ""], [q.cov, ""], [null, ""],
+      [q.base.toFixed(3), ""], [q.rag.toFixed(3), ""],
+      [fmt(q.d), q.d >= 0 ? "d-pos" : "d-neg"],
+      [q.faith.toFixed(2), ""], [q.cp.toFixed(2), ""]
+    ];
+    cells.forEach((c, i) => {
+      const td = document.createElement("td");
+      if (i === 2){
+        const span = document.createElement("span");
+        span.className = "tag" + (q.kind === "notice" ? " notice" : "");
+        span.textContent = q.kind;
+        td.appendChild(span);
+      } else {
+        td.textContent = c[0];
+        if (c[1]) td.className = c[1];
+      }
+      tr.appendChild(td);
+    });
+    frag.appendChild(tr);
+  });
+  tb.appendChild(frag);
+})();
+
+// Both axes matter: focus scrolls the page vertically and the .scroller
+// horizontally, and only the latter fires on the container.
+window.addEventListener("scroll", onScroll, {passive:true});
+document.querySelectorAll(".scroller").forEach(s =>
+  s.addEventListener("scroll", onScroll, {passive:true}));
+</script>
