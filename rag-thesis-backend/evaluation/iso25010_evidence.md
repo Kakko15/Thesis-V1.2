@@ -6,6 +6,89 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## Objective 2 formal run - 2026-09-13, run id `5e8fb7f21db6` at `770bad4`
+
+The three-member CCSICT panel reviewed all forty ground truths and their assigned coverage
+strata against the released corpus and signed off on 2026-09-13, recorded in the
+instrument's `validation.panel` block. That cleared the two grounds `validate_formal_dataset`
+had been refusing on, and the first complete run of the harness followed the same day. Every
+earlier `comparison_*.json` in `evaluation/results/` is a three-row partial, not a result.
+
+Configuration is recorded in `<run-id>.provenance.json` and in the results file's
+`reproducibility.release` block rather than asserted here: `gateway_enabled: false` (no
+third-party route in the path), `APP_ENVIRONMENT=development`, `GUEST_DAILY_TOKEN_BUDGET=0`,
+prompt `iskai-prompt-v4`, chat `gemini-3.6-flash`, judge `gemini-3.5-flash-lite`, embeddings
+`models/gemini-embedding-001` at 768 dimensions, index provenance `verified`. 40/40 queries
+scored, `formal_result: true`, with `dataset_validation_issues`, `unattempted_query_ids` and
+`rows_without_corpus_coverage` all empty. No `--allow-unvalidated`.
+
+| Ragas Answer Correctness | Baseline | RAG | n |
+|---|---|---|---|
+| Pooled | 0.2169 | 0.3024 | 40 |
+| `present` | 0.2302 | 0.2903 | 16 |
+| `absent_topic` | 0.2008 | 0.2874 | 17 |
+| `absent_unreleased` | 0.1990 | 0.3600 | 4 |
+| `absent_by_design` | 0.2622 | 0.3761 | 3 |
+
+Section 3.2.5 treatment on the pooled pairs: Shapiro-Wilk W=0.9594, p=0.1595, so the paired
+differences are normal and the parametric branch applies. Paired-samples t-test t=4.6990,
+p=3.222e-05, significant at alpha=0.05. Mean difference +0.0855, 95% CI [+0.0487, +0.1223],
+Cohen's d_z=0.7430.
+
+**The pooled figure is not the accuracy claim.** Item 3 of the 2026-09-07 block commits
+Section 3.2.5 to quoting the `present` stratum, because it is the only stratum with a
+corpus-derived ground truth to be accurate against. On that stratum the paired test does not
+reach significance: +0.0601, p=0.1257, Cohen's d_z=0.4054, 95% CI [-0.0189, +0.1391], n=16.
+The three absent strata all do reach it (p=0.0009, 0.0419, 0.0122), but `absent_unreleased`
+at n=4 and `absent_by_design` at n=3 are too small to carry a claim alone. The honest
+reading is that pooled significance is carried by refusal behaviour on absence - which is
+exactly what the absent strata exist to measure - while accuracy on covered questions is
+directionally positive but not established at n=16.
+
+**Why `present` underperforms, measured rather than inferred.** Eight of its sixteen queries
+(ids 6, 7, 14, 15, 20, 32, 33, 36) returned the grounded retrieval fallback instead of an
+answer. Retrieval was not the cause: all eight retrieved the full five context blocks at top
+cosine similarity 0.67-0.74, far above the 0.30 threshold. All eight were discarded at step 5
+of `_chat_impl`, structural citation validation - five logged
+`Citation repair remained invalid` (both the model repair and deterministic
+`enforce_citation_coverage` left an uncited substantive unit) and three logged
+`Citation repair failed (TruncatedGeneration)`, where the repair call itself hit the
+2,000-token output ceiling that applies when no gateway is configured. The RAG-only
+diagnostics separate along the same line, which is what makes the mechanism legible rather
+than speculative:
+
+| RAG-only diagnostic | Pooled (n=40) | Answers (n=32) | Notices (n=8) |
+|---|---|---|---|
+| Faithfulness | 0.6634 | 0.7793 | 0.2000 |
+| Context Precision | 0.1944 | 0.2221 | 0.0833 |
+
+The fallback is deliberate: `routers/chat.py` discards an answer it cannot cite rather than
+staple markers onto uncited claims, and the comments there say so. What this run adds is the
+price of that trade on covered questions, and it is the largest single lever on the figure
+Section 3.2.5 quotes. Changing it is a frozen-contract change - `PROMPT_VERSION` at minimum -
+and would require a full re-run against this same instrument, so it is recorded here as a
+finding and deliberately not acted on.
+
+Context Precision at 0.1944 pooled is low independently of the notices and is not explained
+by them. It is a retrieval-ranking diagnostic, not part of the paired claim, and is left open.
+
+**What this run does not clear.** The corpus lock, its receipt and the four PI-08
+institutional approvals still do not exist; the panel sign-off validates the measurement
+instrument, not the corpus release. A sample of twelve theses across three of six catalog
+categories remains a stated limitation of the study, not a property of the architecture.
+
+| Artifact | SHA-256 |
+|---|---|
+| `evaluation/golden_dataset.json` (validated instrument; its prefix is the run id) | `5E8FB7F21DB6BE3CF0F1DED2323B9F613E3919CD6D46000A4D23FD63D11D5CFA` |
+| `evaluation/results/comparison_20260913_064053.json` | `DC01CBBC34B5925663A69157E83B3D83950687BC673B049389C01384B2E6BCB1` |
+| `evaluation/results/comparison_20260913_064053.csv` | `F1657C30A014D94B14042354E6692C522B983ACB0F6931EF046345029FA6B32B` |
+
+The two result hashes are of the files **as committed**, not as the harness wrote them.
+`run_comparison.py` writes CRLF on Windows and `.gitattributes` stores and checks out LF
+(`* text=auto eol=lf`), so a hash taken from the local working tree before the commit does
+not verify against a checkout on any platform. These do. The instrument hashes identically
+either way because it is already LF, which is why the run id derived from it is stable.
+
 ## Security audit remediation and revalidation - 2026-09-12, reviewed at `4847209`
 
 A source review of the repository found eleven defects, and all eleven were fixed in the
@@ -325,6 +408,12 @@ not exist. The release narrowed the corpus and the drafting cleared the path to 
 measurement; neither unblocks Objective 2. A sample of twelve theses across three of six
 catalog categories is a stated limitation of the study, not a property of the
 architecture, and Sections 1.3, 3.1.3 and 3.2.1 now say so.
+
+> **Superseded in part, 2026-09-13.** The panel signed off on the forty ground
+> truths that day, so the two grounds named above -- the false flag and the blank
+> panel records -- no longer hold and the formal run went ahead; see the
+> 2026-09-13 block at the top of this file. The rest of this paragraph stands: the
+> corpus lock, its receipt and the four PI-08 approvals are still outstanding.
 
 **One open item on the released set.** Two revisions of the Arellano/Tamano BLIS project
 exist: a 131-page copy carrying the adviser, panel and chair endorsement (PDF modified
@@ -1047,12 +1136,13 @@ capacity has been measured only provider-independently.
 | LangSmith observability and privacy | Project `isu-thesis-library`; three grounded questions against the disposable thesis fixture | 63-run export includes embedding, duplication, retrieval, generation, total, and one citation-repair span; real generation recorded prompt/completion token counts; all runs completed; inputs and outputs hidden; no prompt, answer, or manuscript payload exported | Passed |
 | Citation re-index dry-run | Final-tree local fixture run | PDF: 27 chunks, all 27 page-aware; TXT: 31 chunks with null page fields; section metadata detected; zero Supabase, storage, or Gemini calls | Passed |
 | Diff hygiene | `git diff --check` | No whitespace errors after cleanup | Passed |
+| Objective 2 baseline vs RAG | Ragas 0.4.3 Answer Correctness, judge `gemini-3.5-flash-lite`, 40-query panel-validated Golden Dataset, run id `5e8fb7f21db6` | 40/40 scored, `formal_result: true`. Pooled 0.2169 -> 0.3024; paired t-test t=4.6990, p=3.222e-05, d_z=0.7430. `present` stratum 0.2302 -> 0.2903, p=0.1257, not significant at n=16. | Passed as a run; see the 2026-09-13 block for what the `present` stratum does and does not support |
 
 ## Results that are not yet eligible as final evidence
 
 | Criterion | Current evidence | Required next action | Status |
 |---|---|---|---|
-| Ragas comparison | Golden Dataset still contains placeholders and lacks faculty-panel validation. | Complete and lock the faculty-validated dataset before evaluation. | Pending academic prerequisite |
+| Ragas comparison | Completed 2026-09-13 on the panel-validated instrument; see the 2026-09-13 block. | None for the measurement. The corpus lock, its receipt and the four PI-08 approvals remain outstanding and are tracked separately. | Moved to verified |
 
 ## Required commands
 
