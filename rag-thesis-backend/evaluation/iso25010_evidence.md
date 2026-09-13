@@ -6,6 +6,39 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## Local revalidation - 2026-09-14, `5ed9539`
+
+Re-measured for the system-defense deck (`docs/deck/`), whose build reads its Objective 4
+figures from this block by regex rather than from prose, so a figure the file does not
+contain cannot reach a slide. Toolchain unchanged: `.venv`, Python 3.14, the CI pytest and
+pylint commands, `npm run lint`, `npm run test:coverage`, `npm run build && npm run
+bundle:budget`, `npm run test:e2e`. Each run was recorded by exit code and its printed
+summary; the logs live in the local `tmp/deck/` scratch directory and are not committed.
+
+| Criterion | Instrument | Observed result | Status |
+|---|---|---|---|
+| Backend functional suitability | PyTest with pytest-cov, enforced `--cov-fail-under=85` | 1,201 passed and 3 opt-in external integration tests skipped; 92.07% coverage (5,122 statements, 406 missed) | Passed |
+| Backend maintainability | Pylint, the CI command (`routers services dependencies workers main.py config.py models.py`) | 10.00/10 | Passed |
+| Frontend unit tests and coverage | Node test runner with `--experimental-test-coverage`, gated at 85/80/85 | 197 passed across 7 suites; 96.36% lines, 87.09% branches, 96.81% functions | Passed |
+| Frontend maintainability | ESLint, the flat config, via `npm run lint` | 0 errors, 0 warnings | Passed |
+| Frontend build and eager bundle budget | `npm run build && npm run bundle:budget` | Build succeeded; bundle budget OK | Passed |
+| Critical browser journeys and accessibility matrix | Playwright with @axe-core/playwright, `npm run test:e2e` | 26 passed in 2.4 min | Passed |
+| Reliability (SonarQube) | SonarQube Community Build 26.7.0.124771 | Not re-run in this pass; the 2026-09-01 local scan below stands | Not run |
+| Objective 2 comparison | `evaluation/run_comparison.py` | Not re-run; the 2026-09-13 formal run below stands | Not run |
+
+Two counts moved since the 2026-09-12 table and both are recorded here so the deck quotes
+what the file contains: the backend suite collects 1,201 tests (the evaluation-harness
+commits since `4847209` added one), and the Playwright run reports 26 (the tables above
+recorded 24 before the end-to-end changes landed at `da4e60f`). The `ALLOW_DISPOSABLE_SUPABASE_TESTS`
+integration tests were skipped, as in every local pass.
+
+One reading the deck build exposed, left uncorrected in the 2026-09-13 block so that record
+stays as written: the results file's `by_corpus_coverage` means for the two smallest strata
+are `absent_unreleased` 0.1991 -> 0.3601 and `absent_by_design` 0.2616 -> 0.3755, where the
+table below prints 0.1990 -> 0.3600 and 0.2622 -> 0.3761. The per-row Ragas scores in the
+same file reproduce the JSON block exactly, so the JSON is authoritative; the deck plots
+from it and quotes only the pooled and `present` figures, which agree in both places.
+
 ## Objective 2 formal run - 2026-09-13, run id `5e8fb7f21db6` at `770bad4`
 
 The three-member CCSICT panel reviewed all forty ground truths and their assigned coverage
