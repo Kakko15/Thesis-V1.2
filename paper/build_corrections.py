@@ -764,6 +764,62 @@ PROSE11 = [
 ]
 
 
+# --- Pass 12: 3.2.5 statistical treatment (2026-09-13) ---------------------
+# 3.2.1 defines the four corpus-coverage strata and says every stratum is
+# reported separately as well as pooled. 3.2.5 described only a single pooled
+# test, so the treatment section did not state what the evaluation actually
+# does. Ground truth is `rag-thesis-backend/evaluation/run_comparison.py`:
+# `statistical_treatment` (:761-812) is called once on the pooled pairs (:987)
+# and once per stratum (:1005), and only ever for Answer Correctness — the
+# metric loop at :966 is the single-element tuple `('answer_correctness',)`,
+# while Faithfulness and Context Precision go through `summarize_rag_diagnostics`
+# (:714, :729), which takes no stratum and runs no test. The confidence interval
+# at :797 sits outside the parametric/non-parametric branch, so a Student's t
+# interval accompanies a rank test too, and both effect sizes are always emitted.
+# There are TWO reasons a test is withheld, not one: fewer than three pairs
+# (:772) and identical paired differences (:774). No family-wise or FDR
+# correction exists anywhere in the file; `significant_at_0.05` (:806) is the
+# sole significance decision, which is why the present-stratum comparison is
+# fixed in advance and everything else is secondary.
+#
+# The needles are the second paragraph of 3.2.5, which is untouched 2026-08-09
+# original text, so this list is order-independent. Deliberately carries no
+# measured value from the 2026-09-13 run: this is a proposal, the paper ends at
+# Chapter 3, and the section states treatment rather than findings.
+PROSE12 = [
+    ('the non-parametric Wilcoxon Signed-Rank Test will be applied as the robust '
+     'alternative.',
+     'the non-parametric Wilcoxon Signed-Rank Test will be applied as the robust '
+     'alternative. In either branch the 95% confidence interval accompanying the mean '
+     'paired difference will be a two-sided Student’s t interval, and the '
+     'standardized effect size reported with it will be the one matching the test '
+     'actually applied.',
+     1, 'P12-1 interval and effect size per branch'),
+    ('A significance level of 0.05 will be used as the strict basis for decision-making.',
+     'A significance level of 0.05 will be used as the strict basis for decision-making. '
+     'This sequence will be applied to Answer Correctness alone, which is the only metric '
+     'both pathways can be scored on, and will be computed within each corpus coverage '
+     'stratum defined in Section 3.2.1 as well as across the pooled pairs; Faithfulness '
+     'and Context Precision remain RAG-only diagnostics and receive no paired test. Each '
+     'test will be reported with the number of pairs it was computed on, and the size of '
+     'each stratum will follow from the panel’s validation of the ground truth rather '
+     'than being fixed in advance. The comparison on the stratum whose queries a released '
+     'manuscript can answer, designated present in Section 3.2.1, will be fixed in advance '
+     'as the accuracy claim, since it is the only stratum with a corpus-derived ground '
+     'truth to be accurate against; the pooled comparison and the remaining strata will be '
+     'reported in full but treated as secondary, being drawn from the same dataset at an '
+     'uncorrected significance level. Where a stratum yields fewer than three complete '
+     'pairs, or where its paired differences are identical, no test will be computed and '
+     'the stratum will be reported descriptively, with the mean paired difference and the '
+     'number of pairs given in place of an interval and an effect size. A query that the '
+     'provider never processed, after a fixed schedule of retries has been exhausted, will '
+     'be excluded from the paired test and from the reported means rather than scored as a '
+     'failure, and every such exclusion will be declared; a no-evidence notice or a guard '
+     'refusal is not an outage of this kind and will be scored as returned.',
+     1, 'P12-2 stratified treatment and exclusions'),
+]
+
+
 def build(verbose=True):
     xml = D.read_xml(SRC)
     for old, new, label in CELLS:
@@ -775,7 +831,7 @@ def build(verbose=True):
     if verbose: print(f'  cell   {"T3 embedding model":26s} text-embedding-004 -> Gemini Embedding')
     for old, new, n, label in (
         PROSE + PROSE2 + PROSE3 + PROSE4 + PROSE5 + PROSE6 + PROSE7 + PROSE8 + PROSE9
-        + PROSE10 + PROSE11
+        + PROSE10 + PROSE11 + PROSE12
     ):
         xml = D.replace_runs(xml, old, new, expect=n, label=label)
         if verbose: print(f'  prose  {label}')
