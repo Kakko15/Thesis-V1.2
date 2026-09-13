@@ -433,6 +433,18 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   await useAuthenticatedSession(page)
   let acceptedKey
   let statusChecks = 0
+  // The job must stay in retry_wait until the page has actually been reloaded,
+  // so this counts document loads rather than status polls. Keying completion
+  // off `statusChecks === 1` made the test a wall-clock race it lost on a loaded
+  // CI runner: Upload.jsx polls at +500ms and then every 1500ms, so the reload
+  // had to happen inside a 1.5s window. Miss it and the second poll returns
+  // completed, Upload.jsx clears sessionStorage.activeUploadJob, and the
+  // reloaded page has no job left to resume -- which is the opposite of what
+  // this test exists to prove. The listener is attached after the session
+  // helper so only navigations from here on are counted: 1 is the goto below,
+  // 2 is the reload.
+  let pageLoads = 0
+  page.on('load', () => { pageLoads += 1 })
   const unexpected = await mockApi(page, {
     'GET /catalog/departments/legacy': [{
       id: 'dept-1', name: 'CCSICT', track_label: 'Program / specialization',
@@ -454,7 +466,7 @@ test('administrator upload journey resumes a retrying durable job after refresh'
     },
     'GET /upload/status/job-1': () => {
       statusChecks += 1
-      if (statusChecks === 1) {
+      if (pageLoads < 2) {
         return {
           status: 'retry_wait', stage: 'embed', progress: 58,
           message: 'A temporary service problem occurred. The job will retry automatically.',
