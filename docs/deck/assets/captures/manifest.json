@@ -1,0 +1,52 @@
+{
+  "captures": {
+    "landing": {
+      "file": "01-landing.png",
+      "route": "/",
+      "mode": "live",
+      "captured_at": "2026-09-13T18:50:17.400Z",
+      "head": "5ed5939",
+      "sha256": "e1858473766c7f53fcb958a77aaf2f942e87678fb29a499d2660b7eefdfce793"
+    },
+    "chat_grounded": {
+      "file": "04-chat-grounded.png",
+      "route": "/chat",
+      "mode": "live",
+      "captured_at": "2026-09-13T18:59:22.671Z",
+      "head": "5ed5939",
+      "sha256": "d9f0c09fe9fb880f06a379dfa62c5bae19783d88cda2ae8417686f900f99aea5"
+    },
+    "chat_refused": {
+      "file": "05-chat-refused.png",
+      "route": "/chat",
+      "mode": "live",
+      "captured_at": "2026-09-13T18:54:47.785Z",
+      "head": "5ed5939",
+      "sha256": "4225fe3568befdf362a121852e547f67a01382149eeadf3599f99f81db5fff59"
+    },
+    "chat_answered": {
+      "file": "05-chat-answered.png",
+      "route": "/chat",
+      "mode": "live",
+      "captured_at": "2026-09-13T18:54:47.787Z",
+      "head": "5ed5939",
+      "sha256": "d723d420b6de317c37bb7d9bbfebb3f26f568bb65c1212b4b362a03fbb395582"
+    },
+    "archive": {
+      "file": "07-archive.png",
+      "route": "/archive",
+      "mode": "fixture",
+      "captured_at": "2026-09-13T18:54:53.861Z",
+      "head": "5ed5939",
+      "sha256": "83e2a2626217ab62b796cd70d4c5aa0b58aa10d0bbe95c1887bf3cdc288bb7ab"
+    },
+    "novelty": {
+      "file": "07-novelty.png",
+      "route": "/novelty",
+      "mode": "fixture",
+      "captured_at": "2026-09-13T18:54:53.863Z",
+      "head": "5ed5939",
+      "sha256": "be3c8b8b8e2471d62194ccdba3851ed5144494e2feb87295af973f65095225b8"
+    }
+  }
+}
