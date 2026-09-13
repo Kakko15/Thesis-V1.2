@@ -174,19 +174,16 @@ def objective_card(slide, n: int, x, y, w, h, *, as_title: bool = False, thumb_p
              [[(f'Objective {n} · {C.OBJECTIVE_SHORT[n - 1]}', {'size': 22, 'bold': True, 'font': theme.FONT_TITLE})]])
         text(slide, body_x, y + I(0.52), w - pad * 2 - num_w, h - I(0.6), [[(C.SPECIFIC_OBJECTIVES[n - 1], {'size': 14, 'color': theme.MUTED})]])
         return card
-    thumb_w = I(1.3)
+    # The thumbnail sits in the heading row only; the body starts below it so text never runs under it.
+    thumb_w = I(0.98)
     if thumb_label is not None:
-        thumb(slide, n, thumb_path, x + w - pad - thumb_w, y + I(0.16), thumb_w, thumb_label)
+        thumb(slide, n, thumb_path, x + w - pad - thumb_w, y + I(0.12), thumb_w, thumb_label)
     text(slide, body_x, y + I(0.15), w - pad * 2 - num_w - thumb_w - I(0.2), I(0.3),
          [[(C.OBJECTIVE_SHORT[n - 1], {'size': 16, 'bold': True, 'font': theme.FONT_TITLE})]])
-    text(slide, body_x, y + I(0.52), w - pad * 2 - num_w, h - I(0.6), [[(C.SPECIFIC_OBJECTIVES[n - 1], {'size': 14, 'color': theme.MUTED})]])
+    body = C.SPECIFIC_OBJECTIVES[n - 1]
     if n == 4:
-        cx = body_x
-        for k, crit in enumerate(C.OBJECTIVE_4_CRITERIA):
-            if k == 2:
-                cx = body_x
-            _, cw = chip(slide, cx, y + h - I(0.62) + I(0.31) * (k // 2), crit, size=14, color=theme.MUTED, h=I(0.28), pad=I(0.1))
-            cx += cw + I(0.08)
+        body = body + ' ' + ' · '.join(C.OBJECTIVE_4_CRITERIA)
+    text(slide, body_x, y + I(0.7), w - pad * 2 - num_w, h - I(0.75), [[(body, {'size': 14, 'color': theme.MUTED})]])
     return card
 
 
