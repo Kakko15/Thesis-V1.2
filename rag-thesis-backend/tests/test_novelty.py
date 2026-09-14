@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 from services import novelty
 from services.novelty import (
-    EXACT_DUPLICATE_SIMILARITY, aggregate_matches, is_exact_duplicate, meets_duplication_threshold, percent,
-    verdict_for_coverage,
+    EXACT_DUPLICATE_SIMILARITY, aggregate_matches, concentration_percentage, is_exact_duplicate,
+    meets_duplication_threshold, percent, verdict_for_concentration,
 )
 
 
@@ -63,10 +63,13 @@ class TestAggregateMatches:
         assert len(scan['matched_papers']) == 3
 
     def test_all_advisory_tiers(self):
-        assert verdict_for_coverage(0) == 'clear'
-        assert verdict_for_coverage(49.999) == 'review_suggested'
-        assert verdict_for_coverage(50) == 'high_overlap'
-        assert verdict_for_coverage(100, exact_duplicate=True) == 'exact_duplicate'
+        assert verdict_for_concentration(0) == 'clear'
+        # Scattered matches are a shared template, not a shared source.
+        assert verdict_for_concentration(24.999) == 'clear'
+        assert verdict_for_concentration(25) == 'review_suggested'
+        assert verdict_for_concentration(69.999) == 'review_suggested'
+        assert verdict_for_concentration(70) == 'high_overlap'
+        assert verdict_for_concentration(100, exact_duplicate=True) == 'exact_duplicate'
 
     def test_most_similar_paper_is_the_top_ranked_match(self):
         matches = [
@@ -391,3 +394,55 @@ class TestRefreshIsNeverAGate:
         changed = novelty.refresh_after_ingest('new', 'CCSICT')
         assert changed == ['good'], 'the readable paper must still be refreshed'
         assert stored == ['good']
+
+
+class TestConcentrationResistsSaturation:
+    """Why the verdict keys off concentration instead of total coverage.
+
+    Every thesis in a departmental archive is one college's template on one
+    campus. As the corpus grows, every passage eventually finds some neighbour
+    above the threshold, so coverage climbs toward 100% for everyone and the
+    band stops discriminating. Concentration moves the other way.
+    """
+
+    def test_coverage_saturates_as_the_archive_grows(self):
+        # Ten template-similar theses: every chunk matches something, but each
+        # chunk's closest neighbour is a different paper.
+        matches = [{'paper_id': f'p{i % 10}', 'similarity': 0.86} for i in range(30)]
+        scan = aggregate_matches(matches, total_chunks=30, threshold=0.85)
+        assert scan['matched_chunk_percentage'] == 100.0, 'coverage is saturated'
+        # ... yet no single thesis holds more than a tenth of it.
+        assert scan['top_paper_percentage'] == 10.0
+        assert scan['verdict_level'] == 'clear'
+
+    def test_a_real_near_duplicate_still_reads_red_in_the_same_archive(self):
+        matches = [{'paper_id': 'twin', 'similarity': 0.94} for _ in range(28)]
+        matches += [{'paper_id': f'p{i}', 'similarity': 0.86} for i in range(2)]
+        scan = aggregate_matches(matches, total_chunks=30, threshold=0.85)
+        assert scan['matched_chunk_percentage'] == 100.0
+        assert scan['top_paper_percentage'] > 90
+        assert scan['verdict_level'] == 'high_overlap'
+
+    def test_growth_dilutes_a_scattered_signal_rather_than_amplifying_it(self):
+        """The same 30 matched chunks spread over more theses reads calmer."""
+        few = aggregate_matches(
+            [{'paper_id': f'p{i % 3}', 'similarity': 0.86} for i in range(30)],
+            total_chunks=30, threshold=0.85)
+        many = aggregate_matches(
+            [{'paper_id': f'p{i % 15}', 'similarity': 0.86} for i in range(30)],
+            total_chunks=30, threshold=0.85)
+        assert few['matched_chunk_percentage'] == many['matched_chunk_percentage'] == 100.0
+        assert many['top_paper_percentage'] < few['top_paper_percentage']
+
+    def test_the_measured_archive_separates_at_every_band_from_60_to_80(self):
+        """Concentration on 2026-09-14, sorted. Coverage had no such gap."""
+        measured = [97.22, 87.50, 81.48, 52.00, 46.88, 40.74, 36.84, 33.33,
+                    33.33, 32.14, 17.24, 16.22, 10.00, 4.35, 3.57, 0.00]
+        for band in (60, 65, 70, 75, 80):
+            red = [value for value in measured if value >= band]
+            assert len(red) == 3, f'band {band} should select the same three theses'
+
+    def test_concentration_of_an_unmatched_manuscript_is_zero(self):
+        assert concentration_percentage([], 30) == 0.0
+        assert concentration_percentage([{'match_count': 5}], 0) == 0.0
+        assert concentration_percentage([{'match_count': None}], 30) == 0.0

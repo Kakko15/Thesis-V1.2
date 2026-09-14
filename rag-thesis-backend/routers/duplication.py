@@ -30,7 +30,7 @@ from services.guards import REFUSAL_MESSAGE, prohibited_reason
 from services import gemini_pool
 from services.llm_output import coerce_text
 from services.malware import MalwareDetected, MalwareScannerUnavailable, scan_pdf
-from services.novelty import percent, verdict_for_coverage
+from services.novelty import concentration_percentage, percent, verdict_for_concentration
 from services.rate_limiting import limiter
 
 logger = logging.getLogger(__name__)
@@ -286,7 +286,6 @@ async def scan_duplication(
 
     percentage = compute_duplication_percentage(len(match_scores), len(chunks))
     highest_similarity = percent(max((m.get('similarity', 0.0) for m in match_scores), default=0.0))
-    verdict_level = verdict_for_coverage(percentage)
 
     # Aggregate matches per archived paper
     paper_matches: dict[str, dict] = {}
@@ -295,6 +294,14 @@ async def scan_duplication(
         entry = paper_matches.setdefault(pid, {'count': 0, 'highest_similarity': 0})
         entry['count'] += 1
         entry['highest_similarity'] = max(entry['highest_similarity'], match['similarity'])
+
+    # Graded the same way an ingest-time screening is: on how much of the
+    # document points at one archived thesis, not on how much of it resembles
+    # the archive at all. A query-time scan runs against the same saturating
+    # single-department corpus, so keying off coverage would drift the same way.
+    top_paper_percentage = concentration_percentage(
+        [{'match_count': entry['count']} for entry in paper_matches.values()], len(chunks))
+    verdict_level = verdict_for_concentration(top_paper_percentage)
 
     primary_pairs_saved = []
 

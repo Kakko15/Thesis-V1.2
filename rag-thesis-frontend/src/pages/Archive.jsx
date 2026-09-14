@@ -84,9 +84,17 @@ function ScreeningRun({ label, screening, when, emphasis }) {
       ) : (
         <>
           <div className="mt-1 grid gap-1 opacity-90 sm:grid-cols-2">
+            {/* Concentration leads because it is what the verdict is graded
+                on. Coverage stays, because it is the figure the earlier
+                records and the paper's tables report, but on its own it reads
+                as an accusation: a thesis can be at 100% coverage and still
+                have no single archived thesis accounting for a tenth of it. */}
+            {metrics.concentration > 0 && (
+              <span>Closest single thesis: {metrics.concentration.toFixed(2)}% of passages</span>
+            )}
             <span>Highest passage similarity: {metrics.highest.toFixed(2)}%</span>
-            <span>Matched chunk coverage: {metrics.coverage.toFixed(2)}%</span>
-            <span>Matched chunks / total chunks: {metrics.matchedChunks} / {metrics.totalChunks}</span>
+            <span>Matched anywhere in the archive: {metrics.coverage.toFixed(2)}%</span>
+            <span>Matched passages / total: {metrics.matchedChunks} / {metrics.totalChunks}</span>
             <span>Threshold: {normalizePercent(screening.threshold).toFixed(2)}%</span>
           </div>
           <ul className="mt-1 space-y-0.5 opacity-90">

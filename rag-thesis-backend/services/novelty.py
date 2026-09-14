@@ -54,12 +54,54 @@ def percent(value: float | int | None) -> float:
     return round(number * 100 if 0 < number <= 1 else number, 2)
 
 
-def verdict_for_coverage(matched_chunk_percentage: float, exact_duplicate: bool = False) -> str:
+# Verdict bands, in share of a manuscript's passages whose closest archived
+# neighbour sits in ONE archived thesis.
+#
+# Measured over the live archive on 2026-09-14, concentration separates where
+# total coverage does not. Sorted, coverage runs 100, 97, 92, 72, 67, 67, 61,
+# 53, 47 -- a smooth ramp straight through the old 50% boundary, so the band
+# fell in the middle of a continuum and split near-identical papers. The same
+# archive by concentration runs 97, 88, 81, then a 29-point gap to 52. Every
+# band from 60 to 80 selects the same three theses, which is what a real signal
+# looks like as opposed to a tuned number; 70 sits in the middle of that
+# plateau.
+#
+# The deeper reason to key off concentration is that coverage saturates and
+# this does not. Every thesis in a departmental archive is one college's
+# template on one campus, so as the corpus grows every passage eventually finds
+# SOME neighbour above the threshold and coverage climbs toward 100% for
+# everyone -- at which point red means nothing, which is the failure the bands
+# were introduced to prevent in the first place. Concentration moves the other
+# way: adding more template-similar theses spreads those baseline matches
+# across more papers and thins each one's share, while a genuine near-duplicate
+# still puts nearly all of its passages on its twin. Growth dilutes the noise
+# and leaves the signal, so the band does not need re-tuning as the archive
+# fills up.
+HIGH_OVERLAP_CONCENTRATION = 70.0
+REVIEW_CONCENTRATION = 25.0
+
+
+def concentration_percentage(matched_papers: list[dict], total_chunks: int) -> float:
+    """Share of a manuscript's passages closest to its single nearest thesis."""
+    if total_chunks <= 0 or not matched_papers:
+        return 0.0
+    largest = max(int(entry.get('match_count') or 0) for entry in matched_papers)
+    return round(largest / total_chunks * 100, 2)
+
+
+def verdict_for_concentration(top_paper_percentage: float, exact_duplicate: bool = False) -> str:
+    """Grade a screening on how much of it points at one archived thesis.
+
+    Below REVIEW_CONCENTRATION the matches are scattered across the archive,
+    which is the signature of a shared template and institution rather than a
+    shared source, so the verdict is `clear` even though passages did match.
+    The screening record still lists every one of them.
+    """
     if exact_duplicate:
         return 'exact_duplicate'
-    if matched_chunk_percentage <= 0:
+    if top_paper_percentage < REVIEW_CONCENTRATION:
         return 'clear'
-    if matched_chunk_percentage < 50:
+    if top_paper_percentage < HIGH_OVERLAP_CONCENTRATION:
         return 'review_suggested'
     return 'high_overlap'
 
@@ -112,6 +154,8 @@ def aggregate_matches(matches: list[dict], total_chunks: int, threshold: float) 
         for pid, entry in ranked
     ]
 
+    top_paper_percentage = concentration_percentage(matched_papers, total_chunks)
+
     return {
         'flagged': bool(matches),
         'exact_duplicate': exact_duplicate,
@@ -119,7 +163,11 @@ def aggregate_matches(matches: list[dict], total_chunks: int, threshold: float) 
         'matched_chunk_percentage': round(coverage, 2),
         'matched_chunk_count': len(matches),
         'total_chunks': total_chunks,
-        'verdict_level': verdict_for_coverage(coverage, exact_duplicate),
+        # How much of this manuscript points at its single nearest thesis. The
+        # verdict keys off this rather than coverage because coverage saturates
+        # in a one-department archive; see the band constants above.
+        'top_paper_percentage': top_paper_percentage,
+        'verdict_level': verdict_for_concentration(top_paper_percentage, exact_duplicate),
         # One-release compatibility alias. New code uses matched_chunk_percentage.
         'duplication_percentage': round(coverage, 2),
         'threshold': round(threshold * 100, 2),
