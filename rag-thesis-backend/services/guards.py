@@ -86,6 +86,33 @@ _FOLLOWUP_START = re.compile(
     re.IGNORECASE,
 )
 
+# A question can open with a discourse marker and still be the same follow-up.
+# `_FOLLOWUP_START` is anchored, so "so what is the result?" missed it while
+# "what is the result?" matched. Stripped before that test, never before the
+# others -- the marker carries no reference of its own.
+_DISCOURSE_OPENER = re.compile(
+    r'^\s*(?:so|ok|okay|alright|right|well|then|now|also|but|and)\b[\s,]*', re.IGNORECASE,
+)
+
+# "the study", "the paper", "the thesis" with nothing saying which one is a
+# reference back to whatever the conversation was already about. Measured
+# 2026-09-14: after an answer citing the mango-classification thesis, "so what
+# is the result of the study?" carried no pronoun, opened with a discourse
+# marker and ran to eight words, so it missed all three tests above, was
+# treated as a fresh question, retrieved a different paper's results and
+# answered that the archive held no results for the mango study.
+#
+# Only document nouns, and only unqualified. A noun followed by "of"/"about"/
+# "by"/"on" names its own subject ("the study of mango ripeness") and is not a
+# reference back. Aspect nouns -- results, findings, objectives -- are
+# deliberately excluded: "what are the findings on YOLO accuracy" is an
+# ordinary question that should retrieve freely.
+_BARE_DOCUMENT_REFERENCE = re.compile(
+    r'\bthe\s+(?:study|paper|thesis|research|system|project|work|manuscript)\b'
+    r'(?!\s+(?:of|on|about|by|for|titled|regarding|concerning|from|that|which)\b)',
+    re.IGNORECASE,
+)
+
 
 def _is_generation_request(normalized: str) -> bool:
     """True only when a generation verb governs a prohibited artifact *and* the
@@ -128,7 +155,8 @@ def is_ambiguous_followup(question: str, prior_questions: list[str]) -> bool:
         return False
     return bool(
         _FOLLOWUP_REFERENCE.search(normalized)
-        or _FOLLOWUP_START.search(normalized)
+        or _BARE_DOCUMENT_REFERENCE.search(normalized)
+        or _FOLLOWUP_START.search(_DISCOURSE_OPENER.sub('', normalized))
         or (len(normalized.split()) <= 5 and normalized.endswith('?'))
     )
 

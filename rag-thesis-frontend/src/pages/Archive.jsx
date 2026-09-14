@@ -183,7 +183,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           announced twice. */}
       <GlassCard
         hover
-        className="group flex h-full cursor-pointer flex-col p-5 active:scale-[0.98] transition-all duration-200 touch-manipulation !bg-white dark:!bg-canvas-900/80"
+        className="group flex h-full cursor-pointer flex-col p-5 active:scale-[0.98] transition-all duration-200 touch-manipulation"
         onClick={() => onOpen(paper)}
       >
         <div className="flex items-start justify-between gap-2">
@@ -266,7 +266,7 @@ function ArchiveResults({
   }
   if (isError) {
     return (
-      <GlassCard className="!bg-white dark:!bg-canvas-900/80">
+      <GlassCard>
         <EmptyState
           icon={AlertTriangle}
           title="Archive unavailable"
@@ -279,7 +279,7 @@ function ArchiveResults({
   if (filtered.length === 0) {
     const hasPapers = Boolean(papers?.length)
     return (
-      <GlassCard className="!bg-white dark:!bg-canvas-900/80">
+      <GlassCard>
         <EmptyState
           icon={Library}
           title={hasPapers ? 'No matches found' : 'The archive is empty'}
@@ -310,15 +310,12 @@ function ArchiveResults({
     return <div className={cn(grid, 'min-h-[380px]')}>{cards}</div>
   }
   return (
-    // The window the strip runs through: a page has to be invisible before it
-    // reaches the rest of the layout. `clip-path` rather than
-    // `overflow-hidden` because only the sides need clipping -- the cards lift
-    // 4px and cast a 60px-blur shadow on hover, and a scroll container would
-    // cut that off the top and bottom rows. Negative insets push the clip edge
-    // outwards: 72px of room for the shadow vertically, 14px horizontally,
-    // which is far less than the page gutter the strip would otherwise show
-    // through.
-    <div className="relative min-h-[380px] [clip-path:inset(-72px_-14px)]">
+    // The window the strip runs through: horizontal overflow is clipped so
+    // incoming and outgoing pages don't bleed into the gutters during the slide.
+    // `overflow-x-clip` avoids creating an artificial backdrop root (unlike
+    // `clip-path`), eliminating tinted backdrop rectangles and cut-off shadow lines
+    // while keeping vertical hover lift unclipped.
+    <div className="relative min-h-[380px] overflow-x-clip">
       <AnimatePresence mode="popLayout" initial={false} custom={direction}>
         <motion.div
           key={page}
@@ -328,13 +325,6 @@ function ArchiveResults({
           animate="center"
           exit="exit"
           transition={SLIDE_SPRING}
-          // No `will-change: transform` here. Pinning it on permanently drew a
-          // faintly tinted rectangle over the whole results area in both
-          // themes -- `clip-path` makes this container a backdrop root, and a
-          // layer promoted inside one changes how the cards' own
-          // `backdrop-filter` (surface-glass) resolves against it. Framer sets
-          // will-change for the duration of the animation anyway, which is
-          // where it belongs.
           className={grid}
         >
           {cards}
