@@ -78,11 +78,53 @@ _INJECTION = re.compile(
     r'\bpretend (to be|you are)|\bchange your role|\bdeveloper mode|\bjailbreak\b',
     re.IGNORECASE,
 )
+# A question is a follow-up when it contains an expression that cannot be
+# resolved from the question itself. Each pattern below is one such expression.
+# A false positive costs more than a false negative here: an unresolved
+# follow-up merely retrieves afresh, while a standalone question wrongly read
+# as one gets pinned to the previous answer's theses and is answered about the
+# wrong paper.
+
+# Pronouns with no antecedent inside the question. `this` and `that` are
+# deliberately absent: they are demonstratives here but also relative pronouns
+# ("theses that used YOLO") and ordinary determiners ("this year"), and each
+# has its own narrower pattern below.
 _FOLLOWUP_REFERENCE = re.compile(
-    r'\b(it|its|they|them|their|this|that|these|those|former|latter|above|same)\b', re.IGNORECASE
+    r'\b(it|its|they|them|their|these|those|former|latter|same)\b', re.IGNORECASE
 )
+
+# "that thesis", "this system", "that one" -- a demonstrative pointing at
+# something named earlier in the conversation.
+_DEMONSTRATIVE_REFERENCE = re.compile(
+    r'\b(?:this|that)\s+'
+    r'(?:study|paper|thesis|research|system|project|work|manuscript|one|author|'
+    r'approach|methodology|method|dataset|model|finding|result)s?\b',
+    re.IGNORECASE,
+)
+
+# A demonstrative left dangling at the end: "tell me more about that".
+_TRAILING_DEMONSTRATIVE = re.compile(
+    r'\b(?:about|regarding|on|with|from|of)\s+(?:this|that|these|those)\s*\??$',
+    re.IGNORECASE,
+)
+
+# `above` only where it points back at the conversation. It used to match on
+# the bare word, so "theses reporting accuracy above ninety percent" was read
+# as a follow-up and pinned to the previous answer.
+_ABOVE_REFERENCE = re.compile(
+    r'\bthe\s+above\b|\b(?:mentioned|noted|listed|shown|described|discussed|cited)\s+above\b',
+    re.IGNORECASE,
+)
+
+# Only genuine continuations. This used to accept any question opening
+# "what|how|why|when|where|who" followed by "is|are|was|were|did|does", which
+# is how most standalone questions in the language begin -- "what is
+# retrieval-augmented generation?" was classified as a follow-up and answered
+# against whatever the previous turn happened to cite. "what about", "what
+# else" and an "and"-prefixed question are continuations; "what is" is not.
 _FOLLOWUP_START = re.compile(
-    r'^\s*(and\s+)?(what|how|why|when|where|who)\s+(about|else|was|were|did|does|is|are)\b',
+    r'^(?:and\s+)?(?:what|how)\s+(?:about|else)\b'
+    r'|^and\s+(?:what|how|why|when|where|who)\b',
     re.IGNORECASE,
 )
 
@@ -155,8 +197,13 @@ def is_ambiguous_followup(question: str, prior_questions: list[str]) -> bool:
         return False
     return bool(
         _FOLLOWUP_REFERENCE.search(normalized)
+        or _DEMONSTRATIVE_REFERENCE.search(normalized)
+        or _TRAILING_DEMONSTRATIVE.search(normalized)
+        or _ABOVE_REFERENCE.search(normalized)
         or _BARE_DOCUMENT_REFERENCE.search(normalized)
         or _FOLLOWUP_START.search(_DISCOURSE_OPENER.sub('', normalized))
+        # A very short question mid-conversation is almost always a
+        # continuation, and there is rarely enough in it to retrieve on alone.
         or (len(normalized.split()) <= 5 and normalized.endswith('?'))
     )
 
