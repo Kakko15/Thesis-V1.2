@@ -1,17 +1,18 @@
 """Thin layer over python-pptx for the deck's visual vocabulary.
 
-Rules baked in here so slide code cannot break them: every run gets an explicit size,
-face and colour (the verifier treats a missing size as a failure); alpha and shadows are
-raw DrawingML appended *after* python-pptx styling so element order stays valid; no
-grouped shapes (Canva mis-places them on import); persistent objects are named exactly so
-Morph matches them across slides.
+Rules baked in here so slide code cannot break them: every run gets an explicit size, face
+and colour (the verifier treats a missing size as a failure); text boxes are sized from
+measured metrics unless a height is forced, and an over-full forced box raises instead of
+overlapping; alpha and shadows are raw DrawingML appended *after* python-pptx styling so
+element order stays valid; no grouped shapes (Canva mis-places them on import); persistent
+objects are named exactly so Morph matches them across slides. Theme values are read at call
+time, never as default arguments, so ``DECK_THEME`` governs everything.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from lxml import etree
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
@@ -20,14 +21,22 @@ from pptx.oxml import parse_xml
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
 
-from . import theme
+from . import measure, theme
 
 A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
-R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+EMU_IN = 914400
+
+
+class Overflow(Exception):
+    """Text needs more height than the box it was given."""
 
 
 def rgb(hex6: str) -> RGBColor:
     return RGBColor.from_string(hex6)
+
+
+def inches(v) -> float:
+    return float(v) / EMU_IN
 
 
 def new_presentation() -> Presentation:
@@ -37,11 +46,11 @@ def new_presentation() -> Presentation:
     return prs
 
 
-def blank_slide(prs: Presentation, ground: str = theme.GROUND):
+def blank_slide(prs: Presentation, ground: str | None = None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     fill = slide.background.fill
     fill.solid()
-    fill.fore_color.rgb = rgb(ground)
+    fill.fore_color.rgb = rgb(ground or theme.GROUND)
     return slide
 
 
@@ -73,7 +82,8 @@ def no_line(shape) -> None:
     shape.line.fill.background()
 
 
-def add_shadow(shape, blur_pt: float = 30, dist_pt: float = 9, alpha_pct: float = 25) -> None:
+def add_shadow(shape, blur_pt: float = 30, dist_pt: float = 9, alpha_pct: float | None = None) -> None:
+    alpha_pct = theme.SHADOW_ALPHA if alpha_pct is None else alpha_pct
     sppr = shape._element.spPr
     for old in sppr.findall(qn('a:effectLst')):
         sppr.remove(old)
@@ -97,13 +107,12 @@ def set_name(shape, name: str) -> None:
 
 # --- primitives --------------------------------------------------------------------------
 
-def glass_card(slide, x, y, w, h, *, name: str | None = None, fill: str = theme.PANEL,
-               alpha: float = theme.PANEL_ALPHA, radius: float = 0.06, border: str = theme.GLASS_BORDER,
-               border_alpha: float = theme.GLASS_BORDER_ALPHA, shadow: bool = True):
+def glass_card(slide, x, y, w, h, *, name: str | None = None, fill: str | None = None, alpha: float | None = None,
+               radius: float = 0.06, border: str | None = None, border_alpha: float | None = None, shadow: bool = True):
     shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, x, y, w, h)
     shape.adjustments[0] = radius
-    set_fill(shape, fill, alpha)
-    set_line(shape, border, 0.75, border_alpha)
+    set_fill(shape, fill or theme.PANEL, theme.PANEL_ALPHA if alpha is None else alpha)
+    set_line(shape, border or theme.GLASS_BORDER, 0.75, theme.GLASS_BORDER_ALPHA if border_alpha is None else border_alpha)
     if shadow:
         add_shadow(shape)
     shape.text_frame.text = ''
@@ -140,47 +149,75 @@ def circle(slide, cx, cy, d, *, fill: str | None, alpha: float = 100, line: str 
     return shape
 
 
-def text(slide, x, y, w, h, content, *, size: str | int = 'body', font: str = theme.FONT_BODY,
-         color: str = theme.TEXT, bold: bool = False, align: str = 'left', anchor: str = 'top',
-         name: str | None = None, line_spacing: float | None = None, space_after: float | None = None):
-    """content: str, or list of paragraphs; a paragraph is str or list of (text, opts) runs.
+def _norm_paragraphs(content, size, font, color, bold):
+    """Expand content into paragraphs of fully specified runs."""
+    paragraphs = content if isinstance(content, list) else [content]
+    out = []
+    for para in paragraphs:
+        runs = para if isinstance(para, list) else [(para, {})]
+        out.append([(t, {
+            'size': o.get('size', size), 'font': o.get('font', font),
+            'color': o.get('color', color), 'bold': o.get('bold', bold), 'italic': o.get('italic', False),
+        }) for t, o in runs])
+    return out
 
-    opts keys: size, font, color, bold, italic. Every run always receives explicit size,
-    face and colour.
+
+def text(slide, x, y, w, h=None, content='', *, size: str | int = 'body', font: str | None = None,
+         color: str | None = None, bold: bool = False, align: str = 'left', anchor: str = 'top',
+         name: str | None = None, line_spacing: float | None = None, space_after: float | None = None,
+         allow_overflow: bool = False):
+    """Text box sized from measured metrics.
+
+    ``h=None`` sizes the box to its content. A given ``h`` is checked against the measurement and
+    raises :class:`Overflow` when the content would not fit, unless ``allow_overflow``.
+    ``content``: str, or list of paragraphs; a paragraph is str or list of ``(text, opts)`` runs
+    with opts ``size``, ``font``, ``color``, ``bold``, ``italic``.
     """
+    font = font or theme.FONT_BODY
+    color = color or theme.TEXT
+    size_pt = theme.PT[size] if isinstance(size, str) else max(int(size), theme.MIN_PT)
+    paragraphs = _norm_paragraphs(content, size_pt, font, color, bold)
+    need = measure.block_height_in(paragraphs, inches(w), space_after_pt=space_after or 0.0, line_spacing=line_spacing)
+    if h is None:
+        h = Inches(need)
+    elif need > inches(h) + 1e-6 and not allow_overflow:
+        sample = ' '.join(t for para in paragraphs for t, _ in para)[:60]
+        raise Overflow(f'{sample!r} needs {need:.2f} in, box is {inches(h):.2f} in x {inches(w):.2f} in wide')
     box = slide.shapes.add_textbox(x, y, w, h)
     tf = box.text_frame
     tf.word_wrap = True
     tf.auto_size = MSO_AUTO_SIZE.NONE
     tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
     tf.vertical_anchor = {'top': MSO_ANCHOR.TOP, 'middle': MSO_ANCHOR.MIDDLE, 'bottom': MSO_ANCHOR.BOTTOM}[anchor]
-    paragraphs = content if isinstance(content, list) else [content]
-    base_size = theme.pt(size) if isinstance(size, str) else Pt(max(size, theme.MIN_PT))
-    for i, para in enumerate(paragraphs):
+    for i, runs in enumerate(paragraphs):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
         p.alignment = {'left': PP_ALIGN.LEFT, 'center': PP_ALIGN.CENTER, 'right': PP_ALIGN.RIGHT}[align]
         if line_spacing:
             p.line_spacing = line_spacing
         if space_after is not None:
             p.space_after = Pt(space_after)
-        runs = para if isinstance(para, list) else [(para, {})]
-        for run_text, opts in runs:
+        for run_text, o in runs:
             r = p.add_run()
             r.text = run_text
             f = r.font
-            s = opts.get('size', None)
-            f.size = (theme.pt(s) if isinstance(s, str) else Pt(max(s, theme.MIN_PT))) if s is not None else base_size
-            f.name = opts.get('font', font)
-            f.bold = opts.get('bold', bold)
-            f.italic = opts.get('italic', False)
-            f.color.rgb = rgb(opts.get('color', color))
+            s = o['size']
+            f.size = Pt(max(theme.PT[s] if isinstance(s, str) else int(s), theme.MIN_PT))
+            f.name = o['font']
+            f.bold = o['bold']
+            f.italic = o['italic']
+            f.color.rgb = rgb(o['color'])
     if name:
         set_name(box, name)
     return box
 
 
+def bottom(shape) -> float:
+    """Bottom edge of a shape in inches."""
+    return inches(shape.top + shape.height)
+
+
 def picture(slide, path: Path, x, y, *, w=None, h=None, name: str | None = None, rounded: bool = True,
-            border: str | None = theme.FRAME_BORDER, shadow: bool = True, opacity: float | None = None,
+            border: str | None = 'frame', shadow: bool = True, opacity: float | None = None,
             crop: tuple[float, float, float, float] | None = None):
     pic = slide.shapes.add_picture(str(path), x, y, width=w, height=h)
     if crop:
@@ -192,7 +229,7 @@ def picture(slide, path: Path, x, y, *, w=None, h=None, name: str | None = None,
             av.remove(old)
         av.append(parse_xml(f'<a:gd xmlns:a="{A_NS}" name="adj" fmla="val 3500"/>'))
     if border:
-        set_line(pic, border, 1.25)
+        set_line(pic, theme.FRAME_BORDER if border == 'frame' else border, 1.25)
     if shadow:
         add_shadow(pic)
     if opacity is not None:
@@ -212,20 +249,23 @@ def flat_picture(slide, path: Path, x, y, *, w=None, h=None, name: str | None = 
     return pic
 
 
-def chip(slide, x, y, label: str, *, color: str = theme.GREEN, filled: bool = False, size: int = 14,
-         font: str = theme.FONT_BODY, h=Inches(0.36), pad=Inches(0.16), char_w: float = 0.0076, name: str | None = None):
-    """Rounded pill with one line of text. Width estimated from character count (in inches)."""
-    w = Inches(len(label) * char_w * size + 0.02) + pad * 2
+def chip(slide, x, y, label: str, *, color: str | None = None, filled: bool = False, size: int = 14,
+         font: str | None = None, h=Inches(0.36), pad=Inches(0.16), name: str | None = None, ink: str | None = None):
+    """Rounded pill with one line of text, width measured from the font."""
+    color = color or theme.GREEN
+    font = font or theme.FONT_BODY
+    size = max(size, theme.MIN_PT)
+    w = Inches(measure.width_in(label, font, size, True) + 0.06) + pad * 2
     shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, x, y, w, h)
     shape.adjustments[0] = 0.5
     if filled:
         set_fill(shape, color, 100)
         set_line(shape, color, 0.75)
-        fg = theme.INK_ON_ACCENT
+        fg = ink or theme.INK_ON_ACCENT
     else:
-        set_fill(shape, color, 12)
+        set_fill(shape, color, 10 if theme.MODE == 'light' else 12)
         set_line(shape, color, 0.75, 55)
-        fg = color
+        fg = ink or color
     tf = shape.text_frame
     tf.margin_left = tf.margin_right = pad
     tf.margin_top = tf.margin_bottom = 0
@@ -235,64 +275,13 @@ def chip(slide, x, y, label: str, *, color: str = theme.GREEN, filled: bool = Fa
     p.alignment = PP_ALIGN.CENTER
     r = p.add_run()
     r.text = label
-    r.font.size = Pt(max(size, theme.MIN_PT))
+    r.font.size = Pt(size)
     r.font.name = font
     r.font.bold = True
     r.font.color.rgb = rgb(fg)
     if name:
         set_name(shape, name)
     return shape, w
-
-
-def table(slide, x, y, w, rows: list[list[str]], col_fracs: list[float], *, row_h=Inches(0.62), header: bool = True,
-          size: int = 14, name: str | None = None, badge_col: int | None = None):
-    gf = slide.shapes.add_table(len(rows), len(rows[0]), x, y, w, row_h * len(rows))
-    tbl = gf.table
-    tblpr = tbl._tbl.tblPr
-    tblpr.set('firstRow', '0')
-    tblpr.set('bandRow', '0')
-    sid = tblpr.find(qn('a:tableStyleId'))
-    if sid is not None:
-        tblpr.remove(sid)
-    for c, frac in enumerate(col_fracs):
-        tbl.columns[c].width = Emu(int(w * frac))
-    for ri, row in enumerate(rows):
-        tbl.rows[ri].height = row_h
-        for ci, val in enumerate(row):
-            cell = tbl.cell(ri, ci)
-            cell.margin_left = cell.margin_right = Emu(91440)
-            cell.margin_top = cell.margin_bottom = Emu(45720)
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            tcpr = cell._tc.get_or_add_tcPr()
-            for tag in ('a:lnL', 'a:lnR', 'a:lnT', 'a:lnB'):
-                for old in tcpr.findall(qn(tag)):
-                    tcpr.remove(old)
-            lnb = parse_xml(f'<a:lnB xmlns:a="{A_NS}" w="6350"><a:solidFill><a:srgbClr val="FFFFFF">'
-                            f'<a:alpha val="10000"/></a:srgbClr></a:solidFill></a:lnB>')
-            tcpr.insert(0, lnb)
-            is_header = header and ri == 0
-            cell.fill.solid()
-            cell.fill.fore_color.rgb = rgb(theme.PANEL)
-            srgb = tcpr.find(qn('a:solidFill')).find(qn('a:srgbClr'))
-            _alpha_on(srgb, 78 if is_header else 45)
-            tf = cell.text_frame
-            tf.word_wrap = True
-            p = tf.paragraphs[0]
-            p.alignment = PP_ALIGN.LEFT
-            r = p.add_run()
-            r.text = val
-            r.font.size = Pt(max(size, theme.MIN_PT))
-            r.font.name = theme.FONT_MONO if (badge_col is not None and ci == badge_col and not is_header) else theme.FONT_BODY
-            r.font.bold = is_header or (badge_col is not None and ci == badge_col)
-            if is_header:
-                r.font.color.rgb = rgb(theme.MUTED)
-            elif badge_col is not None and ci == badge_col:
-                r.font.color.rgb = rgb(theme.GREEN if val.startswith('EVIDENCED') else theme.GOLD)
-            else:
-                r.font.color.rgb = rgb(theme.TEXT)
-    if name:
-        set_name(gf, name)
-    return gf
 
 
 def block_arc(slide, cx, cy, d, *, start_deg: float, sweep_deg: float, thickness: float, fill: str,
@@ -316,9 +305,9 @@ def set_notes(slide, notes: str) -> None:
     slide.notes_slide.notes_text_frame.text = notes
 
 
-def hline(slide, x, y, w, *, color: str = theme.GLASS_BORDER, alpha: float = 12, pt_w: float = 0.75, name: str | None = None):
+def hline(slide, x, y, w, *, color: str | None = None, alpha: float = 12, pt_w: float = 0.75, name: str | None = None):
     conn = slide.shapes.add_connector(1, x, y, x + w, y)
-    conn.line.color.rgb = rgb(color)
+    conn.line.color.rgb = rgb(color or theme.GLASS_BORDER)
     conn.line.width = Pt(pt_w)
     if alpha < 100:
         srgb = conn._element.spPr.find(qn('a:ln')).find(qn('a:solidFill')).find(qn('a:srgbClr'))

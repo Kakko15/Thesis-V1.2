@@ -1,10 +1,13 @@
-// Capture the deck's screenshots from the running app, in its dark theme, at 2560 x 1440.
+// Capture the deck's screenshots from the running app, in its light or dark theme, at 2560 x 1440.
 //
 //   node docs/deck/capture.mjs --mode live     [--keys landing,chat_grounded,...] [--base http://localhost:5173]
 //   node docs/deck/capture.mjs --mode live --login            # headed: sign in once, saves tmp/deck/auth-state.json
 //   node docs/deck/capture.mjs --mode live --keys archive,novelty,admin_overview --novelty-file <pdf>
 //   node docs/deck/capture.mjs --mode fixtures [--keys ...]  # :4173 e2e build, fabricated data: layout stand-ins only
-//   node docs/deck/capture.mjs --promote chat_grounded,chat_answered [--from live]
+//   node docs/deck/capture.mjs --promote chat_grounded,chat_answered [--from live-light]
+//
+// --theme light|dark (default light) sets the app's own appearance preference and the browser colour
+// scheme; captures land in tmp/deck/captures/<mode>-<theme>/.
 //
 // Live captures go to tmp/deck/captures/live/, fixture captures to tmp/deck/captures/fixture/.
 // `--promote` copies chosen captures into docs/deck/assets/captures/ and records them in
@@ -30,7 +33,7 @@ const { chromium } = require('@playwright/test')
 
 const PREFS_KEY = 'isu-thesis-preferences-v2'
 const AUTH_FIXTURE_KEY = 'isu_e2e_auth_fixture'
-const DARK = { theme: 'dark', palette: 'isu', motion: 'full', effects: 'full', contrast: 'standard' }
+const PREFS = (theme) => ({ theme, palette: 'isu', motion: 'full', effects: 'full', contrast: 'standard' })
 
 // Ask about a family of theses the archive demonstrably holds (the 2026-09-14 live run cited
 // the 2024 YOLO-based left-off-object and intruder-detection theses), never the researchers'
@@ -76,6 +79,8 @@ const opt = (name, fallback = undefined) => {
   return v === undefined || v.startsWith('--') ? true : v
 }
 const mode = opt('mode', 'live')
+const themeName = String(opt('theme', 'light'))
+if (!['light', 'dark'].includes(themeName)) throw new Error('--theme must be light or dark')
 const base = opt('base', mode === 'fixtures' ? 'http://127.0.0.1:4173' : 'http://localhost:5173')
 const keysArg = opt('keys')
 const statePath = opt('state', path.join(SCRATCH, 'auth-state.json'))
@@ -85,7 +90,7 @@ const zoom = Number(opt('zoom', '1'))          // CSS zoom for chat captures so 
 const viewportH = Number(opt('height', '720'))
 const apiBase = opt('api', 'http://localhost:8000')
 const retries = Number(opt('retry-fallback', '3'))   // a grounded question can land on the grounded fallback; try again
-const outDir = path.join(SCRATCH, 'captures', mode === 'fixtures' ? 'fixture' : 'live')
+const outDir = path.join(SCRATCH, 'captures', `${mode === 'fixtures' ? 'fixture' : 'live'}-${themeName}`)
 mkdirSync(outDir, { recursive: true })
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -108,14 +113,14 @@ async function newContext(browser, { motion = 'reduce', storageState, fixture } 
   const context = await browser.newContext({
     viewport: { width: 1280, height: viewportH },
     deviceScaleFactor: 2,
-    colorScheme: 'dark',
+    colorScheme: themeName,
     reducedMotion: motion,
     ...(storageState && existsSync(storageState) ? { storageState } : {}),
   })
   await context.addInitScript(({ key, prefs, authKey, fixture }) => {
     window.localStorage.setItem(key, JSON.stringify(prefs))
     if (fixture) window.localStorage.setItem(authKey, JSON.stringify(fixture))
-  }, { key: PREFS_KEY, prefs: DARK, authKey: AUTH_FIXTURE_KEY, fixture })
+  }, { key: PREFS_KEY, prefs: PREFS(themeName), authKey: AUTH_FIXTURE_KEY, fixture })
   return context
 }
 
@@ -330,7 +335,7 @@ function promote(keys, from) {
     const file = FILES[key]
     copyFileSync(src, path.join(ASSETS, file))
     manifest.captures[key] = {
-      file, route: ROUTES[key], mode: from === 'live' ? 'live' : 'fixture',
+      file, route: ROUTES[key], mode: from.startsWith('live') ? 'live' : 'fixture', theme: from.split('-')[1] || 'dark',
       captured_at: new Date().toISOString(), head,
       sha256: createHash('sha256').update(readFileSync(src)).digest('hex'),
     }
@@ -342,7 +347,7 @@ function promote(keys, from) {
 // --- main -------------------------------------------------------------------------------
 async function main() {
   if (opt('promote')) {
-    promote(String(opt('promote')).split(',').filter(Boolean), opt('from', 'live'))
+    promote(String(opt('promote')).split(',').filter(Boolean), opt('from', `live-${themeName}`))
     return
   }
   const browser = await chromium.launch({ headless: !opt('login') })

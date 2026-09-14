@@ -2,8 +2,8 @@
 
     tmp/deck/.venv/Scripts/python.exe -m docs.deck.verify [PATH] [--draft]
 
-Exit 1 on any failure. ``--draft`` tolerates [CAPTURE] placeholders and [VERIFY] markers
-so an early build can be inspected; the final deck must pass without it.
+Exit 1 on any failure. ``--draft`` tolerates [CAPTURE] placeholders and [VERIFY] markers so an
+early build can be inspected; the final deck must pass without it.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from pptx.oxml.ns import qn
 from pptx.util import Pt
 
 from . import theme, xml_post
-from .build import OUT_DEFAULT, TOTAL
+from .build import OUT_DEFAULT, TOTAL, ORB_SLIDES, GIF_SLIDES, SPIN_SLIDES
 
 POOLED_P = '3.222e-05'
 PRESENT_P = '0.1257'
@@ -44,17 +44,18 @@ def verify(path: Path, draft: bool = False) -> list[tuple[str, bool, str]]:
     prs = Presentation(str(path))
     results: list[tuple[str, bool, str]] = []
     slides = list(prs.slides)
-
     results.append(('slide count', len(slides) == TOTAL, f'{len(slides)} slides'))
 
     small, missing, placeholders, verify_marks, empty_notes, dup_names, blobs_bad = [], [], [], [], [], [], []
-    orb_slides, pooled_alone = [], []
+    orb_slides, gif_slides, spin_slides, pooled_alone = [], [], [], []
     for idx, slide in enumerate(slides, start=1):
         names = [s.name for s in slide.shapes]
         if len(names) != len(set(names)):
             dup_names.append(f'{idx}: ' + ', '.join(sorted({n for n in names if names.count(n) > 1})))
         if '!!orb' in names:
             orb_slides.append(idx)
+        if xml_post.spin_targets(slide):
+            spin_slides.append(idx)
         joined = []
         for shape in slide.shapes:
             for r in _runs(shape):
@@ -73,9 +74,11 @@ def verify(path: Path, draft: bool = False) -> list[tuple[str, bool, str]]:
             if shape.shape_type == 13:  # picture
                 rid = shape._element.blipFill.blip.get(qn('r:embed'))
                 try:
-                    blob = slide.part.related_part(rid).blob
-                    if not blob:
+                    part = slide.part.related_part(rid)
+                    if not part.blob:
                         blobs_bad.append(f'{idx}: empty blob')
+                    if part.content_type == 'image/gif' and shape.name == '!!orb':
+                        gif_slides.append(idx)
                 except KeyError:
                     blobs_bad.append(f'{idx}: unresolved {rid}')
         all_text = ' '.join(joined)
@@ -90,7 +93,9 @@ def verify(path: Path, draft: bool = False) -> list[tuple[str, bool, str]]:
     results.append(('pictures resolve', not blobs_bad, '; '.join(blobs_bad[:4]) or 'ok'))
     results.append(('notes on every slide', not empty_notes, 'missing on ' + ', '.join(empty_notes) if empty_notes else 'ok'))
     results.append(('shape names unique per slide', not dup_names, '; '.join(dup_names[:4]) or 'ok'))
-    results.append(('!!orb on slides 1, 14, 15', all(n in orb_slides for n in (1, 14, 15)), f'found on {orb_slides}'))
+    results.append((f'!!orb on slides {ORB_SLIDES}', all(n in orb_slides for n in ORB_SLIDES), f'found on {orb_slides}'))
+    results.append((f'turntable GIF on slides {GIF_SLIDES}', all(n in gif_slides for n in GIF_SLIDES), f'found on {gif_slides}'))
+    results.append((f'spin animation on slides {SPIN_SLIDES}', all(n in spin_slides for n in SPIN_SLIDES), f'found on {spin_slides}'))
     results.append(('no [CAPTURE] placeholders', draft or not placeholders, 'slides ' + ', '.join(sorted(set(placeholders))) if placeholders else 'ok'))
     results.append(('no [VERIFY] markers', draft or not verify_marks, 'slides ' + ', '.join(sorted(set(verify_marks))) if verify_marks else 'ok'))
 
