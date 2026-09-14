@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from scripts import reindex_citations
+from services import novelty
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -436,6 +437,9 @@ class TestRescanDuplication:
 
         recorder = self.Recorder([])
         monkeypatch.setattr(rescan_duplication, 'sb', recorder)
+        # store_rescan lives in services.novelty and writes through that
+        # module's client, so the persistence path has to be patched there.
+        monkeypatch.setattr(novelty, 'sb', recorder)
         monkeypatch.setattr(rescan_duplication, 'rescan_indexed_paper',
                             lambda *_args: dict(self.CURRENT))
         report = rescan_duplication.rescan_paper(self._paper(dict(self.AT_UPLOAD)), apply_changes=True)
@@ -453,6 +457,7 @@ class TestRescanDuplication:
 
         recorder = self.Recorder([])
         monkeypatch.setattr(rescan_duplication, 'sb', recorder)
+        monkeypatch.setattr(novelty, 'sb', recorder)
         monkeypatch.setattr(rescan_duplication, 'rescan_indexed_paper',
                             lambda *_args: dict(self.CURRENT))
         already = {**self.AT_UPLOAD, 'rescan': {'verdict_level': 'clear', 'matched_chunk_count': 0}}

@@ -232,3 +232,162 @@ class TestScanProvenance:
 
         monkeypatch.setattr(novelty, 'sb', SimpleNamespace(table=explode))
         assert novelty._archive_size('CCSICT') == 0
+
+
+class TestIncrementalRefresh:
+    """A new ingestion must update every other screening without re-screening
+    the archive against itself.
+
+    Each chunk stores only its single closest archived neighbour, so a newly
+    indexed thesis can change a chunk only by beating what is already there.
+    Comparing against the new paper alone is therefore exactly equivalent to a
+    full rescan -- these tests are what pin that equivalence.
+    """
+
+    def _vectors(self, *rows):
+        return [(list(v), sum(x * x for x in v) ** 0.5) for v in rows]
+
+    def _candidates(self, paper_id, *rows):
+        return [(paper_id, list(v), sum(x * x for x in v) ** 0.5) for v in rows]
+
+    def test_a_closer_new_paper_takes_the_chunk(self):
+        existing = [{'paper_id': 'old', 'similarity': 0.86}]
+        updated, moved = novelty.apply_new_paper_to_matches(
+            existing, self._vectors([1.0, 0.0]), self._candidates('new', [1.0, 0.0]), 0.85)
+        assert moved == 1
+        assert updated == [{'paper_id': 'new', 'similarity': 1.0}]
+
+    def test_a_more_distant_new_paper_leaves_the_chunk_alone(self):
+        existing = [{'paper_id': 'old', 'similarity': 0.99}]
+        updated, moved = novelty.apply_new_paper_to_matches(
+            existing, self._vectors([1.0, 0.0]), self._candidates('new', [0.9, 0.44]), 0.85)
+        assert moved == 0
+        assert updated == existing
+
+    def test_a_tie_leaves_the_earlier_paper_in_place(self):
+        existing = [{'paper_id': 'old', 'similarity': 1.0}]
+        updated, moved = novelty.apply_new_paper_to_matches(
+            existing, self._vectors([1.0, 0.0]), self._candidates('new', [1.0, 0.0]), 0.85)
+        assert moved == 0
+        assert updated == existing
+
+    def test_a_new_paper_can_flag_a_previously_clear_chunk(self):
+        updated, moved = novelty.apply_new_paper_to_matches(
+            [None], self._vectors([1.0, 0.0]), self._candidates('new', [1.0, 0.0]), 0.85)
+        assert moved == 1
+        assert updated == [{'paper_id': 'new', 'similarity': 1.0}]
+
+    def test_a_new_paper_below_the_threshold_changes_nothing(self):
+        updated, moved = novelty.apply_new_paper_to_matches(
+            [None], self._vectors([1.0, 0.0]), self._candidates('new', [0.0, 1.0]), 0.85)
+        assert moved == 0
+        assert updated == [None]
+
+    def test_the_incremental_result_equals_a_full_rescan(self):
+        # Two archived papers, then a third arrives that is closer to chunk 1.
+        chunk_a, chunk_b = [1.0, 0.0], [0.0, 1.0]
+        old = self._candidates('old', [0.95, 0.31])
+        new = self._candidates('new', [0.0, 1.0])
+        vectors = self._vectors(chunk_a, chunk_b)
+
+        # Full: score both chunks against both papers at once.
+        full = []
+        for embedding, _norm in vectors:
+            paper_id, similarity = novelty._best_archive_match(embedding, old + new, 0.85)
+            full.append({'paper_id': paper_id, 'similarity': similarity} if paper_id else None)
+
+        # Incremental: the state after `old`, then fold in `new`.
+        staged = []
+        for embedding, _norm in vectors:
+            paper_id, similarity = novelty._best_archive_match(embedding, old, 0.85)
+            staged.append({'paper_id': paper_id, 'similarity': similarity} if paper_id else None)
+        incremental, _moved = novelty.apply_new_paper_to_matches(staged, vectors, new, 0.85)
+
+        assert incremental == full
+        assert full[1]['paper_id'] == 'new'
+
+    def test_aggregation_carries_the_table_and_still_counts_correctly(self):
+        table = [
+            {'paper_id': 'a', 'similarity': 0.9},
+            None,
+            {'paper_id': 'a', 'similarity': 0.95},
+            {'paper_id': 'b', 'similarity': 0.88},
+        ]
+        scan = novelty.aggregate_chunk_matches(table, 0.85)
+        assert scan['matched_chunk_count'] == 3
+        assert scan['total_chunks'] == 4
+        assert scan['matched_chunk_percentage'] == 75.0
+        assert scan['chunk_matches'] == table
+        assert scan['matched_papers'][0]['id'] == 'a'
+
+    def test_a_shorter_table_than_the_paper_never_reads_past_its_end(self):
+        # Defensive: a table written before a reindex changed the chunk count.
+        updated, moved = novelty.apply_new_paper_to_matches(
+            [None], self._vectors([1.0, 0.0], [1.0, 0.0]),
+            self._candidates('new', [1.0, 0.0]), 0.85)
+        assert len(updated) == 1
+        assert moved == 1
+
+
+class TestRefreshIsNeverAGate:
+    """The post-ingest refresh runs after the manuscript has already been
+    committed. A screening is advisory, so nothing it does may fail the job."""
+
+    def test_a_broken_archive_read_returns_no_changes(self, monkeypatch):
+        def explode(*_args, **_kwargs):
+            raise RuntimeError('PostgREST is down')
+
+        monkeypatch.setattr(novelty, 'sb', SimpleNamespace(table=explode))
+        assert novelty.refresh_after_ingest('paper-1', 'CCSICT') == []
+
+    def test_one_unreadable_paper_does_not_stop_the_others(self, monkeypatch):
+        others = [
+            {'id': 'bad', 'active_index_version': 'i1', 'duplication_scan': {}},
+            {'id': 'good', 'active_index_version': 'i2', 'duplication_scan': {}},
+        ]
+
+        monkeypatch.setattr(novelty, '_paper_chunk_vectors',
+                            lambda paper_id, _index: [([1.0, 0.0], 1.0)] if paper_id != 'bad' else
+                            (_ for _ in ()).throw(RuntimeError('unreadable')))
+
+        def fake_rescan(paper_id, _department):
+            return {'verdict_level': 'clear', 'chunk_matches': [None], 'paper': paper_id}
+
+        stored = []
+        monkeypatch.setattr(novelty, 'rescan_indexed_paper', fake_rescan)
+        monkeypatch.setattr(novelty, 'store_rescan',
+                            lambda paper_id, scan, record=None: stored.append(paper_id))
+
+        class Table:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def select(self, *_args):
+                return self
+
+            def eq(self, *_args):
+                return self
+
+            def neq(self, *_args):
+                return self
+
+            def execute(self):
+                return type('R', (), {'data': self.rows})()
+
+        calls = {'n': 0}
+
+        def table(_name):
+            calls['n'] += 1
+            # First call resolves the new paper, second lists the archive.
+            return Table([{'active_index_version': 'new-i'}] if calls['n'] == 1 else others)
+
+        monkeypatch.setattr(novelty, 'sb', SimpleNamespace(table=table))
+        # The new paper itself must have vectors, or the refresh short-circuits.
+        monkeypatch.setattr(novelty, '_paper_chunk_vectors',
+                            lambda paper_id, _index: (
+                                [([1.0, 0.0], 1.0)] if paper_id != 'bad'
+                                else (_ for _ in ()).throw(RuntimeError('unreadable'))))
+
+        changed = novelty.refresh_after_ingest('new', 'CCSICT')
+        assert changed == ['good'], 'the readable paper must still be refreshed'
+        assert stored == ['good']

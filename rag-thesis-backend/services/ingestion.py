@@ -14,7 +14,7 @@ from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
 from services.index_provenance import current_index_fingerprint
 from services.malware import MalwareDetected, scan_pdf
-from services.novelty import screen_new_submission
+from services.novelty import refresh_after_ingest, screen_new_submission
 
 logger = logging.getLogger(__name__)
 
@@ -285,4 +285,17 @@ def process_ingestion_job(client, job: dict, worker_id: str,
         })
     except Exception as activity_error:  # paper commit must not be undone by audit availability
         logger.exception('Upload activity logging failed (%s)', type(activity_error).__name__)
+
+    # Everyone else's screening is now one thesis out of date. Screening runs
+    # before a manuscript is indexed, so this one's own record already saw the
+    # whole archive -- but every paper that went in ahead of it was screened
+    # against an archive that did not contain it, and nothing would ever have
+    # revisited that. Incremental: each chunk keeps only its closest
+    # neighbour, so folding in one paper costs this manuscript's chunks times
+    # theirs, not the whole index against itself. It runs after the commit and
+    # swallows its own failures, because a stale screening is advisory and an
+    # ingestion that has already committed must not be failed by it.
+    refreshed = refresh_after_ingest(paper_id, department)
+    if refreshed:
+        logger.info('Refreshed %d archived screening(s) after indexing %s', len(refreshed), paper_id)
     return paper_id

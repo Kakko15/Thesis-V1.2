@@ -219,14 +219,64 @@ def _candidate_chunk_vectors(department: str, exclude_paper_id: str) -> list[tup
     return candidates
 
 
+def aggregate_chunk_matches(chunk_matches: list[dict | None], threshold: float) -> dict:
+    """Aggregate a per-chunk nearest-neighbour table into a screening.
+
+    `chunk_matches` holds one entry per chunk of the manuscript, in chunk
+    order: the archived paper that chunk is closest to, or None when nothing
+    reached the threshold. Keeping the table, rather than only the totals, is
+    what lets a new ingestion update every other paper's screening by
+    comparing against the new manuscript alone instead of re-screening the
+    whole archive against itself.
+    """
+    scan = aggregate_matches([m for m in chunk_matches if m], len(chunk_matches), threshold)
+    scan['chunk_matches'] = chunk_matches
+    return scan
+
+
+def apply_new_paper_to_matches(chunk_matches: list[dict | None],
+                               paper_vectors: list[tuple[list[float], float]],
+                               new_candidates: list[tuple],
+                               threshold: float) -> tuple[list[dict | None], int]:
+    """Fold one newly indexed paper into an existing per-chunk match table.
+
+    A chunk only ever holds its single closest archived neighbour, so a new
+    manuscript can change a chunk's entry only by beating what is already
+    there. Comparing against the new paper alone is therefore exactly
+    equivalent to re-screening against the whole archive, at a fraction of the
+    work: the cost is this paper's chunks times the new paper's, not times the
+    entire index.
+
+    Returns the updated table and how many chunks moved.
+    """
+    updated = list(chunk_matches)
+    moved = 0
+    for index, (embedding, norm) in enumerate(paper_vectors):
+        if index >= len(updated):
+            break
+        if not norm:
+            continue
+        best_paper, similarity = _best_archive_match(embedding, new_candidates, threshold,
+                                                     precomputed_norm=norm)
+        if not best_paper:
+            continue
+        current = updated[index]
+        if current and float(current.get('similarity', 0.0)) >= similarity:
+            continue
+        updated[index] = {'paper_id': best_paper, 'similarity': similarity}
+        moved += 1
+    return updated, moved
+
+
 def _best_archive_match(embedding: list[float], candidates: list[tuple],
-                        threshold: float) -> tuple[str | None, float]:
+                        threshold: float, precomputed_norm: float | None = None) -> tuple[str | None, float]:
     """The closest archived chunk, as cosine similarity, or no match.
 
     pgvector reports `1 - (a <=> b)`, which is cosine similarity, so this is
     the same quantity the RPC returns for the same pair of vectors.
     """
-    norm = sum(value * value for value in embedding) ** 0.5
+    norm = precomputed_norm if precomputed_norm is not None else \
+        sum(value * value for value in embedding) ** 0.5
     if not norm:
         return None, 0.0
     best_paper, best = None, 0.0
@@ -305,12 +355,114 @@ def rescan_indexed_paper(paper_id: str, department: str) -> dict:
     embeddings = [_as_vector(row['embedding']) for row in rows]
     candidates = _candidate_chunk_vectors(department, paper_id)
 
-    matches = []
+    chunk_matches: list[dict | None] = []
     for emb in embeddings:
         paper_match, similarity = _best_archive_match(emb, candidates, threshold)
-        if paper_match:
-            matches.append({'paper_id': paper_match, 'similarity': similarity})
+        chunk_matches.append({'paper_id': paper_match, 'similarity': similarity} if paper_match else None)
 
-    scan = aggregate_matches(matches, len(embeddings), threshold)
+    scan = aggregate_chunk_matches(chunk_matches, threshold)
     return _stamp_scan(_enrich_matched_papers(scan), department, SCOPE_RESCAN,
                        exclude_paper_id=paper_id)
+
+
+def store_rescan(paper_id: str, scan: dict, record: dict | None = None) -> dict:
+    """Nest a refreshed screening beside the at-upload one and persist it.
+
+    The at-upload figures are the only record of what the archive held the day
+    a thesis was accepted and cannot be recomputed once it has grown, so they
+    are never overwritten. Shared by the rescan script and the post-ingest
+    refresh so the two cannot store different shapes.
+    """
+    if record is None:
+        rows = sb.table('papers').select('duplication_scan').eq('id', paper_id).execute().data or []
+        record = rows[0].get('duplication_scan') if rows else None
+    at_upload = {k: v for k, v in (record or {}).items() if k != 'rescan'} \
+        if isinstance(record, dict) else {}
+    stored = {**at_upload, 'rescan': scan}
+    sb.table('papers').update({'duplication_scan': stored}).eq('id', paper_id).execute()
+    return stored
+
+
+def _paper_chunk_vectors(paper_id: str, active_index) -> list[tuple[list[float], float]]:
+    """This paper's active-index chunk vectors, in chunk order, with norms."""
+    rows = sb.table('chunks').select('chunk_index,embedding') \
+        .eq('paper_id', paper_id).eq('index_version', active_index) \
+        .order('chunk_index').execute().data or []
+    vectors = []
+    for row in rows:
+        vector = _as_vector(row['embedding'])
+        vectors.append((vector, sum(value * value for value in vector) ** 0.5))
+    return vectors
+
+
+def refresh_after_ingest(new_paper_id: str, department: str) -> list[str]:
+    """Fold a newly indexed thesis into every other screening in its department.
+
+    The new manuscript's own screening is already current: it was taken before
+    it was indexed, so it saw the whole archive. What goes stale is everyone
+    else's -- and before this ran on ingestion, a thesis could only ever name a
+    paper uploaded ahead of it. Measured 2026-09-14, that left all 16 cards in
+    this archive pointing backwards, three of the four BLIS theses understating
+    their overlap, and one showing 12.50% coverage where a current screening
+    put it at 91.67%.
+
+    Incremental by construction: each chunk keeps only its closest neighbour,
+    so the new paper can change a chunk only by beating what is there. A paper
+    with no stored match table yet is screened in full once, and incrementally
+    from then on.
+
+    Returns the ids whose screening changed. Never raises: a stale screening is
+    advisory, and it is not worth failing an ingestion that has already
+    committed.
+    """
+    threshold = settings.duplication_threshold
+    changed: list[str] = []
+    try:
+        new_rows = sb.table('papers').select('active_index_version') \
+            .eq('id', new_paper_id).execute().data or []
+        if not new_rows:
+            return []
+        new_candidates = [
+            (new_paper_id, vector, norm)
+            for vector, norm in _paper_chunk_vectors(new_paper_id, new_rows[0]['active_index_version'])
+            if norm
+        ]
+        if not new_candidates:
+            return []
+
+        others = sb.table('papers') \
+            .select('id,active_index_version,duplication_scan') \
+            .eq('ingestion_status', 'ready').eq('department', department) \
+            .neq('id', new_paper_id).execute().data or []
+    except Exception:  # noqa: BLE001 - advisory refresh, never a gate
+        logger.warning('Could not load the archive to refresh screenings', exc_info=True)
+        return []
+
+    for paper in others:
+        try:
+            record = paper.get('duplication_scan')
+            record = record if isinstance(record, dict) else {}
+            previous = record.get('rescan') if isinstance(record.get('rescan'), dict) else {}
+            chunk_matches = previous.get('chunk_matches')
+            vectors = _paper_chunk_vectors(paper['id'], paper['active_index_version'])
+
+            if not isinstance(chunk_matches, list) or len(chunk_matches) != len(vectors):
+                # No usable table yet, so pay for one full screening now and
+                # take the incremental path on every ingestion after this.
+                scan = rescan_indexed_paper(paper['id'], department)
+                store_rescan(paper['id'], scan, record)
+                changed.append(paper['id'])
+                continue
+
+            updated, moved = apply_new_paper_to_matches(
+                chunk_matches, vectors, new_candidates, threshold)
+            if not moved:
+                continue
+            scan = aggregate_chunk_matches(updated, threshold)
+            scan = _stamp_scan(_enrich_matched_papers(scan), department, SCOPE_RESCAN,
+                               exclude_paper_id=paper['id'])
+            store_rescan(paper['id'], scan, record)
+            changed.append(paper['id'])
+        except Exception:  # noqa: BLE001 - one paper must not stop the rest
+            logger.warning('Could not refresh the screening for paper %s', paper['id'], exc_info=True)
+    return changed

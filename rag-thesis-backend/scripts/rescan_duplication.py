@@ -34,7 +34,7 @@ if str(BACKEND_ROOT) not in sys.path:
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-from services.novelty import percent, rescan_indexed_paper  # noqa: E402
+from services.novelty import percent, rescan_indexed_paper, store_rescan  # noqa: E402
 from services.retriever import sb  # noqa: E402
 
 
@@ -82,8 +82,7 @@ def rescan_paper(paper: dict, apply_changes: bool) -> dict:
             != (after.get('matched_papers') or [{}])[0].get('id'))
     )
     if apply_changes:
-        sb.table('papers').update({'duplication_scan': {**before, 'rescan': after}}) \
-            .eq('id', paper_id).execute()
+        store_rescan(paper_id, after, record)
     return {'id': paper_id, 'title': title, 'status': 'applied' if apply_changes else 'planned',
             'changed': changed, 'before': before, 'after': after}
 
