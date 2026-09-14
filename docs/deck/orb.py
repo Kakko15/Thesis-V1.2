@@ -1,10 +1,11 @@
-"""Pre-render the constellation orb as transparent stills.
+"""Pre-render the constellation orb: stills for Morph, and an animated turntable GIF.
 
-PowerPoint 2019 shows native 3D models as flat images and Canva drops them entirely, so
-the deck's 3D object is the app's own hero geometry rendered here at several camera
-angles and Morphed between slides. The geometry mirrors
-``rag-thesis-frontend/src/components/three/constellation.js`` (mulberry32, fibonacci
-sphere, seeded arcs) so the deck orb *is* the landing-page orb, not a lookalike.
+PowerPoint 2019 shows native 3D models as flat images and Canva drops them, so the deck's 3D
+object is the app's own hero geometry, rendered here. Stills at three yaw angles are Morphed
+between slides; the title and Q&A slides carry a 36-frame turntable GIF, which PowerPoint plays
+in Slide Show, so the sphere visibly turns. The geometry mirrors
+``rag-thesis-frontend/src/components/three/constellation.js`` (mulberry32, fibonacci sphere,
+seeded arcs) so the deck orb *is* the landing-page orb. Colours follow ``theme.MODE``.
 """
 
 from __future__ import annotations
@@ -14,14 +15,13 @@ from pathlib import Path
 
 import numpy as np
 
-from .theme import GOLD, GREEN, RENDER_DPI, RENDER_PX
+from . import theme
 
 NODE_COUNT = 140
 HUB_COUNT = 12
 RADIUS = 2.0
-ARC_COLOR = '#10b96c'
-CORE_COLOR = '#0a5c36'
-RENDER_DIR = Path(__file__).resolve().parents[2] / 'tmp' / 'deck' / 'renders'
+GIF_FRAMES = 36
+GIF_PX = 1000
 
 
 def mulberry32(seed: int):
@@ -110,68 +110,91 @@ def _converge(points: np.ndarray, hubs: set[int]) -> np.ndarray:
     return out
 
 
-def render_orb(angle_deg: float, out: Path, converged: bool = False, scale: float = 1.0) -> Path:
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
+def _draw(ax, pts, hubs, arcs, angle_deg, converged, matplotlib, plt):
     from matplotlib.collections import LineCollection
-
-    nodes = fibonacci_sphere(NODE_COUNT, RADIUS)
-    hubs = hub_indices()
-    arcs = [] if converged else build_arcs(nodes, RADIUS)
-    if converged:
-        pts = _converge(nodes, hubs)
-        pts = _rotate(pts, 0.0, tilt_rad=0.0)
-    else:
-        pts = _rotate(nodes, angle_deg)
-
-    w_in, h_in = RENDER_PX[0] / RENDER_DPI, RENDER_PX[1] / RENDER_DPI
-    fig = plt.figure(figsize=(w_in, h_in), dpi=RENDER_DPI)
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.set_axis_off()
-    half_h = 2.9 / scale
-    ax.set_xlim(-half_h * w_in / h_in, half_h * w_in / h_in)
-    ax.set_ylim(-half_h, half_h)
-    ax.set_aspect('equal')
-
-    depth = (pts[:, 2] + RADIUS) / (2 * RADIUS)          # 0 back .. 1 front
+    P = theme.ORB
+    depth = (pts[:, 2] + RADIUS) / (2 * RADIUS)
     order = np.argsort(pts[:, 2])
-
     if not converged:
-        ax.add_patch(plt.Circle((0, 0), RADIUS * 0.985, color=CORE_COLOR, alpha=0.55, zorder=1.0))
-        ax.add_patch(plt.Circle((0, 0), RADIUS * 1.04, color=ARC_COLOR, alpha=0.05, zorder=0))
+        ax.add_patch(plt.Circle((0, 0), RADIUS * 0.985, color=P['core'], alpha=P['core_alpha'], zorder=1.0))
+        ax.add_patch(plt.Circle((0, 0), RADIUS * 1.04, color=P['arc'], alpha=0.05, zorder=0))
         segs, alphas = [], []
         for arc in arcs:
             r = _rotate(arc, angle_deg)
             for k in range(len(r) - 1):
                 segs.append([(r[k, 0], r[k, 1]), (r[k + 1, 0], r[k + 1, 1])])
-                alphas.append(0.05 + 0.20 * ((r[k, 2] + RADIUS * 1.28) / (2 * RADIUS * 1.28)))
-        lc = LineCollection(segs, colors=[ARC_COLOR] * len(segs), linewidths=1.1, alpha=None, zorder=1.5)
-        lc.set_alpha(None)
-        rgba = np.array([matplotlib.colors.to_rgba(ARC_COLOR, a) for a in alphas])
-        lc.set_color(rgba)
+                alphas.append(0.06 + 0.24 * ((r[k, 2] + RADIUS * 1.28) / (2 * RADIUS * 1.28)))
+        lc = LineCollection(segs, linewidths=1.1, zorder=1.5)
+        lc.set_color(np.array([matplotlib.colors.to_rgba(P['arc'], a) for a in alphas]))
         ax.add_collection(lc)
     else:
-        ax.add_patch(plt.Circle((0, 0), RADIUS, fill=False, ec='#' + GREEN, lw=2.2, alpha=0.35, zorder=1))
-        ax.add_patch(plt.Circle((0, 0), RADIUS * 1.09, fill=False, ec='#' + GREEN, lw=14, alpha=0.05, zorder=0))
-
+        ax.add_patch(plt.Circle((0, 0), RADIUS, fill=False, ec=P['ring'], lw=2.2, alpha=0.35, zorder=1))
+        ax.add_patch(plt.Circle((0, 0), RADIUS * 1.09, fill=False, ec=P['ring'], lw=14, alpha=0.05, zorder=0))
     for i in order:
         x, y = pts[i, 0], pts[i, 1]
         d = depth[i]
         is_hub = i in hubs
-        color = '#' + (GOLD if is_hub else GREEN)
-        if converged:
-            base = 0.055 if is_hub else 0.03
-        else:
-            base = (0.05 if is_hub else 0.026) * (0.65 + 0.7 * d)
+        color = P['hub'] if is_hub else P['node']
+        halo = P['halo_hub'] if is_hub else P['halo_node']
+        base = (0.055 if is_hub else 0.03) if converged else (0.05 if is_hub else 0.026) * (0.65 + 0.7 * d)
         a = 0.3 + 0.7 * d
         z = 2 + d if (converged or d >= 0.5) else 0.5 + d   # back half sits behind the core disc
-        for mult, alpha in ((3.2, 0.06), (1.9, 0.14), (1.0, 1.0)):
-            ax.add_patch(plt.Circle((x, y), base * mult, color=color, alpha=alpha * a, lw=0, zorder=z))
+        for mult, alpha, col in ((3.2, 0.07, halo), (1.9, 0.16, halo), (1.0, 1.0, color)):
+            ax.add_patch(plt.Circle((x, y), base * mult, color=col, alpha=alpha * a, lw=0, zorder=z))
 
+
+def _figure(plt, size_px, half_h):
+    w_in, h_in = size_px[0] / theme.RENDER_DPI, size_px[1] / theme.RENDER_DPI
+    fig = plt.figure(figsize=(w_in, h_in), dpi=theme.RENDER_DPI)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_axis_off()
+    ax.set_xlim(-half_h * w_in / h_in, half_h * w_in / h_in)
+    ax.set_ylim(-half_h, half_h)
+    ax.set_aspect('equal')
+    return fig, ax
+
+
+def render_orb(angle_deg: float, out: Path, converged: bool = False, size_px=None, half_h: float = 2.9) -> Path:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    nodes = fibonacci_sphere(NODE_COUNT, RADIUS)
+    hubs = hub_indices()
+    arcs = [] if converged else build_arcs(nodes, RADIUS)
+    pts = _rotate(_converge(nodes, hubs), 0.0, tilt_rad=0.0) if converged else _rotate(nodes, angle_deg)
+    fig, ax = _figure(plt, size_px or theme.RENDER_PX, half_h)
+    _draw(ax, pts, hubs, arcs, angle_deg, converged, matplotlib, plt)
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, transparent=True, dpi=RENDER_DPI)
+    fig.savefig(out, transparent=True, dpi=theme.RENDER_DPI)
     plt.close(fig)
+    return out
+
+
+def render_turntable_gif(out: Path, frames: int = GIF_FRAMES, px: int = GIF_PX, ms_per_frame: int = 90) -> Path:
+    """A square turntable of the orb on the slide ground, so PowerPoint animates it in Slide Show."""
+    import io
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from PIL import Image
+    nodes = fibonacci_sphere(NODE_COUNT, RADIUS)
+    hubs = hub_indices()
+    arcs = build_arcs(nodes, RADIUS)
+    ground = tuple(int(theme.GROUND[i:i + 2], 16) for i in (0, 2, 4)) + (255,)
+    images = []
+    for k in range(frames):
+        angle = 360.0 * k / frames
+        fig, ax = _figure(plt, (px, px), 2.75)
+        _draw(ax, _rotate(nodes, angle), hubs, arcs, angle, False, matplotlib, plt)
+        buf = io.BytesIO()
+        fig.savefig(buf, transparent=True, dpi=theme.RENDER_DPI, format='png')
+        plt.close(fig)
+        buf.seek(0)
+        frame = Image.new('RGBA', (px, px), ground)
+        frame.alpha_composite(Image.open(buf).convert('RGBA').resize((px, px), Image.LANCZOS))
+        images.append(frame.convert('RGB').quantize(colors=255, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    images[0].save(out, save_all=True, append_images=images[1:], duration=ms_per_frame, loop=0, optimize=False, disposal=1)
     return out
 
 
@@ -180,12 +203,10 @@ def render_glow(out: Path) -> Path:
     from PIL import Image
     w, h = 1400, 1400
     yy, xx = np.mgrid[0:h, 0:w]
-    cx, cy = w * 0.5, h * 0.5
-    r = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) / (w * 0.5)
-    alpha = np.clip(1 - r, 0, 1) ** 2.6 * 0.22
-    rgb = np.array([0x34, 0xD3, 0x88], dtype=np.uint8)
+    r = np.sqrt((xx - w * 0.5) ** 2 + (yy - h * 0.5) ** 2) / (w * 0.5)
+    alpha = np.clip(1 - r, 0, 1) ** 2.6 * theme.GLOW_ALPHA
     img = np.zeros((h, w, 4), dtype=np.uint8)
-    img[..., :3] = rgb
+    img[..., :3] = np.array(theme.GLOW_RGB, dtype=np.uint8)
     img[..., 3] = (alpha * 255).astype(np.uint8)
     out.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(img, 'RGBA').save(out)
@@ -193,17 +214,24 @@ def render_glow(out: Path) -> Path:
 
 
 FRAMES = {'orb_000.png': 0.0, 'orb_040.png': 40.0, 'orb_080.png': 80.0}
+ALL = (*FRAMES, 'orb_converged.png', 'glow.png', 'orb_turntable.gif')
 
 
-def render_all(out_dir: Path = RENDER_DIR) -> dict[str, Path]:
+def render_all(out_dir: Path | None = None, force: bool = False) -> dict[str, Path]:
+    out_dir = out_dir or theme.RENDER_DIR
     made = {}
     for name, angle in FRAMES.items():
-        made[name] = render_orb(angle, out_dir / name)
-    made['orb_converged.png'] = render_orb(0.0, out_dir / 'orb_converged.png', converged=True)
-    made['glow.png'] = render_glow(out_dir / 'glow.png')
+        p = out_dir / name
+        made[name] = p if p.exists() and not force else render_orb(angle, p)
+    p = out_dir / 'orb_converged.png'
+    made['orb_converged.png'] = p if p.exists() and not force else render_orb(0.0, p, converged=True)
+    p = out_dir / 'glow.png'
+    made['glow.png'] = p if p.exists() and not force else render_glow(p)
+    p = out_dir / 'orb_turntable.gif'
+    made['orb_turntable.gif'] = p if p.exists() and not force else render_turntable_gif(p)
     return made
 
 
 if __name__ == '__main__':
-    for name, path in render_all().items():
-        print(name, path.stat().st_size, 'bytes')
+    for name, path in render_all(force=True).items():
+        print(f'{theme.MODE}/{name}', path.stat().st_size, 'bytes')
