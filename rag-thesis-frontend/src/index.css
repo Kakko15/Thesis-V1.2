@@ -216,7 +216,7 @@ html[data-contrast="high"] :where(button, a, input, select, textarea):focus-visi
   --surface-2: #e9f1ea;
   --surface-3: #e1ece4;
   --scrim: rgba(2, 20, 11, 0.58);
-  --shadow-color: 4 62 34;
+  --shadow-color: 0 0 0;
   --radius: 1rem;
 }
 
@@ -399,7 +399,7 @@ html[data-contrast="high"] :where(button, a, input, select, textarea):focus-visi
     color: var(--card-foreground);
     background: color-mix(in srgb, var(--card), transparent 8%);
     border: 1px solid var(--border);
-    box-shadow: 0 16px 48px rgb(var(--shadow-color) / 0.12);
+    box-shadow: 0 10px 24px -4px rgb(var(--shadow-color) / 0.05), 0 2px 6px -1px rgb(var(--shadow-color) / 0.03);
     backdrop-filter: blur(20px) saturate(1.15);
     -webkit-backdrop-filter: blur(20px) saturate(1.15);
   }

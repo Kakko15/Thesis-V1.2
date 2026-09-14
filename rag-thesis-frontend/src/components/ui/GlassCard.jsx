@@ -18,7 +18,7 @@ export function GlassCard({ className, children, hover = false, strong = false, 
       className={cn(
         strong ? 'surface-glass shadow-2xl' : 'surface-glass',
         'rounded-[1.5rem] transition-shadow duration-500',
-        interactiveMotion && 'hover:shadow-[0_20px_60px_rgb(var(--shadow-color)/0.18)]',
+        interactiveMotion && 'hover:shadow-[0_16px_32px_-4px_rgb(var(--shadow-color)/0.08)]',
         className,
       )}
       {...props}

@@ -115,6 +115,44 @@ class TestFollowups:
             ['What methodology did the attendance thesis use?'],
         )
 
+    def test_a_discourse_marker_does_not_hide_a_follow_up(self):
+        """`_FOLLOWUP_START` is anchored, so "so what is..." missed it."""
+        prior = ['Tell me about the mango fruit quality detection thesis']
+        for opener in ('so', 'ok', 'okay', 'then', 'alright', 'and', 'but', 'now', 'well'):
+            assert is_ambiguous_followup(f'{opener} what is the result?', prior), opener
+            assert is_ambiguous_followup(f'{opener}, how was it evaluated?', prior), opener
+
+    def test_a_bare_document_reference_is_a_follow_up(self):
+        """Reported 2026-09-14 from a live session.
+
+        After an answer citing the mango-classification thesis, "so what is the
+        result of the study?" carried no pronoun, opened with a discourse
+        marker, and ran to eight words -- so it missed every test, was treated
+        as a fresh question, retrieved a different paper and answered that the
+        archive contained no results for the mango study.
+        """
+        prior = ['Tell me about the mango fruit quality detection thesis']
+        assert is_ambiguous_followup('so what is the result of the study?', prior)
+        assert is_ambiguous_followup('What are the limitations of the paper?', prior)
+        assert is_ambiguous_followup('Who wrote the thesis?', prior)
+        assert is_ambiguous_followup('How was the system evaluated?', prior)
+
+    @pytest.mark.parametrize('question', [
+        # A document noun that names its own subject is not a reference back.
+        'Summarize the study of mango ripeness classification',
+        'Search for the paper by Manalili and Dela Cruz',
+        'Identify the system for detecting intruders',
+        # Aspect nouns must not trigger on their own.
+        'Rank archived theses by findings on detection accuracy',
+    ])
+    def test_a_qualified_or_aspect_noun_still_retrieves_freely(self, question):
+        """These deliberately avoid opening with "what is"/"how did" and avoid
+        the deictic list, because those already mark a follow-up on their own.
+        The point here is only that the new document-noun rule does not fire."""
+        assert not is_ambiguous_followup(
+            question, ['Tell me about the mango fruit quality detection thesis'],
+        )
+
     def test_deterministic_fallback_uses_only_last_question(self):
         result = fallback_standalone_question('How did it work?', ['Old topic', 'Attendance topic'])
         assert 'Attendance topic' in result
