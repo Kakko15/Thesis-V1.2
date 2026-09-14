@@ -305,7 +305,8 @@ class TestRepairChunkSections:
         return client
 
     def _paper(self):
-        return {'id': 'p1', 'title': 'A Thesis', 'filename': 't.pdf', 'storage_path': 's/t.pdf'}
+        return {'id': 'p1', 'title': 'A Thesis', 'filename': 't.pdf', 'storage_path': 's/t.pdf',
+                'active_index_version': 'idx-current'}
 
     def test_refuses_to_write_when_content_does_not_reproduce(self, monkeypatch):
         from scripts import repair_chunk_sections
@@ -539,3 +540,89 @@ class TestBackfillScreeningArchiveSize:
              'duplication_scan': {}},
         ]
         assert backfill.plan_backfill(papers) == []
+
+
+class TestRepairReadsOnlyTheActiveIndex:
+    """A reindexed paper keeps its superseded chunks in the same table.
+
+    The oldest paper in the live archive carries a 4-chunk legacy-char-v0 index
+    beside its 3-chunk token-v1 one. Selecting on paper_id alone returns all 7,
+    and no re-derivation of a 3-chunk document can ever reproduce 7 rows, so the
+    reproduce-or-refuse guard rejected the one paper that needed repairing.
+    """
+
+    class IndexAwareTable:
+        def __init__(self, rows):
+            self.rows = rows
+            self.filters = {}
+            self.updates = []
+            self._pending = None
+
+        def select(self, *_args):
+            return self
+
+        def update(self, values):
+            self._pending = values
+            return self
+
+        def eq(self, column, value):
+            if self._pending is not None:
+                self.updates.append((column, value, self._pending))
+                self._pending = None
+            else:
+                self.filters[column] = value
+            return self
+
+        def order(self, *_args):
+            return self
+
+        def execute(self):
+            rows = [r for r in self.rows
+                    if all(r.get(k) == v for k, v in self.filters.items() if k in r)]
+            return type('Result', (), {'data': rows})()
+
+    def test_superseded_chunks_are_not_compared_against(self, monkeypatch):
+        from scripts import repair_chunk_sections
+
+        rows = [
+            {'id': 1, 'chunk_index': 0, 'content': 'alpha', 'section': 'NET COST',
+             'paper_id': 'p1', 'index_version': 'idx-current'},
+            {'id': 2, 'chunk_index': 1, 'content': 'beta', 'section': None,
+             'paper_id': 'p1', 'index_version': 'idx-current'},
+            # Superseded rows, still present, deliberately a different count.
+            {'id': 3, 'chunk_index': 0, 'content': 'legacy-a', 'section': None,
+             'paper_id': 'p1', 'index_version': 'idx-legacy'},
+            {'id': 4, 'chunk_index': 1, 'content': 'legacy-b', 'section': None,
+             'paper_id': 'p1', 'index_version': 'idx-legacy'},
+            {'id': 5, 'chunk_index': 2, 'content': 'legacy-c', 'section': None,
+             'paper_id': 'p1', 'index_version': 'idx-legacy'},
+        ]
+        table = self.IndexAwareTable(rows)
+
+        class Storage:
+            def from_(self, _bucket):
+                return self
+
+            def download(self, _path):
+                return b'%PDF-1.4'
+
+        class Client:
+            storage = Storage()
+
+            def table(self, _name):
+                return table
+
+        monkeypatch.setattr(repair_chunk_sections, 'sb', Client())
+        monkeypatch.setattr(repair_chunk_sections, '_rederive', lambda *_args: [
+            {'content': 'alpha', 'section': 'METHODOLOGY'},
+            {'content': 'beta', 'section': 'METHODOLOGY'},
+        ])
+        report = repair_chunk_sections.repair_paper(
+            {'id': 'p1', 'title': 'Oldest', 'filename': 't.pdf', 'storage_path': 's/t.pdf',
+             'active_index_version': 'idx-current'},
+            apply_changes=True,
+        )
+        assert report['status'] == 'applied', report.get('reason')
+        assert report['changes'] == [(0, 'NET COST', 'METHODOLOGY'), (1, None, 'METHODOLOGY')]
+        # Only the active index's rows were written; ids 3-5 are untouched.
+        assert [row_id for _column, row_id, _values in table.updates] == [1, 2]

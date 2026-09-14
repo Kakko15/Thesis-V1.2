@@ -67,8 +67,16 @@ def repair_paper(paper: dict, apply_changes: bool) -> dict:
     if not storage_path:
         return {'id': paper_id, 'title': title, 'status': 'skipped', 'reason': 'no storage_path'}
 
+    # Only the active index. A reindexed paper keeps its previous rows in
+    # `chunks`, and the oldest paper in this archive still carries a 4-chunk
+    # legacy-char-v0 index alongside its 3-chunk token-v1 one. Selecting on
+    # paper_id alone returned all 7, which no re-derivation can reproduce, so
+    # the guard below refused the only paper that needed it -- and the OCR
+    # warnings in the same log made that look like a missing Tesseract.
+    active_index = paper.get('active_index_version')
     stored = sb.table('chunks').select('id,chunk_index,content,section') \
-        .eq('paper_id', paper_id).order('chunk_index').execute().data or []
+        .eq('paper_id', paper_id).eq('index_version', active_index) \
+        .order('chunk_index').execute().data or []
     if not stored:
         return {'id': paper_id, 'title': title, 'status': 'skipped', 'reason': 'no chunks'}
 
@@ -98,7 +106,7 @@ def repair_paper(paper: dict, apply_changes: bool) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    query = sb.table('papers').select('id,title,filename,storage_path')
+    query = sb.table('papers').select('id,title,filename,storage_path,active_index_version')
     if args.paper_id:
         query = query.in_('id', args.paper_id)
     papers = query.order('created_at').execute().data or []
