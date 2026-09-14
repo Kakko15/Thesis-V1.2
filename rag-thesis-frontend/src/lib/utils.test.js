@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  archiveSizeLabel,
   atUploadScreening,
   currentScreening,
   extractOwnedAvatarPath,
@@ -236,4 +237,18 @@ test('an identical recheck is reported as unchanged rather than printed twice', 
   assert.equal(screeningIsUnchanged({ ...same, rescan: { ...same, highest_similarity: 90 } }), false)
   assert.equal(screeningIsUnchanged(same), false)
   assert.equal(screeningIsUnchanged(null), false)
+})
+
+test('a recorded archive size is stated plainly, a derived one as an estimate', () => {
+  assert.equal(archiveSizeLabel({ archive_size: 15 }), 'against 15 theses')
+  assert.equal(archiveSizeLabel({ archive_size: 1 }), 'against 1 thesis')
+  assert.equal(archiveSizeLabel({ archive_size_estimated: 11 }), 'against about 11 theses (estimated)')
+  assert.equal(archiveSizeLabel({ archive_size_estimated: 1 }), 'against about 1 thesis (estimated)')
+  // A real figure always wins over a figure derived from upload order.
+  assert.equal(archiveSizeLabel({ archive_size: 15, archive_size_estimated: 11 }), 'against 15 theses')
+  // The first thesis ever indexed was screened against nothing; say nothing
+  // rather than "against about 0 theses".
+  assert.equal(archiveSizeLabel({ archive_size_estimated: 0 }), '')
+  assert.equal(archiveSizeLabel({}), '')
+  assert.equal(archiveSizeLabel(null), '')
 })

@@ -120,6 +120,27 @@ export function atUploadScreening(scan) {
 }
 
 /**
+ * How many theses one screening run compared against, as a phrase, or ''.
+ *
+ * `archive_size` is recorded by the screening itself. `archive_size_estimated`
+ * is derived afterwards from upload order by
+ * `scripts/backfill_screening_archive_size.py`, for the runs that predate that
+ * field, and it can be wrong in three ways the script documents — a thesis
+ * deleted since is not counted, one still ingesting is. So it is rendered as
+ * an estimate and never silently as the real figure. A recorded size always
+ * wins; neither present renders nothing at all rather than a guess of zero.
+ */
+export function archiveSizeLabel(screening) {
+  const record = screening && typeof screening === 'object' ? screening : {}
+  const recorded = Number(record.archive_size) || 0
+  const estimated = Number(record.archive_size_estimated) || 0
+  const count = recorded || estimated
+  if (!count) return ''
+  const theses = `${count} ${count === 1 ? 'thesis' : 'theses'}`
+  return recorded ? `against ${theses}` : `against about ${theses} (estimated)`
+}
+
+/**
  * True when either screening layer flagged this thesis.
  *
  * Every surface that decides whether to show a screening must ask this rather
