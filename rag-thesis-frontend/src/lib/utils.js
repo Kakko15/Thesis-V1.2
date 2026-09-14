@@ -80,6 +80,78 @@ export function scanMetrics(scan = {}) {
 }
 
 /**
+ * The most recent screening inside a paper's duplication record.
+ *
+ * Screening runs once, during ingestion, against only the theses indexed
+ * before it — so an early upload's card names an early paper and cannot name a
+ * closer one that arrived later. `scripts/rescan_duplication.py` re-screens
+ * against the whole archive and nests the result under `rescan` rather than
+ * overwriting, because the at-upload figures are the only record of what the
+ * archive held on the day a thesis was accepted and cannot be recomputed once
+ * it has grown. This returns whichever layer is current; `atUploadScreening`
+ * returns the historical one.
+ */
+function screeningRecord(scan) {
+  return scan && typeof scan === 'object' && !Array.isArray(scan) ? scan : {}
+}
+
+/**
+ * True when this record carries a rescan.
+ *
+ * Callers must ask this rather than comparing `currentScreening` against
+ * `atUploadScreening` by identity: the latter always builds a fresh object, so
+ * the two are never the same reference and the comparison reads as "rescanned"
+ * for every paper.
+ */
+export function hasRescan(scan) {
+  const rescan = screeningRecord(scan).rescan
+  return Boolean(rescan) && typeof rescan === 'object' && !Array.isArray(rescan)
+}
+
+export function currentScreening(scan) {
+  const record = screeningRecord(scan)
+  return hasRescan(record) ? record.rescan : record
+}
+
+/** The original ingest-time screening, with any nested rescan stripped off. */
+export function atUploadScreening(scan) {
+  const record = screeningRecord(scan)
+  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'rescan'))
+}
+
+/** True when a rescan exists and reached a different verdict than the upload did. */
+export function screeningHasDrifted(scan) {
+  const record = screeningRecord(scan)
+  if (!hasRescan(record)) return false
+  return currentScreening(record).verdict_level !== atUploadScreening(record).verdict_level
+}
+
+/**
+ * One plain sentence saying what a verdict means, for readers who are not
+ * going to interpret a coverage percentage on their own.
+ *
+ * Deliberately says what the system did and did not conclude. These are cosine
+ * similarities over embeddings, not text matching: two theses from one college
+ * in one year share a template, a methodology chapter and an institution, and
+ * measured over this archive on 2026-09-14 even the closest pair shared under
+ * 1% of its wording verbatim. The screen flags topic overlap for a human; it
+ * does not make a finding about misconduct, and saying so on the card is the
+ * difference between a useful signal and an accusation.
+ */
+export function verdictExplanation(level) {
+  if (level === 'exact_duplicate') {
+    return 'Every passage already exists in the archive, so this was not indexed again.'
+  }
+  if (level === 'high_overlap') {
+    return 'Most of this thesis covers the same ground as an archived one. A faculty reviewer should compare them. This measures topic similarity, not copied wording.'
+  }
+  if (level === 'review_suggested') {
+    return 'Some passages resemble an archived thesis, usually a shared template or methodology chapter. Worth a look, nothing more.'
+  }
+  return 'Nothing in this thesis closely resembles another in the archive.'
+}
+
+/**
  * The archived thesis a screening record most resembles, or null.
  *
  * The backend ranks matched papers by absorbed chunk count, then closest

@@ -11,7 +11,8 @@ import { usePreferences } from '../context/PreferencesContext'
 import { Button } from '../components/ui/Button'
 import { GooglePagination } from '../components/ui/Pagination'
 import {
-  cn, formatDate, normalizePercent, scanMetrics, verdictLabel, verdictTone,
+  atUploadScreening, cn, currentScreening, formatDate, hasRescan, normalizePercent, scanMetrics,
+  verdictExplanation, verdictLabel, verdictTone,
 } from '../lib/utils'
 import { isFacultyThesis, thesisCategoryLabel } from '../lib/catalog'
 import { slotKeys } from '../lib/keys'
@@ -52,14 +53,54 @@ const SCREENING_ICON = {
   neutral: 'text-ink-faint',
 }
 
-function ScreeningDetail({ scan }) {
-  if (!scan?.flagged) return null
-  const metrics = scanMetrics(scan)
-  const tone = verdictTone(metrics.verdict)
+/**
+ * One dated line of screening history: what a screen saw, and when.
+ *
+ * The archive it ran against is the part readers cannot infer. A thesis
+ * screened when the archive held two others is not comparable to one screened
+ * against fifteen, and without the count a stale verdict reads as a current
+ * one. `archive_size` is absent on records written before 2026-09-14, so the
+ * count is dropped rather than guessed.
+ */
+function ScreeningRun({ label, screening, when, emphasis }) {
+  const metrics = scanMetrics(screening)
+  const against = Number(screening.archive_size) || 0
+  return (
+    <div className={cn('mt-2', emphasis ? '' : 'opacity-75')}>
+      <div className="font-semibold">
+        {label}
+        {when ? ` · ${formatDate(when)}` : ''}
+        {against ? ` · against ${against} ${against === 1 ? 'thesis' : 'theses'}` : ''}
+      </div>
+      <div className="mt-1 grid gap-1 opacity-90 sm:grid-cols-2">
+        <span>Highest passage similarity: {metrics.highest.toFixed(2)}%</span>
+        <span>Matched chunk coverage: {metrics.coverage.toFixed(2)}%</span>
+        <span>Matched chunks / total chunks: {metrics.matchedChunks} / {metrics.totalChunks}</span>
+        <span>Threshold: {normalizePercent(screening.threshold).toFixed(2)}%</span>
+      </div>
+      <ul className="mt-1 space-y-0.5 opacity-90">
+        {(screening.matched_papers || []).map((p) => (
+          <li key={p.id}>
+            "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} — highest passage {normalizePercent(p.similarity).toFixed(2)}%
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function ScreeningDetail({ scan, indexedAt }) {
+  const atUpload = atUploadScreening(scan)
+  const current = currentScreening(scan)
+  const rescanned = hasRescan(scan)
+  // A rescan can find overlap where the upload found none, so the panel has to
+  // open on either being flagged rather than on the at-upload record alone.
+  if (!atUpload.flagged && !current.flagged) return null
+  const tone = verdictTone(scanMetrics(current).verdict)
   return (
     <div>
       <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">
-        Duplication screening (at upload)
+        Duplication screening
       </div>
       <div className={cn(
         'mt-1.5 rounded-xl border px-3.5 py-2.5 text-xs leading-relaxed',
@@ -67,28 +108,37 @@ function ScreeningDetail({ scan }) {
       )}>
         <div className="flex items-center gap-1.5 font-semibold">
           <ShieldAlert size={13} className={cn('shrink-0', SCREENING_ICON[tone] ?? SCREENING_ICON.neutral)} />
-          {verdictLabel(metrics.verdict)}
+          {verdictLabel(scanMetrics(current).verdict)}
         </div>
-        <div className="mt-2 grid gap-1 opacity-75 sm:grid-cols-2">
-          <span>Highest passage similarity: {metrics.highest.toFixed(2)}%</span>
-          <span>Matched chunk coverage: {metrics.coverage.toFixed(2)}%</span>
-          <span>Matched chunks / total chunks: {metrics.matchedChunks} / {metrics.totalChunks}</span>
-          <span>Threshold: {normalizePercent(scan.threshold).toFixed(2)}%</span>
-        </div>
-        <ul className="mt-1.5 space-y-0.5 opacity-75">
-          {(scan.matched_papers || []).map((p) => (
-            <li key={p.id}>
-              "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} — highest passage {normalizePercent(p.similarity).toFixed(2)}%
-            </li>
-          ))}
-        </ul>
+        <p className="mt-1.5 opacity-75">{verdictExplanation(scanMetrics(current).verdict)}</p>
+        {rescanned && (
+          <ScreeningRun
+            label="Rechecked against the whole archive"
+            screening={current}
+            when={current.screened_at}
+            emphasis
+          />
+        )}
+        <ScreeningRun
+          label="At upload"
+          screening={atUpload}
+          when={atUpload.screened_at || indexedAt}
+          emphasis={!rescanned}
+        />
+        {rescanned && (
+          <p className="mt-2 opacity-60">
+            Screening runs once when a thesis is uploaded, so it only sees what was
+            already in the archive. The recheck compares against everything indexed since.
+          </p>
+        )}
       </div>
     </div>
   )
 }
 
 function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
-  const screening = scanMetrics(paper.duplication_scan)
+  // The badge must agree with the panel, so both read the current screening.
+  const screening = scanMetrics(currentScreening(paper.duplication_scan))
   return (
     <>
       {/* R9: this card used to be role="button" with tabIndex={0} while
@@ -287,7 +337,7 @@ function ArchiveDetailModal({ detail, onClose }) {
             </p>
           </div>
         )}
-        <ScreeningDetail scan={detail?.duplication_scan} />
+        <ScreeningDetail scan={detail?.duplication_scan} indexedAt={detail?.created_at} />
         <div className="glass flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs text-ink-muted">
           <Lock size={13} className="shrink-0 text-gold-400" />
           Full text is available only through AI-mediated synthesis in Chat — this protects the

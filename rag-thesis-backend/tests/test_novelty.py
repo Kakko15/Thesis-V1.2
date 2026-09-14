@@ -177,3 +177,58 @@ class TestSubmissionScreening:
         assert scan['most_similar_paper']['title'] == 'Archived thesis'
         assert scan['most_similar_paper']['year'] == 2025
         assert scan['exact_duplicate'] is False
+
+
+class TestRescanScoring:
+    """The rescan scores candidate vectors directly instead of going through
+    match_chunks, because an indexed paper crowds its own result set."""
+
+    def test_reads_pgvector_json_strings_and_lists(self):
+        assert novelty._as_vector('[1.0, 0.0]') == [1.0, 0.0]
+        assert novelty._as_vector([1.0, 0.0]) == [1.0, 0.0]
+        assert novelty._as_vector(None) == []
+
+    def test_picks_the_closest_candidate(self):
+        candidates = [
+            ('far', [1.0, 1.0], 2 ** 0.5),
+            ('near', [1.0, 0.0], 1.0),
+        ]
+        paper_id, similarity = novelty._best_archive_match([1.0, 0.0], candidates, 0.85)
+        assert paper_id == 'near'
+        assert similarity == 1.0
+
+    def test_no_match_below_the_threshold(self):
+        candidates = [('other', [0.0, 1.0], 1.0)]
+        assert novelty._best_archive_match([1.0, 0.0], candidates, 0.85) == (None, 0.0)
+
+    def test_threshold_boundary_is_inclusive(self):
+        # A vector whose cosine against the query is exactly the threshold.
+        candidates = [('other', [0.85, (1 - 0.85 ** 2) ** 0.5], 1.0)]
+        paper_id, similarity = novelty._best_archive_match([1.0, 0.0], candidates, 0.85)
+        assert paper_id == 'other'
+        assert round(similarity, 10) == 0.85
+
+    def test_zero_vector_never_matches(self):
+        assert novelty._best_archive_match([0.0, 0.0], [('a', [1.0, 0.0], 1.0)], 0.85) == (None, 0.0)
+
+    def test_empty_archive_is_not_a_match(self):
+        assert novelty._best_archive_match([1.0, 0.0], [], 0.85) == (None, 0.0)
+
+
+class TestScanProvenance:
+    """A screening is a snapshot. Without these three fields nothing on the
+    card says which archive it saw, so a stale verdict reads as a current one."""
+
+    def test_stamp_records_when_and_against_how_much(self, monkeypatch):
+        monkeypatch.setattr(novelty, '_archive_size', lambda *_args, **_kwargs: 12)
+        scan = novelty._stamp_scan({'verdict_level': 'clear'}, 'CCSICT', novelty.SCOPE_AT_UPLOAD)
+        assert scan['archive_size'] == 12
+        assert scan['scan_scope'] == 'at_upload'
+        assert scan['screened_at'].endswith('+00:00')
+
+    def test_archive_size_never_breaks_a_screening(self, monkeypatch):
+        def explode(*_args, **_kwargs):
+            raise RuntimeError('PostgREST is down')
+
+        monkeypatch.setattr(novelty, 'sb', SimpleNamespace(table=explode))
+        assert novelty._archive_size('CCSICT') == 0

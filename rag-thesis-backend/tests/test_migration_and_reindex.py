@@ -374,3 +374,114 @@ class TestRepairChunkSections:
         report = repair_chunk_sections.repair_paper(self._paper(), apply_changes=True)
         assert report['status'] == 'applied'
         assert updates == [(('id', 1), {'section': 'METHODOLOGY'})]
+
+
+class TestRescanDuplication:
+    """The at-upload screening is the only record of what the archive held the
+    day a thesis was accepted, and it cannot be recomputed once the archive
+    grows. The rescan must nest beside it, never over it."""
+
+    class Recorder:
+        def __init__(self, rows):
+            self.rows = rows
+            self.writes = []
+            self._pending = None
+
+        def table(self, _name):
+            return self
+
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def update(self, values):
+            self._pending = values
+            return self
+
+        def eq(self, *args):
+            if self._pending is not None:
+                self.writes.append((args, self._pending))
+                self._pending = None
+            return self
+
+        def in_(self, *_args):
+            return self
+
+        def order(self, *_args):
+            return self
+
+        def execute(self):
+            return type('Result', (), {'data': self.rows})()
+
+    AT_UPLOAD = {
+        'verdict_level': 'review_suggested',
+        'matched_chunk_count': 3,
+        'total_chunks': 24,
+        'matched_chunk_percentage': 12.5,
+        'matched_papers': [{'id': 'old-paper'}],
+    }
+    CURRENT = {
+        'verdict_level': 'high_overlap',
+        'matched_chunk_count': 22,
+        'total_chunks': 24,
+        'matched_chunk_percentage': 91.67,
+        'matched_papers': [{'id': 'new-paper'}],
+    }
+
+    def _paper(self, scan):
+        return {'id': 'p1', 'title': 'E-Resources', 'department': 'CCSICT', 'duplication_scan': scan}
+
+    def test_apply_keeps_the_at_upload_record_and_nests_the_rescan(self, monkeypatch):
+        from scripts import rescan_duplication
+
+        recorder = self.Recorder([])
+        monkeypatch.setattr(rescan_duplication, 'sb', recorder)
+        monkeypatch.setattr(rescan_duplication, 'rescan_indexed_paper',
+                            lambda *_args: dict(self.CURRENT))
+        report = rescan_duplication.rescan_paper(self._paper(dict(self.AT_UPLOAD)), apply_changes=True)
+
+        assert report['changed'] is True
+        (_target, written), = recorder.writes
+        stored = written['duplication_scan']
+        assert stored['verdict_level'] == 'review_suggested'
+        assert stored['matched_chunk_percentage'] == 12.5
+        assert stored['rescan']['verdict_level'] == 'high_overlap'
+        assert stored['rescan']['matched_chunk_percentage'] == 91.67
+
+    def test_rerunning_replaces_only_the_nested_rescan(self, monkeypatch):
+        from scripts import rescan_duplication
+
+        recorder = self.Recorder([])
+        monkeypatch.setattr(rescan_duplication, 'sb', recorder)
+        monkeypatch.setattr(rescan_duplication, 'rescan_indexed_paper',
+                            lambda *_args: dict(self.CURRENT))
+        already = {**self.AT_UPLOAD, 'rescan': {'verdict_level': 'clear', 'matched_chunk_count': 0}}
+        rescan_duplication.rescan_paper(self._paper(already), apply_changes=True)
+
+        (_target, written), = recorder.writes
+        stored = written['duplication_scan']
+        assert stored['matched_chunk_percentage'] == 12.5
+        assert stored['rescan']['verdict_level'] == 'high_overlap'
+
+    def test_dry_run_writes_nothing(self, monkeypatch):
+        from scripts import rescan_duplication
+
+        recorder = self.Recorder([])
+        monkeypatch.setattr(rescan_duplication, 'sb', recorder)
+        monkeypatch.setattr(rescan_duplication, 'rescan_indexed_paper',
+                            lambda *_args: dict(self.CURRENT))
+        report = rescan_duplication.rescan_paper(self._paper(dict(self.AT_UPLOAD)), apply_changes=False)
+        assert report['status'] == 'planned'
+        assert recorder.writes == []
+
+    def test_a_failed_rescan_never_writes(self, monkeypatch):
+        from scripts import rescan_duplication
+
+        def explode(*_args):
+            raise RuntimeError('no such paper')
+
+        recorder = self.Recorder([])
+        monkeypatch.setattr(rescan_duplication, 'sb', recorder)
+        monkeypatch.setattr(rescan_duplication, 'rescan_indexed_paper', explode)
+        report = rescan_duplication.rescan_paper(self._paper(dict(self.AT_UPLOAD)), apply_changes=True)
+        assert report['status'] == 'error'
+        assert recorder.writes == []
