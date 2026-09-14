@@ -153,6 +153,54 @@ class TestFollowups:
             question, ['Tell me about the mango fruit quality detection thesis'],
         )
 
+    PRIOR = ['Tell me about the mango fruit quality detection thesis']
+
+    @pytest.mark.parametrize('question', [
+        'How did it collect data?',
+        'What about the methodology?',
+        'Were those findings significant?',
+        'so what is the result of the study?',
+        'What else did they measure?',
+        'And how was it validated?',
+        'Tell me more about that',
+        'Can you explain that thesis in detail',
+        'What are the limitations of the paper?',
+        'Summarize the above',
+        'Who wrote it?',
+        'Compare them with the alumni tracer platform',
+    ])
+    def test_expressions_that_cannot_resolve_themselves(self, question):
+        assert is_ambiguous_followup(question, self.PRIOR)
+
+    @pytest.mark.parametrize('question', [
+        # `_FOLLOWUP_START` used to accept any wh-word followed by
+        # is/are/was/were/did/does, which is how most standalone questions in
+        # the language open. Each of these was read as a follow-up and answered
+        # against whatever the previous turn happened to cite.
+        'What is retrieval-augmented generation used for in the archive?',
+        'How did researchers evaluate mango ripeness classification models?',
+        'What was the sample size in the alumni tracer study conducted by Mina?',
+        'What is the average accuracy across computer vision theses?',
+        # `that` as a relative pronoun, not a demonstrative.
+        'What are the archived theses that used YOLO for detection?',
+        # `above` as a comparison, not a pointer back at the conversation.
+        'Which theses report results above ninety percent precision?',
+        # `this` as an ordinary determiner.
+        'Which studies were conducted this year at Echague campus?',
+        # A document noun naming its own subject.
+        'Summarize the study of mango ripeness classification',
+        'List every BLIS thesis about library services',
+        'Which archived theses used convolutional neural networks for image classification?',
+    ])
+    def test_a_self_contained_question_retrieves_freely(self, question):
+        """A false positive costs more than a false negative.
+
+        An unresolved follow-up merely retrieves afresh. A standalone question
+        wrongly read as one is pinned to the previous answer's theses and is
+        answered about the wrong paper.
+        """
+        assert not is_ambiguous_followup(question, self.PRIOR)
+
     def test_deterministic_fallback_uses_only_last_question(self):
         result = fallback_standalone_question('How did it work?', ['Old topic', 'Attendance topic'])
         assert 'Attendance topic' in result
