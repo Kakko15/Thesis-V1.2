@@ -274,3 +274,29 @@ test('the clear explanation describes scatter rather than claiming nothing match
   assert.match(verdictExplanation('high_overlap'), /one archived thesis/)
   assert.match(verdictExplanation('review_suggested'), /one archived thesis/)
 })
+
+test('concentration is recovered from match counts when no field stores it', () => {
+  // A query-time novelty scan has no top_paper_percentage column to write to,
+  // so it stores the per-paper counts as top_matches and nothing else. The
+  // verdict is graded on concentration either way, so the UI has to be able to
+  // recover it or it colours rows by a number nobody computed.
+  assert.equal(scanMetrics({
+    matched_chunk_count: 27, total_chunks: 27,
+    top_matches: [{ match_count: 22 }, { match_count: 5 }],
+  }).concentration.toFixed(2), '81.48')
+  // An ingest-time screening stores the same shape under a different key.
+  assert.equal(scanMetrics({
+    matched_chunk_count: 36, total_chunks: 36,
+    matched_papers: [{ match_count: 35 }],
+  }).concentration.toFixed(2), '97.22')
+  // Counts beat the stored percentage, because a stored value below 1 is
+  // indistinguishable from a legacy 0-1 ratio.
+  assert.equal(scanMetrics({
+    matched_chunk_count: 1, total_chunks: 200,
+    top_matches: [{ match_count: 1 }], top_paper_percentage: 0.5,
+  }).concentration.toFixed(2), '0.50')
+  // Nothing to derive from falls back to the stored figure, then to zero.
+  assert.equal(scanMetrics({ top_paper_percentage: 81.48 }).concentration, 81.48)
+  assert.equal(scanMetrics({ matched_chunk_count: 3, total_chunks: 24 }).concentration, 0)
+  assert.equal(scanMetrics({ top_matches: 'malformed' }).concentration, 0)
+})

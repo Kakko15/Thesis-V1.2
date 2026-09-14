@@ -61,6 +61,21 @@ export function normalizePercent(value) {
  * downloadable scan report. The counts carry no such ambiguity. Records too
  * old to carry counts still fall back to the stored percentage.
  */
+/**
+ * Passages absorbed by the single most-matched thesis, or 0.
+ *
+ * An ingest-time screening stores `matched_papers`; a query-time novelty scan
+ * stores the same shape as `top_matches` and has no `top_paper_percentage`
+ * column to write to. Both carry `match_count`, so the concentration the
+ * verdict is graded on is recoverable from either, including for scans run
+ * before the field existed.
+ */
+function largestMatchCount(record) {
+  const groups = Array.isArray(record.matched_papers) ? record.matched_papers
+    : Array.isArray(record.top_matches) ? record.top_matches : []
+  return groups.reduce((most, group) => Math.max(most, Number(group?.match_count) || 0), 0)
+}
+
 export function scanMetrics(scan = {}) {
   const record = scan && typeof scan === 'object' && !Array.isArray(scan) ? scan : {}
   const matchedChunks = Math.max(0, Number(record.matched_chunk_count ?? 0) || 0)
@@ -68,6 +83,7 @@ export function scanMetrics(scan = {}) {
   const hasChunkCounts = record.matched_chunk_count != null
     && record.total_chunks != null
     && totalChunks > 0
+  const largest = largestMatchCount(record)
   return {
     highest: normalizePercent(record.highest_similarity),
     coverage: hasChunkCounts
@@ -77,9 +93,16 @@ export function scanMetrics(scan = {}) {
     // thesis. The verdict keys off this, not coverage: in a one-department
     // archive coverage climbs toward 100% for everyone as the corpus grows,
     // while concentration thins as template matches spread across more papers
-    // and only a genuine near-duplicate keeps it high. Records written before
-    // 2026-09-14 have no such field and report 0.
-    concentration: normalizePercent(record.top_paper_percentage),
+    // and only a genuine near-duplicate keeps it high.
+    //
+    // Derived from the counts for the same reason coverage is: a stored
+    // percentage below 1 is indistinguishable from a legacy 0-1 ratio, and one
+    // matched passage in 200 is 0.5%. The counts carry no such ambiguity, and
+    // deriving also fills in query-time scans, which have no column to store
+    // the figure in.
+    concentration: hasChunkCounts && largest
+      ? Math.min(100, (largest / totalChunks) * 100)
+      : normalizePercent(record.top_paper_percentage),
     matchedChunks,
     totalChunks,
     verdict: record.verdict_level || (matchedChunks === 0 ? 'clear' : 'review_suggested'),

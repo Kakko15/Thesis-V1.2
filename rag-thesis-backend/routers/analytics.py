@@ -229,7 +229,7 @@ def overview(user: AdminUser):
             scoped('profiles', 'role'), label='overview profiles',
         )
         scans, total_scans = _fetch_all(
-            scoped('scan_history', 'duplication_percentage,created_at'),
+            scoped('scan_history', 'duplication_percentage,verdict_level,created_at'),
             label='overview scans',
         )
     except Exception as error:
@@ -281,7 +281,13 @@ def overview(user: AdminUser):
             ),
             'novelty_scans': total_scans,
             'avg_duplication_percentage': avg_duplication,
-            'flagged_scans': sum(1 for percentage in scan_percentages if percentage >= 50),
+            # Counted by the stored verdict, not by re-deriving a band here.
+            # This read `duplication_percentage >= 50` while the verdict moved
+            # to concentration, so the tile's number and its own label
+            # disagreed. `verdict_for_concentration` is the single definition.
+            'flagged_scans': sum(
+                1 for scan in scans if scan.get('verdict_level') == 'high_overlap'
+            ),
         },
     }
 
