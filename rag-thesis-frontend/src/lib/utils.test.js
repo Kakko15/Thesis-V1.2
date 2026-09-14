@@ -7,10 +7,12 @@ import {
   extractOwnedAvatarPath,
   formatDate,
   hasRescan,
+  isScreeningFlagged,
   normalizePercent,
   mostSimilarPaper,
   scanMetrics,
   screeningHasDrifted,
+  screeningIsUnchanged,
   timeAgo,
   verdictExplanation,
   verdictLabel,
@@ -211,4 +213,27 @@ test('rescan presence is a property of the record, not an identity comparison', 
   assert.equal(hasRescan({ ...AT_UPLOAD, rescan: [] }), false)
   assert.equal(hasRescan(null), false)
   assert.notEqual(currentScreening(AT_UPLOAD), atUploadScreening(AT_UPLOAD))
+})
+
+test('a paper flagged only on recheck still gets a badge', () => {
+  // Performance Appraisal was the first of its cluster indexed, so its upload
+  // screening was clear and the archive grid showed no badge at all while its
+  // own panel read "high overlap, 52.63%".
+  const clearAtUpload = { flagged: false, verdict_level: 'clear', matched_chunk_count: 0, total_chunks: 19 }
+  const flaggedNow = { flagged: true, verdict_level: 'high_overlap', matched_chunk_count: 10, total_chunks: 19 }
+  assert.equal(isScreeningFlagged({ ...clearAtUpload, rescan: flaggedNow }), true)
+  assert.equal(isScreeningFlagged(clearAtUpload), false)
+  assert.equal(isScreeningFlagged({ ...AT_UPLOAD, rescan: { ...RESCAN, flagged: false } }), true)
+  assert.equal(isScreeningFlagged(null), false)
+})
+
+test('an identical recheck is reported as unchanged rather than printed twice', () => {
+  // The last thesis indexed already saw the whole archive, so its recheck
+  // reproduces its upload exactly.
+  const same = { flagged: true, verdict_level: 'high_overlap', highest_similarity: 94.94, matched_chunk_count: 35, total_chunks: 36 }
+  assert.equal(screeningIsUnchanged({ ...same, rescan: { ...same } }), true)
+  assert.equal(screeningIsUnchanged({ ...same, rescan: { ...same, matched_chunk_count: 30 } }), false)
+  assert.equal(screeningIsUnchanged({ ...same, rescan: { ...same, highest_similarity: 90 } }), false)
+  assert.equal(screeningIsUnchanged(same), false)
+  assert.equal(screeningIsUnchanged(null), false)
 })

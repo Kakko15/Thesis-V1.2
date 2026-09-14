@@ -119,6 +119,37 @@ export function atUploadScreening(scan) {
   return Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'rescan'))
 }
 
+/**
+ * True when either screening layer flagged this thesis.
+ *
+ * Every surface that decides whether to show a screening must ask this rather
+ * than reading `duplication_scan.flagged`, which is the at-upload value only.
+ * A thesis uploaded before the ones it resembles is clear at upload and
+ * flagged on recheck: reading the top-level field left the archive grid with
+ * no badge at all on Performance Appraisal while its own panel read
+ * "high overlap, 52.63%".
+ */
+export function isScreeningFlagged(scan) {
+  return Boolean(atUploadScreening(scan).flagged) || Boolean(currentScreening(scan).flagged)
+}
+
+/**
+ * True when a recheck reproduced the upload exactly.
+ *
+ * The last thesis indexed already saw the whole archive, so its recheck finds
+ * precisely what its upload did. Printing both blocks then repeats four
+ * identical figures and reads as though something changed.
+ */
+export function screeningIsUnchanged(scan) {
+  if (!hasRescan(scan)) return false
+  const atUpload = scanMetrics(atUploadScreening(scan))
+  const current = scanMetrics(currentScreening(scan))
+  return atUpload.verdict === current.verdict
+    && atUpload.matchedChunks === current.matchedChunks
+    && atUpload.totalChunks === current.totalChunks
+    && atUpload.highest === current.highest
+}
+
 /** True when a rescan exists and reached a different verdict than the upload did. */
 export function screeningHasDrifted(scan) {
   const record = screeningRecord(scan)
