@@ -92,7 +92,14 @@ function ScreeningRun({ label, screening, when, emphasis }) {
           <ul className="mt-1 space-y-0.5 opacity-90">
             {(screening.matched_papers || []).map((p) => (
               <li key={p.id}>
-                "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} — highest passage {normalizePercent(p.similarity).toFixed(2)}%
+                "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} —{' '}
+                {/* The per-paper passage count is what makes a total legible.
+                    "100% coverage" alone reads as "this is a copy"; "22
+                    passages closest to one thesis, 5 to another" reads as what
+                    it is. `match_count` has always been stored, and was never
+                    shown. */}
+                {p.match_count ? `${p.match_count} ${p.match_count === 1 ? 'passage' : 'passages'}, ` : ''}
+                highest {normalizePercent(p.similarity).toFixed(2)}%
               </li>
             ))}
           </ul>
@@ -168,7 +175,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           announced twice. */}
       <GlassCard
         hover
-        className="group flex h-full cursor-pointer flex-col p-5 active:scale-[0.98] transition-all duration-200 touch-manipulation"
+        className="group flex h-full cursor-pointer flex-col p-5 active:scale-[0.98] transition-all duration-200 touch-manipulation !bg-white dark:!bg-canvas-900/80"
         onClick={() => onOpen(paper)}
       >
         <div className="flex items-start justify-between gap-2">
@@ -251,7 +258,7 @@ function ArchiveResults({
   }
   if (isError) {
     return (
-      <GlassCard>
+      <GlassCard className="!bg-white dark:!bg-canvas-900/80">
         <EmptyState
           icon={AlertTriangle}
           title="Archive unavailable"
@@ -264,7 +271,7 @@ function ArchiveResults({
   if (filtered.length === 0) {
     const hasPapers = Boolean(papers?.length)
     return (
-      <GlassCard>
+      <GlassCard className="!bg-white dark:!bg-canvas-900/80">
         <EmptyState
           icon={Library}
           title={hasPapers ? 'No matches found' : 'The archive is empty'}
