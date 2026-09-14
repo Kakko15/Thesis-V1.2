@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
-import { Brain, ChevronRight, Database, FileText, ScanText, Scissors, Search } from 'lucide-react'
+import {
+  Brain, ChevronRight, Database, FileText, ScanText, Scissors, Search, ShieldCheck,
+} from 'lucide-react'
 import { getDepartments, getTracks, listPapers } from '../../api'
 import { useAuth } from '../../context/AuthContext'
 import { GlassCard } from '../../components/ui/GlassCard'
@@ -89,13 +91,24 @@ export default function UploadHistoryTab() {
         <div className="flex flex-wrap items-start justify-center gap-2 md:gap-4 lg:flex-nowrap">
           <PipelineNode icon={FileText} label="PDF Upload & Validation" active delay={0.1} />
           <div className="mt-5 hidden opacity-30 lg:block"><ChevronRight size={20} /></div>
-          <PipelineNode icon={ScanText} label="OCR Extraction" active delay={0.2} />
+          {/* "OCR Extraction" overstated the step: PyMuPDF reads the text layer
+              directly and tesserocr runs only on the pages that have none, so
+              the label invited the question of why every page is being OCR'd.
+              The duplication screen was missing entirely, which is worse: it
+              is the stage that refuses an exact duplicate before anything is
+              written, and a pipeline diagram that omits it reads as though
+              screening happens somewhere else. The malware scan stays off the
+              diagram deliberately -- it guards the upload, but it is not a RAG
+              stage, and six nodes already wrap on a laptop. */}
+          <PipelineNode icon={ScanText} label="Text Extraction" active delay={0.2} />
           <div className="mt-5 hidden opacity-30 lg:block"><ChevronRight size={20} /></div>
           <PipelineNode icon={Scissors} label="Semantic Chunking" active delay={0.3} />
           <div className="mt-5 hidden opacity-30 lg:block"><ChevronRight size={20} /></div>
           <PipelineNode icon={Brain} label="Gemini Embeddings" active delay={0.4} />
           <div className="mt-5 hidden opacity-30 lg:block"><ChevronRight size={20} /></div>
-          <PipelineNode icon={Database} label="pgvector Index" active delay={0.5} />
+          <PipelineNode icon={ShieldCheck} label="Duplication Screen" active delay={0.5} />
+          <div className="mt-5 hidden opacity-30 lg:block"><ChevronRight size={20} /></div>
+          <PipelineNode icon={Database} label="pgvector Index" active delay={0.6} />
         </div>
       </GlassCard>
 

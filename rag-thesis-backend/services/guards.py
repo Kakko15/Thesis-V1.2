@@ -272,8 +272,13 @@ _INJECTION = re.compile(
 # deliberately absent: they are demonstratives here but also relative pronouns
 # ("theses that used YOLO") and ordinary determiners ("this year"), and each
 # has its own narrower pattern below.
+# `it|its` must be case-sensitive. Under re.IGNORECASE the alternation also
+# matches the program name IT, and BSIT is one of the five CCSICT programs:
+# measured 2026-09-14, "what theses are about IT" and "ano ang mga tesis ng
+# mga estudyante ng IT" were both read as follow-ups and answered about the
+# previous turn's theses. "...about OCR" was correctly not.
 _FOLLOWUP_REFERENCE = re.compile(
-    r'\b(it|its|they|them|their|these|those|former|latter|same)\b', re.IGNORECASE
+    r'\b(?-i:it|its)\b|\b(they|them|their|these|those|former|latter|same)\b',
 )
 
 # "that thesis", "this system", "that one" -- a demonstrative pointing at
@@ -316,7 +321,10 @@ _FOLLOWUP_START = re.compile(
 # "what is the result?" matched. Stripped before that test, never before the
 # others -- the marker carries no reference of its own.
 _DISCOURSE_OPENER = re.compile(
-    r'^\s*(?:so|ok|okay|alright|right|well|then|now|also|but|and)\b[\s,]*', re.IGNORECASE,
+    r'^\s*(?:so|ok|okay|alright|right|well|then|now|also|but|and'
+    # Local openers. Bare `a` is the Ilocano LINKER and bare `e` is
+    # ambiguous; neither is stripped. `ket` opens Ilocano sentences often.
+    r'|eh|ay|sige|tapos|kasi|ngarud|wen|ket|edi|aber)\b[\s,]*', re.IGNORECASE,
 )
 
 # "the study", "the paper", "the thesis" with nothing saying which one is a
@@ -335,6 +343,148 @@ _DISCOURSE_OPENER = re.compile(
 _BARE_DOCUMENT_REFERENCE = re.compile(
     r'\bthe\s+(?:study|paper|thesis|research|system|project|work|manuscript)\b'
     r'(?!\s+(?:of|on|about|by|for|titled|regarding|concerning|from|that|which)\b)',
+    re.IGNORECASE,
+)
+
+
+# --- Filipino and Ilocano follow-up references -------------------------------
+# Measured 2026-09-14, a real two-turn transcript. Turn 1 "ana jay objectives da
+# carlo gallardo" was answered correctly. Turn 2 "kayat ko makita dyay specific
+# objectives da" -- "I want to see ITS specific objectives" -- carried its whole
+# reference in the enclitic `da`, matched none of the English patterns above,
+# was embedded without its referent, and returned the specific objectives of
+# five unrelated theses.
+#
+# The same false-positive rule governs everything below: a standalone question
+# wrongly read as a follow-up is answered about the WRONG PAPER, which is worse
+# than retrieving afresh. Every pattern here is therefore a closed lexicon
+# anchored to a named noun -- never a `\w+` stem. `\w{4,}(?:na|da)` would take
+# marami, madami, pahina, agenda, propaganda, Miranda; and in an archive full
+# of Data Mining theses a loose `da` fires inside data, database, validation
+# and update.
+_LOCAL_DOCUMENT = (
+    r'(?:tesis|tisis|thesis|pag[\s-]?aaral|pananaliksik|panagadal'
+    r'|akda|manuskrito|sukisok|panagsukisok)'
+)
+# `sistema`, `proyekto`, `library` and `database` are deliberately ABSENT.
+# routers/chat.py already paid for this lesson above _FIL_SCOPE: in a CCSICT
+# archive they are among the commonest words in thesis TITLES.
+_LOCAL_ASPECT = (
+    r'(?:objectives?|layunin|gagem|metodolohi(?:a|ya)|methodology|metodo'
+    r'|nagan|titulo|pamagat|abstrak|abstract|konklusyon|konklusion'
+    r'|conclusion|findings|resulta|nagbanagan|respondente\w*|respondents?'
+    r'|kabanata|kapitulo|chapter|scope|limitation\w*|limitasyon'
+    r'|rekomendasion|rekomendasyon|recommendations?|rrl|dataset'
+    r'|accuracy|sanggunian)'
+)
+_LOCAL_PARTICLE = r'(?:kadi|ngay|met|laeng|man|pay|ngarud|ba|po|nga|a|lang)'
+# A question that names its own subject is never a follow-up. One shared veto
+# rather than a per-pattern lookahead: Filipino and Ilocano put the possessor on
+# either side of the head noun, so _BARE_DOCUMENT_REFERENCE's next-token
+# lookahead cannot be ported directly.
+_SELF_CONTAINED = (
+    # Case-SENSITIVE on purpose -- this module matches the raw surface, and
+    # OCR / YOLO / CNN / RAG / FindMe / SECURE / CCSICT is how this archive
+    # writes its subjects.
+    re.compile(r'\b[A-Z][A-Za-z0-9]*[A-Z0-9]\b'),
+    # A genitive naming the possessor. `ti`/`iti` are NOT here: they open half
+    # of all Ilocano questions ("ania ti resulta na").
+    re.compile(r'\b(?:ng|nang|ni|nina|si|sina|kay|kina|kenni|kadagiti|kada)\s+\S', re.IGNORECASE),
+    re.compile(r'\b(?:tungkol|ukol|patungkol|maipapan|hinggil)\b(?!\s+(?:saan|ano|ania))|\bpara\s+(?:sa|iti)\b',
+               re.IGNORECASE),
+    re.compile(r'\b(?:19|20)\d\d\b|\b(?:noong|taong|idi)\b', re.IGNORECASE),
+    # Scope words name the ARCHIVE, so the question is fresh, not pinned.
+    re.compile(r'\b(?:dito|rito|ditoy|dtoy|narito|nandito|archive|arkibo'
+               r'|aklatan|library|database|katalogo)\b', re.IGNORECASE),
+    re.compile(r'\b(?:pinamagatang|titled|may\s+pamagat)\b', re.IGNORECASE),
+)
+_COORDINATOR = re.compile(r'\b(?:at|ken|and)\b', re.IGNORECASE)
+
+
+def _names_its_own_subject(normalized: str) -> bool:
+    """Whether the question carries the subject it is asking about."""
+    return any(pattern.search(normalized) for pattern in _SELF_CONTAINED)
+
+
+# Local third-person genitives. NOT a flat alternation: a Filipino genitive
+# clitic co-occurs with its own full noun phrase as a matter of grammar
+# ("paano nila ginawa ang sistema"), so a bare `nila` is far weaker evidence
+# than English `their`. The clitic counts only when a document or aspect noun
+# governs it.
+_FIL_GOVERNED_PRONOUN = re.compile(
+    rf'\b(?:{_LOCAL_ASPECT}|{_LOCAL_DOCUMENT}|katulad|kapareho|pareho)\s+'
+    rf'(?:{_LOCAL_PARTICLE}\s+)*'
+    r'(?:nito|niyon|nyon|niyan|nyan|niya|nya|nila|nilang|kanila|kanilang'
+    r'|kaniada|kadakuada|kenkuana)(?:ng)?\b',
+    re.IGNORECASE,
+)
+# English is demonstrative-then-noun ("that thesis"); Filipino and Ilocano are
+# noun-then-demonstrative ("tesis na ito"), with Ilocano daytoy/dayta pre-posed.
+# All three Ilocano linker allomorphs are allowed -- "dayta A tesis" walks past
+# a lookahead that only knows na|nga.
+_FIL_DEMONSTRATIVE_REFERENCE = re.compile(
+    rf'\b(?:{_LOCAL_ASPECT}|{_LOCAL_DOCUMENT})\s+(?:(?:a|na|nga)\s+)?'
+    r'(?:ito|iyon|iyan|yan|yun|daytoy|dayta)\b'
+    rf'|\b(?:daytoy|dayta)\s+(?:(?:a|na|nga)\s+)?(?:{_LOCAL_ASPECT}|{_LOCAL_DOCUMENT})\b',
+    re.IGNORECASE,
+)
+# "tungkol dito" is excluded on purpose: a bare `dito` means the ARCHIVE.
+_FIL_TRAILING_DEMONSTRATIVE = re.compile(
+    r'\b(?:tungkol|ukol|patungkol|maipapan|hinggil)\s+(?:sa|iti|ti)?\s*'
+    r'(?:ito|iyon|iyan|nito|niyon|doon|dun|daytoy|dayta)\s*[?!.]*$',
+    re.IGNORECASE,
+)
+# A bare free demonstrative left dangling: "ano yun". `\byun\b` cannot match
+# inside the determiner "yung", which is what makes this safe; the lookbehind
+# keeps "tesis na iyon" on the demonstrative pattern above.
+_FIL_DANGLING_DEMONSTRATIVE = re.compile(
+    r'(?<!\bna )\b(?:iyon|yun|yon|iyan|yan)\s*[?!.]*$', re.IGNORECASE,
+)
+_FIL_BARE_DOCUMENT_REFERENCE = re.compile(
+    rf'\b(?:ang|yung|ung|ti|d(?:y|i)ay|jay)\s+{_LOCAL_DOCUMENT}\b'
+    # Local twin of the English (?!of|on|about|by|for|titled|...) lookahead.
+    r'(?!\s*(?:ni|nina|ng|nang|ti|iti|kadagiti|tungkol|ukol|patungkol|maipapan'
+    r'|hinggil|para|pinamagatang|noong|taong|idi|a|na|nga)\b|\s*\d)',
+    re.IGNORECASE,
+)
+# Ilocano marks the third-person possessor as an enclitic, and two of them are
+# homographs of something else entirely. Detached `na` is also the Tagalog
+# LINKER ("mga tesis na gumamit ng CNN") and the aspectual "already". Detached
+# `da` is also the plural personal article -- both readings appear in the one
+# measured transcript: turn 1's "objectives da carlo gallardo" is the article
+# and is standalone, turn 2's "specific objectives da" is the possessor and is
+# the follow-up that failed. The discriminator is positional, never lexical: a
+# closed aspect noun immediately left, and nothing resolvable to the right.
+_FIL_ENCLITIC_POSSESSOR = re.compile(
+    rf'\b{_LOCAL_ASPECT}\s+(?:{_LOCAL_PARTICLE}\s+)*(?:na|da)'
+    r'\s*(?:[?!.,;]\s*$|\s+(?:ken|ket|at)\b|$)',
+    re.IGNORECASE,
+)
+# Truly fused onto a native head noun ("naganna", "nagbanaganda").
+_FIL_FUSED_POSSESSOR = re.compile(
+    r'\b(?:nagan|titulo|adal|panagadal|sukisok|panagsukisok|gagem|banag'
+    r'|nagbanagan|wagas|pamuspusan|mannurat)(?:na|da)\b',
+    re.IGNORECASE,
+)
+# The commonest turn-2 shape after a manuscript answer carries no pronoun, no
+# enclitic and no demonstrative -- only a document part with nothing saying
+# whose: "ipakita mo naman yung specific objectives", "ket ania ti konklusion".
+# Narrow on purpose: the aspect noun must sit at the right edge, the sentence
+# must be short, it must carry a local function word so English is untouched,
+# and it must not name its own selection criterion.
+_FIL_BARE_ASPECT = re.compile(
+    rf'\b{_LOCAL_ASPECT}\b(?:\s+(?:{_LOCAL_PARTICLE}|\d{{1,2}}))*\s*[?!.]*$',
+    re.IGNORECASE,
+)
+_LOCAL_MARKER = re.compile(
+    r'\b(?:ano|anong|anu|ana|ania|anya|asino|sino|ilan|mano|kasano|paano|apay'
+    r'|ang|mga|dagiti|ti|iti|nga|kayat|gusto|yung|ung|pwede|puwede|makita'
+    r'|kitaem|basaem|nasa|adda|dyay|diay|jay|kadi|man|met|naman)\b',
+    re.IGNORECASE,
+)
+# A superlative or comparative names its own selection criterion.
+_LOCAL_SUPERLATIVE = re.compile(
+    r'\bpinaka\w*|\bmas\b|\bmataas\b|\bkataas\w*|\bmababa\b|\bnangato\b',
     re.IGNORECASE,
 )
 
@@ -378,17 +528,55 @@ def is_ambiguous_followup(question: str, prior_questions: list[str]) -> bool:
     normalized = re.sub(r'\s+', ' ', question or '').strip()
     if not normalized:
         return False
-    return bool(
+    if (
         _FOLLOWUP_REFERENCE.search(normalized)
         or _DEMONSTRATIVE_REFERENCE.search(normalized)
         or _TRAILING_DEMONSTRATIVE.search(normalized)
         or _ABOVE_REFERENCE.search(normalized)
         or _BARE_DOCUMENT_REFERENCE.search(normalized)
         or _FOLLOWUP_START.search(_DISCOURSE_OPENER.sub('', normalized))
-        # A very short question mid-conversation is almost always a
-        # continuation, and there is rarely enough in it to retrieve on alone.
-        or (len(normalized.split()) <= 5 and normalized.endswith('?'))
-    )
+    ):
+        return True
+    # The local demonstrative twin inherits the English constant's discipline
+    # and is exempt from the veto below: "ang layunin NG tesis na ito" is a
+    # reference back, exactly as "the objectives of this study" is today.
+    if (
+        _FIL_DEMONSTRATIVE_REFERENCE.search(normalized)
+        or _FIL_TRAILING_DEMONSTRATIVE.search(normalized)
+    ):
+        return True
+    # Everything past this point is weaker evidence than its English
+    # counterpart, so it only counts when the question does NOT carry its own
+    # subject. A coordinator additionally supplies an antecedent inside the
+    # sentence ("si Gallardo at ang tesis nila").
+    if _names_its_own_subject(normalized):
+        return False
+    words = len(normalized.split())
+    if not _COORDINATOR.search(normalized) and _FIL_GOVERNED_PRONOUN.search(normalized):
+        return True
+    if (
+        _FIL_BARE_DOCUMENT_REFERENCE.search(normalized)
+        or _FIL_ENCLITIC_POSSESSOR.search(normalized)
+        or _FIL_FUSED_POSSESSOR.search(normalized)
+    ):
+        return True
+    if words <= 5 and _FIL_DANGLING_DEMONSTRATIVE.search(normalized):
+        return True
+    # A document part at the right edge with nothing saying whose.
+    if (
+        words <= 6
+        and _FIL_BARE_ASPECT.search(normalized)
+        and _LOCAL_MARKER.search(normalized)
+        and not _LOCAL_SUPERLATIVE.search(normalized)
+    ):
+        return True
+    # A very short question mid-conversation is almost always a continuation --
+    # unless it names its own subject. Filipino and Ilocano have no copula and
+    # no obligatory articles, so "ano ang RAG?", "sino si Carlo Gallardo?" and
+    # "ano ang layunin ng SECURE?" all fit inside five words and were each
+    # pinned to the previous answer's theses. The threshold is calibrated on
+    # English density; the veto above is what lets it survive these languages.
+    return words <= 5 and normalized.endswith('?')
 
 
 def fallback_standalone_question(question: str, prior_questions: list[str]) -> str:

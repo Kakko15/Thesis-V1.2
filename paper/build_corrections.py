@@ -113,15 +113,29 @@ PROSE2 = [
      'theses CCSICT released under the corpus protocol; faculty-category manuscripts are '
      'excluded from that locked corpus by definition.',
      1, 'P2-17 thesis categories'),
-    # P2-7  tokenizer proxy caveat
+    # P2-7  tokenizer proxy caveat, and the chunk size claim itself
+    #
+    # "empirically optimized" was unsupported: nothing in the implementation
+    # had measured it. evaluation/chunk_size_sweep.py measured it on
+    # 2026-09-14 by re-chunking the released twelve-thesis corpus at 400, 600,
+    # 800 and 1,000 tokens and scoring the sixteen golden queries whose answer
+    # sits in one named thesis. Every variant landed within one query of every
+    # other (hit@5 68.75-75.00%, MRR 0.533-0.604), so the honest claim is that
+    # retrieval is insensitive to chunk size across that range, not that 800 is
+    # an optimum. 1,200 is absent because the run stopped on the embedding
+    # tier's daily quota, and the corpus's 94 scanned pages are excluded
+    # because the measuring host had no OCR runtime -- both recorded in
+    # evaluation/results/chunk_size_sweep_2026-09-14.json.
     ('configured to an empirically optimized 800-token chunk size with a 100-token overlap '
      'to preserve contextual boundaries.',
-     'configured to an empirically optimized 800-token chunk size with a 100-token overlap '
-     'to preserve contextual boundaries. Chunk sizes will be measured with the local '
-     'cl100k_base tokenizer as a fixed, reproducible proxy, because the Gemini tokenizer is '
-     'not publicly available; chunk boundaries are therefore exact for that proxy and '
-     'approximate for the embedding model.',
-     1, 'P2-7 tokenizer caveat'),
+     'configured to an 800-token chunk size with a 100-token overlap to preserve contextual '
+     'boundaries. A chunk-size sweep over the released corpus found retrieval quality '
+     'statistically indistinguishable across 400 to 1,000 tokens, so 800 is adopted as a '
+     'standard size within that stable range rather than as a tuned optimum. Chunk sizes '
+     'will be measured with the local cl100k_base tokenizer as a fixed, reproducible proxy, '
+     'because the Gemini tokenizer is not publicly available; chunk boundaries are '
+     'therefore exact for that proxy and approximate for the embedding model.',
+     1, 'P2-7 tokenizer caveat and chunk size basis'),
     # P2-8  the evaluated retrieval constants
     ('the pipeline will enforce a minimum cosine similarity threshold;',
      'the pipeline will enforce a minimum cosine similarity threshold of 0.30 over the five '

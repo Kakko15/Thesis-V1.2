@@ -18,6 +18,10 @@ from routers.chat import (
     _is_archive_continuation_question,
     _is_archive_count_question,
     _is_archive_inventory_question,
+    _is_ambiguous_system_identity_question,
+    _is_ambiguous_system_origin_question,
+    _is_self_platform_reference,
+    _is_system_origin_question,
 )
 
 INVENTORY = (
@@ -228,3 +232,190 @@ def test_research_questions_are_never_routed_to_the_catalog(question):
 @pytest.mark.parametrize('question,expected', AUTHOR_LOOKUP)
 def test_filipino_author_questions_resolve_the_name(question, expected):
     assert _extract_author_name(question) == expected, question
+
+
+# 2026-09-14, second transcript: "anuano ang mga theses na nanandito sa system
+# na ito" was answered with three retrieved theses as though they were the
+# whole archive. Three independent defects -- the fused "anuano" spelling, the
+# "nanandito" scope variant, and a "na ito" that belonged to the SYSTEM being
+# searched rather than to a manuscript inside it.
+CONTAINER_SCOPED = (
+    'anuano ang mga theses na nanandito sa system na ito',
+    'anoano ang mga tesis dito sa sistema',
+    'ano ang mga tesis sa archive na ito',
+    'anu-ano ang mga tesis nandito sa sistema',
+    'ano ang mga theses na nanandito sa thesis library na ito',
+)
+
+# The same deictic, still pointing at one manuscript. Naming the container is
+# only scope after a locative marker: half the systems in this archive are the
+# SUBJECT of a thesis rather than the thing holding it.
+CONTAINER_LOOKALIKES = (
+    'ano ang metodolohiya ng pag-aaral na ito',
+    'ano ang mga layunin ng tesis na ito',
+    'ilan ang respondents sa system na ito',
+    'ano ang mga tesis sa system na ito tungkol sa OCR',
+    'ano ang ginamit na sistema sa pag-aaral na ito',
+    'anong system ang ginawa nila sa tesis na ito',
+)
+
+
+@pytest.mark.parametrize('question', CONTAINER_SCOPED)
+def test_a_deictic_on_the_container_still_reaches_the_catalog(question):
+    assert _is_archive_inventory_question(question), question
+
+
+@pytest.mark.parametrize('question', CONTAINER_LOOKALIKES)
+def test_a_deictic_on_a_manuscript_still_blocks_the_catalog(question):
+    assert not _is_archive_inventory_question(question), question
+
+
+# 2026-09-14, third transcript: "sino ang nag develop netong system?" missed
+# both origin patterns and was answered from retrieval, naming the developers
+# of three archived theses' systems instead of the two students who built
+# IskAI -- whose thesis sits in the very archive it searched.
+SYSTEM_ORIGIN = (
+    'sino ang nag develop netong system?',
+    'sino ang nag-develop nitong system?',
+    'sino ang gumawa nitong sistema?',
+    'sino ang nag develop ng system na ito?',
+    'sino ang gumawa ng app na ito?',
+    'sino po ang nag-develop nito?',
+    'asino ti nangaramid iti daytoy a sistema?',
+)
+SELF_ORIGIN = (
+    'sino ang may gawa ng IskAI?',
+    'sino ang nag develop sa iyo?',
+    'asino ti nangaramid kenka?',
+)
+# A named thesis, or a system that an archived thesis BUILT, stays retrieval.
+ORIGIN_LOOKALIKES = (
+    'sino ang gumawa ng FindMe',
+    'sino ang gumawa ng attendance system nila',
+    'paano nila ginawa ang sistema',
+    'sino ang nag develop ng sistema sa tesis na ito',
+    'sino ang gumawa ng sistema ng ISU',
+    'sino ang sumulat ng tesis tungkol sa OCR',
+)
+
+
+@pytest.mark.parametrize('question', SYSTEM_ORIGIN)
+def test_filipino_this_system_questions_answer_iskai_provenance(question):
+    assert _is_ambiguous_system_origin_question(question), question
+
+
+@pytest.mark.parametrize('question', SELF_ORIGIN)
+def test_filipino_questions_naming_iskai_need_no_context(question):
+    assert _is_system_origin_question(question), question
+
+
+@pytest.mark.parametrize('question', ORIGIN_LOOKALIKES)
+def test_a_thesis_own_system_is_never_answered_as_provenance(question):
+    assert not _is_system_origin_question(question), question
+    assert not _is_ambiguous_system_origin_question(question), question
+
+
+# 2026-09-14, fourth transcript: after a wrong origin answer, the user
+# clarified with "itong system na ginagamit ko" and was told the evidence does
+# not contain information about the platform they are interacting with -- then
+# shown two more unrelated theses.
+SELF_PLATFORM = (
+    'itong system na ginagamit ko',
+    'yung system na ginagamit ko ngayon',
+    'ang app na ginagamit ko',
+    'ibig kong sabihin itong system na ginagamit ko',
+    'the system i am using',
+    'this app im using',
+)
+# "ginagamit" also belongs to ordinary methodology questions about what an
+# archived study used.
+SELF_PLATFORM_LOOKALIKES = (
+    'ano ang system na ginagamit sa tesis na ito',
+    'anong system ang ginagamit nila',
+    'ano ang ginagamit na sistema sa pag-aaral',
+    'anong mga tools ang ginagamit sa attendance system',
+)
+
+
+@pytest.mark.parametrize('question', SELF_PLATFORM)
+def test_a_reference_to_this_platform_resolves_to_iskai(question):
+    assert _is_self_platform_reference(question), question
+
+
+@pytest.mark.parametrize('question', SELF_PLATFORM_LOOKALIKES)
+def test_what_an_archived_study_used_stays_retrieval(question):
+    assert not _is_self_platform_reference(question), question
+
+
+# 2026-09-14, fifth transcript: "ano ba itong system na ito?" reached retrieval
+# twice and was answered with three archived systems -- one of them the thesis
+# that describes IskAI itself.
+WHAT_IS_THIS_SYSTEM = (
+    'ano ba itong system na ito?',
+    'ano itong system',
+    'ano ang system na ito',
+    'anong app ba ito',
+    'ano ba itong website na ito',
+    'ano ang platform na ito',
+    'ania daytoy nga sistema',
+)
+# In a CCSICT archive most theses ARE systems, so "ano ... system" is one of
+# the commonest shapes a real research question takes. A `.*`-joined version of
+# the pattern above was measured swallowing seven of these; fullmatch is the
+# whole reason it cannot.
+WHAT_IS_THIS_LOOKALIKES = (
+    'ano ang metodolohiya ng system nila',
+    'ano ang mga tesis tungkol sa attendance system',
+    'ano ang ginamit na system sa pag-aaral na ito',
+    'ano ang architecture ng SECURE system',
+    'ano ang mga feature ng inventory system nila',
+    'anong programming language ang ginamit sa system',
+    'ano ang layunin ng document tracking system',
+    'ano ba ang naging resulta ng performance appraisal system',
+    'ano ang system na ginawa nila',
+    'ano ang pinakamahusay na system sa archive',
+)
+
+
+@pytest.mark.parametrize('question', WHAT_IS_THIS_SYSTEM)
+def test_what_is_this_system_resolves_to_iskai(question):
+    assert _is_ambiguous_system_identity_question(question), question
+
+
+@pytest.mark.parametrize('question', WHAT_IS_THIS_LOOKALIKES)
+def test_questions_about_an_archived_system_stay_retrieval(question):
+    assert not _is_ambiguous_system_identity_question(question), question
+
+
+# 2026-09-14, sixth transcript: "Sino ang nag develop etong sytem na ito?"
+# asked directly after the identity answer, and still listed three archived
+# theses' developers. Filipino doubles the reference freely -- a deictic BEFORE
+# the noun and a demonstrative AFTER it -- and requiring one or the other made
+# fullmatch reject the pair. "etong" is an ordinary contraction and "sytem" is
+# what a student's hands actually type.
+DOUBLED_REFERENCE_ORIGIN = (
+    'Sino ang nag develop etong sytem na ito?',
+    'sino ang nag develop netong system na ito',
+    'sino ang gumawa nitong sistema na ito',
+    'sino ang nag develop ng system na ito?',
+    'sino ang gumawa ng app na ito ba',
+    'sino po ang nag-develop nito',
+)
+DOUBLED_REFERENCE_LOOKALIKES = (
+    'sino ang gumawa ng FindMe',
+    'sino ang gumawa ng attendance system nila',
+    'sino ang nag develop ng sistema sa tesis na ito',
+    'sino ang gumawa ng sistema ng ISU',
+    'sino ang nag develop ng inventory system para sa GoldenSun',
+    'paano nila ginawa ang sistema',
+)
+
+
+@pytest.mark.parametrize('question', DOUBLED_REFERENCE_ORIGIN)
+def test_a_doubled_reference_still_resolves_to_iskai(question):
+    assert _is_ambiguous_system_origin_question(question), question
+
+
+@pytest.mark.parametrize('question', DOUBLED_REFERENCE_LOOKALIKES)
+def test_a_named_or_qualified_system_stays_retrieval(question):
+    assert not _is_ambiguous_system_origin_question(question), question

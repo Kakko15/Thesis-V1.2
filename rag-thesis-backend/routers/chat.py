@@ -33,7 +33,7 @@ from services.citations import (
 from services.db_errors import identifier_not_found
 from services.embedder import embed_text
 from services import gemini_pool
-from services import chat_notices, guest_budget, prompts
+from services import chat_notices, guest_budget, prompts, query_translation
 from services.chat_notices import (
     CAPACITY_MESSAGE,
     capacity_limit_is_active as _capacity_limit_is_active,
@@ -132,6 +132,101 @@ _SELF_ORIGIN_QUESTION = re.compile(
 _AMBIGUOUS_ORIGIN_QUESTION = re.compile(
     rf'who\s+{_ORIGIN_VERB}\s+(?:this|the)\s+'
     r'(?:system|app|application|website|site|platform|project|tool|program|software)',
+    re.IGNORECASE,
+)
+# The same two questions in Filipino and Ilocano. Measured 2026-09-14: "sino
+# ang nag develop netong system?" missed both patterns above and was answered
+# from retrieval, so it named the developers of three archived theses' systems
+# instead of the two students who built IskAI -- whose thesis is itself in the
+# archive it was searching.
+#
+# Both are fullmatch, like the English pair, so a question that merely contains
+# one of these verbs cannot be intercepted.
+_FIL_ORIGIN_OPENER = (
+    r'(?:sino|sinu|cino|asino|asinno|siasino)(?:\s+(?:ba|po|kadi))*'
+    r'(?:\s+(?:ang|ti|iti|yung|ung))?'
+)
+# Hyphens are already spaces by the time these run, so "nag-develop" arrives as
+# "nag develop".
+_FIL_ORIGIN_VERB = (
+    r'(?:nag\s*develop|nagdevelop|dinevelop|in\s*develop|nagde?velop'
+    r'|gumawa|ginawa|may\s+gawa|gumagawa|nag\s*gawa|nagawa'
+    r'|lumikha|nilikha|bumuo|binuo|nag\s*buo|nagbuo'
+    r'|nagdisenyo|dinisenyo|nag\s*disenyo|nag\s*design|nag\s*code'
+    r'|nag\s*program|nag\s*build|nagtayo|nagsulat'
+    r'|nangaramid|nangpartuat|nangbukel|nangpataud)'
+)
+_FIL_ORIGIN_LINK = r'(?:\s+(?:ng|nang|sa|iti|ti|kay|para\s+sa))?'
+_FIL_SYSTEM_NOUN = (
+    r'(?:system|sytem|systm|sistem|sistema|app|application|website|site|platform|program|programa'
+    r'|software|tool|proyekto|project)'
+)
+_FIL_THIS = r'(?:nitong|netong|etong|itong|tong|yung|ganitong|daytoy(?:\s+a)?)'
+# Unambiguously about IskAI: it names the assistant, or addresses it directly.
+_FIL_SELF_ORIGIN_QUESTION = re.compile(
+    rf'{_FIL_ORIGIN_OPENER}\s+{_FIL_ORIGIN_VERB}{_FIL_ORIGIN_LINK}\s+'
+    r'(?:iskai|iyo|inyo|kenka|kadakayo'
+    rf'|{_FIL_THIS}\s+(?:ai|assistant|chatbot|bot))\s*',
+    re.IGNORECASE,
+)
+# The same question aimed at "this system". Like its English counterpart it is
+# answered as provenance only when the conversation holds no archived source
+# for "this" to point at -- half the systems in this archive are the SUBJECT of
+# a thesis rather than the thing holding it.
+_FIL_AMBIGUOUS_ORIGIN_QUESTION = re.compile(
+    rf'{_FIL_ORIGIN_OPENER}\s+{_FIL_ORIGIN_VERB}{_FIL_ORIGIN_LINK}\s+'
+    rf'(?:{_FIL_THIS}\s+{_FIL_SYSTEM_NOUN}'
+    rf'|(?:ang\s+)?{_FIL_SYSTEM_NOUN}'
+    r'|nito|netong|nitong|daytoy)'
+    # "netong system na ito" doubles the reference, which is ordinary Filipino;
+    # requiring one OR the other made fullmatch reject the pair.
+    r'(?:\s+na\s+(?:ito|ire|iyan))?(?:\s+(?:ba|po|kadi))*\s*',
+    re.IGNORECASE,
+)
+# "itong system na ginagamit ko", "the app I'm using" -- a reference to THIS
+# platform. Unambiguous in a way "this system" is not: you cannot be *using* a
+# system that exists only as a description inside an archived manuscript, so
+# this needs no `not reference_sources` gate.
+#
+# That gate is exactly why it must be separate. Measured 2026-09-14: the user
+# asked who developed this system, got a wrong retrieval answer citing three
+# archived theses, and clarified with "itong system na ginagamit ko" -- by
+# which point the wrong answer's own sources would have blocked the ambiguous
+# origin path. A clarification has to survive the answer it is correcting.
+_SELF_PLATFORM_NOUN = (
+    rf'(?:{_FIL_SYSTEM_NOUN}|chatbot|bot|ai|assistant|iskai)'
+)
+_SELF_PLATFORM_REFERENCE = re.compile(
+    r'(?:(?:ibig|gusto)\s+kong?\s+sabihin\s+)?'
+    r'(?:ang\s+|yung\s+|ung\s+|itong\s+|etong\s+|netong\s+|this\s+|the\s+)?'
+    rf'{_SELF_PLATFORM_NOUN}'
+    r'(?:\s+(?:na|nga|that|which))?'
+    r'\s+(?:ginagamit|gamit|ginagamitko|usarek|us-usarek'
+    r'|i\s+am\s+using|im\s+using|i\s+m\s+using|we\s+are\s+using|using)'
+    r'(?:\s+(?:ko|natin|namin|mo|ngayon|po|now|right\s+now))*\s*',
+    re.IGNORECASE,
+)
+# "ano ba itong system na ito?" -- what IS this thing. Distinct from the origin
+# question (who built it) and from _SELF_PLATFORM_REFERENCE, which needs a
+# usage verb ("na ginagamit ko") to be unambiguous. This one has no verb at
+# all, so it is carried entirely by fullmatch: the message must be the question
+# and nothing else.
+#
+# That is the whole safety property. A `.*`-joined version of this pattern was
+# measured swallowing 7 of 8 ordinary archive questions -- "ano ang
+# metodolohiya ng system nila", "ano ang architecture ng SECURE system" -- and
+# in a CCSICT archive most theses ARE systems, so `ano ... system` is one of
+# the commonest shapes a real research question takes. Anchored, none of them
+# can reach it.
+#
+# Like the origin question it is still ambiguous in principle, so the caller
+# answers it as IskAI only when the conversation holds no archived source for
+# "this" to point at.
+_FIL_WHAT_IS_THIS_SYSTEM = re.compile(
+    r'(?:ano|anu|anong|ania|anya)\s+(?:ba\s+|po\s+|kadi\s+|nga\s+)*'
+    r'(?:ang\s+|itong\s+|etong\s+|netong\s+|yung\s+|ung\s+|daytoy\s+(?:nga\s+)?)?'
+    rf'(?:{_FIL_SYSTEM_NOUN}|chatbot|bot|ai|assistant|iskai)'
+    r'(?:\s+(?:ba|po|kadi|nga))*(?:\s+na)?(?:\s+(?:ito|iyan|ire|toy))?\s*',
     re.IGNORECASE,
 )
 # A thesis named by its opening words rather than in full or in quotes.
@@ -318,14 +413,16 @@ _FIL_CAT_ANY = rf'(?:{_FIL_CAT}|{_FIL_CAT_PLURAL})'
 # NOT scope words: in a CCSICT archive they are among the commonest words in
 # thesis TITLES.
 _FIL_SCOPE = (
-    r'\b(?:dito|rito|nandito|narito|meron|mayroon|merong|available'
+    r'\b(?:dito|rito|nandito|narito|nanandito|nanarito|andito|nadito'
+    r'|meron|mayroon|merong|available'
     r'|archive|arkibo|indexed)\b'
 )
 _ILO_SCOPE = r'\b(?:ditoy|dtoy|adda|ada|archive|arkibo|indexed)\b'
 # Interrogative + a run of function words + a catalog noun. Each still requires
 # a scope word, exactly as the English list patterns do.
 _FIL_INVENTORY_PATTERNS = (
-    rf'\b(?:ano|anong|anu|anu ano|ano ano|alin|aling|nasaan|nasan|saan)\s+'
+    rf'\b(?:ano|anong|anu|anu ano|ano ano|anuano|anoano|anuanong|anoanong'
+    rf'|alin|aling|nasaan|nasan|saan)\s+'
     rf'(?:{_FIL_FILLER}\s+)*{_FIL_CAT_ANY}\b',
     rf'\b(?:ilan|ilang|gaano ka(?:rami|dami)|mano|manu|pila|piga)\s+'
     rf'(?:(?:{_FIL_FILLER}|{_ILO_FILLER})\s+)*{_FIL_CAT_ANY}\b',
@@ -373,6 +470,43 @@ _FIL_COUNT_CONFIRMATION = (
     r'(?:ilan|ilang|mano|manu|pila)\s+(?:silang\s+|sila\s+|ti\s+|dagiti\s+)?'
     r'(?:lahat|amin|isu amin|total|kabuuan)(?:\s+(?:ba|po|kadi))?'
 )
+# "sa system na ito", "nasa archive na ito" name the CONTAINER being searched,
+# so the deictic belongs to the archive, not to a manuscript inside it.
+# Measured 2026-09-14: "anuano ang mga theses na nanandito sa system na ito"
+# was answered with three retrieved theses as though they were the whole
+# archive, because the "na ito" tripped _FIL_RETRIEVAL_GUARD.
+#
+# Removed before the guard runs rather than exempted inside it, so "ang
+# pag-aaral na ito" and "ang metodolohiya nito" keep pointing at a manuscript.
+# Two things are mandatory, and both were measured. The container must follow a
+# locative marker, because bare "system na ito" is a manuscript reference --
+# half the systems in this archive are the SUBJECT of a thesis rather than the
+# thing holding it. And the deictic itself is mandatory: without it this matched
+# "sa sistema ng ISU", "nasa sistema na gumamit ng YOLO" and "sa database ng
+# ISU", each of which names one particular system or carries a topical filter,
+# and each of which would then have been answered with the unfiltered
+# alphabetical page. A question that says "dito sa sistema" needs no help from
+# this rule at all -- "dito" is already a scope word.
+_FIL_SCOPE_CONTAINER = re.compile(
+    r'\b(?:sa|nasa|dito sa|rito sa|nandito sa|narito sa|nanandito sa)\s+'
+    r'(?:(?:mga|ating|aming|itong|kasalukuyang)\s+)?'
+    r'(?:system|sistema|sistemang|archive|arkibo|library|aklatan|database|'
+    r'app|website|platform|site|iskai|thesis library)'
+    r'\s+na\s+(?:ito|iyan|iyon)\b'
+)
+
+
+def _split_scope_container(normalized: str) -> tuple[bool, str]:
+    """Separate the container phrase from the rest of the question.
+
+    Returns whether a container was named -- which is itself a scope word --
+    and the question with it removed, which is what the manuscript guard is
+    then tested against.
+    """
+    body, hits = _FIL_SCOPE_CONTAINER.subn(' ', normalized)
+    return bool(hits), re.sub(r'\s+', ' ', body).strip()
+
+
 _ARCHIVE_INVENTORY_LIMIT = 10
 _NUMBERED_THESIS_REFERENCE = re.compile(
     r'^\s*(?:(?:tell me(?: more)?|what|explain|summarize|describe)(?:\s+about)?\s+)?'
@@ -675,12 +809,39 @@ def _normalized_short_question(question: str) -> str:
 
 def _is_system_origin_question(question: str) -> bool:
     """A self-directed question about who built IskAI itself."""
-    return bool(_SELF_ORIGIN_QUESTION.fullmatch(_normalized_short_question(question)))
+    normalized = _normalized_short_question(question)
+    return bool(
+        _SELF_ORIGIN_QUESTION.fullmatch(normalized)
+        or _FIL_SELF_ORIGIN_QUESTION.fullmatch(normalized)
+    )
 
 
 def _is_ambiguous_system_origin_question(question: str) -> bool:
     """`who developed this system` — IskAI, or a system described in a thesis?"""
-    return bool(_AMBIGUOUS_ORIGIN_QUESTION.fullmatch(_normalized_short_question(question)))
+    normalized = _normalized_short_question(question)
+    return bool(
+        _AMBIGUOUS_ORIGIN_QUESTION.fullmatch(normalized)
+        or _FIL_AMBIGUOUS_ORIGIN_QUESTION.fullmatch(normalized)
+    )
+
+
+def _is_ambiguous_system_identity_question(question: str) -> bool:
+    """`what is this system` -- IskAI, or a system described in a thesis?"""
+    return bool(_FIL_WHAT_IS_THIS_SYSTEM.fullmatch(_normalized_short_question(question)))
+
+
+def _is_self_platform_reference(question: str) -> bool:
+    """Whether the message names the platform the user is currently using."""
+    return bool(_SELF_PLATFORM_REFERENCE.fullmatch(_normalized_short_question(question)))
+
+
+def _asked_about_origin(prior_questions: list[str]) -> bool:
+    """Whether a recent turn asked who built something."""
+    return any(
+        _is_system_origin_question(previous)
+        or _is_ambiguous_system_origin_question(previous)
+        for previous in (prior_questions or [])[-3:]
+    )
 
 
 def _origin_response() -> str:
@@ -757,9 +918,10 @@ def _is_archive_inventory_question(question: str, prior_questions: list[str] | N
 
 def _matches_local_inventory(normalized: str) -> bool:
     """Filipino and Ilocano catalog questions, with the manuscript guard applied."""
-    if _FIL_RETRIEVAL_GUARD.search(normalized):
+    named_container, body = _split_scope_container(normalized)
+    if _FIL_RETRIEVAL_GUARD.search(body):
         return False
-    in_scope = bool(re.search(_FIL_SCOPE, normalized))
+    in_scope = named_container or bool(re.search(_FIL_SCOPE, normalized))
     in_scope_ilo = bool(re.search(_ILO_SCOPE, normalized))
     if (in_scope or in_scope_ilo) and any(
         re.search(pattern, normalized) for pattern in _FIL_INVENTORY_PATTERNS
@@ -777,7 +939,7 @@ def _matches_local_inventory(normalized: str) -> bool:
 
 def _matches_local_count(normalized: str) -> bool:
     """Filipino and Ilocano "how many" phrasings."""
-    if _FIL_RETRIEVAL_GUARD.search(normalized):
+    if _FIL_RETRIEVAL_GUARD.search(_split_scope_container(normalized)[1]):
         return False
     return any(re.search(pattern, normalized) for pattern in _FIL_COUNT_PATTERNS)
 
@@ -1650,6 +1812,23 @@ async def _rewrite_followup(
     return fallback_standalone_question(question, prior_questions)
 
 
+async def _translate_for_retrieval(question: str) -> str:
+    """English search wording for a Filipino or Ilocano research question.
+
+    Never raises and never blocks the turn: any failure returns the question as
+    asked, which is exactly the behaviour that preceded this step.
+    """
+    prompt = query_translation.translation_prompt(question)
+    try:
+        rewritten = _coerce_answer(
+            await gemini_pool.arun(llm, gemini_pool.CHAT, lambda client: client.ainvoke(prompt))
+        )
+        return query_translation.usable_translation(rewritten, question)
+    except Exception as e:
+        logger.warning('Query translation failed; embedding as asked (%s)', type(e).__name__)
+        return question
+
+
 async def _repair_citations(answer: str, context: str, sources: list[dict]) -> str:
     valid_ids = ', '.join(str(s.get('citation_id', i)) for i, s in enumerate(sources, start=1))
     prompt = prompts.citation_repair_prompt(answer, context, valid_ids)
@@ -2143,6 +2322,44 @@ async def _chat_impl_unstamped(
             archive_current=True,
         )
 
+    # "ano ba itong system na ito" with no archived source in play: there is
+    # nothing for "this" to name but IskAI. With one on the table it means that
+    # manuscript's system and stays a retrieval question -- the same contract
+    # the origin question below already keeps.
+    if not reference_sources and _is_ambiguous_system_identity_question(req.question):
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': 0,
+            'duplication_flagged': False,
+            'fast_path': 'system_identity',
+        })
+        return ChatResponse(
+            answer=chat_notices.IDENTITY_MESSAGE,
+            sources=[],
+            session_id=req.session_id,
+            notice_type='conversation',
+        )
+
+    # A clarification that the user means THIS platform, not a manuscript's.
+    # Ungated on purpose: the turn that prompts it is usually a wrong retrieval
+    # answer whose own sources would otherwise block the correction.
+    if _is_self_platform_reference(req.question):
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': 0,
+            'duplication_flagged': False,
+            'fast_path': 'self_platform',
+        })
+        return ChatResponse(
+            answer=(
+                _origin_response() if _asked_about_origin(prior_questions)
+                else chat_notices.IDENTITY_MESSAGE
+            ),
+            sources=[],
+            session_id=req.session_id,
+            notice_type='conversation',
+        )
+
     # `who developed this system` resolves by context, not by wording. With an
     # archived source already on the table, "this system" is that manuscript's
     # system and the question stays a retrieval question. With none, there is
@@ -2345,19 +2562,49 @@ async def _chat_impl_unstamped(
     # follow-up is the question retrieval actually answers). Aggregates sample
     # at most one chunk per thesis so a corpus-wide question sees distinct
     # studies instead of five chunks from whichever thesis ranked first.
-    question_type = classify_question(effective_question)
+    # Cross-lingual retrieval. The archive is English, so a Filipino or
+    # Ilocano research question embeds into a conversational region of the
+    # vector space and matches formal capstone prose poorly. Routing already
+    # kept greetings, identity, capability, origin and catalog questions away
+    # from retrieval at zero token cost; what reaches here is a genuine
+    # research question that SHOULD retrieve and would retrieve badly.
+    #
+    # Only the query is translated. The generation prompt still receives the
+    # question as asked, so `services/prompts.py` and PROMPT_VERSION are
+    # untouched, and the Objective 2 harness -- which asks in English -- never
+    # enters this path.
+    retrieval_question = effective_question
+    if query_translation.looks_non_english(effective_question):
+        translate_budget = await _charge_guest_extra(user, effective_question)
+        if not translate_budget.allowed:
+            background_tasks.add_task(log_activity, None, 'chat_query_budget_exhausted', {
+                'question_length': len(req.question),
+                'stage': 'query_translation',
+                'charged': translate_budget.charged,
+            })
+            return _guest_budget_response(req.session_id)
+        retrieval_question = await _translate_for_retrieval(effective_question)
+        if retrieval_question != effective_question:
+            background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+                'question_length': len(req.question),
+                'sources_cited': 0,
+                'duplication_flagged': False,
+                'fast_path': 'query_translated',
+            })
+
+    question_type = classify_question(retrieval_question)
 
     # 1. Retrieval phase (cosine similarity within the enforced department)
     try:
         async with safe_trace('rag.retrieval', metadata={
             'department': effective_department,
-            'question_length': len(effective_question),
+            'question_length': len(retrieval_question),
             'exact_paper': bool(referenced_paper_id),
             'embedding_model': settings.gemini_embed_model,
             'question_type': question_type,
         }) as retrieval_run:
             retrieval_result, alert_data = await _retrieve_evidence(
-                effective_question,
+                retrieval_question,
                 effective_department,
                 referenced_paper_id,
                 is_overview_followup,
