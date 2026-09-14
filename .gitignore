@@ -50,6 +50,11 @@ tmp/
 tmp-pylint-cache/
 tmp-pytest-*/
 tmp-review-*/
+# Loose scratch files, not just scratch directories: one-off rollback
+# records written before a live data change (tmp-release-backup.json,
+# tmp-authors-backup.json) sat untracked next to the source because every
+# pattern above ends in a slash.
+tmp-*.json
 rag-thesis-backend/.venv*/
 rag-thesis-backend/.pylint-cache-*/
 rag-thesis-backend/.pytest-*/
