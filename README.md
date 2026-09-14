@@ -31,6 +31,8 @@ Key paper parameters enforced in code:
 - **85% cosine similarity duplication threshold** (`DUPLICATION_THRESHOLD=0.85`) — enforced three ways: automatically on every new submission during upload ingestion (Section 3.2.3 Phase 3, result stored in `papers.duplication_scan`), on demand at scan time (`/duplication/scan`), and at query time (chat duplication guard).
 - **800-token chunks / 100-token overlap** via `RecursiveCharacterTextSplitter`.
 - **Metadata tagging** — every chunk carries `{title, author, track, year}` JSON.
+- **Cross-lingual query preparation** — a research question asked in Filipino or Ilocano is translated to English (`services/query_translation.py`) before it is embedded. The archive is formal English, so a local-language question otherwise embeds into a conversational region of the vector space and matches capstone prose poorly. Only the query moves: the translation feeds the embedding call and the question-type classifier, is never shown or stored, and the generation prompt still receives the question as asked — so `PROMPT_VERSION` is unchanged, and the Objective 2 harness, which asks in English, never enters this path. An unusable rewrite falls back to the original question, so a failure here costs retrieval quality, never availability. A guest pays the extra call from the same token allowance.
+- **Deterministic conversational routing** — greetings, identity, capability, origin and archive-catalog questions are answered from fixed text in both English and the local languages, returning `kind='notice'` without embedding, retrieval or a model call. Numbered, ordinal and title-fragment references to a thesis named in an earlier turn are resolved before retrieval rather than re-embedded as a new question.
 - **Two-stage retrieval selection** — `match_chunks` fetches a candidate pool (`RETRIEVAL_CANDIDATE_POOL=15`) at the fixed 0.30 cosine threshold; a deterministic hybrid rerank (cosine-dominant, blended with the section-aware lexical signal) orders it, at most `RETRIEVAL_PER_PAPER_CAP=3` chunks per thesis are kept while other theses qualify (1 for corpus-wide questions), and exactly `RETRIEVAL_MATCH_COUNT=5` context blocks reach the prompt. Citation numbers encode that final rank. Setting the pool to 5 reproduces the pure cosine-order pipeline.
 - **Question-type adaptive prompting** (`iskai-prompt-v4`) — a deterministic classifier (`services/question_types.py`) detects aggregate, comparison, enumeration and specific-fact questions; the grounded prompt gains a matching TASK block (aggregates answer sample-scoped: "Of the retrieved studies, …"), and every other shape composes the prompt unchanged.
 - **LongContextReorder** — most relevant sources placed at the start and end of the prompt window ("Lost in the Middle" mitigation).
@@ -82,7 +84,7 @@ copy .env.example .env                          # then fill in the values
 ```
 
 Name the environment **`.venv`**. Every command in this file, in
-`evaluation/iso25010_evidence.md` and in `scripts/verify-pi04-live.ps1` assumes
+`evaluation/iso25010_evidence.md` and in the repository-root `scripts/verify-pi04-live.ps1` assumes
 that name. A differently-named one produces an environment the documented
 commands never exercise — that mismatch has already cost a red local gate
 against a green CI, and a worker command that failed with
@@ -388,13 +390,14 @@ frontend lcov is what previously reported the whole repository at 36.3%.
 
 Alternatively, add a `SONAR_TOKEN` repository secret (SonarCloud, or set the `SONAR_HOST_URL` repository variable for a reachable server). Without it the scan step skips gracefully and the rest of the gate still runs.
 
-The GitHub Actions workflow `.github/workflows/quality.yml` runs on every push to `main`:
+The GitHub Actions workflow `.github/workflows/quality.yml` runs on every push to
+`main`, on every pull request targeting it, and on manual dispatch:
 
 | Job | Steps |
 |---|---|
 | **Backend** | hash-verified install from `requirements.lock`, `pip check`, `pip-audit --no-deps` against the lock, PyTest with `--cov-fail-under=85`, Pylint |
 | **Frontend dependency audit** | `npm audit --omit=dev --audit-level=high`, resolved from `package-lock.json` and retried when npm's advisory endpoint is unreachable; a separate job so a registry outage cannot take the build checks down with it |
-| **Frontend** | ESLint, unit tests with coverage thresholds, production build, bundle-size budget, 24 Playwright tests (12 critical flows, the 11-surface axe accessibility matrix, 1 visual-quality matrix) |
+| **Frontend** | ESLint, unit tests with coverage thresholds, production build, bundle-size budget, 26 Playwright tests (13 critical flows, the 12-surface axe accessibility matrix, 1 visual-quality matrix) |
 | **Secret scan** | Gitleaks over full history |
 | **Containers** | build and Trivy-scan both images (CRITICAL/HIGH, fixed only), emit an SPDX SBOM per image |
 | **SonarQube** | consumes both coverage artifacts; skipped when `SONAR_TOKEN` is absent |

@@ -22,7 +22,7 @@ Backend commands run from `rag-thesis-backend/` inside a venv that **must be nam
 ### Backend
 
 ```powershell
-# Full suite exactly as CI runs it (collects ~1,065 tests; --cov-fail-under=85 is a gate)
+# Full suite exactly as CI runs it (collects ~2,135 tests; --cov-fail-under=85 is a gate)
 pytest --cov=routers --cov=services --cov=dependencies --cov=workers --cov=main --cov=config --cov=models --cov-report=xml --cov-report=term --cov-fail-under=85
 
 pytest tests/test_chunker.py                                          # one file

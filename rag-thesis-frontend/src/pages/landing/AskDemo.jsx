@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, useInView } from 'framer-motion'
-import { BookMarked, RotateCcw, Send } from 'lucide-react'
+import { BookMarked, RotateCcw } from 'lucide-react'
 import { GlassCard } from '../../components/ui/GlassCard'
 import { Button } from '../../components/ui/Button'
 import { Badge } from '../../components/ui/Badge'
@@ -27,6 +27,25 @@ const SOURCES = [
   { n: 1, title: 'CNN-Based Rice Leaf Disease Detection', meta: 'Data Mining · 2023', track: 'Data Mining' },
   { n: 2, title: 'Maize Disease Image Classification', meta: 'Data Mining · 2021', track: 'Data Mining' },
 ]
+
+/** Google Fonts (Material Symbols Outlined: arrow_upward_alt, fill 0 / wght 400 / opsz 24). */
+const ARROW_UPWARD_ALT_PATH =
+  'M440-240v-368L296-464l-56-56 240-240 240 240-56 56-144-144v368h-80Z'
+
+function ArrowUpwardAltIcon({ size = 20, className = '' }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 -960 960 960"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d={ARROW_UPWARD_ALT_PATH} />
+    </svg>
+  )
+}
 
 const TYPE_MS = 26
 const SEND_PAUSE_MS = 600
@@ -265,7 +284,7 @@ export function AskDemo() {
                 aria-label="Send example question"
                 className="shrink-0"
               >
-                <Send size={17} />
+                <ArrowUpwardAltIcon size={20} />
               </Button>
             </div>
             <p className="mt-2 text-center text-xs text-ink-faint">
