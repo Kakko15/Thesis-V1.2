@@ -408,9 +408,24 @@ def list_archive_papers(
     department_filter: str | None = None,
     thesis_category: str | None = None,
     limit: int = 10,
+    offset: int = 0,
 ) -> tuple[int, list[dict]]:
-    """Return an exact ready-paper count and a bounded metadata preview."""
+    """Return an exact ready-paper count and a bounded metadata preview.
+
+    `offset` pages forward through the same alphabetical ordering so a
+    "give me the remaining ones" follow-up continues the list instead of
+    repeating its first page. The count is always of the whole filtered
+    archive rather than of the page, so the caller can still say "N of TOTAL".
+    """
     fields = 'id,title,authors,year,track,department,thesis_category'
+
+    def paged(query):
+        # Title alone is not a total order -- two papers may share one -- and an
+        # ordering that is free to break ties differently per request can show
+        # the same paper on two pages and skip another. Breaking on id fixes
+        # the sequence the offset counts through.
+        query = query.order('title').order('id').limit(limit)
+        return query.offset(offset) if offset else query
 
     def execute_query():
         query = sb.table('papers').select(
@@ -420,7 +435,7 @@ def list_archive_papers(
             query = query.eq('department', department_filter)
         if thesis_category:
             query = query.eq('thesis_category', thesis_category)
-        return query.order('title').limit(limit).execute()
+        return paged(query).execute()
 
     try:
         result = retry_transient(
@@ -438,7 +453,7 @@ def list_archive_papers(
             ).eq('ingestion_status', 'ready')
             if department_filter:
                 query = query.eq('department', department_filter)
-            return query.order('title').limit(limit).execute()
+            return paged(query).execute()
 
         result = retry_transient(
             execute_legacy_query,
@@ -447,6 +462,10 @@ def list_archive_papers(
         )
 
     rows = result.data or []
+    # Citation ids number the PAGE, from 1, not the archive: a follow-up like
+    # "number 2" is resolved by indexing the sources list the answer shipped
+    # with, so a continuation page numbered 11-16 would put every positional
+    # reference out of range.
     sources = [
         public_source(paper, citation_id=index)
         for index, paper in enumerate(rows, start=1)

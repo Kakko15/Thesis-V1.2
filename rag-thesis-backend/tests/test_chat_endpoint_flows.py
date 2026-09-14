@@ -31,6 +31,32 @@ async def no_trace(*_args, **_kwargs):
     yield None
 
 
+def _archive_of(size):
+    """A ready archive whose alphabetical order is its numbering."""
+    return [
+        {'id': f'p{index}', 'title': f'Thesis {index:02d}', 'authors': f'Author {index}'}
+        for index in range(1, size + 1)
+    ]
+
+
+def _page_of(archive, limit, offset):
+    """What `list_archive_papers` returns: the whole count, one page of rows."""
+    return len(archive), [
+        dict(row, citation_id=position)
+        for position, row in enumerate(archive[offset:offset + limit], start=1)
+    ]
+
+
+def _listing_turn(question, indices):
+    """A stored transcript row the listing cursor can be read back from."""
+    return {
+        'question': question,
+        'answer': 'The CCSICT archive currently has **16 indexed theses**. This count comes '
+                  'from the live indexed archive, not from claims inside a thesis document.',
+        'sources': [{'id': f'p{index}'} for index in indices],
+    }
+
+
 class TestEarlyChatPaths:
     def test_greeting_and_blocked_generation(self):
         greeting = run(chat._chat_impl(ChatRequest(question='Hello'), _NoRequest(), BackgroundTasks(), None))
@@ -192,6 +218,106 @@ class TestEarlyChatPaths:
         assert '**2 indexed theses**' in response.answer
         assert 'Archive Study One' not in response.answer
         assert response.sources == []
+
+    def test_remaining_request_continues_the_listing_instead_of_retrieving(self, monkeypatch):
+        """2026-09-14: "provide me the remaining 6" was answered from five chunks.
+
+        It matched no inventory pattern, fell through to vector retrieval, and
+        returned four titles -- three of them already on the page above it --
+        under a sentence claiming the evidence did not contain the rest.
+        """
+        archive = _archive_of(16)
+
+        def page(_department, _category, limit, offset=0):
+            return _page_of(archive, limit, offset)
+
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, 'list_archive_papers', page)
+
+        async def should_not_retrieve(*_args, **_kwargs):
+            raise AssertionError('a listing continuation must page the catalog, not retrieve')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        first = run(chat._chat_impl(
+            ChatRequest(question='what are the theses on this system'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert 'first **10 of 16**' in first.answer
+        assert [source['id'] for source in first.sources] == [f'p{index}' for index in range(1, 11)]
+
+        rest = run(chat._chat_impl(
+            ChatRequest(
+                question='provide me the remaining 6',
+                guest_history=['what are the theses on this system'],
+                guest_source_ids=[source['id'] for source in first.sources],
+            ),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert [source['id'] for source in rest.sources] == [f'p{index}' for index in range(11, 17)]
+        assert 'remaining **6** of the **16**' in rest.answer
+        # Nothing from the first page may reappear as though it were still unlisted.
+        for shown in first.sources:
+            assert shown['title'] not in rest.answer
+        assert 'does not contain' not in rest.answer
+
+    def test_continuation_pages_from_the_saved_transcript(self, monkeypatch):
+        archive = _archive_of(16)
+        seen = {}
+
+        def page(_department, _category, limit, offset=0):
+            seen['offset'] = offset
+            return _page_of(archive, limit, offset)
+
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, 'list_archive_papers', page)
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [])
+        monkeypatch.setattr(chat, '_persist_chat_exchange', lambda *_args: 'session-1')
+        monkeypatch.setattr(chat, '_ensure_session_owner', lambda *_args: None)
+        monkeypatch.setattr(chat, '_load_chat_history', lambda *_args, **_kwargs: [
+            _listing_turn('what are the theses on this system', range(1, 11)),
+        ])
+
+        async def should_not_retrieve(*_args, **_kwargs):
+            raise AssertionError('a listing continuation must page the catalog, not retrieve')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='show me the rest', session_id='session-1'),
+            _NoRequest(), BackgroundTasks(), SimpleNamespace(id='u1'),
+        ))
+
+        assert seen['offset'] == 10
+        assert [source['id'] for source in response.sources] == [f'p{index}' for index in range(11, 17)]
+
+    def test_asking_again_after_the_last_page_does_not_repeat_page_one(self, monkeypatch):
+        archive = _archive_of(16)
+
+        def page(_department, _category, limit, offset=0):
+            return _page_of(archive, limit, offset)
+
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, 'list_archive_papers', page)
+        monkeypatch.setattr(chat, 'find_papers_by_ids', lambda *_args: [])
+        monkeypatch.setattr(chat, '_persist_chat_exchange', lambda *_args: 'session-1')
+        monkeypatch.setattr(chat, '_ensure_session_owner', lambda *_args: None)
+        monkeypatch.setattr(chat, '_load_chat_history', lambda *_args, **_kwargs: [
+            _listing_turn('what are the theses on this system', range(1, 11)),
+            _listing_turn('provide me the remaining 6', range(11, 17)),
+        ])
+
+        async def should_not_retrieve(*_args, **_kwargs):
+            raise AssertionError('a listing continuation must page the catalog, not retrieve')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='any others?', session_id='session-1'),
+            _NoRequest(), BackgroundTasks(), SimpleNamespace(id='u1'),
+        ))
+
+        assert response.sources == []
+        assert 'All **16** titles have already been listed' in response.answer
+        assert 'Thesis 01' not in response.answer
 
 
 class TestRetrievalAndGenerationFlow:

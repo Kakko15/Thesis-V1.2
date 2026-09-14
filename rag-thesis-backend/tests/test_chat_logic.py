@@ -1,6 +1,10 @@
 """Functional Suitability tests — citation post-processing and duplication math."""
 
+import pytest
+
 from routers.chat import (
+    _GREETINGS_ALL,
+    _GREETINGS_BY_LENGTH,
     _answer_reports_no_evidence,
     _author_lookup_response,
     _archive_inventory_response,
@@ -10,6 +14,14 @@ from routers.chat import (
     _extract_thesis_title_fragment,
     _grounded_retrieval_fallback,
     _is_ambiguous_system_origin_question,
+    _archive_listing_cursor,
+    _is_archive_continuation_question,
+    _is_capability_question,
+    _is_identity_question,
+    _is_courtesy_message,
+    _is_farewell_message,
+    _longest_greeting_prefix,
+    _last_turn_was_a_listing,
     _is_archive_inventory_question,
     _is_archive_count_question,
     _is_model_question,
@@ -180,6 +192,106 @@ class TestArchiveInventoryFastPath:
         )
         assert '**137 indexed theses**' in answer
         assert 'Should not appear' not in answer
+
+    def test_recognizes_requests_to_continue_a_listing(self):
+        # Unambiguous forms mean the list whether or not the page is the turn above.
+        for question in (
+            'provide me the remaining 6',
+            'what are the remaining theses?',
+            'give me the rest of them',
+            'the other 6',
+            'any others?',
+            'next 6',
+            'are there more titles?',
+        ):
+            assert _is_archive_continuation_question(question, False), question
+
+    def test_ambiguous_forms_need_the_listing_directly_above_them(self):
+        # After an answer about one thesis, "more" asks for more of that answer.
+        for question in ('show more', 'more', 'continue', 'show the rest', 'what else?'):
+            assert _is_archive_continuation_question(question, True), question
+            assert not _is_archive_continuation_question(question, False), question
+
+    def test_a_reference_to_one_listed_thesis_is_not_a_continuation(self):
+        # "more" is shared by "show me more" and "tell me more about number 3";
+        # only the first asks for the next page.
+        for question in (
+            'tell me more about number 3',
+            'tell me more about it',
+            'what is the second thesis about',
+            'summarize the objectives of number 2',
+            'what other framework did they consider besides django',
+            'tell me the rest of the methodology',
+        ):
+            assert not _is_archive_continuation_question(question, True), question
+
+    def test_last_turn_detection_reads_answers_then_falls_back_to_questions(self):
+        listing = {
+            'question': 'what are the theses on this system',
+            'answer': 'This count comes from the live indexed archive, not from claims '
+                      'inside a thesis document.',
+            'sources': [{'id': 'p1'}],
+        }
+        assert _last_turn_was_a_listing([listing])
+        assert not _last_turn_was_a_listing([listing, {
+            'question': 'what methodology did it use', 'answer': 'It used a survey.', 'sources': [],
+        }])
+        # Guest transcripts carry questions only.
+        assert _last_turn_was_a_listing([{'question': 'what are the theses here?'}])
+        assert not _last_turn_was_a_listing([{'question': 'explain the methodology'}])
+        assert not _last_turn_was_a_listing([])
+
+    def test_cursor_counts_distinct_titles_already_listed(self):
+        page = {
+            'question': 'what are the theses on this system',
+            'answer': 'The CCSICT archive currently has **16 indexed theses**:\n1. ...\n\n'
+                      'This count comes from the live indexed archive, not from claims '
+                      'inside a thesis document.',
+            'sources': [{'id': f'p{index}'} for index in range(1, 11)],
+        }
+        assert _archive_listing_cursor([page], []) == 10
+        # Asking for the list twice re-shows page one; it does not advance a page.
+        assert _archive_listing_cursor([page, page], []) == 10
+        assert _archive_listing_cursor([{'question': 'explain the methodology'}], ['p1']) == 0
+
+    def test_cursor_falls_back_to_guest_source_ids(self):
+        # A guest transcript replays questions plus the newest answer's ids only.
+        assert _archive_listing_cursor(
+            [{'question': 'what are the theses on this system'}],
+            [f'p{index}' for index in range(1, 11)],
+        ) == 10
+
+    def test_continuation_page_is_numbered_from_one_and_says_what_it_completes(self):
+        page = [
+            {'id': f'p{index}', 'title': f'Thesis {index}', 'authors': f'Author {index}'}
+            for index in range(11, 17)
+        ]
+        answer = _archive_inventory_response('CCSICT', 16, page, offset=10)
+        assert 'remaining **6** of the **16**' in answer
+        # Numbered from 1 because "number 2" indexes the sources this answer ships.
+        assert '1. **Thesis 11**' in answer and '[1]' in answer
+        assert '6. **Thesis 16**' in answer and '[6]' in answer
+        assert 'completes all **16** titles' in answer
+        assert 'first **' not in answer
+
+    def test_middle_page_reports_progress_instead_of_completion(self):
+        page = [
+            {'id': f'p{index}', 'title': f'Thesis {index}', 'authors': f'Author {index}'}
+            for index in range(11, 21)
+        ]
+        answer = _archive_inventory_response('CCSICT', 137, page, offset=10)
+        assert 'next **10** of the **137**' in answer
+        assert '**20 of 137** titles so far' in answer
+
+    def test_exhausted_listing_says_so_instead_of_repeating_page_one(self):
+        answer = _archive_inventory_response('CCSICT', 16, [], offset=16)
+        assert 'All **16** titles have already been listed' in answer
+        assert 'live indexed archive' in answer
+
+    def test_count_of_what_is_left_subtracts_what_was_shown(self):
+        answer = _archive_inventory_response('CCSICT', 16, [], count_only=True, offset=10)
+        assert 'already been shown **10**' in answer
+        assert '**6** are left to list' in answer
 
 
 class TestGroundingGuards:
@@ -367,3 +479,136 @@ class TestBareTitleReferenceCapture:
         assert _extract_thesis_title_fragment(
             'What methodology did the attendance study use?',
         ) is None
+
+
+class TestFilipinoAndIlocanoConversation:
+    """2026-09-14: "magandang araw" was answered with two cited unrelated theses.
+
+    Every conversational set matched English exact phrases only, so a Filipino
+    or Ilocano pleasantry missed all five fast paths and reached vector
+    retrieval, which duly found something and cited it.
+    """
+
+    def _route(self, question):
+        if _is_capability_question(question):
+            return 'capability'
+        if _is_courtesy_message(question):
+            return 'farewell' if _is_farewell_message(question) else 'thanks'
+        if _is_identity_question(question):
+            return 'identity'
+        if _is_simple_conversation(question):
+            return 'greeting'
+        return 'retrieval'
+
+    @pytest.mark.parametrize('question', [
+        'magandang araw', 'magandang umaga', 'gandang gabi', 'maganda hapon',
+        'kumusta', 'kamusta ka', 'musta na', 'mabuhay', 'good day', 'uy',
+        'naimbag nga aldaw', 'naimbag a bigat', 'naimbag nga rabii', 'naimbag aldaw',
+    ])
+    def test_local_greetings_never_reach_retrieval(self, question):
+        assert self._route(question) == 'greeting'
+
+    @pytest.mark.parametrize('question,expected', [
+        ('sino ka', 'identity'),
+        ('ano ang pangalan mo', 'identity'),
+        ('siasino ka', 'identity'),
+        ('ania ti naganmo', 'identity'),
+        ('ano ang magagawa mo', 'capability'),
+        ('paano ka gumagana', 'capability'),
+        ('tulong', 'capability'),
+        ('ania ti kabaelam', 'capability'),
+        ('salamat', 'thanks'),
+        ('maraming salamat sa tulong', 'thanks'),
+        ('agyamanak', 'thanks'),
+        ('dios ti agngina', 'thanks'),
+        ('paalam', 'farewell'),
+        ('ingat ka', 'farewell'),
+        ('wala na akong tanong', 'farewell'),
+        ('agpakadaakon', 'farewell'),
+    ])
+    def test_local_courtesy_identity_and_capability_route_locally(self, question, expected):
+        assert self._route(question) == expected
+
+    @pytest.mark.parametrize('question,expected', [
+        # "po"/"ho" attach anywhere, so the sets hold one canonical entry and
+        # the stripper does the rest -- including for the English entries.
+        ('magandang araw po', 'greeting'),
+        ('kumusta po', 'greeting'),
+        ('hello po', 'greeting'),
+        ('good morning po', 'greeting'),
+        ('salamat po', 'thanks'),
+        ('salamat ho', 'thanks'),
+        ('thanks po', 'thanks'),
+        ('paalam po', 'farewell'),
+        ('sino ka po', 'identity'),
+        ('ano po ang pangalan mo', 'identity'),
+        ('tulong po', 'capability'),
+        # ...and a term of address may close any of them.
+        ('magandang hapon po iskai', 'greeting'),
+        ('kumusta po kabsat', 'greeting'),
+        ('good day po sir', 'greeting'),
+        ('salamat po iskai', 'thanks'),
+        ('agyamanak unay', 'thanks'),
+        ('naimbag a bigat apo', 'greeting'),
+    ])
+    def test_politeness_particles_and_addressees_are_stripped(self, question, expected):
+        assert self._route(question) == expected
+
+    @pytest.mark.parametrize('question', [
+        # Greeting-then-topic is ordinary Filipino word order, so the English
+        # "greeting + one word" shortcut must not extend to the local stems.
+        'magandang araw ocr',
+        'magandang araw blockchain',
+        'kumusta ocr',
+        # Both halves of each greeting pattern are closed alternations.
+        'magandang sistema', 'magandang topic', 'magandang resulta',
+        'magandang thesis', 'gandang sistema', 'naimbag nga panagadal',
+        'naimbag a sistema',
+        # fullmatch, not search.
+        'ano ang magandang araw para mag defense',
+        'ano ang magandang topic para sa thesis',
+        # Real research questions that open with the same interrogatives.
+        'ano ang metodolohiya ng pag aaral na ito',
+        'ano ang machine learning',
+        'paano gumawa ng attendance system',
+        'sino ang may akda ng findme',
+        'ano ang isinulat nila tungkol sa ocr',
+        # The particle stripper must not manufacture a match out of a question
+        # that merely contains the letters "po".
+        'ano ang gamit ng po sa system',
+    ])
+    def test_real_questions_are_never_swallowed(self, question):
+        assert self._route(question) == 'retrieval'
+
+    def test_a_bare_particle_matches_nothing(self):
+        # Stripping "po" from "po" would leave an empty string, which must not
+        # be allowed to match some set's shortest member.
+        for question in ('po', 'ho'):
+            assert self._route(question) == 'retrieval'
+
+
+class TestGreetingMatchIsDeterministic:
+    """`hi` and `hi there` are both prefixes of `hi there friend`.
+
+    The prefix scan used to iterate `_GREETINGS`, a set, and return inside the
+    loop, so whichever prefix came out first won -- and set order depends on
+    PYTHONHASHSEED, which Python randomizes per process and which nothing in
+    this repo pins. Measured 2026-09-14 on the real module: `hi there friend`
+    was True under seeds 0/2/7 and False under 1/3. The same user got a
+    different answer to the same greeting after a server restart.
+    """
+
+    def test_the_scan_order_is_longest_first(self):
+        lengths = [len(greeting) for greeting in _GREETINGS_BY_LENGTH]
+        assert lengths == sorted(lengths, reverse=True)
+        assert set(_GREETINGS_BY_LENGTH) == _GREETINGS_ALL
+
+    def test_the_longest_matching_greeting_wins(self):
+        assert _longest_greeting_prefix('hi there friend') == 'hi there'
+        assert _longest_greeting_prefix('hey there iskai') == 'hey there'
+        assert _longest_greeting_prefix('kamusta ka na po') == 'kamusta ka na'
+        assert _longest_greeting_prefix('what theses used cnn') is None
+
+    def test_overlapping_prefixes_resolve_the_same_way_every_time(self):
+        for question in ('hi there friend', 'hey there iskai', 'hello there who are you'):
+            assert _is_simple_conversation(question) or _is_identity_question(question), question

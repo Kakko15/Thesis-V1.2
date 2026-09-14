@@ -147,6 +147,232 @@ _LOOSE_TITLE_REFERENCE = re.compile(
 _GREETING_ADDRESSEES = {
     'dear', 'friend', 'my friend', 'iskai', 'dear iskai',
 }
+# --- Filipino and Ilocano conversational vocabulary -------------------------
+# ISU Echague serves Filipino and Ilocano speakers who code-switch with English
+# constantly, so a greeting arrives in Tagalog or Ilocano as often as in
+# English. Before these sets existed every local pleasantry missed all five
+# conversational fast paths and fell through to vector retrieval: the
+# 2026-09-14 transcript answered a bare "magandang araw" with two cited,
+# unrelated theses labelled as archive-grounded research.
+#
+# Entries are stored in their CANONICAL form -- politeness particles and
+# addressees removed -- because `_short_query_candidates` strips those before
+# testing. "magandang araw po sa inyo" is therefore covered by the pattern for
+# "magandang araw", and the pre-existing English entries pick up "hello po" and
+# "thanks po sir" for free. Never write a phrase twice with and without "po".
+#
+# Every set is matched whole, never as a substring. Short members such as "gm",
+# "uy" and "tnx" are only safe under that rule.
+_LOCAL_GREETINGS = {
+    # Tagalog "how are you", with the spellings students actually type.
+    'kumusta', 'kamusta', 'kmusta', 'musta', 'kumusta ka', 'kamusta ka',
+    'kmusta ka', 'kumusta kayo', 'kmusta kayo', 'kumusta na', 'musta na',
+    'kamusta ka na', 'kumustaka', 'kumustakayo', 'kumustakan',
+    'hello kumusta', 'hello good morning',
+    # Clipped English forms that are near-universal in Philippine chat.
+    'good day', 'good am', 'gud am', 'gudam', 'good pm', 'gud pm', 'gudpm',
+    'gm', 'gud morning', 'gudmorning',
+    'helow', 'helu', 'hellow', 'helo', 'uy', 'hoy', 'mabuhay',
+}
+# The time-of-day families are regexes rather than members: see
+# `_LOCAL_GREETING_PATTERNS`.
+_LOCAL_IDENTITY_QUESTIONS = {
+    'sino ka', 'sino ka ba', 'sino ka ba talaga', 'sino kayo',
+    'ano ka', 'ano kayo', 'ano ang iskai', 'ano ba ang iskai',
+    'sino ang iskai', 'sino si iskai', 'iskai ka ba', 'ikaw ba si iskai',
+    'ikaw si iskai', 'ano ang pangalan mo', 'anong pangalan mo',
+    'ano ng pangalan mo', 'ai ka ba', 'bot ka ba', 'chatbot ka ba',
+    'robot ka ba', 'tao ka ba',
+    # Ilocano.
+    'siasino ka', 'siasinoka', 'siasinoka ngay', 'asino ka', 'asinoka',
+    'ania ka', 'ania ti naganmo', 'ania ti nagan mo', 'siasino ni iskai',
+    'ania ti iskai',
+}
+_LOCAL_CAPABILITY_QUESTIONS = {
+    'ano ang kaya mo', 'anong kaya mo', 'ano kaya mong gawin',
+    'ano ang kaya mong gawin', 'anong kaya mong gawin',
+    'ano ang pwede mong gawin', 'anong pwede mong gawin',
+    'ano ang magagawa mo', 'anong magagawa mo', 'ano ang maitutulong mo',
+    'anong maitutulong mo', 'ano ang maitutulong mo sakin',
+    'paano ka makakatulong', 'pano ka makakatulong',
+    'ano ang pwede kong itanong', 'ano pwede kong itanong',
+    'ano ang pwede kong itanong sa iyo', 'ano ang pwedeng itanong',
+    'paano ka gumagana', 'pano ka gumagana', 'paano gamitin ang iskai',
+    'ano ang gamit ng iskai', 'tulong', 'patulong', 'pahelp',
+    'pwede mo ba akong tulungan', 'pwede ka bang tumulong',
+    'matutulungan mo ba ako',
+    # Ilocano.
+    'ania ti kabaelam', 'ania ti maaramidam', 'ania ti mabalinmo',
+    'ania ti mabalinmo nga aramiden', 'ania ti maitulongmo',
+    'ania ti mabalinko nga isaludsod', 'tulongannak',
+}
+_LOCAL_THANKS = {
+    'salamat', 'maraming salamat', 'salamat ng marami', 'salamat sa tulong',
+    'salamat sa tulong mo', 'maraming salamat sa tulong',
+    'maraming salamat sa iyong tulong', 'salamat sa info', 'salamat ulit',
+    'salamat ha', 'ok salamat', 'okay salamat', 'sige salamat', 'opo salamat',
+    'thank you sa tulong', 'thank u', 'tnk u', 'thankyou', 'thnks', 'tnx',
+    'tenks', 'slmt', 'galing mo', 'ang galing', 'nice',
+    # Ilocano.
+    'agyamanak', 'agyaman ak', 'agyamanak iti tulongmo', 'dios ti agngina',
+    'diyos ti agngina', 'dyos ti agngina',
+}
+# Only the forms that cannot ALSO mean "yes, go on". The affirmation family --
+# sige, cge, opo, oo, ok na, ayos na, tama na, wala na -- is deliberately
+# absent: `_is_courtesy_message` runs long before archive paging is resolved,
+# so reading "sige" as goodbye would end the conversation of a user who just
+# said carry on, and "hindi po" is outright a NO to a clarifying question.
+_LOCAL_FAREWELLS = {
+    'paalam', 'bye na', 'bye ingat', 'ingat', 'ingat ka', 'hanggang sa muli',
+    'wala na akong tanong', 'yun lang', 'ayun lang', 'iyon lang',
+    'yun lang salamat', 'aalis na ako', 'alis na ako', 'tapos na ako',
+    'babalik ako', 'salamat at paalam',
+    # Ilocano.
+    'agpakadaakon', 'agpakadaak', 'innakon', 'mapanakon', 'agkitatanto',
+    'kasta laeng', 'kastan',
+}
+# Terms of address that can close any pleasantry. Stripped from the tail before
+# matching, so "kumusta po kabsat" and "salamat idol" reach the canonical entry.
+_LOCAL_ADDRESSEES = {
+    'sa inyong lahat', 'sa inyo', 'sa iyo', 'sa lahat', 'kadakayo', 'kenka',
+    'unay', 'apo', 'sir', 'maam', 'ma am', 'ma am sir', 'mam', 'ser', 'idol',
+    'boss', 'bossing', 'manong', 'manang', 'gayyem', 'gayyemko', 'kabsat',
+    'ading', 'ate', 'kuya', 'bes', 'pre', 'pare', 'kaibigan',
+}
+
+_GREETINGS_ALL = _GREETINGS | _LOCAL_GREETINGS
+_IDENTITY_QUESTIONS_ALL = _IDENTITY_QUESTIONS | _LOCAL_IDENTITY_QUESTIONS
+_CAPABILITY_QUESTIONS_ALL = _CAPABILITY_QUESTIONS | _LOCAL_CAPABILITY_QUESTIONS
+_THANKS_ALL = _THANKS | _LOCAL_THANKS
+_FAREWELLS_ALL = _FAREWELLS | _LOCAL_FAREWELLS
+_ADDRESSEES = _GREETING_ADDRESSEES | _LOCAL_ADDRESSEES
+# Longest first, and a TUPLE. The prefix scan in `_is_simple_conversation`
+# stops at its first hit, so iterating the set made the result depend on
+# PYTHONHASHSEED, which Python randomizes per process: measured 2026-09-14,
+# `hi there friend` was True under seeds 0/2/7 and False under 1/3, and
+# `hey there iskai` the other way round, because `hi`/`hi there` are both
+# prefixes and whichever the set yielded first won. The same user got a
+# different answer to the same greeting after a restart. The local stems
+# overlap the same way (`kumusta`/`kumusta ka`, `musta`/`musta na`), which
+# would have made that routine rather than rare.
+_GREETINGS_BY_LENGTH = tuple(sorted(_GREETINGS_ALL, key=len, reverse=True))
+_ADDRESSEES_BY_LENGTH = tuple(sorted(_ADDRESSEES, key=len, reverse=True))
+# Enclitic politeness. Removed as whole tokens, never as a substring, so
+# "population", "repo" and "topic" keep their letters.
+_POLITENESS_PARTICLES = frozenset({'po', 'ho'})
+# The two time-of-day greeting families, which are large enough that
+# enumerating every spelling would be worse than a pattern. BOTH halves are
+# closed alternations -- there is no \w+ anywhere -- because "magandang
+# sistema", "magandang topic" and "naimbag nga panagadal" are ordinary phrases,
+# and because "araw" is also "sun" and "gabi" is also the root vegetable taro.
+# Matched with fullmatch, never search: search finds a greeting inside
+# "ano ang magandang araw para mag-defense".
+_LOCAL_GREETING_PATTERNS = (
+    # magandang / gandang / mgandang / maganda ... + araw|umaga|tanghali|hapon|gabi
+    re.compile(r'(?:m(?:a|)g(?:a|)nda(?:ng)?|gandang)\s+(?:araw|umaga|tanghali|hapon|gabi)'),
+    # naimbag [nga|a] aldaw|bigat|malem|rabii|sardam, with the polite -yo enclitic
+    re.compile(r'naimbag(?:\s+(?:nga|a))?\s+(?:aldaw|bigat|malem|rabii|sardam)(?:\s?yo)?'),
+)
+# --- Filipino and Ilocano catalog routing -----------------------------------
+# All of these run against the NORMALIZED string, where re.sub(r'[^a-z0-9 ]+')
+# has already turned every hyphen into a space -- so "pag-aaral" is "pag aaral"
+# and "anu-ano" is "anu ano" by the time they are tested.
+#
+# The single load-bearing piece is the guard below. "ano", "ilan" and "alin"
+# open catalog questions AND ordinary research questions in equal measure, so
+# what separates them is not the interrogative but whether the sentence points
+# at ONE manuscript. "ano ang mga tesis dito" is the catalog; "ano ang
+# metodolohiya ng pag-aaral na ito" is a manuscript, and routing the second to
+# the catalog would replace a real answer with an alphabetical list.
+_FIL_RETRIEVAL_GUARD = re.compile(
+    # Proximal, distal and third-person reference to a specific study.
+    r'\bna ito\b|\bnito\b|\bna iyon\b|\bniyon\b|\bna iyan\b|\bniyan\b'
+    r'|\bna yan\b|\bna yun\b|\bnoon\b|\bdaytoy\b|\bdayta\b'
+    r'|\bni\b|\bnina\b|\bnila\b|\bniya\b|\bkanila\b|\bkanilang\b'
+    # Something the conversation already surfaced.
+    r'|\bbinanggit\b|\bnabanggit\b|\bginamit\b|\bsinipi\b|\bsinuri\b'
+    r'|\btinalakay\b|\btinukoy\b|\bnabasa\b|\bnapag aralan\b|\bipinakita\b'
+    # Parts of a manuscript, which only a manuscript has.
+    r'|\brrl\b|\bkabanata\b|\bkapitulo\b|\bchapter\b|\bpahina\b|\bsanggunian\b'
+    r'|\brespondente\w*\b|\brespondents?\b|\blayunin\b|\btalahanayan\b|\bakda\b'
+    # A topic or a year narrows to a subject, so the catalog page would be wrong.
+    r'|\btungkol sa\b|\bukol sa\b|\bpatungkol\b|\bmaipapan\b'
+    r'|\bkaugnayan\b|\bkaugnay\b|\brelated\b|\bpinaka\w*\b'
+    r'|\bnoong\b|\btaong\b|\b(?:19|20)\d\d\b'
+)
+# Function words only. A content noun breaks the run, which is exactly what
+# separates "ano ang mga tesis dito" from "ano ang metodolohiya ng mga
+# pag-aaral dito".
+_FIL_FILLER = (
+    r'(?:ang|ba|po|yung|ung|yong|iyong|mga|nga|lahat|ng|na|pa|available'
+    r'|naka|nasa|sa|dito|rito|klase|klaseng|uri|uring|tipo|kategorya'
+    r'|kategoryang|natatanging|archive|arkibo|index|indexed)'
+)
+_ILO_FILLER = r'(?:dagiti|ti|iti|dagitoy|nga|a|adda|ada|amin|maysa|available|listaan|lista)'
+_FIL_CAT = r'(?:t(?:e|i)sis(?:es)?|thes(?:is|es|ises)|titulo|titulos|pamagat)'
+# Pluralized only: unpluralized "pananaliksik" names a single manuscript, and
+# English "research"/"study" are absent from the live catalog nouns too.
+_FIL_CAT_PLURAL = r'(?:mga pag aaral|mga pananaliksik|mga panagsukisok|mga study|mga studies)'
+_FIL_CAT_ANY = rf'(?:{_FIL_CAT}|{_FIL_CAT_PLURAL})'
+# "sistema", "library", "aklatan", "database" and "katalogo" are deliberately
+# NOT scope words: in a CCSICT archive they are among the commonest words in
+# thesis TITLES.
+_FIL_SCOPE = (
+    r'\b(?:dito|rito|nandito|narito|meron|mayroon|merong|available'
+    r'|archive|arkibo|indexed)\b'
+)
+_ILO_SCOPE = r'\b(?:ditoy|dtoy|adda|ada|archive|arkibo|indexed)\b'
+# Interrogative + a run of function words + a catalog noun. Each still requires
+# a scope word, exactly as the English list patterns do.
+_FIL_INVENTORY_PATTERNS = (
+    rf'\b(?:ano|anong|anu|anu ano|ano ano|alin|aling|nasaan|nasan|saan)\s+'
+    rf'(?:{_FIL_FILLER}\s+)*{_FIL_CAT_ANY}\b',
+    rf'\b(?:ilan|ilang|gaano ka(?:rami|dami)|mano|manu|pila|piga)\s+'
+    rf'(?:(?:{_FIL_FILLER}|{_ILO_FILLER})\s+)*{_FIL_CAT_ANY}\b',
+    rf'\b(?:bilang|kabuuan|kabuuang bilang|total)\s+(?:ng|nang|dagiti|ti)\s+'
+    rf'(?:{_FIL_FILLER}\s+)*{_FIL_CAT_ANY}\b',
+)
+# "ania" has no English or Tagalog homograph and "dagiti" is a plural article,
+# so the adjacency run here is unambiguous.
+_ILO_INVENTORY_PATTERN = (
+    rf'\b(?:ania|anya|aniada|ayanna)\s+(?:{_ILO_FILLER}\s+)*{_FIL_CAT_ANY}\b'
+)
+# "list the theses" as an imperative. Anchored on the RIGHT instead of
+# requiring a scope word: once the filler run reaches the catalog noun the
+# pattern matches and anything after it is silently discarded, so without the
+# anchor "ilista mo ang mga tesis ni Enoy" and "ipakita mo ang mga tesis
+# tungkol sa OCR" returned the unfiltered alphabetical page -- a wrong answer
+# rather than a degraded one.
+_FIL_ENUMERATE_PATTERN = (
+    r'\b(?:ilista|listahin|listahan|ipalista|ipakita|pakita|banggitin|itala|ilatag'
+    r'|p(?:w|uw)ede(?:\s+(?:ko|po|ba|bang|kong))*\s+(?:makita|mabasa|matingnan|ma access))\s+'
+    rf'(?:(?:mo|nyo|niyo|ninyo|po)\s+)*(?:(?:{_FIL_FILLER}|{_ILO_FILLER})\s+)*{_FIL_CAT}'
+    r'(?:\s+(?:dito|rito|sa archive|sa arkibo|nasa archive|na available'
+    r'|na naka index|lahat))?\s*$'
+)
+# The analogue of the English "(?:any|are there|is there).*(?:other|more)"
+# pattern, and it inherits that contract: the otherness word is mandatory and
+# must govern the catalog noun, so "may ibang respondents ba ang tesis na
+# iyon" stays a manuscript question.
+_FIL_OTHERNESS_PATTERN = (
+    r'\b(?:may|meron|mayroon|merong|adda|ada)\b.*'
+    r'\b(?:iba|ibang|sabali|dadduma|duduma)\s+(?:pa(?:ng|y)?\s+(?:ba\s+|bang\s+|kadi\s+)?)?'
+    rf'(?:nga\s+|na\s+|mga\s+)?{_FIL_CAT}\b'
+)
+# Filipino puts the count interrogative and the catalog noun on opposite sides
+# of the verb ("ilang tesis ang meron dito"), so this one cannot be adjacency
+# anchored. It is only ever consulted AFTER the adjacency form above has
+# already opened the inventory path, so a marginal hit degrades a listing to a
+# count rather than replacing a retrieval answer.
+_FIL_COUNT_PATTERNS = (
+    rf'\b(?:ilan|ilang|gaano ka(?:rami|dami)|mano|manu|pila|piga)\b.*\b{_FIL_CAT_ANY}\b',
+    rf'\b(?:bilang|kabuuan|kabuuang bilang|total)\s+(?:ng|nang|dagiti|ti)\s+'
+    rf'(?:{_FIL_FILLER}\s+)*{_FIL_CAT_ANY}\b',
+)
+_FIL_COUNT_CONFIRMATION = (
+    r'(?:ilan|ilang|mano|manu|pila)\s+(?:silang\s+|sila\s+|ti\s+|dagiti\s+)?'
+    r'(?:lahat|amin|isu amin|total|kabuuan)(?:\s+(?:ba|po|kadi))?'
+)
 _ARCHIVE_INVENTORY_LIMIT = 10
 _NUMBERED_THESIS_REFERENCE = re.compile(
     r'^\s*(?:(?:tell me(?: more)?|what|explain|summarize|describe)(?:\s+about)?\s+)?'
@@ -191,42 +417,188 @@ _IN_DOCUMENT_COUNTABLE = re.compile(
 )
 
 
+# Every archive listing and count ends with this phrase, which makes it the one
+# reliable way to read a stored transcript back and find which turns were
+# listings -- the cursor a "show me the rest" follow-up has to page from.
+_ARCHIVE_LISTING_MARKER = 'from the live indexed archive'
+# Ways of asking for the next page of a listing. None of them names a thesis,
+# so none can be answered by retrieval: the archive catalog is the only thing
+# that knows which titles have not been shown yet. These say "the list" plainly
+# enough to mean it even a few turns after the page they continue.
+_ARCHIVE_CONTINUATION_PATTERNS = (
+    r'\bremaining\b',
+    r'\brest of (?:the\s+)?'
+    r'(?:them|those|these|it|list|listing|titles?|thesis|theses|papers?|studies)\b',
+    r'\bothers\b',
+    r'\b(?:any|the|some)\s+other\s+'
+    r'(?:\d+|thesis|theses|paper|papers|study|studies|title|titles|one|ones)\b',
+    r'\b(?:thesis|theses|paper|papers|study|studies|title|titles|one|ones)\s+'
+    r'(?:other than|besides|apart from)\b',
+    r'\bnext\s+(?:\d+|batch|page|set|few|ones|titles|theses|papers)\b',
+    r'\bmore\s+(?:titles?|theses|thesis|papers?|studies)\b',
+    # Filipino and Ilocano. (?:t(?:e|i)sis(?:es)?|thes(?:is|es|ises)) is theses only -- "pananaliksik", "titulo"
+    # and "pamagat" were dropped because they name a manuscript as readily as
+    # the catalog. Each form is anchored on a catalog noun or on end-of-string,
+    # so "mga sumusunod na tesis" ("the theses listed below") cannot open it.
+    r'\bnatitira(?:ng)?\b(?:\s+(?:na\s+|mga\s+)*(?:t(?:e|i)sis(?:es)?|thes(?:is|es|ises))\b|\s*$)',
+    r'\b(?:nabati|nabatbati|natda|nalalabi)\b'
+    r'(?:\s+(?:nga\s+|a\s+|na\s+|dagiti\s+|mga\s+)*(?:t(?:e|i)sis(?:es)?|thes(?:is|es|ises))\b|\s*$)',
+    r'\b(?:iba|ibang|sabali|dadduma|duduma)\s+'
+    r'(?:pa(?:ng|y)?\s+(?:ba\s+|bang\s+|kadi\s+)?)?'
+    r'(?:nga\s+|na\s+|mga\s+)?(?:t(?:e|i)sis(?:es)?|thes(?:is|es|ises))\s*$',
+    r'\b(?:t(?:e|i)sis(?:es)?|thes(?:is|es|ises))\s+(?:na\s+)?(?:bukod sa|maliban sa|malaksid|puera sa|liban sa)\b',
+    r'\b(?:susunod|kasunod)\s+(?:na\s+)?(?:\d+|batch|set|(?:t(?:e|i)sis(?:es)?|thes(?:is|es|ises)))\b',
+    r'\b(?:marami|madami|dagdag|adu)\s+'
+    r'(?:pa(?:ng|y)?\s+(?:ba\s+|bang\s+|kadi\s+)?)?'
+    r'(?:nga\s+|na\s+|mga\s+)?(?:t(?:e|i)sis(?:es)?|thes(?:is|es|ises))\s*$',
+)
+# The same intent, worded so that it only means "the next page" while the page
+# is still what is on screen. After an answer about one thesis, "more" and
+# "the rest" ask for more of that answer, so these need the listing to be the
+# turn immediately above them.
+_WEAK_CONTINUATION_PATTERNS = (
+    # Bare "the rest" only. "the rest of <something>" either names the list --
+    # handled above, unambiguously -- or names part of a manuscript.
+    r'\bthe rest\b(?!\s+of)',
+    r'\b(?:show|list|give|provide|see|display|send)\s+(?:me\s+)?(?:the\s+)?more\b',
+    r'^(?:show\s+|see\s+)?more(?:\s+please)?$',
+    r'^continue(?:\s+(?:the\s+)?(?:list|listing))?$',
+    r'\bwhat else\b',
+    # Filipino and Ilocano, fully anchored. "ano pa" and "may iba pa" mean the
+    # next page only while the page is still on screen; mid-discussion they ask
+    # for more of the manuscript being discussed.
+    r'^(?:ano|anong|anu|ania|anya)\s+pa(?:y)?(?:\s+(?:ba|po|kadi))?'
+    r'(?:\s+(?:ang|ti)?\s*(?:meron|mayroon|adda|natira|iba|sabali))?$',
+    r'^(?:may|meron|mayroon|merong|adda|ada)\s+pa(?:y)?'
+    r'(?:\s*(?:ba|bang|kadi|po))?(?:\s+(?:iba|ibang|sabali|dadduma))?$',
+    r'^(?:iba|ibang|sabali|dadduma)\s+pa(?:y)?(?:\s+(?:ba|po|kadi))?$',
+    r'^(?:tuloy|ituloy|ipagpatuloy)(?:\s+(?:mo|po))?'
+    r'(?:\s+(?:ang|yung|ung)\s+(?:lista|listahan))?$',
+    r'^(?:dagdag|marami|madami|adu)\s+pa(?:y)?(?:\s+(?:po|ba))?$',
+)
+# "more" belongs to both "show me more" and "tell me more about number 3". This
+# separates them: a question pointing at one already-listed thesis stays a
+# retrieval follow-up, whatever page-shaped words it happens to contain.
+_ABOUT_A_SHOWN_ITEM = re.compile(
+    r'\babout\s+(?:it|this|that|these|those|them|the\s+(?:thesis|study|paper))\b',
+)
+
+
 def _normalize_short_query(question: str) -> str:
     return re.sub(r'[^a-z0-9 ]+', ' ', question.lower()).strip()
 
 
+def _strip_trailing_addressees(normalized: str) -> str:
+    """Drop terms of address from the tail: "kumusta kabsat" -> "kumusta"."""
+    text = normalized
+    while True:
+        for addressee in _ADDRESSEES_BY_LENGTH:
+            suffix = f' {addressee}'
+            if text.endswith(suffix):
+                text = text[:-len(suffix)]
+                break
+        else:
+            return text
+
+
+def _short_query_candidates(question: str) -> list[str]:
+    """The message as typed, then progressively politer readings of it.
+
+    Filipino and Ilocano carry politeness as an enclitic particle ("po", "ho")
+    that attaches anywhere in the sentence, and close pleasantries on a term of
+    address ("iskai", "apo", "kabsat", "sir"). Both compose with every phrase,
+    so enumerating them would multiply each conversational set several times
+    over and still miss a combination. Stripping them here instead lets each
+    set hold ONE canonical entry per phrase -- and makes the existing English
+    entries absorb "hello po", "good morning po iskai" and "thanks po sir" with
+    no new members at all.
+
+    Ordered as typed first, and tested in that order by every caller, because a
+    stripped reading must never beat one that matches as written: "ano ang
+    iskai" is an identity question, and reducing it to "ano ang" before testing
+    would lose it.
+    """
+    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
+    candidates = [normalized]
+    without_particles = ' '.join(
+        token for token in normalized.split() if token not in _POLITENESS_PARTICLES
+    )
+    # A bare "po" is a stray send. If stripping would empty the message, keep
+    # the original so it cannot match some set's shortest member by accident.
+    if without_particles and without_particles != normalized:
+        candidates.append(without_particles)
+    without_addressee = _strip_trailing_addressees(candidates[-1])
+    if without_addressee and without_addressee not in candidates:
+        candidates.append(without_addressee)
+    return candidates
+
+
+def _matches_local_greeting(normalized: str) -> bool:
+    """Whether the whole message is a Tagalog or Ilocano time-of-day greeting."""
+    return any(pattern.fullmatch(normalized) for pattern in _LOCAL_GREETING_PATTERNS)
+
+
+def _longest_greeting_prefix(normalized: str) -> str | None:
+    """The longest greeting the message opens with, or None.
+
+    Longest wins deterministically. "hi there friend" reads as "hi there" plus
+    an addressee, not as "hi" plus two stray words, and which of those the old
+    set-iteration produced depended on the process hash seed.
+    """
+    for greeting in _GREETINGS_BY_LENGTH:
+        if normalized.startswith(f'{greeting} '):
+            return greeting
+    return None
+
+
 def _is_simple_conversation(question: str) -> bool:
     """Handle greetings and identity questions without an expensive RAG call."""
-    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
-    if len(normalized) > 80:
+    candidates = _short_query_candidates(question)
+    if len(candidates[0]) > 80:
         return False
-    if normalized in _GREETINGS or normalized in _IDENTITY_QUESTIONS:
-        return True
-    for greeting in _GREETINGS:
-        if normalized.startswith(f'{greeting} '):
-            remainder = normalized[len(greeting) + 1:]
-            # A single trailing word is normally a name or mistyped addressee
-            # ("hello iskai", "hello sdad"), not a research question. Longer
-            # wording still falls through to RAG so "hello machine learning"
-            # cannot silently lose a topic query.
-            return (
-                remainder in _IDENTITY_QUESTIONS
-                or remainder in _GREETING_ADDRESSEES
-                or len(remainder.split()) == 1
-            )
+    for normalized in candidates:
+        if (
+            normalized in _GREETINGS_ALL
+            or normalized in _IDENTITY_QUESTIONS_ALL
+            or _matches_local_greeting(normalized)
+        ):
+            return True
+    for normalized in candidates:
+        greeting = _longest_greeting_prefix(normalized)
+        if greeting is None:
+            continue
+        remainder = normalized[len(greeting) + 1:]
+        if remainder in _IDENTITY_QUESTIONS_ALL or remainder in _ADDRESSEES:
+            return True
+        # A single trailing word is normally a name or mistyped addressee
+        # ("hello iskai", "hello sdad"), not a research question. Longer
+        # wording still falls through to RAG so "hello machine learning"
+        # cannot silently lose a topic query.
+        #
+        # Deliberately restricted to the ENGLISH greetings. Filipino and
+        # Ilocano speakers routinely open with greeting-then-topic, so
+        # extending this to the local stems would read "magandang araw ocr" as
+        # a pleasantry and answer it with a welcome message and no retrieval --
+        # turning a rare English edge case into the common path.
+        if greeting in _GREETINGS and len(remainder.split()) == 1:
+            return True
     return False
 
 
 def _is_identity_question(question: str) -> bool:
     """Whether a local conversational turn asks what IskAI is."""
-    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
-    if normalized in _IDENTITY_QUESTIONS:
-        return True
-    return any(
-        normalized == f'{greeting} {identity}'
-        for greeting in _GREETINGS
-        for identity in _IDENTITY_QUESTIONS
-    )
+    for normalized in _short_query_candidates(question):
+        if normalized in _IDENTITY_QUESTIONS_ALL:
+            return True
+        # Order-independent on purpose: a match needs BOTH halves to land, so
+        # no greeting can shadow another the way the prefix scan above could.
+        for greeting in _GREETINGS_ALL:
+            if (
+                normalized.startswith(f'{greeting} ')
+                and normalized[len(greeting) + 1:] in _IDENTITY_QUESTIONS_ALL
+            ):
+                return True
+    return False
 
 
 def _is_unsupported_single_token_query(
@@ -258,27 +630,38 @@ def _is_unsupported_single_token_query(
 
 def _is_capability_question(question: str) -> bool:
     """Exact-phrase capability/help questions, with an optional greeting prefix."""
-    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
-    if len(normalized) > 80:
+    candidates = _short_query_candidates(question)
+    if len(candidates[0]) > 80:
         return False
-    if normalized in _CAPABILITY_QUESTIONS:
-        return True
-    for greeting in _GREETINGS:
-        if normalized.startswith(f'{greeting} '):
-            return normalized[len(greeting) + 1:] in _CAPABILITY_QUESTIONS
+    for normalized in candidates:
+        if normalized in _CAPABILITY_QUESTIONS_ALL:
+            return True
+        for greeting in _GREETINGS_ALL:
+            if (
+                normalized.startswith(f'{greeting} ')
+                and normalized[len(greeting) + 1:] in _CAPABILITY_QUESTIONS_ALL
+            ):
+                return True
     return False
 
 
 def _is_courtesy_message(question: str) -> bool:
     """Exact-phrase thanks/goodbyes. Length-capped so 'thanks for the summary
     of the attendance thesis, now compare it with...' stays a research turn."""
-    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
-    return len(normalized) <= 40 and normalized in (_THANKS | _FAREWELLS)
+    candidates = _short_query_candidates(question)
+    if len(candidates[0]) > 40:
+        return False
+    return any(
+        normalized in _THANKS_ALL or normalized in _FAREWELLS_ALL
+        for normalized in candidates
+    )
 
 
 def _is_farewell_message(question: str) -> bool:
-    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
-    return len(normalized) <= 40 and normalized in _FAREWELLS
+    candidates = _short_query_candidates(question)
+    if len(candidates[0]) > 40:
+        return False
+    return any(normalized in _FAREWELLS_ALL for normalized in candidates)
 
 
 def _is_model_question(question: str) -> bool:
@@ -342,7 +725,10 @@ def _is_archive_inventory_question(question: str, prior_questions: list[str] | N
         r'\b(?:any|are there|is there)\b.*\b(?:other|others|more)\b.*\b(?:thesis|theses|papers|studies)\b',
         r'\b(?:thesis|theses|papers|studies)\b.*\bother than\b',
     )
-    if any(re.search(pattern, normalized) for pattern in direct_patterns):
+    if (
+        any(re.search(pattern, normalized) for pattern in direct_patterns)
+        or _matches_local_inventory(normalized)
+    ):
         return True
     recent_inventory_question = any(
         _is_archive_inventory_question(previous)
@@ -369,11 +755,39 @@ def _is_archive_inventory_question(question: str, prior_questions: list[str] | N
     return False
 
 
+def _matches_local_inventory(normalized: str) -> bool:
+    """Filipino and Ilocano catalog questions, with the manuscript guard applied."""
+    if _FIL_RETRIEVAL_GUARD.search(normalized):
+        return False
+    in_scope = bool(re.search(_FIL_SCOPE, normalized))
+    in_scope_ilo = bool(re.search(_ILO_SCOPE, normalized))
+    if (in_scope or in_scope_ilo) and any(
+        re.search(pattern, normalized) for pattern in _FIL_INVENTORY_PATTERNS
+    ):
+        return True
+    if in_scope_ilo and re.search(_ILO_INVENTORY_PATTERN, normalized):
+        return True
+    # These two carry their own anchor -- a right edge and a mandatory
+    # otherness word -- so neither needs a scope word.
+    return bool(
+        re.search(_FIL_ENUMERATE_PATTERN, normalized)
+        or re.search(_FIL_OTHERNESS_PATTERN, normalized)
+    )
+
+
+def _matches_local_count(normalized: str) -> bool:
+    """Filipino and Ilocano "how many" phrasings."""
+    if _FIL_RETRIEVAL_GUARD.search(normalized):
+        return False
+    return any(re.search(pattern, normalized) for pattern in _FIL_COUNT_PATTERNS)
+
+
 def _is_archive_count_confirmation(normalized_question: str) -> bool:
     """Recognize short confirmations of a previously reported archive count."""
     return bool(re.fullmatch(
         r'(?:only|just)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)'
-        r'(?:\s+(?:thesis|theses|paper|papers|study|studies))?(?:\s+for\s+now)?',
+        r'(?:\s+(?:thesis|theses|paper|papers|study|studies))?(?:\s+for\s+now)?'
+        rf'|{_FIL_COUNT_CONFIRMATION}',
         normalized_question,
     ))
 
@@ -385,7 +799,7 @@ def _is_archive_count_question(question: str, prior_questions: list[str] | None 
         re.search(r'\bhow many\b', normalized)
         or re.search(r'\b(?:count|number) of\b.*\b(?:thesis|theses|papers|studies)\b', normalized)
     )
-    if direct_count_question:
+    if direct_count_question or _matches_local_count(normalized):
         return True
     recent_inventory_question = any(
         _is_archive_inventory_question(previous)
@@ -394,22 +808,127 @@ def _is_archive_count_question(question: str, prior_questions: list[str] | None 
     return recent_inventory_question and _is_archive_count_confirmation(normalized)
 
 
+def _references_a_listed_item(question: str, normalized: str) -> bool:
+    """True when the question points at one thesis from the listing on screen."""
+    text = question or ''
+    inline_number = _INLINE_NUMBERED_REFERENCE.search(text)
+    if inline_number and not _IN_DOCUMENT_COUNTABLE.search(text[:inline_number.start()].rstrip()):
+        return True
+    return bool(_INLINE_ORDINAL_REFERENCE.search(text) or _ABOUT_A_SHOWN_ITEM.search(normalized))
+
+
+def _is_archive_continuation_question(question: str, directly_after_listing: bool) -> bool:
+    """Recognize a request for the next page of a listing already shown.
+
+    Only the shape of the request is judged here. The caller pairs it with a
+    non-zero listing cursor, because "any others?" asks for the next page of
+    the archive only once a page of the archive has actually been shown.
+    """
+    normalized = re.sub(r'[^a-z0-9 ]+', ' ', (question or '').lower())
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    if not normalized or _references_a_listed_item(question, normalized):
+        return False
+    # The same manuscript guard the catalog patterns use: "may ibang
+    # respondents pa ba" asks about one study, not about the next page.
+    if _FIL_RETRIEVAL_GUARD.search(normalized):
+        return False
+    patterns = _ARCHIVE_CONTINUATION_PATTERNS
+    if directly_after_listing:
+        patterns += _WEAK_CONTINUATION_PATTERNS
+    return any(re.search(pattern, normalized) for pattern in patterns)
+
+
+def _last_turn_was_a_listing(history_messages: list[dict]) -> bool:
+    """Whether the answer directly above this question was an archive listing."""
+    if not history_messages:
+        return False
+    last_answer = history_messages[-1].get('answer')
+    if last_answer is not None:
+        return _ARCHIVE_LISTING_MARKER in last_answer
+    # A guest transcript carries no answers, so judge the turn by what was asked.
+    questions = [message.get('question', '') for message in history_messages]
+    return _is_archive_inventory_question(questions[-1], questions[:-1])
+
+
+def _archive_listing_cursor(history_messages: list[dict], guest_source_ids: list[str]) -> int:
+    """How many distinct archive titles this conversation has already listed.
+
+    Pages are consecutive slices of one alphabetical ordering, so the number of
+    distinct titles already shown IS the offset the next page begins at.
+    Counting titles rather than listing turns is what keeps a repeated "list the
+    theses" -- which re-shows page one -- from skipping a page ahead.
+    """
+    shown: list[str] = []
+    listed = False
+    for message in history_messages:
+        if _ARCHIVE_LISTING_MARKER not in (message.get('answer') or ''):
+            continue
+        listed = True
+        for source in message.get('sources') or []:
+            paper_id = source.get('id')
+            if paper_id and paper_id not in shown:
+                shown.append(paper_id)
+    if listed:
+        return len(shown)
+    # A guest transcript carries questions only: the browser replays what it
+    # asked plus the ids behind the newest answer, never anything older. That
+    # covers the first continuation, which is as far as a guest can page before
+    # the ten-id cap on `guest_source_ids` truncates the history anyway.
+    questions = [message.get('question', '') for message in history_messages]
+    if questions and _is_archive_inventory_question(questions[-1], questions[:-1]):
+        return len(dict.fromkeys(paper_id for paper_id in guest_source_ids if paper_id))
+    return 0
+
+
 def _archive_inventory_response(
     department: str,
     total: int,
     sources: list[dict],
     *,
     count_only: bool = False,
+    offset: int = 0,
 ) -> str:
-    """Describe the authoritative ready-paper inventory without an LLM."""
+    """Describe the authoritative ready-paper inventory without an LLM.
+
+    `offset` is how many titles this conversation has already been shown. It
+    only changes the wording: the page itself is numbered from 1 either way,
+    because "number 2" is resolved by indexing the sources list this answer
+    ships with, and a page numbered 11-16 would put every such reference out
+    of range.
+    """
     if not total:
         return f'The {department} archive currently has no indexed theses.'
     noun = 'thesis' if total == 1 else 'theses'
     count_text = f'The {department} archive currently has **{total} indexed {noun}**.'
+    provenance = (
+        '\n\nThis count comes from the live indexed archive, not from claims inside a thesis document.'
+    )
     if count_only:
+        if offset:
+            left = max(total - offset, 0)
+            verb = 'is' if left == 1 else 'are'
+            return (
+                f'{count_text} You have already been shown **{offset}** of them, so **{left}** '
+                f'{verb} left to list. This count comes from the live indexed archive.'
+            )
         return f'{count_text} This count comes from the live indexed archive.'
+    if offset and not sources:
+        return (
+            f'{count_text} All **{total}** titles have already been listed in this conversation. '
+            'Ask by topic, title, author, year, or category to narrow the list, '
+            'or use the archive filters.' + provenance
+        )
 
-    lines = [f'{count_text[:-1]}:']
+    shown_through = offset + len(sources)
+    if offset:
+        label = 'remaining' if shown_through >= total else 'next'
+        heading = (
+            f'Here are the {label} **{len(sources)}** of the **{total}** indexed '
+            f'{noun} in the {department} archive:'
+        )
+    else:
+        heading = f'{count_text[:-1]}:'
+    lines = [heading]
     for index, source in enumerate(sources, start=1):
         details = [str(value) for value in (source.get('year'), source.get('track')) if value]
         detail_text = f" ({' · '.join(details)})" if details else ''
@@ -418,15 +937,63 @@ def _archive_inventory_response(
             f'{source.get("authors", "Unknown authors")}{detail_text} [{index}]'
         )
     answer = '\n'.join(lines)
-    if total > len(sources):
+    if not offset and total > len(sources):
         answer += (
             f'\n\nShowing the first **{len(sources)} of {total}** titles alphabetically. '
             'Use the archive filters or ask by topic, title, author, year, or category to narrow the list.'
         )
-    answer += (
-        '\n\nThis count comes from the live indexed archive, not from claims inside a thesis document.'
-    )
+    elif offset and shown_through < total:
+        answer += (
+            f'\n\nThat is **{shown_through} of {total}** titles so far, alphabetically. '
+            'Ask for the rest to continue, or narrow the list by topic, title, author, year, or category.'
+        )
+    elif offset:
+        answer += (
+            f'\n\nThat completes all **{total}** titles, alphabetically. '
+            'Ask by topic, title, author, year, or category to narrow the list.'
+        )
+    answer += provenance
     return answer
+
+
+# The same question in Filipino and Ilocano. "sino si X" / "asino ni X" put the
+# name after a personal article (si / ni / sina / da), which is what makes the
+# one-part form safe here when the English "who is X" pattern still demands two:
+# the article marks the following word as a person, so "sino si Enoy" carries
+# evidence "what about enoy" does not.
+_FIL_HONORIFIC = r"(?:g|gng|dr|sir|maam|ma am|prof|engr|kuya|ate|bb|atty)\.?"
+_FIL_AUTHOR_QUESTION = re.compile(
+    r"\s*(?:sino|sinu|cino|asino|asinno|siasino)\s+(?:po\s+|ba\s+|kadi\s+)*"
+    r"(?:ang\s+|yung\s+|ung\s+)?(?:sina|si|ni|da)\s+"
+    rf"(?:{_FIL_HONORIFIC}\s+)?("
+    r"[A-Za-z][A-Za-z'’-]*"
+    r"(?:\s+(?:[A-Za-z]\.?|[A-Za-z][A-Za-z'’-]*)){0,4}"
+    r")\s*[?.!]*\s*",
+    re.IGNORECASE,
+)
+# Filipino trails function words, scope words and catalog nouns after the name
+# far more freely than English does -- "sino si Enoy sa tesis na ito" is one
+# question, not a name called "Enoy Sa Tesis Na Ito". Trimmed from the right
+# until a real name part remains.
+_FIL_NAME_STOPWORDS = frozenset({
+    'sa', 'ang', 'ng', 'na', 'ba', 'po', 'nga', 'naman', 'at', 'ni', 'si',
+    'kay', 'para', 'tungkol', 'mga', 'ito', 'iyon', 'yon', 'iyan', 'dito',
+    'rito', 'ditoy', 'iti', 'ti', 'lang', 'din', 'rin', 'ken', 'met', 'kadi',
+    'pay', 'pang', 'daytoy', 'dayta', 'hindi', 'wala', 'lahat', 'iba', 'nila',
+    'niya', 'tesis', 'tisis', 'thesis', 'theses', 'pananaliksik', 'sistema',
+    'archive', 'arkibo', 'titulo', 'pamagat', 'kabanata', 'kapitulo', 'papel',
+    'panagsukisok', 'aklatan',
+})
+
+
+def _trim_name_stopwords(name: str) -> str | None:
+    """Drop trailing particles and catalog nouns from a captured name."""
+    parts = name.split()
+    while parts and parts[-1].lower() in _FIL_NAME_STOPWORDS:
+        parts.pop()
+    if not parts or parts[0].lower() in _FIL_NAME_STOPWORDS:
+        return None
+    return ' '.join(parts)
 
 
 def _extract_author_name(question: str) -> str | None:
@@ -439,12 +1006,18 @@ def _extract_author_name(question: str) -> str | None:
         question,
         flags=re.IGNORECASE,
     )
-    if not match:
+    if match:
+        name = re.sub(r'\s+', ' ', match.group(1)).strip()
+        if name.lower().split()[0] in {'the', 'this', 'that', 'your', 'our'}:
+            return None
+        return ' '.join(part.capitalize() for part in name.split())
+    local = _FIL_AUTHOR_QUESTION.fullmatch(question or '')
+    if not local:
         return None
-    name = re.sub(r'\s+', ' ', match.group(1)).strip()
-    if name.lower().split()[0] in {'the', 'this', 'that', 'your', 'our'}:
+    trimmed = _trim_name_stopwords(re.sub(r'\s+', ' ', local.group(1)).strip())
+    if not trimmed:
         return None
-    return ' '.join(part.capitalize() for part in name.split())
+    return ' '.join(part.capitalize() for part in trimmed.split())
 
 
 # `what about enoy?` is the same author question as `what about kurt robin
@@ -486,7 +1059,18 @@ def _extract_followup_author_token(question: str) -> str | None:
 
 def _is_explicit_author_identity_question(question: str) -> bool:
     """A direct `who is` question should return a deterministic not-found result."""
-    return bool(re.match(r'^\s*who\s+is\b', question or '', flags=re.IGNORECASE))
+    if re.match(r'^\s*who\s+is\b', question or '', flags=re.IGNORECASE):
+        return True
+    # "sino si Juan Dela Cruz" is as explicit as "who is Juan Dela Cruz" and
+    # earns the same deterministic notice. One surviving part is a surname
+    # alone -- weaker evidence than the English form demands -- so it falls
+    # through to retrieval on a miss rather than asserting the archive holds
+    # no such author.
+    local = _FIL_AUTHOR_QUESTION.fullmatch(question or '')
+    if not local:
+        return False
+    trimmed = _trim_name_stopwords(re.sub(r'\s+', ' ', local.group(1)).strip())
+    return bool(trimmed and len(trimmed.split()) >= 2)
 
 
 def _format_names(names: list[str]) -> str:
@@ -1509,14 +2093,27 @@ async def _chat_impl_unstamped(
     chat_history_str = _format_chat_history(history_messages)
     prior_questions = [message['question'] for message in history_messages]
 
-    if _is_archive_inventory_question(req.question, prior_questions):
+    # A listing already in progress is continued, not restarted. "provide me
+    # the remaining 6" matched no inventory pattern, fell through to vector
+    # retrieval, and was answered from five chunks: the 2026-09-14 transcript
+    # returned four titles, three of them already listed in the page above it,
+    # under a sentence claiming the evidence did not hold the rest. Retrieval
+    # cannot answer this question at all -- only the catalog knows which titles
+    # have not been shown yet.
+    listing_cursor = _archive_listing_cursor(history_messages, req.guest_source_ids)
+    continues_listing = bool(listing_cursor) and _is_archive_continuation_question(
+        req.question, _last_turn_was_a_listing(history_messages),
+    )
+    if continues_listing or _is_archive_inventory_question(req.question, prior_questions):
         count_only = _is_archive_count_question(req.question, prior_questions)
+        inventory_offset = listing_cursor if continues_listing else 0
         try:
             inventory_total, inventory_sources = await asyncio.to_thread(
                 list_archive_papers,
                 effective_department,
                 req.thesis_category_filter,
                 _ARCHIVE_INVENTORY_LIMIT,
+                inventory_offset,
             )
         except Exception as error:
             logger.exception('Archive inventory lookup failed')
@@ -1530,6 +2127,7 @@ async def _chat_impl_unstamped(
             'duplication_flagged': False,
             'fast_path': 'archive_inventory',
             'department': effective_department,
+            'listing_offset': inventory_offset,
         })
         return ChatResponse(
             answer=_archive_inventory_response(
@@ -1537,6 +2135,7 @@ async def _chat_impl_unstamped(
                 inventory_total,
                 inventory_sources,
                 count_only=count_only,
+                offset=inventory_offset,
             ),
             sources=[] if count_only else inventory_sources,
             session_id=req.session_id,

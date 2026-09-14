@@ -54,8 +54,152 @@ const SCREENING_ICON = {
   neutral: 'text-ink-faint',
 }
 
+// The bands the backend grades on (services/novelty.py::
+// verdict_for_concentration), drawn rather than described. A reader who can
+// see where 81% falls between the 25 and 70 marks has the verdict before they
+// have read a word of it, which is what the figure grid this replaced could
+// not do: ten numbers at one weight, none of them saying which one decided.
+const REVIEW_MARK = 25
+const HIGH_OVERLAP_MARK = 70
+
+const METER_FILL = {
+  critical: 'bg-flame-500',
+  warning: 'bg-gold-400',
+  neutral: 'bg-forest-500',
+}
+const METER_TEXT = {
+  critical: 'text-flame-500',
+  warning: 'text-gold-500',
+  neutral: 'text-forest-700 dark:text-forest-300',
+}
+
 /**
- * One dated line of screening history: what a screen saw, and when.
+ * Concentration on a banded track: the graded figure, and why it graded so.
+ *
+ * Concentration and not coverage, for the reason `scanMetrics` gives at
+ * length: coverage saturates toward 100% for every thesis as a one-department
+ * archive grows, so a bar of it would sit full for everyone and mean nothing.
+ */
+function ConcentrationMeter({ value, tone, caption }) {
+  const pct = Math.min(100, Math.max(0, value))
+  return (
+    <div className="mt-3">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className={cn('font-display text-3xl font-extrabold leading-none tabular-nums', METER_TEXT[tone])}>
+          {pct.toFixed(1)}%
+        </span>
+        <span className="text-ink-muted">of this thesis points at one archived thesis</span>
+      </div>
+      {/* aria-hidden throughout: the track restates the number above it and the
+          band labels restate the verdict beside it, so announcing either again
+          is noise to a reader who has already heard both. */}
+      <div className="relative mt-2.5 h-2 rounded-full bg-[var(--border)]" aria-hidden="true">
+        <div
+          className={cn('absolute inset-y-0 left-0 rounded-full', METER_FILL[tone])}
+          style={{ width: `${pct}%` }}
+        />
+        {[REVIEW_MARK, HIGH_OVERLAP_MARK].map((mark) => (
+          <div
+            key={mark}
+            className="absolute inset-y-0 w-0.5 bg-white/80 dark:bg-black/50"
+            style={{ left: `${mark}%` }}
+          />
+        ))}
+      </div>
+      <div className="relative mt-1 h-3.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint" aria-hidden="true">
+        <span className="absolute left-0">Clear</span>
+        <span className="absolute -translate-x-1/2" style={{ left: `${REVIEW_MARK}%` }}>{REVIEW_MARK}%</span>
+        <span className="absolute -translate-x-1/2" style={{ left: `${HIGH_OVERLAP_MARK}%` }}>{HIGH_OVERLAP_MARK}%</span>
+        <span className="absolute right-0">High overlap</span>
+      </div>
+      {caption && <div className="mt-1.5 text-ink-faint">{caption}</div>}
+    </div>
+  )
+}
+
+/**
+ * The archived theses a screening matched, ranked, each as a share of this
+ * thesis's passages.
+ *
+ * The share is the meter's quantity per paper: "22 of 27 passages" is what
+ * makes a total legible, and a row of bars shows at a glance whether one
+ * thesis accounts for the verdict or several split it. Only the leader is
+ * painted in the verdict's colour, because colouring all of them would say
+ * every match is as serious as the one that set the grade.
+ */
+function MatchedTheses({ papers, totalChunks, tone }) {
+  if (!papers.length) return null
+  return (
+    <ul className="mt-3 space-y-1.5">
+      {papers.map((paper, index) => {
+        const matched = Number(paper.match_count) || 0
+        const share = totalChunks ? Math.min(100, (matched / totalChunks) * 100) : 0
+        return (
+          <li
+            key={paper.id}
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/60 px-2.5 py-2"
+          >
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="line-clamp-2 font-semibold">
+                  {paper.title || 'Untitled thesis'}{paper.year ? ` (${paper.year})` : ''}
+                </div>
+                <div className="mt-0.5 text-ink-muted">
+                  {matched ? `${matched} of ${totalChunks} passages · ` : ''}
+                  closest passage {normalizePercent(paper.similarity).toFixed(2)}%
+                </div>
+              </div>
+              {share > 0 && (
+                <span className="shrink-0 font-display text-sm font-extrabold tabular-nums">
+                  {share.toFixed(0)}%
+                </span>
+              )}
+            </div>
+            {share > 0 && (
+              <div className="mt-1.5 h-1 rounded-full bg-[var(--border)]" aria-hidden="true">
+                <div
+                  className={cn('h-1 rounded-full', index === 0 ? METER_FILL[tone] : 'bg-ink-faint/40')}
+                  style={{ width: `${share}%` }}
+                />
+              </div>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/**
+ * The supporting figures, deliberately below the meter and all at one weight.
+ *
+ * These are the numbers a reviewer asks for second. Coverage stays, because it
+ * is what the earlier records and the paper's tables report, but it is
+ * labelled for what it is: on its own it reads as an accusation, since a
+ * thesis can match something everywhere and still have no single archived
+ * thesis accounting for a tenth of it.
+ */
+function ScreeningFigures({ metrics, threshold }) {
+  const figures = [
+    ['Closest passage', `${metrics.highest.toFixed(2)}%`],
+    ['Matched anywhere', `${metrics.coverage.toFixed(2)}%`],
+    ['Matched passages', `${metrics.matchedChunks} / ${metrics.totalChunks}`],
+    ['Match threshold', `${normalizePercent(threshold).toFixed(2)}%`],
+  ]
+  return (
+    <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-[var(--border)] pt-2.5 sm:grid-cols-4">
+      {figures.map(([label, value]) => (
+        <div key={label}>
+          <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{label}</dt>
+          <dd className="font-semibold tabular-nums text-ink-muted">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+/**
+ * One dated screening: what a screen saw, and when.
  *
  * The archive it ran against is the part readers cannot infer. A thesis
  * screened when the archive held two others is not comparable to one screened
@@ -63,57 +207,32 @@ const SCREENING_ICON = {
  * one. `archive_size` is absent on records written before 2026-09-14, so the
  * count is dropped rather than guessed.
  */
-function ScreeningRun({ label, screening, when, emphasis }) {
+function ScreeningRun({ screening, when, tone }) {
   const metrics = scanMetrics(screening)
   const against = archiveSizeLabel(screening)
-  return (
-    <div className={cn('mt-2', emphasis ? '' : 'opacity-75')}>
-      <div className="font-semibold">
-        {label}
-        {when ? ` · ${formatDate(when)}` : ''}
-        {against ? ` · ${against}` : ''}
+  const caption = [when ? formatDate(when) : '', against].filter(Boolean).join(' · ')
+  if (metrics.matchedChunks === 0) {
+    /* A run that matched nothing has no figures worth four cells of zeros.
+       This is the normal shape of an early upload's record: the archive it was
+       screened against did not yet hold anything it resembles. */
+    return (
+      <div className="mt-2 text-ink-muted">
+        No passage reached the {normalizePercent(screening.threshold).toFixed(2)}% threshold
+        {metrics.totalChunks ? ` across all ${metrics.totalChunks} passages.` : '.'}
+        {caption ? ` (${caption})` : ''}
       </div>
-      {metrics.matchedChunks === 0 ? (
-        /* A run that matched nothing has no figures worth four cells of zeros.
-           This is the normal shape of an early upload's record: the archive it
-           was screened against did not yet hold anything it resembles. */
-        <div className="mt-1 opacity-90">
-          No passage reached the {normalizePercent(screening.threshold).toFixed(2)}% threshold
-          {metrics.totalChunks ? ` across all ${metrics.totalChunks} passages.` : '.'}
-        </div>
-      ) : (
-        <>
-          <div className="mt-1 grid gap-1 opacity-90 sm:grid-cols-2">
-            {/* Concentration leads because it is what the verdict is graded
-                on. Coverage stays, because it is the figure the earlier
-                records and the paper's tables report, but on its own it reads
-                as an accusation: a thesis can be at 100% coverage and still
-                have no single archived thesis accounting for a tenth of it. */}
-            {metrics.concentration > 0 && (
-              <span>Closest single thesis: {metrics.concentration.toFixed(2)}% of passages</span>
-            )}
-            <span>Highest passage similarity: {metrics.highest.toFixed(2)}%</span>
-            <span>Matched anywhere in the archive: {metrics.coverage.toFixed(2)}%</span>
-            <span>Matched passages / total: {metrics.matchedChunks} / {metrics.totalChunks}</span>
-            <span>Threshold: {normalizePercent(screening.threshold).toFixed(2)}%</span>
-          </div>
-          <ul className="mt-1 space-y-0.5 opacity-90">
-            {(screening.matched_papers || []).map((p) => (
-              <li key={p.id}>
-                "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} —{' '}
-                {/* The per-paper passage count is what makes a total legible.
-                    "100% coverage" alone reads as "this is a copy"; "22
-                    passages closest to one thesis, 5 to another" reads as what
-                    it is. `match_count` has always been stored, and was never
-                    shown. */}
-                {p.match_count ? `${p.match_count} ${p.match_count === 1 ? 'passage' : 'passages'}, ` : ''}
-                highest {normalizePercent(p.similarity).toFixed(2)}%
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </div>
+    )
+  }
+  return (
+    <>
+      <ConcentrationMeter value={metrics.concentration} tone={tone} caption={caption} />
+      <MatchedTheses
+        papers={screening.matched_papers || []}
+        totalChunks={metrics.totalChunks}
+        tone={tone}
+      />
+      <ScreeningFigures metrics={metrics} threshold={screening.threshold} />
+    </>
   )
 }
 
@@ -125,42 +244,53 @@ function ScreeningDetail({ scan, indexedAt }) {
   // A rescan can find overlap where the upload found none, so the panel has to
   // open on either being flagged rather than on the at-upload record alone.
   if (!isScreeningFlagged(scan)) return null
-  const tone = verdictTone(scanMetrics(current).verdict)
+  const metrics = scanMetrics(current)
+  const tone = verdictTone(metrics.verdict)
+  // The at-upload run is history, not a second verdict, and printing both at
+  // full weight was the panel's other readability problem: two near-identical
+  // blocks of figures with nothing saying which one is current. It collapses.
+  const showHistory = rescanned && !unchanged
+  const uploadDate = atUpload.screened_at || indexedAt
   return (
     <div>
       <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">
         Duplication screening
       </div>
       <div className={cn(
-        'mt-1.5 rounded-xl border px-3.5 py-2.5 text-xs leading-relaxed',
+        'mt-1.5 rounded-xl border px-4 py-3.5 text-xs leading-relaxed',
         SCREENING_SURFACE[tone] ?? SCREENING_SURFACE.neutral,
       )}>
-        <div className="flex items-center gap-1.5 font-semibold">
-          <ShieldAlert size={13} className={cn('shrink-0', SCREENING_ICON[tone] ?? SCREENING_ICON.neutral)} />
-          {verdictLabel(scanMetrics(current).verdict)}
+        <div className="flex items-center gap-1.5 text-sm font-semibold">
+          <ShieldAlert size={14} className={cn('shrink-0', SCREENING_ICON[tone] ?? SCREENING_ICON.neutral)} />
+          {verdictLabel(metrics.verdict)}
         </div>
-        <p className="mt-1.5 opacity-75">{verdictExplanation(scanMetrics(current).verdict)}</p>
-        {rescanned && (
-          <ScreeningRun
-            label="Rechecked against the whole archive"
-            screening={current}
-            when={current.screened_at}
-            emphasis
-          />
+        <p className="mt-1.5 text-ink-muted">{verdictExplanation(metrics.verdict)}</p>
+        <ScreeningRun
+          screening={current}
+          when={current.screened_at || (rescanned ? null : indexedAt)}
+          tone={tone}
+        />
+        {showHistory && (
+          <details className="group mt-3 border-t border-[var(--border)] pt-2.5">
+            <summary className="cursor-pointer list-none font-semibold text-ink-muted marker:content-none hover:text-ink">
+              <span className="inline-block transition-transform group-open:rotate-90">&#9656;</span>{' '}
+              What the screening saw at upload{uploadDate ? ` · ${formatDate(uploadDate)}` : ''}
+            </summary>
+            <p className="mt-1.5 text-ink-faint">
+              Screening runs once when a thesis is uploaded, so it only sees what was already in
+              the archive. The recheck above compares against everything indexed since.
+            </p>
+            <ScreeningRun
+              screening={atUpload}
+              when={uploadDate}
+              tone={verdictTone(scanMetrics(atUpload).verdict)}
+            />
+          </details>
         )}
-        {!unchanged && (
-          <ScreeningRun
-            label="At upload"
-            screening={atUpload}
-            when={atUpload.screened_at || indexedAt}
-            emphasis={!rescanned}
-          />
-        )}
-        {rescanned && (
-          <p className="mt-2 opacity-60">
-            {unchanged
-              ? `Unchanged since this thesis was uploaded on ${formatDate(atUpload.screened_at || indexedAt)} — it was indexed late enough to have already seen the whole archive.`
-              : 'Screening runs once when a thesis is uploaded, so it only sees what was already in the archive. The recheck compares against everything indexed since.'}
+        {rescanned && unchanged && (
+          <p className="mt-3 border-t border-[var(--border)] pt-2.5 text-ink-faint">
+            Unchanged since this thesis was uploaded on {formatDate(uploadDate)} — it was indexed
+            late enough to have already seen the whole archive.
           </p>
         )}
       </div>
@@ -223,9 +353,14 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           {paper.year && <Badge tone="neutral">{paper.year}</Badge>}
           {paper.department && <Badge tone="neutral">{paper.department}</Badge>}
           {isScreeningFlagged(paper.duplication_scan) && (
-            /* `title` because the number is not self-explanatory: it is the
-               share of this thesis's own chunks that matched anything already
-               archived, not how much of it is copied. */
+            /* Concentration, not coverage, because the badge's tone already
+               comes from `verdictTone` and the verdict is graded on
+               concentration: showing coverage next to it let a card read
+               "100.00%" in the colour of a clear result, or a low number in
+               the colour of a high-overlap one. Coverage falls back in only
+               when a stored record has no chunk counts to derive
+               concentration from (see scanMetrics), where it is the only
+               figure there is. */
             <Badge
               tone={verdictTone(screening.verdict)}
               title={
@@ -233,7 +368,10 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
                 + `archived thesis at or above the screening threshold — ${verdictLabel(screening.verdict).toLowerCase()}`
               }
             >
-              <ShieldAlert size={11} /> {screening.coverage.toFixed(2)}% matched coverage
+              <ShieldAlert size={11} />{' '}
+              {screening.concentration > 0
+                ? `${screening.concentration.toFixed(2)}% closest thesis`
+                : `${screening.coverage.toFixed(2)}% matched coverage`}
             </Badge>
           )}
         </div>
