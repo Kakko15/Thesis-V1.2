@@ -200,7 +200,7 @@ export default function AdminOverview() {
               </span>
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-sm text-ink-muted">High overlap (coverage ≥50%)</span>
+              <span className="text-sm text-ink-muted">High overlap (≥70% on one thesis)</span>
               <span className="font-display text-xl font-extrabold text-flame-500">
                 {overview?.usage?.flagged_scans ?? 0}
               </span>

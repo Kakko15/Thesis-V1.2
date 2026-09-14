@@ -37,6 +37,9 @@ test('builds safe scan metrics from legacy and current records', () => {
   }), {
     highest: 90,
     coverage: 25,
+    // A legacy record predates top_paper_percentage, so it reports no
+    // concentration rather than inferring one from the coverage beside it.
+    concentration: 0,
     matchedChunks: 2,
     totalChunks: 8,
     verdict: 'review_suggested',
@@ -92,6 +95,7 @@ test('builds empty scan metrics for null and malformed legacy records', () => {
   const expected = {
     highest: 0,
     coverage: 0,
+    concentration: 0,
     matchedChunks: 0,
     totalChunks: 0,
     verdict: 'clear',
@@ -251,4 +255,22 @@ test('a recorded archive size is stated plainly, a derived one as an estimate', 
   assert.equal(archiveSizeLabel({ archive_size_estimated: 0 }), '')
   assert.equal(archiveSizeLabel({}), '')
   assert.equal(archiveSizeLabel(null), '')
+})
+
+test('concentration is read out of the record and defaults to 0 for old scans', () => {
+  assert.equal(scanMetrics({ top_paper_percentage: 81.48 }).concentration, 81.48)
+  // Screenings written before 2026-09-14 have no such field.
+  assert.equal(scanMetrics({ matched_chunk_count: 27, total_chunks: 27 }).concentration, 0)
+  assert.equal(scanMetrics({}).concentration, 0)
+})
+
+test('the clear explanation describes scatter rather than claiming nothing matched', () => {
+  // A thesis can be at 100% coverage and still be "clear": every passage found
+  // a neighbour, but no single thesis accounts for much of it. Saying "nothing
+  // resembles this" there would contradict the passage list right beside it.
+  const clear = verdictExplanation('clear')
+  assert.match(clear, /spread across the archive/)
+  assert.ok(!/^Nothing/.test(clear))
+  assert.match(verdictExplanation('high_overlap'), /one archived thesis/)
+  assert.match(verdictExplanation('review_suggested'), /one archived thesis/)
 })

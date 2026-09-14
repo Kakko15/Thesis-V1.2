@@ -73,6 +73,13 @@ export function scanMetrics(scan = {}) {
     coverage: hasChunkCounts
       ? Math.min(100, (matchedChunks / totalChunks) * 100)
       : normalizePercent(record.matched_chunk_percentage ?? record.duplication_percentage),
+    // Share of this thesis whose closest neighbour sits in ONE archived
+    // thesis. The verdict keys off this, not coverage: in a one-department
+    // archive coverage climbs toward 100% for everyone as the corpus grows,
+    // while concentration thins as template matches spread across more papers
+    // and only a genuine near-duplicate keeps it high. Records written before
+    // 2026-09-14 have no such field and report 0.
+    concentration: normalizePercent(record.top_paper_percentage),
     matchedChunks,
     totalChunks,
     verdict: record.verdict_level || (matchedChunks === 0 ? 'clear' : 'review_suggested'),
@@ -195,12 +202,12 @@ export function verdictExplanation(level) {
     return 'Every passage already exists in the archive, so this was not indexed again.'
   }
   if (level === 'high_overlap') {
-    return 'Most of this thesis covers the same ground as an archived one. A faculty reviewer should compare them. This measures topic similarity, not copied wording.'
+    return 'Most of this thesis points at one archived thesis in particular. A faculty reviewer should compare the two. This measures topic similarity, not copied wording.'
   }
   if (level === 'review_suggested') {
-    return 'Some passages resemble an archived thesis, usually a shared template or methodology chapter. Worth a look, nothing more.'
+    return 'A noticeable share of this thesis points at one archived thesis, though most of it does not. Worth a look.'
   }
-  return 'Nothing in this thesis closely resembles another in the archive.'
+  return 'No single archived thesis accounts for much of this one. Passages that did match are spread across the archive, which is what a shared template and a shared institution look like.'
 }
 
 /**
@@ -234,8 +241,10 @@ export function verdictLabel(level) {
  * matter and a methodology chapter, so that reading is common and the uniform
  * red trained people to ignore the badge that matters.
  *
- * The bands are the backend's (services/novelty.py::verdict_for_coverage):
- * under 50% coverage is `review_suggested`, 50% and over is `high_overlap`,
+ * The bands are the backend's (services/novelty.py::verdict_for_concentration)
+ * and key off concentration, not coverage: under 25% of a thesis pointing at
+ * one archived thesis is `clear`, 25-70% is `review_suggested`, 70% and over
+ * is `high_overlap`,
  * and `exact_duplicate` is every chunk verbatim — the worker refuses that job,
  * so the level only reaches this UI through a failed job's screening record.
  * Semantic aliases rather than hues, so the audited AA pairings still apply.
