@@ -521,6 +521,58 @@ def prohibited_reason(text: str) -> str | None:
     return None
 
 
+# Grouped so the reference sweep stays one `any()` instead of a boolean chain
+# that trips R0916 every time a language is added.
+_EXPLICIT_REFERENCE_PATTERNS = (
+    _FOLLOWUP_REFERENCE,
+    _DEMONSTRATIVE_REFERENCE,
+    _TRAILING_DEMONSTRATIVE,
+    _ABOVE_REFERENCE,
+    _BARE_DOCUMENT_REFERENCE,
+    # The local demonstrative twins inherit the English constants' discipline
+    # and are exempt from the own-subject veto: "ang layunin NG tesis na ito"
+    # is a reference back, exactly as "the objectives of this study" is today.
+    _FIL_DEMONSTRATIVE_REFERENCE,
+    _FIL_TRAILING_DEMONSTRATIVE,
+)
+_LOCAL_POSSESSOR_PATTERNS = (
+    _FIL_BARE_DOCUMENT_REFERENCE,
+    _FIL_ENCLITIC_POSSESSOR,
+    _FIL_FUSED_POSSESSOR,
+)
+
+
+def _has_explicit_reference(normalized: str) -> bool:
+    """An outright reference back into the prior turn, in any supported
+    language. Strong enough to stand on its own, so it runs before the
+    own-subject veto.
+    """
+    if any(pattern.search(normalized) for pattern in _EXPLICIT_REFERENCE_PATTERNS):
+        return True
+    return bool(_FOLLOWUP_START.search(_DISCOURSE_OPENER.sub('', normalized)))
+
+
+def _local_followup_signal(normalized: str, words: int) -> bool:
+    """Filipino and Ilocano evidence that is weaker than its English
+    counterpart, so it is only reached once the question is known not to name
+    its own subject. A coordinator additionally supplies an antecedent inside
+    the sentence ("si Gallardo at ang tesis nila").
+    """
+    if not _COORDINATOR.search(normalized) and _FIL_GOVERNED_PRONOUN.search(normalized):
+        return True
+    if any(pattern.search(normalized) for pattern in _LOCAL_POSSESSOR_PATTERNS):
+        return True
+    if words <= 5 and _FIL_DANGLING_DEMONSTRATIVE.search(normalized):
+        return True
+    # A document part at the right edge with nothing saying whose.
+    return bool(
+        words <= 6
+        and _FIL_BARE_ASPECT.search(normalized)
+        and _LOCAL_MARKER.search(normalized)
+        and not _LOCAL_SUPERLATIVE.search(normalized)
+    )
+
+
 def is_ambiguous_followup(question: str, prior_questions: list[str]) -> bool:
     """Identify questions that need prior conversational references resolved."""
     if not prior_questions:
@@ -528,47 +580,15 @@ def is_ambiguous_followup(question: str, prior_questions: list[str]) -> bool:
     normalized = re.sub(r'\s+', ' ', question or '').strip()
     if not normalized:
         return False
-    if (
-        _FOLLOWUP_REFERENCE.search(normalized)
-        or _DEMONSTRATIVE_REFERENCE.search(normalized)
-        or _TRAILING_DEMONSTRATIVE.search(normalized)
-        or _ABOVE_REFERENCE.search(normalized)
-        or _BARE_DOCUMENT_REFERENCE.search(normalized)
-        or _FOLLOWUP_START.search(_DISCOURSE_OPENER.sub('', normalized))
-    ):
-        return True
-    # The local demonstrative twin inherits the English constant's discipline
-    # and is exempt from the veto below: "ang layunin NG tesis na ito" is a
-    # reference back, exactly as "the objectives of this study" is today.
-    if (
-        _FIL_DEMONSTRATIVE_REFERENCE.search(normalized)
-        or _FIL_TRAILING_DEMONSTRATIVE.search(normalized)
-    ):
+    if _has_explicit_reference(normalized):
         return True
     # Everything past this point is weaker evidence than its English
     # counterpart, so it only counts when the question does NOT carry its own
-    # subject. A coordinator additionally supplies an antecedent inside the
-    # sentence ("si Gallardo at ang tesis nila").
+    # subject.
     if _names_its_own_subject(normalized):
         return False
     words = len(normalized.split())
-    if not _COORDINATOR.search(normalized) and _FIL_GOVERNED_PRONOUN.search(normalized):
-        return True
-    if (
-        _FIL_BARE_DOCUMENT_REFERENCE.search(normalized)
-        or _FIL_ENCLITIC_POSSESSOR.search(normalized)
-        or _FIL_FUSED_POSSESSOR.search(normalized)
-    ):
-        return True
-    if words <= 5 and _FIL_DANGLING_DEMONSTRATIVE.search(normalized):
-        return True
-    # A document part at the right edge with nothing saying whose.
-    if (
-        words <= 6
-        and _FIL_BARE_ASPECT.search(normalized)
-        and _LOCAL_MARKER.search(normalized)
-        and not _LOCAL_SUPERLATIVE.search(normalized)
-    ):
+    if _local_followup_signal(normalized, words):
         return True
     # A very short question mid-conversation is almost always a continuation --
     # unless it names its own subject. Filipino and Ilocano have no copula and
