@@ -59,6 +59,14 @@ tmp-*.json
 # tracked at the repo root from 4847209 until 2026-09-14, referenced by
 # nothing and carrying an absolute path from the machine that wrote them.
 tmp-*.log
+# One-off reproduction scripts. `_repro2_tmp.py` -- a script that provisions a
+# throwaway Supabase admin user to reproduce an auth bug -- was committed on
+# 2026-09-14 by a `git add -A` because every pattern above requires a leading
+# "tmp". These name the machine's own paths and create real accounts; they are
+# never part of the artifact.
+_repro*
+*_tmp.py
+tmp_*.py
 rag-thesis-backend/.venv*/
 rag-thesis-backend/.pylint-cache-*/
 rag-thesis-backend/.pytest-*/
