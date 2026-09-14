@@ -253,3 +253,124 @@ class TestReindexDryRun:
 
         with __import__('pytest').raises(ValueError, match='different index configuration'):
             reindex_citations.run_apply(args, object(), state_path)
+
+
+class TestRepairChunkSections:
+    """The repair rewrites labels on an already-indexed corpus, so its whole
+    safety story is that it refuses to write when the chunk layout it
+    re-derives is not the layout that was indexed."""
+
+    class FakeTable:
+        def __init__(self, rows, updates):
+            self.rows = rows
+            self.updates = updates
+            self._pending = None
+
+        def select(self, *_args):
+            return self
+
+        def update(self, values):
+            self._pending = values
+            return self
+
+        def eq(self, *_args):
+            if self._pending is not None:
+                self.updates.append((_args, self._pending))
+                self._pending = None
+            return self
+
+        def order(self, *_args):
+            return self
+
+        def execute(self):
+            return type('Result', (), {'data': self.rows})()
+
+    class FakeStorage:
+        def from_(self, _bucket):
+            return self
+
+        def download(self, _path):
+            return b'%PDF-1.4 staged'
+
+    def _client(self, rows, updates):
+        storage = self.FakeStorage()
+        table = self.FakeTable(rows, updates)
+
+        class Client:
+            def table(self, _name):
+                return table
+
+        client = Client()
+        client.storage = storage
+        return client
+
+    def _paper(self):
+        return {'id': 'p1', 'title': 'A Thesis', 'filename': 't.pdf', 'storage_path': 's/t.pdf'}
+
+    def test_refuses_to_write_when_content_does_not_reproduce(self, monkeypatch):
+        from scripts import repair_chunk_sections
+
+        updates = []
+        rows = [
+            {'id': 1, 'chunk_index': 0, 'content': 'alpha', 'section': 'NET COST'},
+            {'id': 2, 'chunk_index': 1, 'content': 'beta', 'section': 'NET COST'},
+        ]
+        monkeypatch.setattr(repair_chunk_sections, 'sb', self._client(rows, updates))
+        monkeypatch.setattr(repair_chunk_sections, '_rederive', lambda *_args: [
+            {'content': 'alpha', 'section': 'METHODOLOGY'},
+            {'content': 'DIFFERENT', 'section': 'METHODOLOGY'},
+        ])
+        report = repair_chunk_sections.repair_paper(self._paper(), apply_changes=True)
+        assert report['status'] == 'skipped'
+        assert 'chunk 1' in report['reason']
+        assert updates == []
+
+    def test_refuses_to_write_when_the_chunk_count_moved(self, monkeypatch):
+        from scripts import repair_chunk_sections
+
+        updates = []
+        rows = [{'id': 1, 'chunk_index': 0, 'content': 'alpha', 'section': None}]
+        monkeypatch.setattr(repair_chunk_sections, 'sb', self._client(rows, updates))
+        monkeypatch.setattr(repair_chunk_sections, '_rederive', lambda *_args: [
+            {'content': 'alpha', 'section': 'METHODOLOGY'},
+            {'content': 'extra', 'section': 'METHODOLOGY'},
+        ])
+        report = repair_chunk_sections.repair_paper(self._paper(), apply_changes=True)
+        assert report['status'] == 'skipped'
+        assert 'chunk count moved' in report['reason']
+        assert updates == []
+
+    def test_dry_run_plans_only_the_changed_labels_and_writes_nothing(self, monkeypatch):
+        from scripts import repair_chunk_sections
+
+        updates = []
+        rows = [
+            {'id': 1, 'chunk_index': 0, 'content': 'alpha', 'section': 'NET COST'},
+            {'id': 2, 'chunk_index': 1, 'content': 'beta', 'section': 'METHODOLOGY'},
+        ]
+        monkeypatch.setattr(repair_chunk_sections, 'sb', self._client(rows, updates))
+        monkeypatch.setattr(repair_chunk_sections, '_rederive', lambda *_args: [
+            {'content': 'alpha', 'section': 'METHODOLOGY'},
+            {'content': 'beta', 'section': 'METHODOLOGY'},
+        ])
+        report = repair_chunk_sections.repair_paper(self._paper(), apply_changes=False)
+        assert report['status'] == 'planned'
+        assert report['changes'] == [(0, 'NET COST', 'METHODOLOGY')]
+        assert updates == []
+
+    def test_apply_writes_only_the_changed_label(self, monkeypatch):
+        from scripts import repair_chunk_sections
+
+        updates = []
+        rows = [
+            {'id': 1, 'chunk_index': 0, 'content': 'alpha', 'section': 'NET COST'},
+            {'id': 2, 'chunk_index': 1, 'content': 'beta', 'section': 'METHODOLOGY'},
+        ]
+        monkeypatch.setattr(repair_chunk_sections, 'sb', self._client(rows, updates))
+        monkeypatch.setattr(repair_chunk_sections, '_rederive', lambda *_args: [
+            {'content': 'alpha', 'section': 'METHODOLOGY'},
+            {'content': 'beta', 'section': 'METHODOLOGY'},
+        ])
+        report = repair_chunk_sections.repair_paper(self._paper(), apply_changes=True)
+        assert report['status'] == 'applied'
+        assert updates == [(('id', 1), {'section': 'METHODOLOGY'})]

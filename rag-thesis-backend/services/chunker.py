@@ -99,26 +99,81 @@ class _LazyTokenSplitter:
 
 splitter = _LazyTokenSplitter()
 
-_SECTION_HEADING = re.compile(
-    r'^\s*(?:chapter\s+(?:\d+|[ivxlc]+)\b.*|\d{1,2}(?:\.\d+){1,3}\s+.+|'
+# The canonical thesis chapter names. These are headings wherever a line
+# holds nothing else.
+_NAMED_HEADING = re.compile(
+    r'^(?:chapter\s+(?:\d+|[ivxlc]+)\b.*|'
     r'abstract|introduction|background(?: of the study)?|review of related literature|'
     r'methodology|research methodology|results(?: and discussion)?|discussion|conclusion(?:s)?|'
-    r'recommendations?)\s*$',
+    r'recommendations?)$',
     re.IGNORECASE,
 )
 
+# "4.3.1 Evaluation Metrics". The section number starts at 1, because a line
+# opening with a decimal below one is a statistic and not a heading, and the
+# title after the number has to start with a letter. That pair is what tells a
+# real heading apart from a Likert legend ("4.4 - STRONGLY AGREE"), a scale
+# row ("1.00 - 1.80"), or a row of table cells ("0.922    1.615    1.269").
+# The separator between the number and the title varies across these theses
+# ("6.1 : Summary", "2.6. TECHNICAL BACKGROUND", "3.1:  KEY CONCEPTS"), so
+# tolerate a trailing dot and a colon before requiring the title itself.
+_NUMBERED_HEADING = re.compile(r'^[1-9]\d?(?:\.\d{1,2}){1,3}\.?\s*:?\s*[A-Za-z(]')
+
+# A contents line carries its page number out in the right margin, which
+# PyMuPDF extracts as a run of spaces before the digits.
+_TRAILING_PAGE_NUMBER = re.compile(r'\s{2,}\d{1,4}$')
+
+# Two or more wide gaps on one line means extracted table columns, not prose.
+_COLUMN_GAP = re.compile(r'\s{3,}')
+
+_HEADING_MAX_CHARACTERS = 100
+_HEADING_MAX_WORDS = 14
+
+
+def _is_heading_shaped(text: str) -> bool:
+    """Reject lines a heading pattern matches but that read as body text.
+
+    Measured 2026-09-14 over the 437 indexed chunks: of 235 distinct stored
+    section labels, the ones this rejects were wrapped statistics sentences
+    ("0.95 indicate moderately consistent responses, although some respondents
+    differed in their"), Likert legends, numeric table rows, hardware spec
+    lines ("RAM: 8 GB DDR4 SDRAM"), and contents lines with a trailing page
+    number. A section label is never embedded, so a wrong one does not move a
+    vector, but it is worth triple in the lexical rerank
+    (services/retriever._section_score) and is printed into the model's context
+    as "Section: ...". A sentence stored as a section title therefore both
+    mis-ranks its own chunk and misreports where the passage came from.
+    """
+    if not text or len(text) > _HEADING_MAX_CHARACTERS:
+        return False
+    if len(text.split()) > _HEADING_MAX_WORDS:
+        return False
+    if _TRAILING_PAGE_NUMBER.search(text):
+        return False
+    if len(_COLUMN_GAP.findall(text)) >= 2:
+        return False
+    # A heading is a label, so it does not close on sentence punctuation. A
+    # colon is not sentence punctuation here: "4.3.1 User Testing Phase:" is
+    # how several of these theses write a subsection title.
+    return text[-1] not in '.,;'
+
 
 def _is_section_heading(text: str) -> bool:
-    if _SECTION_HEADING.match(text):
-        return True
-    if text == 'FIGURE REDACTED FOR SEMANTIC INDEXING':
+    if not text or text == 'FIGURE REDACTED FOR SEMANTIC INDEXING':
         return False
+    if not _is_heading_shaped(text):
+        return False
+    if _NAMED_HEADING.match(text) or _NUMBERED_HEADING.match(text):
+        return True
     letters = ''.join(character for character in text if character.isalpha())
     return (
-        3 <= len(text) <= 100
+        len(text) >= 3
         and len(text.split()) >= 2
         and len(letters) >= 6
         and letters.isupper()
+        # An all-caps line carrying digits is a spec or a table row. Numbered
+        # headings already have their own branch above.
+        and not any(character.isdigit() for character in text)
     )
 
 
