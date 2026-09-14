@@ -11,9 +11,9 @@ import { usePreferences } from '../context/PreferencesContext'
 import { Button } from '../components/ui/Button'
 import { GooglePagination } from '../components/ui/Pagination'
 import {
-  atUploadScreening, cn, currentScreening, formatDate, hasRescan, isScreeningFlagged,
-  normalizePercent, scanMetrics, screeningIsUnchanged, verdictExplanation, verdictLabel,
-  verdictTone,
+  archiveSizeLabel, atUploadScreening, cn, currentScreening, formatDate, hasRescan,
+  isScreeningFlagged, normalizePercent, scanMetrics, screeningIsUnchanged,
+  verdictExplanation, verdictLabel, verdictTone,
 } from '../lib/utils'
 import { isFacultyThesis, thesisCategoryLabel } from '../lib/catalog'
 import { slotKeys } from '../lib/keys'
@@ -65,13 +65,13 @@ const SCREENING_ICON = {
  */
 function ScreeningRun({ label, screening, when, emphasis }) {
   const metrics = scanMetrics(screening)
-  const against = Number(screening.archive_size) || 0
+  const against = archiveSizeLabel(screening)
   return (
     <div className={cn('mt-2', emphasis ? '' : 'opacity-75')}>
       <div className="font-semibold">
         {label}
         {when ? ` · ${formatDate(when)}` : ''}
-        {against ? ` · against ${against} ${against === 1 ? 'thesis' : 'theses'}` : ''}
+        {against ? ` · ${against}` : ''}
       </div>
       {metrics.matchedChunks === 0 ? (
         /* A run that matched nothing has no figures worth four cells of zeros.

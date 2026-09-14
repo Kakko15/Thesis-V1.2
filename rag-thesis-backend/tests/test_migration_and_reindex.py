@@ -485,3 +485,57 @@ class TestRescanDuplication:
         report = rescan_duplication.rescan_paper(self._paper(dict(self.AT_UPLOAD)), apply_changes=True)
         assert report['status'] == 'error'
         assert recorder.writes == []
+
+
+class TestBackfillScreeningArchiveSize:
+    """The estimate is derived from upload order, so it must never be written
+    where a real recorded size exists, and must never claim to be one."""
+
+    PAPERS = [
+        {'id': 'a', 'department': 'CCSICT', 'created_at': '2026-09-09T01:00:00Z',
+         'duplication_scan': {'verdict_level': 'clear'}},
+        {'id': 'b', 'department': 'CCSICT', 'created_at': '2026-09-09T02:00:00Z',
+         'duplication_scan': {'verdict_level': 'review_suggested'}},
+        {'id': 'c', 'department': 'CCSICT', 'created_at': '2026-09-09T03:00:00Z',
+         'duplication_scan': {'verdict_level': 'high_overlap', 'archive_size': 2}},
+        {'id': 'd', 'department': 'BLIS', 'created_at': '2026-09-09T04:00:00Z',
+         'duplication_scan': {'verdict_level': 'clear'}},
+    ]
+
+    def test_counts_only_same_department_predecessors(self):
+        from scripts import backfill_screening_archive_size as backfill
+
+        counts = backfill.estimate_archive_sizes(self.PAPERS)
+        assert counts['a'] == 0
+        assert counts['b'] == 1
+        assert counts['c'] == 2
+        # A different department's archive is a different archive.
+        assert counts['d'] == 0
+
+    def test_simultaneous_uploads_do_not_count_each_other(self):
+        from scripts import backfill_screening_archive_size as backfill
+
+        same_instant = [
+            {'id': 'x', 'department': 'CCSICT', 'created_at': '2026-09-09T01:00:00Z'},
+            {'id': 'y', 'department': 'CCSICT', 'created_at': '2026-09-09T01:00:00Z'},
+        ]
+        assert backfill.estimate_archive_sizes(same_instant) == {'x': 0, 'y': 0}
+
+    def test_never_estimates_over_a_recorded_size(self):
+        from scripts import backfill_screening_archive_size as backfill
+
+        planned = dict((paper['id'], estimate) for paper, estimate in backfill.plan_backfill(self.PAPERS))
+        assert 'c' not in planned, 'c already records the size it was screened against'
+        assert planned == {'a': 0, 'b': 1, 'd': 0}
+
+    def test_papers_without_a_screening_are_skipped(self):
+        from scripts import backfill_screening_archive_size as backfill
+
+        papers = [
+            {'id': 'a', 'department': 'CCSICT', 'created_at': '2026-09-09T01:00:00Z'},
+            {'id': 'b', 'department': 'CCSICT', 'created_at': '2026-09-09T02:00:00Z',
+             'duplication_scan': None},
+            {'id': 'c', 'department': 'CCSICT', 'created_at': '2026-09-09T03:00:00Z',
+             'duplication_scan': {}},
+        ]
+        assert backfill.plan_backfill(papers) == []
