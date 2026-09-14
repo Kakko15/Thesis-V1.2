@@ -55,6 +55,10 @@ tmp-review-*/
 # tmp-authors-backup.json) sat untracked next to the source because every
 # pattern above ends in a slash.
 tmp-*.json
+# ...and the verification logs that came with them: tmp-audit-*.log sat
+# tracked at the repo root from 4847209 until 2026-09-14, referenced by
+# nothing and carrying an absolute path from the machine that wrote them.
+tmp-*.log
 rag-thesis-backend/.venv*/
 rag-thesis-backend/.pylint-cache-*/
 rag-thesis-backend/.pytest-*/
