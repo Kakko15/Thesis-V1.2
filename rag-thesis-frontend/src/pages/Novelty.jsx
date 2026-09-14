@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import { toast } from 'sonner'
 import {
-  ShieldCheck, FileSearch, FileText, X, History, Send,
+  ShieldCheck, FileSearch, FileText, X, History,
   MessageSquareText, Sparkles, ScanSearch, AlertTriangle, Download, Info,
 } from 'lucide-react'
 import {
@@ -37,6 +37,25 @@ const HISTORY_TONE = {
 }
 // The server's /duplication/scan contract: a PDF or a plain-text manuscript.
 const SCAN_MIME_TYPES = ['application/pdf', 'application/x-pdf', 'text/plain', 'application/octet-stream']
+
+/** Google Fonts (Material Symbols Outlined: arrow_upward_alt, fill 0 / wght 400 / opsz 24). */
+const ARROW_UPWARD_ALT_PATH =
+  'M440-240v-368L296-464l-56-56 240-240 240 240-56 56-144-144v368h-80Z'
+
+function ArrowUpwardAltIcon({ size = 16, className = '' }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 -960 960 960"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d={ARROW_UPWARD_ALT_PATH} />
+    </svg>
+  )
+}
 
 /* ------------------------------------------------------------------ */
 function ScanDropzone({ onScan, scanning }) {
@@ -283,7 +302,7 @@ function ScanResult({ scan, onAsk }) {
             className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:opacity-45"
           />
           <Button type="submit" size="icon-sm" disabled={!question.trim() || asking} aria-label="Send">
-            <Send size={14} />
+            <ArrowUpwardAltIcon size={16} />
           </Button>
         </form>
       </GlassCard>

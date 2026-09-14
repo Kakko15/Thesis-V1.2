@@ -440,26 +440,45 @@ addressed to the assistant, verified on the 40-case matrix in
 
 ## 8. Demo-day checklist
 
-- [ ] `VITE_TURNSTILE_SITE_KEY` blank, and **sign in verified working**. A
-      Cloudflare outage previously disabled every auth button behind a spinner;
-      that is fixed, but the widget is unnecessary and adds a dependency.
+- [ ] **Sign in verified working** — the single most likely way to lose the demo,
+      and blanking `VITE_TURNSTILE_SITE_KEY` is *not* the fix. Diagnosed
+      2026-09-14: **Supabase Auth has CAPTCHA protection enabled**, so the
+      password grant returns `captcha_failed` / "no captcha_token found" when no
+      Turnstile token is sent. Blanking the key therefore makes login
+      impossible; it only suppresses the guest-chat human check. With the key
+      set, the widget loads but never solves here —
+      `brunhild.challenges.cloudflare.com` fails `ERR_NAME_NOT_RESOLVED` and
+      `nslookup` times out on Cloudflare challenge hosts, so the cause is local
+      DNS rather than the hostname authorization `vite.config.js:70` describes.
+      Fix it one of two ways and test before the defense: turn CAPTCHA off in
+      Supabase → Authentication → Attack Protection (then run with the key
+      blank), or point the machine at a resolver that answers for
+      `*.challenges.cloudflare.com` and confirm `cf-turnstile-response` is
+      non-empty. Guest chat is unaffected; novelty, the archive and every admin
+      tab need a session.
 - [ ] Backend, frontend, **and the ingestion worker** all running. Uploads stay
       queued forever without the worker.
-- [ ] Know which project you are pointed at. Your app database holds **3 ready
-      papers and 29 chunks**, of which **2 papers and 26 CCSICT chunks** (22 + 4)
-      are reachable — read from the database on 2026-09-02. The third,
-      *The Psychological Impact of AI-Mediated Communication on Interpersonal
-      Empathy and Relational Attachment* (Fronda & Simbulan, 2026), is filed
-      under **CAS**, a standby department with `active = false`, so department
-      scoping inside `match_chunks` keeps it out of guest chat, the archive
-      filters and retrieval entirely. **Quote 3 or 2 deliberately**: three
-      manuscripts are indexed, two are answerable. A thin archive is fine; being
-      surprised by it is not.
+- [ ] Know which project you are pointed at, and **read the count on the day** —
+      this is the one demo number that keeps moving. On 2026-09-14 the database
+      held **16 ready papers and 433 chunks**, every one of them filed under
+      **CCSICT**, so all 16 are reachable in guest chat and `/analytics/summary`
+      reports 16 papers, 4 tracks, 2024–2026. The earlier CAS standby paper that
+      department scoping used to exclude is no longer in the table, so that
+      nuance has stopped applying; do not rehearse it.
 
-      Only one of the two CCSICT papers is not your own thesis, so demo on
-      *Real-Time Autonomous Pedestrian Safety and Hazard Detection Using
-      YOLOv11* (Bugauisan & Respicio, 2025) — asking your own paper about itself
-      invites the obvious objection.
+      Fifteen of the sixteen are released CCSICT manuscripts. **The sixteenth is
+      your own thesis**, indexed with a null year, so it is retrievable —
+      asking your own paper about itself invites the obvious objection. Demo on
+      the 2024 *Computer Vision-Based Left-Off Object Detection Platform* and
+      *SECURE: A Smart Intruder Detection System*, or on *Real-Time Autonomous
+      Pedestrian Safety and Hazard Detection Using YOLOv11* (2026).
+
+- [ ] Be ready for **"why 16 manuscripts when the paper says 12?"** The
+      Objective 2 corpus was frozen at the twelve manuscripts CCSICT had
+      released when the instrument was built, and the comparison is reported
+      against exactly those. The live archive has kept ingesting since. The
+      evaluated corpus and the deployed archive are different sets on purpose;
+      say so plainly rather than reconciling them on stage.
 - [ ] One rehearsed question you know retrieves well, and one refusal example.
 - [ ] Do not demo an upload you have not rehearsed — ingestion takes minutes and
       spends provider quota.

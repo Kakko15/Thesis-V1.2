@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import { toast } from 'sonner'
 import {
-  Send, Plus, MessageSquareText, Trash2, PencilLine,
+  Plus, MessageSquareText, Trash2, PencilLine,
   AlertTriangle, BookMarked, History, Info, GraduationCap, Loader2, Square, X,
   Copy, Check, RotateCcw, MoreHorizontal, Volume2, VolumeX, FileDown,
   MessageCircleQuestion, ListTree, BookCopy,
@@ -125,6 +125,26 @@ const COMPOSER_ACTION_TITLE = {
   stop: 'Stop waiting for this response',
 }
 
+/** Google Fonts (Material Symbols Outlined: arrow_upward_alt, fill 0 / wght 400 / opsz 24)
+    glyph as inline SVG — exact official path without shipping a webfont. */
+const ARROW_UPWARD_ALT_PATH =
+  'M440-240v-368L296-464l-56-56 240-240 240 240-56 56-144-144v368h-80Z'
+
+function ArrowUpwardAltIcon({ size = 20, className = '' }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 -960 960 960"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d={ARROW_UPWARD_ALT_PATH} />
+    </svg>
+  )
+}
+
 /** The rim doubles as the progress track, so waiting needs no extra chrome. */
 function StreamingRing() {
   return (
@@ -162,13 +182,9 @@ function ComposerAction({ sending, verifying, hasInput, onStop }) {
       {state === 'verifying' && <Loader2 size={17} className="animate-spin" />}
       {state === 'stop' && <Square size={13} fill="currentColor" strokeWidth={0} />}
       {(state === 'send' || state === 'idle') && (
-        // No optical nudge: lucide's plane measures dead centre in its own
-        // viewBox (ink box 2,2 -> 22,22), so any correction is a visible
-        // off-centre error rather than a fix. Only the hover launch moves it.
-        <Send
-          size={17}
-          className="transition-transform duration-200
-            group-hover:translate-x-[3px] group-hover:-translate-y-[3px]"
+        <ArrowUpwardAltIcon
+          size={20}
+          className="transition-transform duration-200 group-hover:-translate-y-0.5"
         />
       )}
     </button>
