@@ -5,6 +5,7 @@ import pytest
 from config import settings
 from services.chunker import (
     CHUNKING_VERSION,
+    _is_section_heading,
     TOKENIZER_ENCODING,
     build_chunk_metadata,
     count_tokens,
@@ -150,3 +151,72 @@ class TestLocationAwareChunking:
         assert chunks
         assert all(chunk['page_start'] is None and chunk['page_end'] is None for chunk in chunks)
         assert chunks[0]['section'] == 'INTRODUCTION'
+
+
+class TestSectionHeadingDetection:
+    """Every string here was read off the live index on 2026-09-14.
+
+    The detector used to accept any line opening with a decimal number and any
+    two-word all-caps line, so Likert legends, statistics sentences wrapped mid
+    -clause, chart labels and hardware specs were all stored as section titles.
+    A section label is worth triple in the lexical rerank and is printed into
+    the model's context as "Section: ...", so these were both mis-ranking their
+    chunks and misreporting where the passage came from.
+    """
+
+    @pytest.mark.parametrize('line', [
+        'METHODOLOGY',
+        'INTRODUCTION',
+        'CHAPTER 3',
+        'Review of Related Literature',
+        'RESULTS AND DISCUSSIONS',
+        'TECHNICAL BACKGROUND',
+        '4.3.1 Evaluation Metrics',
+        '2.1.1 Retrieval-Augmented Generation (RAG) Architecture',
+        '6.1 : Summary',
+        '2.6. TECHNICAL BACKGROUND',
+        '3.1:  KEY CONCEPTS AND TERMINOLOGY',
+        '4.3.1 User Testing Phase:',
+    ])
+    def test_accepts_real_headings(self, line):
+        assert _is_section_heading(line)
+
+    @pytest.mark.parametrize('line', [
+        # A statistics sentence that wrapped onto its own line.
+        '0.95 indicate moderately consistent responses, although some respondents differed in their',
+        "0.82 to 0.81, which very slightly reflects the model's performance in identifying positive",
+        # Likert legends and scale rows.
+        '1.00 - 1.80',
+        '3.41 - 4.20',
+        '4.4 - STRONGLY AGREE',
+        '4.3 -STRONGLY AGREE',
+        # Extracted table rows and arithmetic.
+        '0.922       1.615       1.269',
+        '3.4 3.4 3.4',
+        '1.732 * 1.732 = 1',
+        '0.90 + 0.96',
+        # A hardware spec list and a table caption.
+        'RAM: 8 GB DDR4 SDRAM',
+        '(PREPROCESSED) DATA.',
+        'SILHOUETTE SCORE, DAVIES BOULDIN INDEX, AND INERTIA.',
+        # A contents line keeps its page number out in the margin.
+        '4.1 Developed an Automated Alumni Tracer Platform Using Web Crawler       35',
+        # Pre-existing guards that must survive.
+        'FIGURE REDACTED FOR SEMANTIC INDEXING',
+        '',
+        'and then the sentence simply continues in ordinary lower case prose',
+    ])
+    def test_rejects_body_text(self, line):
+        assert not _is_section_heading(line)
+
+    def test_a_rejected_line_inherits_the_heading_above_it(self):
+        """Dropping a false heading must hand the chunk the real one, not None."""
+        document = ExtractedDocument([ExtractedPage(61, '\n'.join([
+            'METHODOLOGY',
+            'Opening prose for the chapter. ' * 40,
+            '0.95 indicate moderately consistent responses, although some respondents differed in their',
+            'Continuing prose after the wrapped sentence. ' * 40,
+        ]))])
+        chunks = split_document(document)
+        assert chunks
+        assert {chunk['section'] for chunk in chunks} == {'METHODOLOGY'}
