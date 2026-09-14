@@ -11,8 +11,9 @@ import { usePreferences } from '../context/PreferencesContext'
 import { Button } from '../components/ui/Button'
 import { GooglePagination } from '../components/ui/Pagination'
 import {
-  atUploadScreening, cn, currentScreening, formatDate, hasRescan, normalizePercent, scanMetrics,
-  verdictExplanation, verdictLabel, verdictTone,
+  atUploadScreening, cn, currentScreening, formatDate, hasRescan, isScreeningFlagged,
+  normalizePercent, scanMetrics, screeningIsUnchanged, verdictExplanation, verdictLabel,
+  verdictTone,
 } from '../lib/utils'
 import { isFacultyThesis, thesisCategoryLabel } from '../lib/catalog'
 import { slotKeys } from '../lib/keys'
@@ -72,19 +73,31 @@ function ScreeningRun({ label, screening, when, emphasis }) {
         {when ? ` · ${formatDate(when)}` : ''}
         {against ? ` · against ${against} ${against === 1 ? 'thesis' : 'theses'}` : ''}
       </div>
-      <div className="mt-1 grid gap-1 opacity-90 sm:grid-cols-2">
-        <span>Highest passage similarity: {metrics.highest.toFixed(2)}%</span>
-        <span>Matched chunk coverage: {metrics.coverage.toFixed(2)}%</span>
-        <span>Matched chunks / total chunks: {metrics.matchedChunks} / {metrics.totalChunks}</span>
-        <span>Threshold: {normalizePercent(screening.threshold).toFixed(2)}%</span>
-      </div>
-      <ul className="mt-1 space-y-0.5 opacity-90">
-        {(screening.matched_papers || []).map((p) => (
-          <li key={p.id}>
-            "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} — highest passage {normalizePercent(p.similarity).toFixed(2)}%
-          </li>
-        ))}
-      </ul>
+      {metrics.matchedChunks === 0 ? (
+        /* A run that matched nothing has no figures worth four cells of zeros.
+           This is the normal shape of an early upload's record: the archive it
+           was screened against did not yet hold anything it resembles. */
+        <div className="mt-1 opacity-90">
+          No passage reached the {normalizePercent(screening.threshold).toFixed(2)}% threshold
+          {metrics.totalChunks ? ` across all ${metrics.totalChunks} passages.` : '.'}
+        </div>
+      ) : (
+        <>
+          <div className="mt-1 grid gap-1 opacity-90 sm:grid-cols-2">
+            <span>Highest passage similarity: {metrics.highest.toFixed(2)}%</span>
+            <span>Matched chunk coverage: {metrics.coverage.toFixed(2)}%</span>
+            <span>Matched chunks / total chunks: {metrics.matchedChunks} / {metrics.totalChunks}</span>
+            <span>Threshold: {normalizePercent(screening.threshold).toFixed(2)}%</span>
+          </div>
+          <ul className="mt-1 space-y-0.5 opacity-90">
+            {(screening.matched_papers || []).map((p) => (
+              <li key={p.id}>
+                "{p.title || 'Untitled thesis'}"{p.year ? ` (${p.year})` : ''} — highest passage {normalizePercent(p.similarity).toFixed(2)}%
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   )
 }
@@ -93,9 +106,10 @@ function ScreeningDetail({ scan, indexedAt }) {
   const atUpload = atUploadScreening(scan)
   const current = currentScreening(scan)
   const rescanned = hasRescan(scan)
+  const unchanged = screeningIsUnchanged(scan)
   // A rescan can find overlap where the upload found none, so the panel has to
   // open on either being flagged rather than on the at-upload record alone.
-  if (!atUpload.flagged && !current.flagged) return null
+  if (!isScreeningFlagged(scan)) return null
   const tone = verdictTone(scanMetrics(current).verdict)
   return (
     <div>
@@ -119,16 +133,19 @@ function ScreeningDetail({ scan, indexedAt }) {
             emphasis
           />
         )}
-        <ScreeningRun
-          label="At upload"
-          screening={atUpload}
-          when={atUpload.screened_at || indexedAt}
-          emphasis={!rescanned}
-        />
+        {!unchanged && (
+          <ScreeningRun
+            label="At upload"
+            screening={atUpload}
+            when={atUpload.screened_at || indexedAt}
+            emphasis={!rescanned}
+          />
+        )}
         {rescanned && (
           <p className="mt-2 opacity-60">
-            Screening runs once when a thesis is uploaded, so it only sees what was
-            already in the archive. The recheck compares against everything indexed since.
+            {unchanged
+              ? `Unchanged since this thesis was uploaded on ${formatDate(atUpload.screened_at || indexedAt)} — it was indexed late enough to have already seen the whole archive.`
+              : 'Screening runs once when a thesis is uploaded, so it only sees what was already in the archive. The recheck compares against everything indexed since.'}
           </p>
         )}
       </div>
@@ -190,7 +207,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           {paper.track && <Badge tone="forest">{paper.track}</Badge>}
           {paper.year && <Badge tone="neutral">{paper.year}</Badge>}
           {paper.department && <Badge tone="neutral">{paper.department}</Badge>}
-          {paper.duplication_scan?.flagged && (
+          {isScreeningFlagged(paper.duplication_scan) && (
             /* `title` because the number is not self-explanatory: it is the
                share of this thesis's own chunks that matched anything already
                archived, not how much of it is copied. */
