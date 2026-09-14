@@ -6,6 +6,7 @@ from routers.chat import (
     _archive_inventory_response,
     _conversation_response,
     _extract_author_name,
+    _extract_followup_author_token,
     _extract_thesis_title_fragment,
     _grounded_retrieval_fallback,
     _is_ambiguous_system_origin_question,
@@ -190,6 +191,30 @@ class TestGroundingGuards:
         assert _extract_author_name('What about the methodology?') is None
         assert _extract_author_name('Who is the author?') is None
         assert _extract_author_name('Who is IskAI?') is None
+
+    def test_extracts_one_word_followup_author_reference(self):
+        assert _extract_followup_author_token('what about enoy?') == 'Enoy'
+        assert _extract_followup_author_token('and what about Enoy') == 'Enoy'
+        assert _extract_followup_author_token('How about Barlis?') == 'Barlis'
+        # Two-part names stay with the stricter pattern.
+        assert _extract_followup_author_token('what about ahron barlis?') is None
+        # Conversational references are never person lookups.
+        assert _extract_followup_author_token('what about them?') is None
+        assert _extract_followup_author_token('what about the others?') is None
+        # `who is` keeps its two-part contract so its not-found notice stays safe.
+        assert _extract_followup_author_token('who is enoy?') is None
+
+    def test_one_word_author_answer_quotes_the_archived_line(self):
+        answer = _author_lookup_response('Enoy', [{
+            'title': 'ISU-CANNER',
+            'authors': 'Aquino, Rainier, Enoy, Kurt Robin, Fallaria, Chris Lloyd',
+            'year': 2025,
+            'track': 'Web and Mobile Application Development',
+        }])
+        # Surname-first metadata must not be split into invented groupmates.
+        assert 'co-author' not in answer
+        assert 'Aquino, Rainier, Enoy, Kurt Robin, Fallaria, Chris Lloyd' in answer
+        assert 'ISU-CANNER' in answer and answer.endswith('[1].')
 
     def test_author_answer_is_derived_from_metadata(self):
         answer = _author_lookup_response('Carlo Gallardo', [{

@@ -76,6 +76,39 @@ class TestEarlyChatPaths:
         ))
         assert 'co-author' in response.answer and response.sources[0]['id'] == 'p1'
 
+    def test_one_word_followup_author_takes_the_metadata_fast_path(self, monkeypatch):
+        """`what about enoy?` is an author lookup, not a question about the pinned thesis."""
+        async def should_not_retrieve(*_args, **_kwargs):
+            raise AssertionError('a confirmed author reference must not run retrieval')
+        monkeypatch.setattr(chat, '_retrieve_evidence', should_not_retrieve)
+        monkeypatch.setattr(chat, 'find_papers_by_author', lambda *_: [{
+            'id': 'p2', 'title': 'ISU-CANNER',
+            'authors': 'Aquino, Rainier, Enoy, Kurt Robin', 'year': 2025,
+        }])
+        response = run(chat._chat_impl(
+            ChatRequest(question='what about enoy?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.sources[0]['id'] == 'p2'
+        assert 'ISU-CANNER' in response.answer
+
+    def test_one_word_followup_without_an_author_match_keeps_retrieving(self, monkeypatch):
+        """An unconfirmed word must fall through to retrieval, not a not-found notice."""
+        monkeypatch.setattr(chat, 'find_papers_by_author', lambda *_args: [])
+        retrieved = []
+
+        async def retrieve(question, *_args, **_kwargs):
+            retrieved.append(question)
+            return ('', [], 0.0), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='what about clustering?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert retrieved, 'an unconfirmed one-word reference should reach retrieval'
+        assert 'could not verify' not in response.answer
+
     def test_capacity_circuit_breaker(self, monkeypatch):
         monkeypatch.setattr(chat, '_capacity_limit_is_active', lambda: True)
         response = run(chat._chat_impl(

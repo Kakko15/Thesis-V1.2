@@ -96,6 +96,14 @@ class _Query:
         return SimpleNamespace(data=self.rows)
 
 
+_CANNER_ROW = {
+    'id': 'p1', 'title': 'ISU-CANNER',
+    'authors': 'Aquino, Rainier, Enoy, Kurt Robin, Fallaria, Chris Lloyd',
+    'year': 2025, 'track': 'Web and Mobile Application Development',
+    'department': 'CCSICT',
+}
+
+
 class _RetrieverClient:
     def __init__(self, chunks=None):
         self.rpc_args = None
@@ -186,6 +194,16 @@ class TestChunkRetrieval:
         monkeypatch.setattr(retriever, 'sb', client)
         sources = retriever.find_papers_by_author('Carlo Gallardo', 'CCSICT')
         assert sources[0]['department'] == 'CCSICT'
+
+    def test_one_word_reference_matches_a_whole_name_part(self, monkeypatch):
+        monkeypatch.setattr(retriever, '_author_query', lambda *_args: [_CANNER_ROW])
+        assert retriever.find_papers_by_author('Enoy', 'CCSICT')[0]['id'] == 'p1'
+
+    def test_one_word_reference_rejects_a_substring_hit(self, monkeypatch):
+        # `ilike '%ai%'` matches Rainier, but `ai` is not one of its name
+        # parts, so `what about AI?` must not invent an author.
+        monkeypatch.setattr(retriever, '_author_query', lambda *_args: [_CANNER_ROW])
+        assert retriever.find_papers_by_author('Ai', 'CCSICT') == []
 
     def test_author_match_allows_omitted_middle_name(self):
         assert _author_name_matches('Carlo Rossi Gallardo', 'Ahron Barlis, Carlo Gallardo')
