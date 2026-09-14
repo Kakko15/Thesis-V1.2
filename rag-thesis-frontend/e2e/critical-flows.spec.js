@@ -379,8 +379,7 @@ test('authenticated archive renders legacy-safe records and filters them', async
 
   // The category filter separates faculty research from student theses, and
   // the faculty card carries its gold provenance badge.
-  await page.getByRole('combobox', { name: 'Filter by thesis category' }).click()
-  await page.getByRole('option', { name: 'Faculty Research' }).click()
+  await page.getByRole('radio', { name: 'Faculty Research' }).click()
   await expect(page.getByText('Adaptive Irrigation Analytics for Isabela Farms')).toBeVisible()
   await expect(page.getByText('A Centralized AI-Powered Thesis Library')).not.toBeVisible()
   await expect(page.getByText('Showing 1 of 2 indexed theses')).toBeVisible()
