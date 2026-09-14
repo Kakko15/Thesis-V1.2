@@ -131,6 +131,18 @@ def _author_name_matches(name: str, authors: str) -> bool:
     )
 
 
+def _author_token_matches(token: str, authors: str) -> bool:
+    """Confirm a one-word author reference against a whole archived name part.
+
+    The lookup itself is `ilike '%token%'`, a substring match, so a short token
+    would "match" a name that merely contains it -- `ai` is inside `Rainier`.
+    A single word is only a person when it is a complete name part.
+    """
+    return token.lower() in {
+        word.lower() for word in re.findall(r"[A-Za-z]+", authors or '')
+    }
+
+
 def _author_query(fragment: str, department_filter: str | None, limit: int):
     def execute_query():
         query = sb.table('papers') \
@@ -150,15 +162,23 @@ def _author_query(fragment: str, department_filter: str | None, limit: int):
 
 def find_papers_by_author(name: str, department_filter: str | None = None) -> list[dict]:
     """Metadata-only author lookup with a conservative middle-name fallback."""
+    parts = re.findall(r"[A-Za-z]+", name or '')
+    if len(parts) == 1:
+        # A one-word reference ("what about enoy?") carries no first/last pair
+        # for the fallback below to check, so the substring hit is confirmed
+        # against whole name parts instead of being trusted.
+        candidates = _author_query(parts[0], department_filter, 20)
+        return [
+            public_source(paper) for paper in candidates
+            if _author_token_matches(parts[0], paper.get('authors', ''))
+        ][:5]
     papers = _author_query(name, department_filter, 5)
-    if not papers:
-        parts = re.findall(r"[A-Za-z]+", name or '')
-        if len(parts) >= 2:
-            candidates = _author_query(parts[-1], department_filter, 20)
-            papers = [
-                paper for paper in candidates
-                if _author_name_matches(name, paper.get('authors', ''))
-            ][:5]
+    if not papers and len(parts) >= 2:
+        candidates = _author_query(parts[-1], department_filter, 20)
+        papers = [
+            paper for paper in candidates
+            if _author_name_matches(name, paper.get('authors', ''))
+        ][:5]
     return [public_source(paper) for paper in papers]
 
 

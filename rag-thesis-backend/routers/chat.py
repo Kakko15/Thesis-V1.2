@@ -447,6 +447,43 @@ def _extract_author_name(question: str) -> str | None:
     return ' '.join(part.capitalize() for part in name.split())
 
 
+# `what about enoy?` is the same author question as `what about kurt robin
+# enoy?`, but the pattern above needs two name parts, so a lone surname fell
+# through to the generic follow-up branch instead. Measured 2026-09-14, with
+# the ISU-CANNER thesis newly released: "what about enoy?" was resolved
+# against the previously cited K-Means thesis and answered "the retrieved
+# passages ... do not contain any information regarding 'enoy'".
+#
+# One word is far weaker evidence of a person than two, so this stays
+# tentative. Only the soft follow-up wording is read this way -- `who is X`
+# keeps its two-part contract and its deterministic not-found notice -- and
+# the fast path answers only when archive metadata confirms the word is a
+# whole author name part (retriever._author_token_matches).
+_FOLLOWUP_AUTHOR_TOKEN = re.compile(
+    r"\s*(?:and\s+)?(?:what|how)\s+about\s+([A-Za-z][A-Za-z'’-]{2,})\s*[?.!]*\s*",
+    re.IGNORECASE,
+)
+# Words that follow "what about" as a reference back to the conversation
+# rather than to a person. Anything else is filtered by the metadata check.
+_NON_AUTHOR_TOKENS = frozenset({
+    'them', 'they', 'these', 'those', 'this', 'that', 'the', 'its', 'their',
+    'him', 'her', 'his', 'hers', 'you', 'your', 'yours', 'our', 'ours', 'mine',
+    'iskai', 'one', 'ones', 'both', 'each', 'any', 'all', 'some', 'none',
+    'other', 'others', 'another', 'else', 'now', 'next', 'more', 'rest',
+})
+
+
+def _extract_followup_author_token(question: str) -> str | None:
+    """A one-word follow-up name, valid only once archive metadata confirms it."""
+    match = _FOLLOWUP_AUTHOR_TOKEN.fullmatch(question or '')
+    if not match:
+        return None
+    token = match.group(1)
+    if token.lower() in _NON_AUTHOR_TOKENS:
+        return None
+    return token.capitalize()
+
+
 def _is_explicit_author_identity_question(question: str) -> bool:
     """A direct `who is` question should return a deterministic not-found result."""
     return bool(re.match(r'^\s*who\s+is\b', question or '', flags=re.IGNORECASE))
@@ -471,6 +508,17 @@ def _author_lookup_response(name: str, sources: list[dict]) -> str:
         details = [str(value) for value in (source.get('year'), source.get('track')) if value]
         detail_text = f" ({' · '.join(details)})" if details else ''
         archived_authors = split_author_names(source.get('authors', ''))
+        # A one-word reference identified a whole name part, not a person.
+        # Several archived author lines are stored surname-first and
+        # comma-delimited ("Aquino, Rainier, Enoy, Kurt Robin"), so splitting
+        # one into a subject and co-authors would invent groupmates. Quote the
+        # archived line instead and let it speak for itself.
+        if len(re.findall(r'[A-Za-z]+', name)) == 1 and archived_authors:
+            return (
+                f'{name} is listed among the authors of '
+                f'“{source.get("title", "Untitled thesis")}”{detail_text}, '
+                f'archived as {", ".join(archived_authors)} [1].'
+            )
         matched_author = next(
             (author for author in archived_authors if _author_name_matches(name, author)),
             name,
@@ -1517,7 +1565,10 @@ async def _chat_impl_unstamped(
 
     async def try_author_fast_path(question: str) -> ChatResponse | None:
         """Resolve person-name variants locally before any Gemini or embedding call."""
-        author_name = _extract_author_name(question)
+        author_name = (
+            _extract_author_name(question)
+            or _extract_followup_author_token(question)
+        )
         if not author_name:
             return None
         try:
