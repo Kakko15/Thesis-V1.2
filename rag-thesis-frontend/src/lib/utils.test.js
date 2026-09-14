@@ -2,12 +2,17 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  atUploadScreening,
+  currentScreening,
   extractOwnedAvatarPath,
   formatDate,
+  hasRescan,
   normalizePercent,
   mostSimilarPaper,
   scanMetrics,
+  screeningHasDrifted,
   timeAgo,
+  verdictExplanation,
   verdictLabel,
   verdictTone,
 } from './utils.js'
@@ -137,4 +142,73 @@ test('a screening verdict picks its own badge tone', () => {
   // direction for a value nobody has scored.
   assert.equal(toneFor({ matched_chunk_count: 0, total_chunks: 28 }), 'neutral')
   assert.equal(toneFor({ matched_chunk_count: 26, total_chunks: 27 }), 'warning')
+})
+
+// Screening is a snapshot taken during ingestion, so a card can only name a
+// thesis that was already indexed. rescan_duplication.py re-screens against the
+// whole archive and nests the result rather than overwriting, because the
+// at-upload figures cannot be recomputed once the archive has grown.
+const AT_UPLOAD = {
+  flagged: true,
+  verdict_level: 'review_suggested',
+  matched_chunk_count: 3,
+  total_chunks: 24,
+  archive_size: 9,
+}
+const RESCAN = {
+  flagged: true,
+  verdict_level: 'high_overlap',
+  matched_chunk_count: 22,
+  total_chunks: 24,
+  archive_size: 15,
+}
+
+test('reads the current screening from a rescanned record', () => {
+  const record = { ...AT_UPLOAD, rescan: RESCAN }
+  assert.equal(currentScreening(record).verdict_level, 'high_overlap')
+  assert.equal(scanMetrics(currentScreening(record)).coverage.toFixed(2), '91.67')
+})
+
+test('falls back to the record itself when never rescanned', () => {
+  assert.equal(currentScreening(AT_UPLOAD).verdict_level, 'review_suggested')
+  assert.equal(currentScreening(null).verdict_level, undefined)
+  assert.equal(currentScreening({ rescan: 'not-an-object' }).rescan, 'not-an-object')
+})
+
+test('the at-upload layer survives a rescan unchanged', () => {
+  const record = { ...AT_UPLOAD, rescan: RESCAN }
+  const atUpload = atUploadScreening(record)
+  assert.equal(atUpload.verdict_level, 'review_suggested')
+  assert.equal(atUpload.archive_size, 9)
+  assert.equal(atUpload.rescan, undefined)
+  assert.equal(scanMetrics(atUpload).coverage.toFixed(2), '12.50')
+})
+
+test('drift is only reported when the verdict actually moved', () => {
+  assert.equal(screeningHasDrifted({ ...AT_UPLOAD, rescan: RESCAN }), true)
+  assert.equal(screeningHasDrifted({ ...AT_UPLOAD, rescan: { ...AT_UPLOAD } }), false)
+  assert.equal(screeningHasDrifted(AT_UPLOAD), false)
+  assert.equal(screeningHasDrifted(null), false)
+})
+
+test('every verdict has a plain-language explanation that avoids accusing anyone', () => {
+  for (const level of ['clear', 'review_suggested', 'high_overlap', 'exact_duplicate']) {
+    const sentence = verdictExplanation(level)
+    assert.ok(sentence.length > 20, `${level} needs a real sentence`)
+    assert.ok(!/plagiar|copied from|stolen|misconduct/i.test(sentence),
+      `${level} must not read as an accusation`)
+  }
+  assert.match(verdictExplanation('high_overlap'), /not copied wording/)
+  assert.equal(verdictExplanation('anything-else'), verdictExplanation('clear'))
+})
+
+test('rescan presence is a property of the record, not an identity comparison', () => {
+  // atUploadScreening always builds a fresh object, so comparing it against
+  // currentScreening by reference reports "rescanned" for every paper.
+  assert.equal(hasRescan({ ...AT_UPLOAD, rescan: RESCAN }), true)
+  assert.equal(hasRescan(AT_UPLOAD), false)
+  assert.equal(hasRescan({ ...AT_UPLOAD, rescan: null }), false)
+  assert.equal(hasRescan({ ...AT_UPLOAD, rescan: [] }), false)
+  assert.equal(hasRescan(null), false)
+  assert.notEqual(currentScreening(AT_UPLOAD), atUploadScreening(AT_UPLOAD))
 })

@@ -20,15 +20,24 @@ archived BLIS thesis reached the "Thesis indexed!" screen flagged at 96.30%
 coverage instead of being turned away.
 """
 
+import json
 import logging
+from datetime import datetime, timezone
 
 from config import settings
 from services.retriever import sb
-from services.index_provenance import retrieval_provenance_params
+from services.index_provenance import (
+    PROVENANCE_STATUS_LEGACY as PROVENANCE_LEGACY,
+    PROVENANCE_STATUS_VERIFIED as PROVENANCE_VERIFIED,
+    retrieval_provenance_params,
+)
 
 logger = logging.getLogger(__name__)
 
 _TOP_MATCHED_PAPERS = 3
+
+SCOPE_AT_UPLOAD = 'at_upload'
+SCOPE_RESCAN = 'rescan'
 
 # A per-chunk cosine similarity this high only happens when the archived
 # passage is the same text. Identical input re-embedded returns vectors that
@@ -123,6 +132,120 @@ def aggregate_matches(matches: list[dict], total_chunks: int, threshold: float) 
     }
 
 
+def _enrich_matched_papers(scan: dict) -> dict:
+    """Attach citation metadata to the ranked matches for the admin UI."""
+    pids = [p['id'] for p in scan['matched_papers']]
+    if pids:
+        papers_res = sb.table('papers').select('id,title,authors,year,track,department').in_('id', pids).execute()
+        lookup = {p['id']: p for p in (papers_res.data or [])}
+        for entry in scan['matched_papers']:
+            p = lookup.get(entry['id'])
+            if p:
+                entry.update({
+                    'title': p.get('title', ''),
+                    'authors': p.get('authors', ''),
+                    'year': p.get('year'),
+                    'track': p.get('track', ''),
+                    'department': p.get('department', ''),
+                })
+    return scan
+
+
+def _archive_size(department: str, exclude_paper_id: str | None = None) -> int:
+    """How many indexed theses the screen could actually have compared against.
+
+    Stored with the result because a screening is a snapshot: a card recorded
+    when the archive held two theses cannot name a closer third that arrived
+    afterwards, and without this number nothing on the card says so.
+    """
+    try:
+        query = sb.table('papers').select('id', count='exact').eq('ingestion_status', 'ready')
+        if department:
+            query = query.eq('department', department)
+        if exclude_paper_id:
+            query = query.neq('id', exclude_paper_id)
+        return int(query.execute().count or 0)
+    except Exception:  # noqa: BLE001 - provenance is descriptive, never a gate
+        logger.warning('Could not size the archive for a duplication screening', exc_info=True)
+        return 0
+
+
+def _as_vector(embedding) -> list[float]:
+    """pgvector columns arrive as a JSON string over PostgREST, not a list."""
+    if isinstance(embedding, str):
+        return json.loads(embedding)
+    return list(embedding or [])
+
+
+def _candidate_chunk_vectors(department: str, exclude_paper_id: str) -> list[tuple]:
+    """The archive `match_chunks` would search, minus this paper's own chunks.
+
+    Mirrors that RPC's WHERE clause so a rescan compares against exactly what
+    an upload would have: the active index version only, papers that finished
+    ingesting, the same department, and an index whose embedding model and
+    dimensions match this server's. Each entry carries its precomputed norm so
+    the scoring loop below does not recompute it per query chunk.
+    """
+    papers = sb.table('papers').select('id,active_index_version') \
+        .eq('ingestion_status', 'ready').neq('id', exclude_paper_id)
+    if department:
+        papers = papers.eq('department', department)
+    rows = papers.execute().data or []
+    active = {row['id']: row['active_index_version'] for row in rows}
+    if not active:
+        return []
+
+    provenance = sb.table('paper_index_versions') \
+        .select('paper_id,index_version') \
+        .in_('paper_id', list(active)) \
+        .eq('embedding_model', settings.gemini_embed_model) \
+        .eq('embedding_dimensions', settings.embedding_dimensions) \
+        .in_('provenance_status', [PROVENANCE_VERIFIED, PROVENANCE_LEGACY]) \
+        .execute().data or []
+    verified = {row['paper_id'] for row in provenance
+                if row['index_version'] == active.get(row['paper_id'])}
+    if not verified:
+        return []
+
+    candidates: list[tuple] = []
+    for paper_id in verified:
+        chunks = sb.table('chunks').select('embedding') \
+            .eq('paper_id', paper_id).eq('index_version', active[paper_id]).execute().data or []
+        for chunk in chunks:
+            vector = _as_vector(chunk['embedding'])
+            norm = sum(value * value for value in vector) ** 0.5
+            if norm:
+                candidates.append((paper_id, vector, norm))
+    return candidates
+
+
+def _best_archive_match(embedding: list[float], candidates: list[tuple],
+                        threshold: float) -> tuple[str | None, float]:
+    """The closest archived chunk, as cosine similarity, or no match.
+
+    pgvector reports `1 - (a <=> b)`, which is cosine similarity, so this is
+    the same quantity the RPC returns for the same pair of vectors.
+    """
+    norm = sum(value * value for value in embedding) ** 0.5
+    if not norm:
+        return None, 0.0
+    best_paper, best = None, 0.0
+    for paper_id, vector, vector_norm in candidates:
+        similarity = sum(a * b for a, b in zip(embedding, vector)) / (norm * vector_norm)
+        if similarity > best:
+            best_paper, best = paper_id, similarity
+    return (best_paper, best) if best >= threshold else (None, 0.0)
+
+
+def _stamp_scan(scan: dict, department: str, scope: str,
+                exclude_paper_id: str | None = None) -> dict:
+    """Record when this screening ran and how much archive it saw."""
+    scan['screened_at'] = datetime.now(timezone.utc).isoformat()
+    scan['archive_size'] = _archive_size(department, exclude_paper_id)
+    scan['scan_scope'] = scope
+    return scan
+
+
 def screen_new_submission(embeddings: list[list[float]], department: str) -> dict:
     """Screen a new manuscript's chunk embeddings against the archive at the
     paper-mandated 85% cosine similarity duplication threshold."""
@@ -141,20 +264,53 @@ def screen_new_submission(embeddings: list[list[float]], department: str) -> dic
             matches.append({'paper_id': best['paper_id'], 'similarity': best['similarity']})
 
     scan = aggregate_matches(matches, len(embeddings), threshold)
+    return _stamp_scan(_enrich_matched_papers(scan), department, SCOPE_AT_UPLOAD)
 
-    # Enrich the top matches with citation metadata for the admin UI
-    pids = [p['id'] for p in scan['matched_papers']]
-    if pids:
-        papers_res = sb.table('papers').select('id,title,authors,year,track,department').in_('id', pids).execute()
-        lookup = {p['id']: p for p in (papers_res.data or [])}
-        for entry in scan['matched_papers']:
-            p = lookup.get(entry['id'])
-            if p:
-                entry.update({
-                    'title': p.get('title', ''),
-                    'authors': p.get('authors', ''),
-                    'year': p.get('year'),
-                    'track': p.get('track', ''),
-                    'department': p.get('department', ''),
-                })
-    return scan
+
+def rescan_indexed_paper(paper_id: str, department: str) -> dict:
+    """Re-screen a thesis that is already in the archive, against all of it.
+
+    `screen_new_submission` runs once, before the manuscript is indexed, so it
+    only ever sees the theses that went in ahead of it. That makes every card a
+    snapshot whose named paper points backwards in time: measured 2026-09-14,
+    all 16 cards in the live archive name an earlier upload and none names a
+    later one, and three of the four BLIS theses understated their overlap
+    because the theses they most resemble were uploaded after them. One showed
+    12.50% coverage where a current screen puts it at 91.67%.
+
+    Same threshold, same aggregation and the same verdict bands as the
+    ingest-time screen, and it reads embeddings that are already stored, so it
+    calls no embedding model and moves no vector.
+
+    It does not go through `match_chunks`, which the ingest-time screen uses.
+    That RPC has no exclude-paper parameter, and by now this paper's own chunks
+    are in the index: each one matches itself at 1.0, and the 100-token chunk
+    overlap makes its neighbours match in the 0.9s too, so a `match_count` the
+    size of a context window comes back holding nothing but the paper itself.
+    Measured 2026-09-14, asking for eight neighbours and discarding self scored
+    the Borrower's Card thesis at 38.89% coverage against the 97.22% its own
+    still-current card records. Raising the count only trades that for the
+    RPC's hnsw.ef_search ceiling. Scoring the candidate set directly avoids
+    both, and reproduces the stored card exactly for any paper indexed last.
+    """
+    threshold = settings.duplication_threshold
+    paper_res = sb.table('papers').select('active_index_version').eq('id', paper_id).execute()
+    if not paper_res.data:
+        raise ValueError(f'No such paper: {paper_id}')
+    active_index = paper_res.data[0].get('active_index_version')
+
+    rows = sb.table('chunks').select('chunk_index,embedding') \
+        .eq('paper_id', paper_id).eq('index_version', active_index) \
+        .order('chunk_index').execute().data or []
+    embeddings = [_as_vector(row['embedding']) for row in rows]
+    candidates = _candidate_chunk_vectors(department, paper_id)
+
+    matches = []
+    for emb in embeddings:
+        paper_match, similarity = _best_archive_match(emb, candidates, threshold)
+        if paper_match:
+            matches.append({'paper_id': paper_match, 'similarity': similarity})
+
+    scan = aggregate_matches(matches, len(embeddings), threshold)
+    return _stamp_scan(_enrich_matched_papers(scan), department, SCOPE_RESCAN,
+                       exclude_paper_id=paper_id)
