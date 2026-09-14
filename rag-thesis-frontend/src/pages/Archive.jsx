@@ -6,7 +6,8 @@ import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ConfirmDialog, Modal } from '../components/ui/Modal'
-import { PageTransition, staggerContainer, staggerItem } from '../components/ui/Motion'
+import { PageTransition } from '../components/ui/Motion'
+import { usePreferences } from '../context/PreferencesContext'
 import { Button } from '../components/ui/Button'
 import { GooglePagination } from '../components/ui/Pagination'
 import {
@@ -18,6 +19,24 @@ import { useArchiveCatalog } from './archive/useArchiveCatalog'
 import { ArchiveFiltersBar } from './archive/ArchiveFiltersBar'
 
 const ARCHIVE_SKELETONS = slotKeys(6, 'archive-card')
+
+// Paging moves the whole result set sideways, like a filmstrip: the outgoing
+// page and the incoming one travel together at the same speed, one leaving as
+// the other arrives. Nothing fades -- a cross-fade makes two pages occupy the
+// same space at half opacity each, which reads as a flicker rather than as
+// movement and tells the reader nothing about which way they just went.
+//
+// `x` is a percentage of the grid's own width, so the two pages abut exactly
+// and the strip stays continuous at any viewport size.
+const SLIDE = {
+  enter: (direction) => ({ x: direction >= 0 ? '100%' : '-100%' }),
+  center: { x: '0%' },
+  exit: (direction) => ({ x: direction >= 0 ? '-100%' : '100%' }),
+}
+// Near-critically damped: it leaves immediately on the press and settles
+// without overshooting, so the page never rocks back into place.
+const SLIDE_SPRING = { type: 'spring', stiffness: 340, damping: 38, mass: 0.9 }
+
 
 // The panel behind the card badge, keyed off the same verdict so the two
 // cannot disagree — a gold badge opening onto a red panel would just move the
@@ -71,7 +90,7 @@ function ScreeningDetail({ scan }) {
 function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
   const screening = scanMetrics(paper.duplication_scan)
   return (
-    <motion.div variants={staggerItem} layout>
+    <>
       {/* R9: this card used to be role="button" with tabIndex={0} while
           containing a real delete <button>. Assistive technology announced a
           button nested inside a button, and the inner control was hard to reach
@@ -137,7 +156,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           )}
         </div>
       </GlassCard>
-    </motion.div>
+    </>
   )
 }
 
@@ -147,12 +166,15 @@ function ArchiveResults({
   filtered,
   paginated,
   papers,
+  page,
+  direction,
   isAdmin,
   onDelete,
   onOpen,
   onClear,
   onRetry,
 }) {
+  const { reducedMotion } = usePreferences()
   if (isLoading) {
     return (
       <div className="grid min-h-[380px] content-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -192,25 +214,51 @@ function ArchiveResults({
     )
   }
   const displayPapers = paginated || filtered
+  const cards = displayPapers.map((paper) => (
+    <PaperCard
+      key={paper.id}
+      paper={paper}
+      isAdmin={isAdmin}
+      onDelete={onDelete}
+      onOpen={onOpen}
+    />
+  ))
+  const grid = 'grid content-start gap-4 sm:grid-cols-2 lg:grid-cols-3'
+  if (reducedMotion) {
+    return <div className={cn(grid, 'min-h-[380px]')}>{cards}</div>
+  }
   return (
-    <motion.div
-      variants={staggerContainer}
-      initial="hidden"
-      animate="show"
-      className="grid min-h-[380px] content-start gap-4 sm:grid-cols-2 lg:grid-cols-3"
-    >
-      <AnimatePresence>
-        {displayPapers.map((paper) => (
-          <PaperCard
-            key={paper.id}
-            paper={paper}
-            isAdmin={isAdmin}
-            onDelete={onDelete}
-            onOpen={onOpen}
-          />
-        ))}
+    // The window the strip runs through: a page has to be invisible before it
+    // reaches the rest of the layout. `clip-path` rather than
+    // `overflow-hidden` because only the sides need clipping -- the cards lift
+    // 4px and cast a 60px-blur shadow on hover, and a scroll container would
+    // cut that off the top and bottom rows. Negative insets push the clip edge
+    // outwards: 72px of room for the shadow vertically, 14px horizontally,
+    // which is far less than the page gutter the strip would otherwise show
+    // through.
+    <div className="relative min-h-[380px] [clip-path:inset(-72px_-14px)]">
+      <AnimatePresence mode="popLayout" initial={false} custom={direction}>
+        <motion.div
+          key={page}
+          custom={direction}
+          variants={SLIDE}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          transition={SLIDE_SPRING}
+          // No `will-change: transform` here. Pinning it on permanently drew a
+          // faintly tinted rectangle over the whole results area in both
+          // themes -- `clip-path` makes this container a backdrop root, and a
+          // layer promoted inside one changes how the cards' own
+          // `backdrop-filter` (surface-glass) resolves against it. Framer sets
+          // will-change for the duration of the animation anyway, which is
+          // where it belongs.
+          className={grid}
+        >
+          {cards}
+        </motion.div>
       </AnimatePresence>
-    </motion.div>
+    </div>
   )
 }
 
@@ -258,13 +306,13 @@ export default function Archive() {
     filters, setFilter, clearFilters, activeTracks, trackLabel,
     programs, specializations, refetch,
     deleteTarget, setDeleteTarget, detail, setDetail, busy, submitDelete,
-    page, setPage, paginated, pageSize,
+    page, pageDirection, setPage, paginated, pageSize,
     sortBy, setSortBy, sortOptions,
   } = archive
   const hasFilters = Object.values(filters).some(Boolean)
 
   return (
-    <PageTransition className="mx-auto flex min-h-[calc(100vh-14rem)] max-w-6xl flex-col space-y-6">
+    <PageTransition className="mx-auto flex min-h-[calc(100vh-12rem)] max-w-6xl flex-col space-y-6 md:min-h-[calc(100vh-3.5rem)]">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
@@ -314,6 +362,8 @@ export default function Archive() {
           filtered={filtered}
           paginated={paginated}
           papers={papers}
+          page={page}
+          direction={pageDirection}
           isAdmin={isAdmin}
           onDelete={setDeleteTarget}
           onOpen={setDetail}
@@ -323,7 +373,16 @@ export default function Archive() {
 
         {/* Pagination matching DailyUI Challenge #085 */}
         {!isLoading && !papersError && filtered.length > 0 && (
-          <div className="mt-auto flex justify-center border-t border-forest-900/10 pt-6 pb-6 dark:border-white/10">
+          // Pinned to the bottom of the viewport rather than left at the end
+          // of the results: a full page of cards is taller than the fold, so
+          // the control sat off-screen and every page change meant scrolling
+          // down to reach the next button and back up to read. Sticky keeps it
+          // in reach and in one place without reserving empty rows above it.
+          // It clears the mobile tab bar (fixed at bottom-3, z-40) and sits
+          // below it in the stack so the two can never fight for the same
+          // pixels; `-mx-*` lets its background span the gutters the cards
+          // scroll through.
+          <div className="sticky bottom-28 z-20 mt-auto -mx-3.5 flex justify-center border-t border-forest-900/10 bg-[var(--surface-0)]/80 px-3.5 py-4 backdrop-blur-xl sm:-mx-6 sm:px-6 md:bottom-8 dark:border-white/10">
             <GooglePagination
               page={page}
               setPage={setPage}

@@ -23,7 +23,11 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [detail, setDetail] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [page, setPage] = useState(1)
+  const [page, setPageState] = useState(1)
+  // Which way the results should travel when the page changes. Derived
+  // here, where both the old and the new page are known, rather than from
+  // a ref read during the grid's render.
+  const [pageDirection, setPageDirection] = useState(1)
   const [sortBy, setSortByState] = useState('newest')
 
   const papersQuery = useQuery({ queryKey: ['papers'], queryFn: () => listPapers(null) })
@@ -55,6 +59,12 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
     () => paginateItems(filtered, page, ARCHIVE_PAGE_SIZE),
     [filtered, page],
   )
+
+  const setPage = (next) => {
+    const target = typeof next === 'function' ? next(page) : next
+    setPageDirection(target >= page ? 1 : -1)
+    setPageState(target)
+  }
 
   const setSortBy = (value) => {
     setPage(1)
@@ -112,6 +122,7 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
     busy,
     submitDelete,
     page,
+    pageDirection,
     setPage,
     paginated,
     pageSize: ARCHIVE_PAGE_SIZE,

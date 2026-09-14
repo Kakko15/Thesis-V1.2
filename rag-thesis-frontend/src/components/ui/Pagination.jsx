@@ -1,7 +1,15 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
+import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { clampPage, getPaginationPages, totalPageCount } from '../../lib/pagination.js'
+import { usePreferences } from '../../context/PreferencesContext'
 import { cn } from '../../lib/utils'
+
+// The selected pill travels between numbers instead of blinking from one
+// to the next, so the eye keeps hold of where it went -- which is the
+// whole point of a control you use repeatedly. Stiff and well damped: it
+// has to arrive before the new page does, never bounce past it.
+const INDICATOR_SPRING = { type: 'spring', stiffness: 520, damping: 38, mass: 0.8 }
 
 /**
  * Capsule/pill pagination component matching DailyUI Challenge #085
@@ -16,6 +24,10 @@ export function Pagination({
   hideOnSinglePage = true,
   className,
 }) {
+  const { reducedMotion } = usePreferences()
+  // Shared-layout ids are global, so two paginations on one screen would
+  // otherwise fight over a single travelling pill.
+  const indicatorId = useId()
   const [jumpInput, setJumpInput] = useState('')
   const totalPages = totalPageCount(total, limit)
   const currentPage = clampPage(page, totalPages)
@@ -72,7 +84,7 @@ export function Pagination({
           }}
           disabled={currentPage <= 1}
           aria-label="Previous page"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-forest-900/10 hover:text-ink disabled:pointer-events-none disabled:opacity-25 dark:hover:bg-white/10"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-muted transition-[color,background-color,transform] duration-200 hover:bg-forest-900/10 hover:text-ink active:scale-90 disabled:pointer-events-none disabled:opacity-25 motion-reduce:active:scale-100 dark:hover:bg-white/10"
         >
           <ChevronLeft size={16} />
         </button>
@@ -103,13 +115,22 @@ export function Pagination({
               aria-current={isCurrent ? 'page' : undefined}
               aria-label={isCurrent ? `Current page, page ${item}` : `Go to page ${item}`}
               className={cn(
-                'flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full text-xs transition-all',
+                'relative flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full text-xs',
+                'transition-[color,background-color] duration-200 active:scale-90 motion-reduce:active:scale-100',
                 isCurrent
-                  ? 'bg-forest-800 font-bold text-white shadow-2xs dark:bg-forest-400 dark:text-forest-950'
+                  ? 'font-bold text-white dark:text-forest-950'
                   : 'font-semibold text-ink-muted hover:bg-forest-900/10 hover:text-ink dark:hover:bg-white/10',
               )}
             >
-              {item}
+              {isCurrent && (
+                <motion.span
+                  aria-hidden="true"
+                  layoutId={reducedMotion ? undefined : `${indicatorId}-page-indicator`}
+                  transition={INDICATOR_SPRING}
+                  className="absolute inset-0 rounded-full bg-forest-800 shadow-2xs dark:bg-forest-400"
+                />
+              )}
+              <span className="relative">{item}</span>
             </button>
           )
         })}
@@ -123,7 +144,7 @@ export function Pagination({
           }}
           disabled={currentPage >= totalPages}
           aria-label="Next page"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-forest-900/10 hover:text-ink disabled:pointer-events-none disabled:opacity-25 dark:hover:bg-white/10"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-muted transition-[color,background-color,transform] duration-200 hover:bg-forest-900/10 hover:text-ink active:scale-90 disabled:pointer-events-none disabled:opacity-25 motion-reduce:active:scale-100 dark:hover:bg-white/10"
         >
           <ChevronRight size={16} />
         </button>
