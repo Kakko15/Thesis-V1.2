@@ -1,12 +1,12 @@
 {
-  "total_papers": 13,
-  "total_tracks": 3,
+  "total_papers": 16,
+  "total_tracks": 4,
   "year_range": {
     "from": 2024,
     "to": 2026
   },
-  "total_queries": 179,
+  "total_queries": 197,
   "read_on": "2026-09-14",
-  "read_at": "2026-09-13T18:59:22.134Z",
+  "read_at": "2026-09-14T02:12:02.965Z",
   "source": "/analytics/summary"
 }
