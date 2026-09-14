@@ -322,7 +322,7 @@ async function recordArchiveState() {
 function promote(keys, from) {
   mkdirSync(ASSETS, { recursive: true })
   const stateSrc = path.join(SCRATCH, 'captures', from, 'archive_state.json')
-  if (from === 'live' && existsSync(stateSrc)) {
+  if (from.startsWith('live') && existsSync(stateSrc)) {
     copyFileSync(stateSrc, path.join(ASSETS, 'archive_state.json'))
     log('promoted archive_state.json')
   }
