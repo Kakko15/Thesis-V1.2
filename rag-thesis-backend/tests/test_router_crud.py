@@ -419,7 +419,12 @@ class TestPapersAndAnalytics:
         monkeypatch.setattr(analytics, 'sb', PagingClient({
             'papers': papers,
             'profiles': [{'role': 'student'} for _ in range(1200)],
-            'scan_history': [{'duplication_percentage': 60} for _ in range(1100)],
+            # 60% coverage is no longer what makes a scan flagged; the stored
+            # verdict is, and it is graded on concentration.
+            'scan_history': [
+                {'duplication_percentage': 60, 'verdict_level': 'high_overlap'}
+                for _ in range(1100)
+            ],
         }))
         monkeypatch.setattr(analytics, '_admin_scope', lambda _user: ('superadmin', None))
 
@@ -451,7 +456,8 @@ class TestPapersAndAnalytics:
                 [{'id': 'u1', 'email': 'u@x', 'role': 'student'}],
                 [{'id': 'u1', 'full_name': 'Updated'}],
             ],
-            'scan_history': [[{'duplication_percentage': 60, 'created_at': 'now'}]],
+            'scan_history': [[{'duplication_percentage': 60, 'verdict_level': 'high_overlap',
+                               'created_at': 'now'}]],
             'chat_sessions': [result(count=2)],
         })
         monkeypatch.setattr(analytics, 'sb', client)
@@ -894,3 +900,61 @@ class TestStorageCleanupMaintenance:
         with pytest.raises(HTTPException) as caught:
             maintenance.retry_storage_cleanup(2, user)
         assert caught.value.status_code == 503
+
+
+class TestFlaggedScansFollowTheVerdict:
+    """The admin tile counts what the verdict says, not a band of its own.
+
+    It read `duplication_percentage >= 50` while the verdict moved to
+    concentration, so the number and the tile's own label disagreed: a scan at
+    66% coverage whose matches were spread over three theses is not flagged,
+    and one at 47% coverage concentrated on a single thesis is.
+    """
+
+    class Query:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_args):
+            return self
+
+        def range(self, *_args):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=self.rows, count=len(self.rows))
+
+    class Client:
+        def __init__(self, tables):
+            self.tables = tables
+
+        def table(self, name):
+            return TestFlaggedScansFollowTheVerdict.Query(self.tables.get(name, []))
+
+    def test_counts_the_stored_verdict_not_the_coverage(self, monkeypatch):
+        from routers import analytics
+
+        scans = [
+            {'duplication_percentage': 66, 'verdict_level': 'review_suggested'},
+            {'duplication_percentage': 47, 'verdict_level': 'high_overlap'},
+            {'duplication_percentage': 100, 'verdict_level': 'clear'},
+            {'duplication_percentage': 0, 'verdict_level': 'clear'},
+        ]
+        monkeypatch.setattr(analytics, 'sb', self.Client({
+            'papers': [], 'profiles': [], 'scan_history': scans,
+        }))
+        monkeypatch.setattr(analytics, '_admin_scope', lambda _user: ('superadmin', None))
+
+        overview = analytics.overview(SimpleNamespace(id='root'))
+        assert overview['usage']['flagged_scans'] == 1
+        # The average still reports coverage, which is what it has always meant.
+        assert overview['usage']['avg_duplication_percentage'] == 53.25

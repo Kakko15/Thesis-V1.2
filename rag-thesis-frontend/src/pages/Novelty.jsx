@@ -21,11 +21,20 @@ import { ConfirmDialog } from '../components/ui/Modal'
 import { PageTransition } from '../components/ui/Motion'
 import { Skeleton } from '../components/ui/Skeleton'
 import { Select } from '../components/ui/Input'
-import { cn, normalizePercent, scanMetrics, timeAgo, verdictLabel } from '../lib/utils'
+import { cn, normalizePercent, scanMetrics, timeAgo, verdictLabel, verdictTone } from '../lib/utils'
 import { contentKeys, slotKeys } from '../lib/keys'
 import { downloadNoveltyReport } from './novelty/report'
 
 const HISTORY_SKELETONS = slotKeys(4, 'novelty-history')
+
+// Keyed off the shared verdict tone so a history row can never disagree with
+// the verdict it opens onto. Semantic aliases rather than hues, matching the
+// archive card, so the audited AA pairings still apply.
+const HISTORY_TONE = {
+  critical: 'text-flame-500',
+  warning: 'text-gold-text dark:text-gold-300',
+  neutral: 'text-forest-700 dark:text-forest-300',
+}
 // The server's /duplication/scan contract: a PDF or a plain-text manuscript.
 const SCAN_MIME_TYPES = ['application/pdf', 'application/x-pdf', 'text/plain', 'application/octet-stream']
 
@@ -137,7 +146,7 @@ function ScanResult({ scan, onAsk }) {
       {/* Verdict header */}
       <GlassCard className="p-6">
         <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
-          <ProgressRing value={metrics.coverage} label="coverage" size={150} />
+          <ProgressRing value={metrics.concentration} label="closest thesis" size={150} />
           <div className="min-w-0 flex-1 text-center sm:text-left">
             <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               <FileText size={15} className="opacity-50" />
@@ -162,7 +171,15 @@ function ScanResult({ scan, onAsk }) {
                 <div className="mt-1 font-display text-xl font-extrabold">{metrics.highest.toFixed(2)}%</div>
               </div>
               <div className="glass rounded-xl p-3">
-                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Matched chunk coverage</div>
+                {/* The graded figure. Coverage stays below it, relabelled:
+                    on its own it reads as an accusation, because a manuscript
+                    can match something everywhere and still have no single
+                    archived thesis accounting for a tenth of it. */}
+                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Closest single thesis</div>
+                <div className="mt-1 font-display text-xl font-extrabold">{metrics.concentration.toFixed(2)}%</div>
+              </div>
+              <div className="glass rounded-xl p-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Matched anywhere in the archive</div>
                 <div className="mt-1 font-display text-xl font-extrabold">{metrics.coverage.toFixed(2)}%</div>
               </div>
               <div className="glass rounded-xl p-3">
@@ -347,9 +364,9 @@ export default function Novelty() {
       queryClient.invalidateQueries({ queryKey: ['scan-history'] })
       const metrics = scanMetrics(result)
       if (metrics.verdict === 'high_overlap') {
-        toast.warning(`High overlap—faculty review required: ${metrics.coverage.toFixed(1)}% coverage`)
+        toast.warning(`High overlap—faculty review required: ${metrics.concentration.toFixed(1)}% of passages closest to one thesis`)
       } else {
-        toast.success(`Scan complete — ${metrics.coverage.toFixed(1)}% matched chunk coverage`)
+        toast.success(`Scan complete — ${metrics.concentration.toFixed(1)}% of passages closest to one thesis`)
       }
     } catch (err) {
       toast.error('Scan failed', { description: apiErrorMessage(err) })
@@ -460,13 +477,19 @@ export default function Novelty() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate text-sm font-semibold" title={scan.filename}>{scan.filename}</span>
+                        {/* Coloured by the verdict, not by a coverage band of
+                            its own. While this read `coverage >= 50` and the
+                            verdict was graded on concentration, a row could
+                            show a red number beside a "review suggested"
+                            result. */}
                         <span
                           className={cn(
                             'shrink-0 font-display text-sm font-extrabold',
-                            metrics.coverage >= 50 ? 'text-flame-500' : metrics.coverage > 0 ? 'text-gold-text dark:text-gold-300' : 'text-forest-700 dark:text-forest-300',
+                            HISTORY_TONE[verdictTone(metrics.verdict)] ?? HISTORY_TONE.neutral,
                           )}
+                          title={verdictLabel(metrics.verdict)}
                         >
-                          {metrics.coverage.toFixed(0)}%
+                          {metrics.concentration.toFixed(0)}%
                         </span>
                       </div>
                       <div className="mt-0.5 text-xs text-ink-faint">{timeAgo(scan.created_at)}</div>
