@@ -1340,3 +1340,67 @@ class TestNumberedReferenceInsideAQuestion:
         assert captured['paper_id'] == ['p1', 'p2']
         assert captured['is_overview'] is True
         assert 'YOLOv11' in captured['question'] and 'Centralized' in captured['question']
+
+
+class _StopAfterRetrieval(Exception):
+    """Ends the turn once the query that reached the embedder is known.
+
+    The router turns any retrieval failure into a 503, so that is what surfaces;
+    the assertion that carries the meaning is the captured wording, which only
+    the intended path can produce.
+    """
+
+
+class TestCrossLingualRetrieval:
+    """A Filipino research question must be embedded as English search terms.
+
+    Routing keeps pleasantries and catalog questions away from retrieval for
+    free; what reaches the embedder is a real research question, and asked in
+    Filipino it lands in a conversational region of the vector space rather
+    than among formal capstone prose.
+    """
+
+    def _capture(self, monkeypatch):
+        seen = {}
+
+        async def fake_retrieve(question, *_args, **_kwargs):
+            # Raise a sentinel rather than returning: the turn is over once the
+            # embedded wording is known, and a bare `Exception` here would pass
+            # even if the translation path itself had failed.
+            seen['embedded'] = question
+            raise _StopAfterRetrieval
+
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, '_retrieve_evidence', fake_retrieve)
+        return seen
+
+    def test_a_filipino_question_is_translated_before_the_embedding_call(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        translated = []
+
+        async def fake_translate(question):
+            translated.append(question)
+            return 'theses about computer vision'
+
+        monkeypatch.setattr(chat, '_translate_for_retrieval', fake_translate)
+        with pytest.raises(HTTPException):
+            run(chat._chat_impl(
+                ChatRequest(question='ano ang mga tesis tungkol sa computer vision'),
+                _NoRequest(), BackgroundTasks(), None,
+            ))
+        assert translated == ['ano ang mga tesis tungkol sa computer vision']
+        assert seen['embedded'] == 'theses about computer vision'
+
+    def test_an_english_question_never_pays_for_a_translation(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+
+        async def must_not_translate(_question):
+            raise AssertionError('an English question must not reach the translation call')
+
+        monkeypatch.setattr(chat, '_translate_for_retrieval', must_not_translate)
+        with pytest.raises(HTTPException):
+            run(chat._chat_impl(
+                ChatRequest(question='which studies applied YOLO for object detection'),
+                _NoRequest(), BackgroundTasks(), None,
+            ))
+        assert seen['embedded'] == 'which studies applied YOLO for object detection'

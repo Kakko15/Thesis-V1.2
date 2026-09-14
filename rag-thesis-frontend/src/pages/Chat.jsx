@@ -71,32 +71,107 @@ function withinReplyLimit(answer) {
     && answer.length <= CONVERSATION_REPLY_MAX_CHARS
 }
 
-function ComposerAction({ sending, verifying, hasInput, onStop }) {
-  if (sending) {
-    return (
-      <Button
-        type="button"
-        variant="danger"
-        size="icon"
-        aria-label="Stop waiting for response"
-        className="shrink-0"
-        onClick={onStop}
-      >
-        <Square size={15} fill="currentColor" />
-      </Button>
-    )
-  }
-  if (verifying) {
-    return (
-      <Button type="button" size="icon" disabled aria-label="Waiting for the security check" className="shrink-0">
-        <Loader2 size={16} className="animate-spin" />
-      </Button>
-    )
-  }
+/* ------------------------------------------------------------------ */
+/* Composer send / stop control                                        */
+/* ------------------------------------------------------------------ */
+
+// One node across all three states, never an AnimatePresence swap: the E2E
+// flow clicks Send and then Stop on the same element within a frame, and a
+// button that unmounts mid-transition drops both the click and the focus ring.
+// 44px is the pointer-target floor, and round settles the control inside the
+// pill-shaped composer that a squircle only ever fought.
+const COMPOSER_ACTION_BASE = [
+  'group relative grid size-11 shrink-0 place-items-center rounded-full',
+  'transition-[background-color,color,box-shadow,transform] duration-200',
+  'outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
+  'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]',
+  // The primitive fades every disabled button to 50%, which turned an empty
+  // composer's Send into a washed-out ghost of the live one. Idle is its own
+  // colour instead, so "nothing to send yet" reads as deliberate.
+  'disabled:pointer-events-none disabled:opacity-100',
+].join(' ')
+
+const COMPOSER_ACTION_STATE = {
+  send: [
+    'bg-[var(--primary)] text-[var(--primary-foreground)]',
+    'shadow-lg shadow-[var(--primary)]/25',
+    'hover:brightness-110 hover:shadow-xl hover:shadow-[var(--primary)]/35',
+    'active:scale-90',
+  ].join(' '),
+  idle: 'bg-[var(--surface-3)] text-[var(--muted-foreground)] shadow-none',
+  verifying: 'bg-[var(--surface-3)] text-[var(--muted-foreground)] shadow-none',
+  // Neutral until the pointer is on it. A filled red button in a green app is
+  // the loudest thing on the page and reads as "delete", which stopping a
+  // stream is not; the destructive colour belongs on the hover, where it
+  // confirms what the click is about to do.
+  stop: [
+    'bg-[var(--surface-2)] text-[var(--foreground)]',
+    'hover:bg-[var(--destructive)]/12 hover:text-[var(--destructive)]',
+    'active:scale-90',
+  ].join(' '),
+}
+
+const COMPOSER_ACTION_LABEL = {
+  send: 'Send',
+  idle: 'Send',
+  verifying: 'Waiting for the security check',
+  stop: 'Stop waiting for response',
+}
+
+const COMPOSER_ACTION_TITLE = {
+  send: 'Send',
+  idle: 'Type a question to send',
+  verifying: 'Waiting for the security check',
+  stop: 'Stop waiting for this response',
+}
+
+/** The rim doubles as the progress track, so waiting needs no extra chrome. */
+function StreamingRing() {
   return (
-    <Button type="submit" size="icon" disabled={!hasInput} aria-label="Send" className="shrink-0">
-      <Send size={17} />
-    </Button>
+    <svg
+      viewBox="0 0 44 44"
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 size-full animate-spin [animation-duration:1.4s]"
+    >
+      <circle cx="22" cy="22" r="21" fill="none" strokeWidth="2"
+        stroke="var(--primary)" strokeOpacity="0.2" />
+      <circle cx="22" cy="22" r="21" fill="none" strokeWidth="2"
+        stroke="var(--primary)" strokeLinecap="round" strokeDasharray="36 96" />
+    </svg>
+  )
+}
+
+function composerActionState(sending, verifying, hasInput) {
+  if (sending) return 'stop'
+  if (verifying) return 'verifying'
+  return hasInput ? 'send' : 'idle'
+}
+
+function ComposerAction({ sending, verifying, hasInput, onStop }) {
+  const state = composerActionState(sending, verifying, hasInput)
+  return (
+    <button
+      type={state === 'send' ? 'submit' : 'button'}
+      onClick={state === 'stop' ? onStop : undefined}
+      disabled={state === 'idle' || state === 'verifying'}
+      aria-label={COMPOSER_ACTION_LABEL[state]}
+      title={COMPOSER_ACTION_TITLE[state]}
+      className={cn(COMPOSER_ACTION_BASE, COMPOSER_ACTION_STATE[state])}
+    >
+      {state === 'stop' && <StreamingRing />}
+      {state === 'verifying' && <Loader2 size={17} className="animate-spin" />}
+      {state === 'stop' && <Square size={13} fill="currentColor" strokeWidth={0} />}
+      {(state === 'send' || state === 'idle') && (
+        // No optical nudge: lucide's plane measures dead centre in its own
+        // viewBox (ink box 2,2 -> 22,22), so any correction is a visible
+        // off-centre error rather than a fix. Only the hover launch moves it.
+        <Send
+          size={17}
+          className="transition-transform duration-200
+            group-hover:translate-x-[3px] group-hover:-translate-y-[3px]"
+        />
+      )}
+    </button>
   )
 }
 
