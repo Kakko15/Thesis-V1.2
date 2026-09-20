@@ -14,7 +14,7 @@
 # OpenSSL's QUIC server. Nothing here serves QUIC, so exposure was nil, but the
 # CI container scan is fix-available-only and failed on it for eight
 # consecutive runs. Re-pinning to a build carrying 3.6.3-r5 clears it.
-FROM cgr.dev/chainguard/python:latest-dev@sha256:f0f3f01288b7ae009d90828d2dbd2f3c949aa3b6e820081cb278880d758ffb44 AS build
+FROM cgr.dev/chainguard/python:latest-dev@sha256:8af5085c793a9b501253117ccceabff2340400f3ef92fb0e09df690dd1e961a4 AS build
 
 USER root
 # Deliberately exact, not a range: the paper's version tables record this
@@ -62,7 +62,7 @@ COPY scripts/gemini_release_smoke.py ./scripts/
 RUN chown -R 65532:65532 /app /opt/venv /opt/tiktoken-cache
 
 # Runtime stage, pinned by digest for the same reason as the build stage above.
-FROM cgr.dev/chainguard/python:latest@sha256:f487e51ca6ee4b20e07e1b4c9c44d3108ab305d2318b0f233f5b72529f52a6aa
+FROM cgr.dev/chainguard/python:latest@sha256:1206ffee8644e6338b3fc8b6e5dc384b03d91ad1df1d6b74fa4255544ac51ad2
 
 WORKDIR /app
 ENV PATH="/opt/venv/bin:$PATH" \
