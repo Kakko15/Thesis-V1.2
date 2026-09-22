@@ -116,3 +116,53 @@ test('set-form drops the autofill claims whose value it changed', () => {
   state = uploadReducer(state, { type: 'set-form', value: (form) => ({ ...form, department: 'CAS' }) })
   assert.deepEqual(state.autofilled, { title: true })
 })
+
+test('the abstract control and both texts reset with the manuscript', () => {
+  let state = createUploadState('CCSICT')
+  state = uploadReducer(state, {
+    type: 'apply-abstract',
+    mode: 'extended',
+    variants: { document: 'Own words.', extended: 'A longer summary.' },
+    abstract: 'A longer summary.',
+  })
+  assert.equal(state.abstractMode, 'extended')
+  assert.equal(state.form.abstract, 'A longer summary.')
+  // Machine-made either way, so the provenance chip is claimed either way.
+  assert.equal(state.autofilled.abstract, true)
+
+  // A second manuscript is a second pair of abstracts, and an extended one
+  // costs a generation: the setting must not carry over and spend one.
+  state = uploadReducer(state, { type: 'set-file', file: { name: 'other.pdf' } })
+  assert.equal(state.abstractMode, 'document')
+  assert.deepEqual(state.abstractVariants, { document: '', extended: '' })
+  assert.equal(state.extendingAbstract, false)
+})
+
+test('an abstract nobody could produce is claimed by nobody', () => {
+  let state = uploadReducer(createUploadState('CCSICT'), {
+    type: 'apply-abstract',
+    mode: 'document',
+    variants: { document: 'Own words.', extended: '' },
+    abstract: 'Own words.',
+  })
+  assert.equal(state.autofilled.abstract, true)
+  state = uploadReducer(state, {
+    type: 'apply-abstract', mode: 'extended', variants: state.abstractVariants, abstract: '',
+  })
+  assert.equal(state.form.abstract, '')
+  assert.equal('abstract' in state.autofilled, false)
+})
+
+test('a hand-typed abstract drops the provenance chip the control set', () => {
+  let state = uploadReducer(createUploadState('CCSICT'), {
+    type: 'apply-abstract',
+    mode: 'extended',
+    variants: { document: '', extended: 'A longer summary.' },
+    abstract: 'A longer summary.',
+  })
+  state = uploadReducer(state, { type: 'set-field', key: 'abstract', value: 'Mine.' })
+  assert.equal('abstract' in state.autofilled, false)
+  // The setting itself stays put: the text on screen is still the extended
+  // one, edited, and switching away has to file it under that setting.
+  assert.equal(state.abstractMode, 'extended')
+})

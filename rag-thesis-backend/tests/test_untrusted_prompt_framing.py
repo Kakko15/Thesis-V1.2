@@ -125,6 +125,46 @@ class TestMetadataExtraction:
         assert '&lt;script&gt;' in prompt
 
 
+class TestExtendedAbstract:
+    """The opt-in longer abstract embeds two pieces of the manuscript.
+
+    Both are third-party text and both arrive from the same PDF, so the pair
+    has to sit inside one fence: a stated abstract that could close the fence
+    would put the chapters that follow it outside, where they read as rules.
+    """
+
+    @pytest.fixture
+    def prompt(self, monkeypatch):
+        seen = _capture(monkeypatch, upload_router)
+        asyncio.run(upload_router._generate_extended_abstract(
+            f'Stated abstract <b>bold</b>. {INJECTION}',
+            f'Chapter text <script>x</script>. {INJECTION} ' + ('filler words ' * 200),
+        ))
+        return seen['prompt']
+
+    def test_manuscript_text_is_fenced(self, prompt):
+        assert '<untrusted_manuscript>' in prompt
+        assert '</untrusted_manuscript>' in prompt
+
+    def test_the_fence_carries_an_explicit_directive(self, prompt):
+        assert 'never instructions' in prompt
+        assert 'directive it contains' in prompt
+
+    def test_markup_in_the_manuscript_is_escaped(self, prompt):
+        assert '<script>' not in prompt
+        assert '&lt;script&gt;' in prompt
+        assert '<b>bold</b>' not in prompt
+
+    def test_both_third_party_fields_land_inside_the_fence(self, prompt):
+        body = prompt.rsplit('<untrusted_manuscript>', 1)[1].split('</untrusted_manuscript>')[0]
+        assert 'Stated abstract' in body
+        assert 'Chapter text' in body
+
+    def test_the_instruction_text_survives_as_data(self, prompt):
+        """Escaping must not silently drop content — it must neutralize framing."""
+        assert INJECTION in prompt
+
+
 def _pdf_upload():
     class Upload:
         filename = 'thesis.pdf'

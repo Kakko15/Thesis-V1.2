@@ -1,3 +1,5 @@
+import { ABSTRACT_MODES, emptyAbstractVariants } from './abstractMode.js'
+
 export const UPLOAD_STEPS = Object.freeze({ manuscript: 0, metadata: 1, review: 2, ingesting: 3 })
 
 export function emptyUploadForm(department = 'CCSICT') {
@@ -25,6 +27,12 @@ export function createUploadState(department = 'CCSICT') {
     parsing: false,
     pendingFile: null,
     pollError: '',
+    // Which abstract the wizard is showing, and both texts it knows for this
+    // manuscript. The extended one is fetched at most once per file, so the
+    // control can be flipped back and forth for the price of one generation.
+    abstractMode: ABSTRACT_MODES.document,
+    abstractVariants: emptyAbstractVariants(),
+    extendingAbstract: false,
   }
 }
 
@@ -63,7 +71,16 @@ export function uploadReducer(state, action) {
       step: action.step,
       direction: action.step < state.step ? -1 : 1,
     }
-    case 'set-file': return { ...state, file: action.file }
+    // A new manuscript is a new pair of abstracts, and the control returns to
+    // the default: an extended abstract costs a generation, so carrying the
+    // setting over would spend one on a file nobody asked it for.
+    case 'set-file': return {
+      ...state,
+      file: action.file,
+      abstractMode: ABSTRACT_MODES.document,
+      abstractVariants: emptyAbstractVariants(),
+      extendingAbstract: false,
+    }
     case 'set-pending-file': return { ...state, pendingFile: action.file }
     case 'set-autofilled': return {
       ...state,
@@ -82,6 +99,24 @@ export function uploadReducer(state, action) {
     case 'set-job': return { ...state, job: action.job }
     case 'set-submitting': return { ...state, submitting: action.value }
     case 'set-parsing': return { ...state, parsing: action.value }
+    case 'set-extending-abstract': return { ...state, extendingAbstract: action.value }
+    // The result of `switchAbstractMode` or `receivedAbstract`, applied whole.
+    // The claim follows the value: the abstract in the field is machine-made
+    // either way -- read off the page or written by a model -- and an empty
+    // field is claimed by nobody.
+    case 'apply-abstract': {
+      const abstract = action.abstract || ''
+      const autofilled = abstract
+        ? { ...state.autofilled, abstract: true }
+        : withoutAutofilled(state.autofilled, 'abstract')
+      return {
+        ...state,
+        abstractMode: action.mode,
+        abstractVariants: action.variants,
+        form: { ...state.form, abstract },
+        autofilled,
+      }
+    }
     case 'set-poll-error': return { ...state, pollError: action.value }
     case 'reset': return createUploadState(action.department)
     default: return state

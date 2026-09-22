@@ -6,6 +6,44 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## `PROMPT_VERSION` bumped to `iskai-prompt-v5` for the extended-abstract control - 2026-09-23, on top of `3857cb8`
+
+The upload wizard's first step gained a two-way control over the abstract it autofills.
+The default is unchanged and is what every upload has done until now: `_extract_abstract`
+reads the manuscript's own abstract page verbatim. The second setting calls
+`POST /upload/extended-abstract`, which hands Gemini the stated abstract plus the first
+28 pages of the manuscript (24,000 characters of it) and asks for a 400-550 word extended
+abstract, refusing rather than inventing where the text does not support one.
+
+`services/prompts.py` therefore gained `extended_abstract_prompt` and
+`NO_ABSTRACT_SENTINEL`, and `PROMPT_VERSION` moved `iskai-prompt-v4` -> `iskai-prompt-v5`.
+The bump is bookkeeping, not a pipeline change:
+
+- **The evaluated prompts are byte-identical.** The four generation prompts, every shared
+  rule block, `followup_rewrite_prompt`, both repair prompts, `duplication_summary_prompt`
+  and `metadata_extraction_prompt` are unchanged. The new builder is reachable only from
+  the upload endpoint above, which the Objective 2 harness never calls, so every figure in
+  this file taken under `iskai-prompt-v4` still describes this pipeline.
+- **The constant moved anyway** because this file's own rule is that it is bumped whenever
+  any wording in `services/prompts.py` changes, and `scripts/release_fingerprint.py` hashes
+  that file. A manifest recording a new prompt hash under an unchanged version would be the
+  one combination nobody could interpret.
+
+What an extended abstract is, and is not: it is model-written text stored in the same
+`abstract` column as a verbatim one, so it also reaches the archive card and the
+`duplication_summary_prompt` excerpt. It is opt-in per upload, never the default, labelled
+as AI-written in the wizard, and editable before submission; the endpoint falls back to the
+verbatim abstract and reports `extended: false` whenever generation fails, is refused by the
+sentinel, or comes back shorter than the 200-character prose floor. Nothing records *in the
+database* which of the two a stored abstract is - that would be a `papers` migration, and it
+is not part of this change.
+
+| Check | Result |
+|---|---|
+| `pytest tests/test_router_error_paths.py tests/test_untrusted_prompt_framing.py -q` | 138 passed |
+| `pylint --rcfile=.pylintrc routers services dependencies workers main.py config.py models.py` | 10.00/10, no messages emitted |
+| `python -m scripts.export_openapi ../docs/evidence/contracts/iskai-openapi.current.json` | regenerated for the new path; `tests/test_export_openapi.py` passes |
+
 ## Chat and verdict generation moved to `gemini-3.8-flash` - 2026-09-22, on top of `8f053f2`
 
 `gemini_chat_model` and `gemini_verdict_model` both became `gemini-3.8-flash`

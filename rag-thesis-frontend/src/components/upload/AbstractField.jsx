@@ -6,6 +6,7 @@ import { Textarea } from '../ui/Input'
 import { cn } from '../../lib/utils'
 import { motionTokens } from '../../design/motion'
 import { ABSTRACT_MAX_CHARS, abstractStats } from '../../pages/upload/abstractStats'
+import { ABSTRACT_MODES, ABSTRACT_MODE_COPY } from '../../pages/upload/abstractMode'
 
 const { duration, easing } = motionTokens
 
@@ -54,7 +55,9 @@ const DOT_TONES = Object.freeze({
  * enough: this step renders only after extraction has settled, because the
  * manuscript step's Continue button stays disabled while `parsing` is true.
  */
-export function AbstractField({ value = '', onChange, onClear, autofilled, variants }) {
+export function AbstractField({
+  value = '', onChange, onClear, autofilled, variants, mode = ABSTRACT_MODES.document,
+}) {
   const [open, setOpen] = useState(Boolean(value))
   const surfaceRef = useRef(null)
   const id = useId()
@@ -62,7 +65,11 @@ export function AbstractField({ value = '', onChange, onClear, autofilled, varia
   const panelId = `${id}-panel`
   const noteId = `${id}-note`
 
-  const { chars, words, ratio, tone } = abstractStats(value)
+  const extended = mode === ABSTRACT_MODES.extended
+  // Judged on the band its own setting asks for: the extended prompt targets
+  // 400-550 words, which the manuscript band calls 'long' and tells the
+  // uploader to trim back to what they just replaced.
+  const { chars, words, ratio, tone } = abstractStats(value, { extended })
   const filled = words > 0
 
   // Match the surface to the prose on every edit, and on the first paint after
@@ -110,7 +117,10 @@ export function AbstractField({ value = '', onChange, onClear, autofilled, varia
               <span className="rounded-full border border-[var(--border)] px-1.5 py-px text-[10px] font-medium uppercase tracking-wider text-ink-faint">
                 optional
               </span>
-              <AutofillChip show={Boolean(autofilled)} />
+              <AutofillChip
+                show={Boolean(autofilled)}
+                label={ABSTRACT_MODE_COPY[mode]?.provenance}
+              />
             </span>
             <span className="mt-1 block truncate text-xs text-ink-muted">
               {filled

@@ -443,6 +443,7 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   // helper so only navigations from here on are counted: 1 is the goto below,
   // 2 is the reload.
   let pageLoads = 0
+  let extendedCalls = 0
   page.on('load', () => { pageLoads += 1 })
   const unexpected = await mockApi(page, {
     'GET /catalog/departments/legacy': [{
@@ -455,6 +456,14 @@ test('administrator upload journey resumes a retrying durable job after refresh'
     }],
     'POST /upload/extract-metadata': {
       title: 'Deterministic E2E Thesis', authors: 'A. Researcher, C. Researcher', year: 2026,
+      abstract: 'The abstract exactly as the manuscript prints it.',
+    },
+    'POST /upload/extended-abstract': () => {
+      extendedCalls += 1
+      return {
+        abstract: 'A longer summary Gemini wrote from the whole manuscript.',
+        extended: true,
+      }
     },
     'POST /upload/paper': (request) => {
       acceptedKey = request.headers()['idempotency-key']
@@ -495,7 +504,18 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   })
   await page.getByRole('button', { name: 'Confirm' }).click()
   await expect(page.getByText('Metadata autofilled')).toBeVisible()
+
+  // The abstract control, on the step that reads the manuscript. Switching to
+  // the extended text fetches it once; switching back is local, which is what
+  // keeps a second flip from spending a second generation.
+  await page.getByRole('radio', { name: 'AI extended' }).check()
+  await expect(page.getByText('Extended abstract ready')).toBeVisible()
+  await page.getByRole('radio', { name: 'In document' }).check()
+  await page.getByRole('radio', { name: 'AI extended' }).check()
+  expect(extendedCalls).toBe(1)
+
   await page.getByRole('button', { name: 'Continue' }).click()
+  await expect(page.getByRole('button', { name: /Abstract/ })).toContainText('Written by AI')
 
   await page.getByRole('combobox', { name: 'Select academic program' }).click()
   await page.getByRole('option', { name: /BSCS/ }).click()

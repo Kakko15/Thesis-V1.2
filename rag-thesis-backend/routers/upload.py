@@ -40,6 +40,7 @@ from models import (
     BatchFileResult,
     BatchRow,
     BatchUploadAccepted,
+    ExtendedAbstract,
     UploadAccepted,
     UploadCancelRequest,
     UploadCancelResponse,
@@ -840,6 +841,23 @@ _TITLE_PAGES = 3
 # turning one autofill into a whole-document read; the manuscript body is the
 # ingestion worker's job, not this endpoint's.
 _ABSTRACT_SCAN_PAGES = 12
+# The extended abstract summarises the study rather than its front matter, so
+# it reads past the page the verbatim scan stops at: the objectives, the
+# methodology and the findings are in the chapters, and a summary written from
+# twelve pages of front matter is a summary of the abstract it was given.
+# Twenty-eight pages reaches Chapter 3 on a typical ISU manuscript and still
+# stops well short of the whole-document read the ingestion worker owns.
+_EXTENDED_ABSTRACT_SCAN_PAGES = 28
+# How much of that text the prompt carries. `fence_untrusted` clips to the same
+# number inside `prompts.extended_abstract_prompt`; it is named here too
+# because the pages are read before the prompt is built, and twenty-eight pages
+# of a dense manuscript run several times this size.
+_EXTENDED_ABSTRACT_SOURCE_CHARS = 24000
+# Below this there is nothing to summarise, so there is no call to buy. A
+# scanned manuscript arrives here as a few dozen characters of stray text
+# layer: this endpoint reads what PyMuPDF can see and never runs OCR, which is
+# the ingestion worker's stage and takes minutes rather than seconds.
+_EXTENDED_ABSTRACT_MIN_SOURCE_CHARS = 1200
 
 
 def _front_matter_texts(file_bytes: bytes, pages: int = _TITLE_PAGES) -> list[str]:
@@ -1613,6 +1631,21 @@ def _metadata_llm() -> ChatGoogleGenerativeAI:
     )
 
 
+async def _read_front_matter(file: UploadFile, pages: int) -> list[str]:
+    """Validate the upload and return the text of its first `pages` pages.
+
+    The read both extraction endpoints share. PDF parsing is CPU-bound and the
+    validator hashes and scans the bytes, so neither may run on the event loop:
+    one metadata autofill of a 25 MB manuscript would otherwise freeze the API
+    for every other request in flight (`tests/test_event_loop_responsiveness.py`).
+    """
+    file_bytes = await _read_limited_upload(file)
+    await asyncio.to_thread(
+        _validate_pdf_upload, file_bytes, file.filename, file.content_type,
+    )
+    return await asyncio.to_thread(_front_matter_texts, file_bytes, pages)
+
+
 async def _title_pages(
     file: UploadFile, *, with_abstract: bool = False,
 ) -> tuple[str, str, str]:
@@ -1629,12 +1662,8 @@ async def _title_pages(
     abstract column to fill, so a twenty-manuscript batch would otherwise read
     nine extra pages apiece for a value it discards.
     """
-    file_bytes = await _read_limited_upload(file)
-    await asyncio.to_thread(
-        _validate_pdf_upload, file_bytes, file.filename, file.content_type,
-    )
     pages = _ABSTRACT_SCAN_PAGES if with_abstract else _TITLE_PAGES
-    page_texts = await asyncio.to_thread(_front_matter_texts, file_bytes, pages)
+    page_texts = await _read_front_matter(file, pages)
     title_pages = page_texts[:_TITLE_PAGES]
     return (
         '\n'.join(title_pages),
@@ -1730,6 +1759,92 @@ async def extract_metadata(
     except Exception as e:
         logger.exception('Metadata extraction failed (%s)', type(e).__name__)
         return _empty_metadata()
+
+
+def _extended_abstract_source(page_texts: Sequence[str]) -> str:
+    """The manuscript text the extended-abstract prompt is asked to summarise.
+
+    Page order is kept and blank pages are dropped, so the slice below spends
+    its budget on prose rather than on the page breaks between an approval
+    sheet and an acknowledgment.
+    """
+    joined = '\n\n'.join(
+        page.strip() for page in page_texts if (page or '').strip()
+    )
+    return joined[:_EXTENDED_ABSTRACT_SOURCE_CHARS]
+
+
+async def _generate_extended_abstract(abstract: str, source: str) -> str:
+    """Gemini's longer abstract, or '' when it could not honestly write one.
+
+    Best-effort exactly like `_ai_completion`, and for the same reason: this
+    runs inside an upload the admin is waiting on, so a provider failure must
+    cost them this one optional value and nothing else. Every route that
+    returns '' -- too little text to summarise, a capacity error, an
+    unparseable reply, the model's own sentinel, or a reply too short to be an
+    abstract at all -- leaves the caller holding the manuscript's own abstract,
+    which is the value the form would have had anyway.
+
+    The length floor is the one `_extract_abstract` applies to the page it
+    reads. A model that answers with a sentence has not written an abstract,
+    and pre-filling the form with one would put a fragment in the archive under
+    a field the card renders whole.
+    """
+    if len(source.strip()) < _EXTENDED_ABSTRACT_MIN_SOURCE_CHARS:
+        return ''
+    try:
+        prompt = prompts.extended_abstract_prompt(abstract, source)
+        result = await gemini_pool.arun(
+            _metadata_llm(), gemini_pool.EXTRACT, lambda client: client.ainvoke(prompt),
+        )
+        text = strip_code_fence(coerce_text(result)).strip()
+    except Exception as error:
+        logger.exception(
+            'Extended abstract generation failed (%s)', type(error).__name__,
+        )
+        return ''
+    if prompts.NO_ABSTRACT_SENTINEL in text or len(text) < _ABSTRACT_MIN_CHARS:
+        return ''
+    return _clip_abstract(text)
+
+
+@router.post(
+    '/extended-abstract', response_model=ExtendedAbstract,
+    responses=errors(400, 413, 415, 422),
+)
+@limiter.limit(settings.rate_limit_upload)
+async def extended_abstract(
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    user: UploadUser,
+):
+    """The opt-in longer abstract for one manuscript, written by Gemini.
+
+    Separate from `/extract-metadata` rather than a mode flag on it, because
+    the two are asked for at different moments and cost different things. The
+    form autofills once, on drop, with the manuscript's own abstract; this is
+    what the uploader's toggle calls afterwards if they want the longer text,
+    and it repeats none of the metadata work -- no department read, no
+    catalog read, and no title-page completion -- for a field none of them
+    fill.
+
+    It answers 200 with `extended=False` and the verbatim abstract wherever the
+    longer one could not be written, so a provider outage degrades the control
+    to the default instead of failing the upload the admin is in the middle of.
+    A rejected PDF still raises: a file this endpoint will not read is a file
+    the upload itself will not accept either, and saying so here is earlier.
+    """
+    page_texts = await _read_front_matter(file, _EXTENDED_ABSTRACT_SCAN_PAGES)
+    # The verbatim read keeps its own, narrower window: `_extract_abstract`
+    # takes the first heading whose block clears the length floor, and the
+    # chapters this endpoint also reads restate that heading.
+    verbatim = _extract_abstract(page_texts[:_ABSTRACT_SCAN_PAGES])
+    generated = await _generate_extended_abstract(
+        verbatim, _extended_abstract_source(page_texts),
+    )
+    return ExtendedAbstract(
+        abstract=generated or verbatim, extended=bool(generated),
+    )
 
 
 def _extracted_file(index: int, filename: str, data: dict[str, str] | None = None,

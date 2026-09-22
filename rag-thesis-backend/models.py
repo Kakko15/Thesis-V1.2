@@ -203,6 +203,19 @@ class BatchExtractResponse(BaseModel):
     files: list[BatchExtractedFile]
 
 
+class ExtendedAbstract(BaseModel):
+    """One manuscript's abstract, and whether a model wrote the longer one.
+
+    `extended` reports what was actually produced, never what was asked for. A
+    capacity error, an unparseable reply, and a scanned manuscript with no text
+    layer all answer 200 with the abstract read off the page and
+    `extended=False`, so the upload form can say which of the two texts it is
+    holding rather than labelling the manuscript's own words as AI-written.
+    """
+    abstract: str = ''
+    extended: bool = False
+
+
 class BatchFileResult(BaseModel):
     index: int
     filename: str

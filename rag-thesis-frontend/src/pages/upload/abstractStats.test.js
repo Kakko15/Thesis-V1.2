@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  ABSTRACT_IDEAL_WORDS, ABSTRACT_MAX_CHARS, abstractStats,
+  ABSTRACT_IDEAL_WORDS, ABSTRACT_MAX_CHARS, EXTENDED_IDEAL_WORDS, abstractStats,
 } from './abstractStats.js'
 
 const words = (count) => Array.from({ length: count }, (_, i) => `w${i}`).join(' ')
@@ -36,4 +36,18 @@ test('the ratio is clamped, so an over-long paste cannot overflow the meter', ()
   assert.equal(abstractStats('x'.repeat(ABSTRACT_MAX_CHARS / 2)).ratio, 0.5)
   assert.equal(abstractStats('x'.repeat(ABSTRACT_MAX_CHARS * 2)).ratio, 1)
   assert.equal(abstractStats('').ratio, 0)
+})
+
+test('an abstract the uploader asked a model to extend is judged on its own band', () => {
+  const long = words(ABSTRACT_IDEAL_WORDS.max + 100)
+  // The same text: 'long' as a manuscript abstract, 'ideal' as an extended one.
+  assert.equal(abstractStats(long).tone, 'long')
+  assert.equal(abstractStats(long, { extended: true }).tone, 'ideal')
+  // The wider band still has both edges, and the ceiling still outranks it.
+  assert.equal(abstractStats(words(50), { extended: true }).tone, 'brief')
+  assert.equal(abstractStats(words(EXTENDED_IDEAL_WORDS.max + 1), { extended: true }).tone, 'long')
+  assert.equal(
+    abstractStats('x'.repeat(ABSTRACT_MAX_CHARS), { extended: true }).tone,
+    'limit',
+  )
 })

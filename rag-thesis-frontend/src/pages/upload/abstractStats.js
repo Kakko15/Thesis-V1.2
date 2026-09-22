@@ -22,16 +22,24 @@ export const ABSTRACT_MAX_CHARS = 10000
  */
 export const ABSTRACT_IDEAL_WORDS = Object.freeze({ min: 120, max: 400 })
 
+/**
+ * The same band for an abstract the uploader deliberately asked a model to
+ * extend. `extended_abstract_prompt` asks for 400-550 words, which is 'long'
+ * by the band above -- so without this the control's own output arrived under
+ * a note telling the uploader to trim it back to what they had just replaced.
+ */
+export const EXTENDED_IDEAL_WORDS = Object.freeze({ min: 260, max: 700 })
+
 // Where the character count stops being trivia and starts being a warning.
 const NEAR_LIMIT_RATIO = 0.9
 
-function resolveTone(chars, words) {
+function resolveTone(chars, words, band) {
   if (!words) return 'empty'
   // The ceiling outranks the word band: an abstract about to be truncated is
   // the more urgent thing to say about it.
   if (chars >= ABSTRACT_MAX_CHARS * NEAR_LIMIT_RATIO) return 'limit'
-  if (words < ABSTRACT_IDEAL_WORDS.min) return 'brief'
-  if (words > ABSTRACT_IDEAL_WORDS.max) return 'long'
+  if (words < band.min) return 'brief'
+  if (words > band.max) return 'long'
   return 'ideal'
 }
 
@@ -43,7 +51,7 @@ function resolveTone(chars, words) {
  * an uploader nothing they could act on. The character count stays available
  * for the one case where it matters — approaching the API's ceiling.
  */
-export function abstractStats(value = '') {
+export function abstractStats(value = '', { extended = false } = {}) {
   const text = typeof value === 'string' ? value : ''
   const trimmed = text.trim()
   const chars = text.length
@@ -52,6 +60,6 @@ export function abstractStats(value = '') {
     chars,
     words,
     ratio: Math.min(1, chars / ABSTRACT_MAX_CHARS),
-    tone: resolveTone(chars, words),
+    tone: resolveTone(chars, words, extended ? EXTENDED_IDEAL_WORDS : ABSTRACT_IDEAL_WORDS),
   }
 }
