@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     supabase_key: str  # SERVICE_ROLE key (backend bypasses RLS)
 
     # --- Model configuration (current Gemini models; paper architecture unchanged) ---
-    gemini_chat_model: str = 'gemini-3.6-flash'
-    gemini_verdict_model: str = 'gemini-3.5-flash-lite'
+    gemini_chat_model: str = 'gemini-3.8-flash'
+    gemini_verdict_model: str = 'gemini-3.8-flash'
     gemini_embed_model: str = 'models/gemini-embedding-001'
     # The current pgvector schema is vector(768). A dimension change requires
     # an explicit database migration rather than an environment-only switch.
@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     # Optional OpenAI-compatible gateway for the CHAT models only. When set,
     # chat / extract / verdict calls are routed here instead of to Google
     # directly; the model names above are sent unchanged, so pointing at a
-    # gateway that serves `gemini-3.6-flash` keeps the evaluated model
+    # gateway that serves `gemini-3.8-flash` keeps the deployed model
     # identical and only changes the route.
     #
     # Embeddings are deliberately never routed. The pgvector column is

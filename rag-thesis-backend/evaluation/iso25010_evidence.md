@@ -6,6 +6,48 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## Chat and verdict generation moved to `gemini-3.8-flash` - 2026-09-22, on top of `8f053f2`
+
+`gemini_chat_model` and `gemini_verdict_model` both became `gemini-3.8-flash`
+(`config.py:16-17`). Embeddings are unchanged at `models/gemini-embedding-001` and 768
+dimensions: the pgvector column is `vector(768)` under a CHECK constraint and `match_chunks`
+filters on the recorded embedding model, so moving that one is a migration and a full
+reindex, not a setting.
+
+Two consequences, both deliberate:
+
+- **The verdict path left the lite tier.** It had run on `gemini-3.5-flash-lite` since the
+  setting existed. A novelty-scan verdict (`routers/duplication.py:46`) and the Ragas judge
+  (`evaluation/run_comparison.py:580`) now each cost a full flash call; the 2026-09-03 PI-03
+  smoke measured lite at 806.15 ms against chat at 1,521.93 ms.
+- **The deployed configuration no longer matches the evaluated one.** The Objective 2 formal
+  run `5e8fb7f21db6` (2026-09-13, recorded below) was measured with chat `gemini-3.6-flash`
+  and judge `gemini-3.5-flash-lite`. The harness was **not** re-run, so every Objective 2
+  figure in this file and in the paper describes that pair rather than `gemini-3.8-flash`.
+  No committed figure changed: `evaluation/results/comparison_20260913_064053.json` and the
+  generated `rag-thesis-frontend/src/data/objective2Summary.json` still record the models
+  their run actually used, and `tests/test_objective2_summary_export.py` asserts that file
+  equals what the run produces.
+
+No version constant moved with this change. `scripts/release_fingerprint.py` writes the
+three model names straight into `manifest['models']`, so the manifest already separates this
+deployment from the evaluated one; `PROMPT_VERSION`, `CHUNKING_VERSION` and
+`PREPROCESSING_VERSION` cover prompts, chunking and preprocessing, none of which changed.
+
+Measured after the change, same toolchain as the 2026-09-14 block (`.venv`, Python 3.14, the
+CI pytest and pylint commands):
+
+| Check | Result |
+|---|---|
+| `pytest -q` | 2,154 passed, 3 skipped |
+| `pylint --rcfile=.pylintrc routers services dependencies workers main.py config.py models.py` | 10.00/10, no messages emitted |
+| `python -m scripts.release_fingerprint` | `models.chat` and `models.verdict` both `gemini-3.8-flash`; `models.embedding` still `models/gemini-embedding-001` |
+
+Not established here: that `gemini-3.8-flash` resolves against the live API. No test in the
+suite makes a real model call, so an unavailable model id passes every gate and fails on the
+first paid request instead. `python -m scripts.gemini_release_smoke` against a live key is
+the check that would settle it, and it has not been run.
+
 ## Local revalidation - 2026-09-14, `5ed9539`
 
 Re-measured for the system-defense deck (`docs/deck/`), whose build reads its Objective 4

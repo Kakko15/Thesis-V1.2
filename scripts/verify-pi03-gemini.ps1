@@ -42,8 +42,8 @@ if (-not (Test-Path $reportPath)) {
 }
 $report = Get-Content -Raw $reportPath | ConvertFrom-Json
 $expected = @{
-    chat_model = 'gemini-3.6-flash'
-    verdict_model = 'gemini-3.5-flash-lite'
+    chat_model = 'gemini-3.8-flash'
+    verdict_model = 'gemini-3.8-flash'
     embedding_model = 'models/gemini-embedding-001'
     embedding_dimensions = 768
 }
