@@ -43,10 +43,45 @@ CI pytest and pylint commands):
 | `pylint --rcfile=.pylintrc routers services dependencies workers main.py config.py models.py` | 10.00/10, no messages emitted |
 | `python -m scripts.release_fingerprint` | `models.chat` and `models.verdict` both `gemini-3.8-flash`; `models.embedding` still `models/gemini-embedding-001` |
 
-Not established here: that `gemini-3.8-flash` resolves against the live API. No test in the
-suite makes a real model call, so an unavailable model id passes every gate and fails on the
-first paid request instead. `python -m scripts.gemini_release_smoke` against a live key is
-the check that would settle it, and it has not been run.
+### Live verification, and a defect the offline gates could not see
+
+`python -m scripts.gemini_release_smoke` against a live key on 2026-09-22 failed first with
+`400 INVALID_ARGUMENT`: "Thinking level MINIMAL is not supported for this model", raised on
+the verdict call. The cause was in the check, not the application. The script built its
+verdict client with `thinking_level='minimal'` and a 64-token ceiling, while the production
+VERDICT client (`services/gemini_pool.py:149-156`) sends no `thinking_level` at all and the
+full `gemini_max_output_tokens`. That pin was harmless against `gemini-3.5-flash-lite` and
+became a false failure the moment verdict moved to `gemini-3.8-flash`, so the release check
+was exercising a configuration the application never sends. Fixed by dropping the pin and
+raising the ceiling to 256, which is what the chat client in the same script already does
+for the same reason. No application code was implicated: the 2,154-test suite and pylint
+were green both before and after, because nothing offline makes a real model call.
+
+`minimal` stays in the `gemini_thinking_level` Literal for models that accept it, but it
+passes validation and then fails on the first call against `gemini-3.8-flash`; `config.py`
+and `.env.example` now record that.
+
+After the fix, PASS on the second attempt. The first returned `503 UNAVAILABLE`, "This model
+is currently experiencing high demand", which is the transient class
+`chat_notices.mark_capacity_limited` absorbs in production rather than surfacing as an error:
+
+| Observed | Result |
+|---|---|
+| `chat_model` and `verdict_model` reported back by the API | `gemini-3.8-flash` for both |
+| `embedding_dimensions` | 768, all values finite |
+| `chat` latency | 4,862.49 ms |
+| `verdict` latency | 4,452.97 ms |
+| `embedding` latency | 402.66 ms |
+| `result` | PASS, all four checks true |
+
+These latencies are **not** comparable with the 2026-09-03 PI-03 figures below (chat
+1,521.93 ms, verdict 806.15 ms). Three things differ at once: this run used a local `.venv`
+rather than the release container, `GEMINI_THINKING_LEVEL` was `medium` in the local `.env`
+rather than the repository default `low`, and the model was returning 503s either side of
+the run. What the run does establish is that both model ids resolve and that the deployed
+chat, verdict and embedding paths each answer. The cost of moving verdict off the lite tier
+is therefore recorded as unquantified; re-measuring it belongs in the release container at
+the default thinking level.
 
 ## Local revalidation - 2026-09-14, `5ed9539`
 

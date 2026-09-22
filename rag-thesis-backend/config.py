@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # truncated answer also scores near-zero on Ragas Answer Correctness, so this
     # silently penalised the RAG arm of the Objective 2 comparison.
     gemini_max_output_tokens: int = 2000
+    # 'minimal' stays in the Literal for models that accept it, but
+    # gemini-3.8-flash is not one: it answers 400 INVALID_ARGUMENT with
+    # "Thinking level MINIMAL is not supported for this model" (measured
+    # 2026-09-22). The value validates at startup and fails on the first call.
     gemini_thinking_level: Literal['minimal', 'low', 'medium', 'high'] = 'low'
     # The gateway's own ceiling, because `thinking_level` is Gemini-native and an
     # OpenAI-compatible route cannot carry it; `reasoning_effort` is sent there
