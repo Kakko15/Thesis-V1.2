@@ -106,6 +106,33 @@ class Captures:
         return self.dir / entry['file']
 
 
+def logo_dir() -> Path:
+    """Where logo_motif.mjs / logo_motif.py put the IskAI-mark motif set."""
+    return ROOT / 'tmp' / 'deck' / 'renders' / f'{theme.MODE}-logo'
+
+
+def logo_renders() -> dict[str, Path]:
+    """The logo motif, under orb.py's filenames so slide geometry needs no changes.
+
+    Deliberately not auto-generated the way orb.render_all() is: rasterising the mark
+    needs Chromium from the frontend's node_modules, which a Python build cannot assume
+    is installed. Missing files are a clear instruction rather than a silent fallback to
+    the orb, because a half-orb half-logo deck is worse than a refusal.
+    """
+    directory = logo_dir()
+    made: dict[str, Path] = {}
+    for name in orb.ALL:
+        path = directory / name
+        if not path.exists():
+            raise SystemExit(
+                f'motif file {name!r} is missing from {directory}.\n'
+                '  node docs/deck/logo_motif.mjs\n'
+                '  tmp/deck/.venv/Scripts/python.exe -m docs.deck.logo_motif'
+            )
+        made[name] = path
+    return made
+
+
 class Ctx:
     def __init__(self, args):
         self.cmp = load_comparison()
@@ -118,7 +145,10 @@ class Ctx:
             print(f'warning: {exc}; slide 9 will carry [VERIFY] markers', file=sys.stderr)
         assert_quoted(C.ISO_QUOTED)
         self.caps = Captures(Path(args.captures), args.allow_fixture_captures, args.allow_missing)
-        self.renders = orb.render_all()
+        # The motif render set. `ctx.renders` is hashed into the provenance sidecar, so it
+        # has to name the files actually embedded -- recording orb hashes for a deck built
+        # with --motif logo would make the sidecar quietly wrong.
+        self.renders = orb.render_all() if args.motif == 'orb' else logo_renders()
         self.charts = charts.render_all(self.cmp)
         self.head = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True, cwd=ROOT).stdout.strip()
         state_path = Path(args.captures) / 'archive_state.json'
@@ -681,7 +711,16 @@ def main(argv=None):
     ap.add_argument('--allow-fixture-captures', action='store_true')
     ap.add_argument('--allow-missing', action='store_true', help='draft: placeholders for missing captures and evidence block')
     ap.add_argument('--iso-date', default='2026-09-14')
+    ap.add_argument('--motif', choices=('orb', 'logo'), default='orb',
+                    help="background motif: 'orb' is the landing page constellation (default), "
+                         "'logo' is the IskAI mark from logo_motif.mjs")
     args = ap.parse_args(argv)
+    if args.motif == 'logo':
+        # Slide functions resolve motif art through the module-level RENDERS, so pointing
+        # it at the logo set swaps every placement at once and keeps the `!!orb` shape
+        # names that the Morph plan and verify.py both key off.
+        global RENDERS  # noqa: PLW0603 - the single switch point for the whole module
+        RENDERS = logo_dir()
     build(args)
 
 

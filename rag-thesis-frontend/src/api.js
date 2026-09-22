@@ -272,7 +272,8 @@ export async function extractMetadata(file) {
   const { data } = await api.post('/upload/extract-metadata', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
-  return data // { title, authors }
+  // { title, authors, year, department, program_code, specialization_code, abstract }
+  return data
 }
 
 // ---------- Batch upload ----------

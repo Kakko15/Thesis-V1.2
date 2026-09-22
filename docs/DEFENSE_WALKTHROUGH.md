@@ -193,20 +193,47 @@ ingestion pipeline view), **System Management** (users, roles, feature
 permissions, departments), **Operations** (workers, queue depth, alerts,
 retention dry run).
 
-**The Ragas notice on the Overview tab is now out of date — do not point at it
-as a live statement.** It reads "Ragas comparison pending faculty validation … no
-baseline-versus-RAG scores are displayed until the Golden Dataset is completed,
-faculty-validated, and evaluated" (`src/pages/admin/AdminOverview.jsx:174`). All
-three of those conditions were met on 2026-09-13. What is still true is narrower:
-the scores are not displayed *in the application*, because the app is the library
-system and the comparison is a research artifact that lives in
-`evaluation/results/` and in `docs/evidence/OBJECTIVE_2_COMPARISON_2026-09-13.html`.
+**The Ragas notice on the Overview tab was corrected on 2026-09-15 and is now
+safe to point at.** Until that date it read "Ragas comparison pending faculty
+validation … no baseline-versus-RAG scores are displayed until the Golden Dataset
+is completed, faculty-validated, and evaluated" — a gate that had already been
+satisfied on 2026-09-13, so the console was asserting a blocker that no longer
+existed. Earlier revisions of this file told you to work around it verbally.
 
-If a panelist reads the notice aloud, say that: the gate it describes has since
-been satisfied, the result exists, and the app deliberately does not render
-research figures. The alternative — trimming the notice to the part that is still
-true — is a one-line frontend change that has not been made, so the notice on
-screen will say what it says.
+It now reads **"Objective 2 — baseline versus RAG answer correctness"**
+(`src/pages/admin/AdminOverview.jsx`) and **renders the actual result**: a row per
+stratum with baseline, RAG, change, p-value, n, and a significance badge, above
+the run's provenance (`5e8fb7f21db6`, `ragas==0.4.3`, judge
+`gemini-3.5-flash-lite`, 40/40 scored, prompt `iskai-prompt-v4`).
+
+**The `present` row is badged "the figure the paper quotes" and reads "not
+significant".** That is the point of showing the table rather than a headline: the
+original notice existed to stop a bare improvement being mistaken for the
+accuracy claim, and printing the caveat *beside* the figures answers that
+objection better than hiding them did. The card's own caption states the honest
+reading — pooled significance is carried by refusal behaviour on absent topics,
+the topic-present stratum is directionally positive but not established at n=16,
+and the two smallest strata reach significance but are too small to carry a claim
+alone.
+
+Two things make this safe to leave on screen. The figures are **generated**, not
+typed: `scripts/export_objective2_summary.py` derives
+`src/data/objective2Summary.json` from `comparison_20260913_064053.json`, and
+`tests/test_objective2_summary_export.py` (8 tests) fails if the committed file
+drifts from the run — including an explicit assertion that the quoted stratum is
+still `present` and still not significant. And the border and icon moved from gold
+to the neutral forest tone, because gold reads as "action pending" everywhere else
+in that console.
+
+Figures are shown to three decimals. The export and the evidence table in
+`iso25010_evidence.md` agree exactly on the pooled, `present` and `absent_topic`
+rows but differ in the fourth decimal on the two n<5 strata, so four decimals
+would put two numbers on screen that disagree with the paper by a digit. **That
+discrepancy is unexplained and worth chasing after the defense**; it does not
+touch the quoted stratum or the pooled test.
+
+If a panelist reads the card aloud, you can simply agree with it — and the row
+they are most likely to ask about is already the one you would have volunteered.
 
 ---
 

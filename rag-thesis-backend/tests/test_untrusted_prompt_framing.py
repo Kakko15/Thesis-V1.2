@@ -104,8 +104,8 @@ class TestMetadataExtraction:
             upload_router, '_validate_pdf_upload', lambda *_a, **_k: 'thesis.pdf',
         )
         monkeypatch.setattr(
-            upload_router, '_title_page_texts',
-            lambda _bytes: [f'Some Title <script>x</script> {INJECTION}'],
+            upload_router, '_front_matter_texts',
+            lambda *_a, **_k: [f'Some Title <script>x</script> {INJECTION}'],
         )
         monkeypatch.setattr(
             upload_router, '_extract_title_page_metadata',

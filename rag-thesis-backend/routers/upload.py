@@ -438,6 +438,224 @@ def _extract_title_page_metadata(
     }
 
 
+# Only a line holding nothing but the word. The contents entry for the abstract
+# carries its own page number out in the right margin ('ABSTRACT ....... iv'),
+# and the block under *that* line is the rest of the contents list.
+_ABSTRACT_HEADING = re.compile(r'^abstract\s*[:.]?$', re.IGNORECASE)
+
+# What ends the abstract: the next front-matter section, or the manuscript
+# proper. The keyword list is a stop rather than part of the capture -- it is
+# set under the abstract as one block, but the field is labelled 'abstract' and
+# an uploader checking an autofilled value should find prose, not indexing
+# terms they did not type.
+_ABSTRACT_STOP = re.compile(
+    r'^(?:table\s+of\s+contents|acknowledg(?:e)?ments?|dedication|approval\s+sheet|'
+    r'curriculum\s+vitae|biographical\s+sketch|list\s+of\s+(?:figures|tables|appendices)|'
+    r'chapter\s+(?:\d+|[ivxlc]+)\b.*|introduction|background(?:\s+of\s+the\s+study)?|'
+    r'keywords?\s*[:.]?.*)$',
+    re.IGNORECASE,
+)
+
+# Front matter is numbered in roman, so both forms are page furniture. Narrower
+# than the full numeral alphabet on purpose: [ivxlc] admits 'civil' as a
+# five-letter numeral, and that word does stand alone on a line.
+_ABSTRACT_PAGE_FURNITURE = re.compile(
+    r'^[-–—\s]*(?:page\s*)?(?:\d{1,4}|[ivxl]{1,6})\s*[-–—\s]*$',
+    re.IGNORECASE,
+)
+
+# Many abstract pages restate the manuscript's identity above the prose, as a
+# block of labelled lines: 'Title : ...', 'Program : ...', 'Authors : ...',
+# 'Academic Year : ...', 'Adviser : ...'. Reflowed with the prose it became one
+# 1,300-character run-on opening with bibliographic metadata (observed
+# 2026-09-22 on two CCSICT manuscripts), so it is now recognised and emitted as
+# a Markdown list above the prose instead. Prose does not open with a label and
+# a colon, which is what makes the block safe to identify at all.
+_ABSTRACT_FIELD_LABEL = re.compile(
+    r'^(?P<label>title|program|course|degree|major|track|specialization|authors?|'
+    r'researchers?|students?|proponents?|academic\s+year|school\s+year|year|'
+    r'advis[eo]r|co-?advis[eo]r|department|college|institution|university|date)'
+    r'\s*[:–—-]',
+    re.IGNORECASE,
+)
+# A label's value wraps, and the wrapped remainder carries no label of its own
+# ('Title : Enhanced K-Means Clustering ... with' / 'Spatiotemporal Data'). Only
+# consulted inside a header block that a labelled line already opened, and only
+# for a line too short to be a line of justified prose that does not end a
+# sentence -- so a genuine first sentence is never the thing dropped.
+_ABSTRACT_HEADER_WRAP_CHARS = 60
+
+# The ceiling _validate_metadata enforces, so an autofilled abstract is always
+# one the form can submit.
+_ABSTRACT_MAX_CHARS = 10000
+# A 200-word abstract runs to roughly 1,300 characters. This floor sits well
+# under the shortest real one and still rejects a fragment.
+_ABSTRACT_MIN_CHARS = 200
+
+
+def _reflow_abstract(lines: Sequence[str]) -> str:
+    """Rejoin the manuscript's hard-wrapped lines into paragraphs.
+
+    A PDF carries the typesetter's line breaks, so an abstract extracted line
+    by line arrives wrapped at whatever width the manuscript was set to. Left
+    that way it lands in the form's textarea as a column of half-sentences,
+    and the uploader has to undo the wrapping before the prose reads -- which
+    is worse than the empty field this autofill replaces.
+
+    Blank lines are the only paragraph signal used. A manuscript that separates
+    paragraphs by first-line indent alone therefore reflows into one, which is
+    still prose and still editable; guessing paragraphs from leading whitespace
+    is not, because PyMuPDF's indentation varies between these templates.
+
+    A line ending in a hyphen is joined without a space and *keeps* its hyphen.
+    Dropping it is the usual de-hyphenation rule and it is wrong for this
+    corpus: these manuscripts are typeset in Word, whose automatic hyphenation
+    is off by default, so a trailing hyphen belongs to a compound word
+    ('AI-powered', 'cross-sectional') rather than marking a syllable break.
+    """
+    paragraphs: list[str] = []
+    buffer = ''
+    for line in lines:
+        text = line.strip()
+        if not text:
+            if buffer:
+                paragraphs.append(buffer)
+                buffer = ''
+            continue
+        if not buffer:
+            buffer = text
+        elif buffer.endswith('-'):
+            buffer += text
+        else:
+            buffer += ' ' + text
+    if buffer:
+        paragraphs.append(buffer)
+    return '\n\n'.join(paragraphs)
+
+
+def _clip_abstract(text: str) -> str:
+    """Hold the abstract inside the ceiling the upload form enforces.
+
+    `_validate_metadata` rejects one over 10,000 characters with 422, so
+    autofilling a longer value would hand back a form that cannot submit and no
+    obvious field to blame -- the same reason `_academic_codes` answers with a
+    code the client can drop rather than a program another college owns. Cut at
+    a word boundary and mark the cut, so the uploader can see text is missing.
+    """
+    if len(text) <= _ABSTRACT_MAX_CHARS:
+        return text
+    clipped = text[:_ABSTRACT_MAX_CHARS - 1]
+    return (clipped.rsplit(' ', 1)[0] or clipped).rstrip() + '…'
+
+
+def _is_wrapped_label_value(line: str) -> bool:
+    """Whether a line reads as the overflow of the labelled line above it."""
+    return (
+        len(line) < _ABSTRACT_HEADER_WRAP_CHARS
+        and not line.endswith(('.', '!', '?'))
+    )
+
+
+def _abstract_sections(
+    lines: Sequence[str], start: int,
+) -> tuple[list[list[str]], list[str]]:
+    """Split one 'ABSTRACT' heading's block into (identity entries, prose).
+
+    An identity entry is `[label, *value lines]`, because a label's value wraps
+    and the wrapped remainder carries no label of its own.
+
+    Both are only recognised while no prose has been captured yet, so a
+    sentence inside the abstract that happens to carry a colon is safe. Leading
+    blanks are skipped rather than captured for the same reason: appending one
+    would close that window before the block had been passed.
+    """
+    identity: list[list[str]] = []
+    body: list[str] = []
+    for line in lines[start:]:
+        stripped = line.strip()
+        if _ABSTRACT_STOP.match(stripped):
+            break
+        if _ABSTRACT_PAGE_FURNITURE.match(stripped):
+            continue
+        if not body:
+            if not stripped:
+                continue
+            matched = _ABSTRACT_FIELD_LABEL.match(stripped)
+            if matched:
+                identity.append([
+                    matched.group('label'), stripped[matched.end():].strip(),
+                ])
+                continue
+            if identity and _is_wrapped_label_value(stripped):
+                identity[-1].append(stripped)
+                continue
+        body.append(stripped)
+    return identity, body
+
+
+def _identity_markdown(entries: Sequence[Sequence[str]]) -> str:
+    """The identity block as a Markdown list, one bullet per labelled field.
+
+    A list rather than the bare lines the page prints, because Markdown joins
+    consecutive lines into one paragraph: bare lines would render as the same
+    run-on this exists to undo, unless every one of them carried two trailing
+    spaces -- invisible state in stored text that an uploader's own edit would
+    silently strip. A bullet survives editing and reads correctly raw.
+    """
+    bullets: list[str] = []
+    for label, *parts in entries:
+        value = _reflow_abstract([part for part in parts if part])
+        if not value:
+            continue
+        bullets.append(f'- **{_WHITESPACE.sub(" ", label).strip().title()}:** {value}')
+    return '\n'.join(bullets)
+
+
+def _extract_abstract(page_texts: Sequence[str]) -> str:
+    """The manuscript's own abstract as Markdown, read off the front matter.
+
+    Local, and never asked of the model like the fields `_ai_completion` fills.
+    The other four are short enough to ask a model to copy and then check
+    against the page afterwards -- which is exactly what the year does there.
+    An abstract is 200-350 words: a completion paraphrases it often enough that
+    the stored text would stop being the manuscript's, and this value is shown
+    on the archive card and summarised into the duplication verdict. Verbatim
+    or blank is the only safe pair, so this reads the page or leaves the field
+    to the uploader. It also costs no call, which is why 'abstract' sits
+    outside `_METADATA_FIELDS`: a manuscript whose abstract could not be found
+    must not buy a Gemini completion that would not fill it either.
+
+    Markdown, not flat text, because these pages carry two different kinds of
+    content: an optional labelled identity block, and the prose. Flattened
+    together they read as one run-on paragraph opening with bibliographic
+    metadata. The words are still the page's own -- the only additions are the
+    list markers and the emphasis around labels the page already printed.
+
+    Every heading match is tried rather than only the first. A contents page
+    that sets an entry's page number on its own line instead of after a dot
+    leader puts a bare 'ABSTRACT' above the rest of the list, and stopping
+    there would report the contents list -- or, once the length floor rejected
+    it, nothing at all -- for a manuscript whose real abstract is two pages on.
+
+    The floor is measured against the prose alone. A page holding only the
+    identity block (its abstract having been set overleaf) would otherwise
+    clear the floor on labels and report a heading with no abstract under it.
+    """
+    lines: list[str] = []
+    for page in page_texts:
+        lines.extend((page or '').splitlines())
+    for index, line in enumerate(lines):
+        if not _ABSTRACT_HEADING.match(line.strip()):
+            continue
+        identity, body = _abstract_sections(lines, index + 1)
+        prose = _reflow_abstract(body)
+        if len(prose) < _ABSTRACT_MIN_CHARS:
+            continue
+        blocks = [block for block in (_identity_markdown(identity), prose) if block]
+        return _clip_abstract('\n\n'.join(blocks))
+    return ''
+
+
 def _as_text(value, fallback: str = '') -> str:
     """Flatten one extracted metadata field to the text the upload form expects.
 
@@ -612,11 +830,23 @@ def _queue_durable_job(job_id: str, owner_id: str) -> bool:
     }).execute().data)
 
 
-def _title_page_texts(file_bytes: bytes) -> list[str]:
-    """Return the first three pages, which carry the bibliographic fields."""
+# The bibliographic fields are on the title page, and three pages has always
+# been the window for them.
+_TITLE_PAGES = 3
+# The abstract is the one autofilled field never printed on the title page. ISU
+# front matter runs title -> approval sheet -> acknowledgment -> abstract ->
+# contents, so it lands on page four or five, and later still where the
+# approval sheet or the acknowledgment runs long. Twelve reaches it without
+# turning one autofill into a whole-document read; the manuscript body is the
+# ingestion worker's job, not this endpoint's.
+_ABSTRACT_SCAN_PAGES = 12
+
+
+def _front_matter_texts(file_bytes: bytes, pages: int = _TITLE_PAGES) -> list[str]:
+    """Return the first `pages` pages of text, which carry the front matter."""
     document = fitz.open(stream=file_bytes, filetype='pdf')
     try:
-        return [document[index].get_text() for index in range(min(3, len(document)))]
+        return [document[index].get_text() for index in range(min(pages, len(document)))]
     finally:
         document.close()
 
@@ -1315,6 +1545,13 @@ _METADATA_FIELDS = ('title', 'authors', 'year', 'department')
 # Gemini completion, and a page whose degree line is unrecognised must not buy
 # an AI call that cannot fill the field either.
 _ACADEMIC_FIELDS = ('program_code', 'specialization_code')
+# Read off the front matter by `_extract_abstract`, so it sits outside
+# _METADATA_FIELDS for the same reason the program pair does: that tuple gates
+# the Gemini completion, and this field is never asked of the model. Single
+# uploads only -- BatchExtractedFile carries no abstract, because the batch
+# review table has no column for one and a twenty-file reply would hand back
+# up to 200 kB of text nothing renders.
+_DESCRIPTION_FIELDS = ('abstract',)
 # Gemini completions a batch extraction may run at once. Bounded because the
 # pool's EXTRACT slot rotates keys reactively: a twenty-way fan-out would trip
 # the capacity cooldown on every key before the first reply came back.
@@ -1322,7 +1559,10 @@ _EXTRACT_CONCURRENCY = 3
 
 
 def _empty_metadata() -> dict[str, str]:
-    return {field: '' for field in _METADATA_FIELDS + _ACADEMIC_FIELDS}
+    return {
+        field: ''
+        for field in _METADATA_FIELDS + _ACADEMIC_FIELDS + _DESCRIPTION_FIELDS
+    }
 
 
 def _load_department_names() -> list[dict[str, str]]:
@@ -1373,19 +1613,34 @@ def _metadata_llm() -> ChatGoogleGenerativeAI:
     )
 
 
-async def _title_pages(file: UploadFile) -> tuple[str, str]:
-    """Validate the upload and return (joined title-page text, first page).
+async def _title_pages(
+    file: UploadFile, *, with_abstract: bool = False,
+) -> tuple[str, str, str]:
+    """Validate the upload and return (title-page text, first page, abstract).
 
     Use the title page as the authoritative source for bibliographic fields.
     Later pages are context for Gemini, but their citation years must never be
-    mistaken for the thesis completion year.
+    mistaken for the thesis completion year -- which is why the abstract scan
+    widens the pages *read* and never the three joined into `text`. Twelve
+    pages of front matter in the prompt would put a dozen reference years in
+    front of the model that `_ai_completion` then has to reject.
+
+    `with_abstract` is off by default because the batch review table has no
+    abstract column to fill, so a twenty-manuscript batch would otherwise read
+    nine extra pages apiece for a value it discards.
     """
     file_bytes = await _read_limited_upload(file)
     await asyncio.to_thread(
         _validate_pdf_upload, file_bytes, file.filename, file.content_type,
     )
-    page_texts = await asyncio.to_thread(_title_page_texts, file_bytes)
-    return '\n'.join(page_texts), (page_texts[0] if page_texts else '')
+    pages = _ABSTRACT_SCAN_PAGES if with_abstract else _TITLE_PAGES
+    page_texts = await asyncio.to_thread(_front_matter_texts, file_bytes, pages)
+    title_pages = page_texts[:_TITLE_PAGES]
+    return (
+        '\n'.join(title_pages),
+        (title_pages[0] if title_pages else ''),
+        _extract_abstract(page_texts) if with_abstract else '',
+    )
 
 
 async def _ai_completion(
@@ -1432,7 +1687,7 @@ async def _extract_one(
     programs: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Local title-page pass first; Gemini only for what it leaves blank."""
-    text, title_page_text = await _title_pages(file)
+    text, title_page_text, abstract = await _title_pages(file, with_abstract=True)
     if not text.strip():
         return {'title': '', 'authors': ''}
     if dept_names is None:
@@ -1447,9 +1702,15 @@ async def _extract_one(
     academic = _academic_codes(
         title_page_text, programs, local_data.get('department', ''),
     )
+    # The abstract rides beside both routes: it is read locally either way, and
+    # `_ai_completion` answers with the four model fields only.
+    described = {**academic, 'abstract': abstract}
     if all(local_data.get(field) for field in _METADATA_FIELDS):
-        return {**local_data, **academic}
-    return {**await _ai_completion(local_data, text, title_page_text, dept_names), **academic}
+        return {**local_data, **described}
+    return {
+        **await _ai_completion(local_data, text, title_page_text, dept_names),
+        **described,
+    }
 
 
 @router.post('/extract-metadata', responses=errors(400, 413, 415, 422))
@@ -1506,7 +1767,8 @@ async def extract_metadata_batch(
     for index, file in enumerate(files):
         filename = _batch_filename(file, index)
         try:
-            text, title_page_text = await _title_pages(file)
+            # No abstract: the batch review table has no field to put one in.
+            text, title_page_text, _ = await _title_pages(file)
         except HTTPException as error:
             results[index] = _extracted_file(
                 index, filename, error=str(error.detail), status_code=error.status_code,

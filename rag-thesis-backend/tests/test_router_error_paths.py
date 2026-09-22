@@ -451,6 +451,25 @@ def _pdf_bytes(lines=('Thesis page 1',)):
     return value
 
 
+def _pdf_pages(pages):
+    """A PDF of one page per item, each holding that item's lines.
+
+    `_pdf_bytes` builds a single page, which cannot carry front matter: the
+    abstract sits three or four pages behind the title page in every ISU
+    manuscript, so the paging is the thing under test.
+    """
+    document = fitz.open()
+    for lines in pages:
+        page = document.new_page()
+        y = 72
+        for line in lines.splitlines():
+            page.insert_text((72, y), line)
+            y += 14
+    value = document.tobytes()
+    document.close()
+    return value
+
+
 # The vocabulary `_load_department_names` returns, trimmed to the colleges whose
 # spellings interact: CA and CAS are the short codes a substring scan used to
 # find inside ordinary words like 'card', 'communication', and 'Capstone'.
@@ -873,6 +892,178 @@ May 2026
         assert upload._rpc_boolean(True) is True
 
 
+# The prose is set with the line breaks PyMuPDF reports, because undoing those
+# is half of what `_extract_abstract` does.
+ABSTRACT_PROSE = (
+    'This study developed a centralized thesis library for the College of\n'
+    'Computing Studies, Information and Communication Technology using a\n'
+    'retrieval-augmented generation architecture. The researchers measured\n'
+    'retrieval quality against a keyword baseline over eighty archived\n'
+    'manuscripts, using an AI-\n'
+    'powered pipeline throughout.\n'
+    '\n'
+    'Results showed that the approach improved answer groundedness and cut\n'
+    'the time respondents needed to locate a relevant thesis.\n'
+)
+ABSTRACT_PAGE = 'ABSTRACT\n\n' + ABSTRACT_PROSE + '\nKeywords: RAG, pgvector\n'
+# A contents page that sets each entry's page number on its own line instead of
+# after a dot leader, so 'ABSTRACT' stands alone exactly as the real heading
+# does. This is the decoy the extractor has to walk past.
+CONTENTS_PAGE = (
+    'TABLE OF CONTENTS\n'
+    'APPROVAL SHEET\n'
+    'ii\n'
+    'ABSTRACT\n'
+    'iv\n'
+    'CHAPTER 1\n'
+    '1\n'
+)
+FRONT_MATTER = [
+    'AN INTELLIGENT ARCHIVE PLATFORM\nCCSICT\nBy:\nAna D. Cruz\nMay 2026\n',
+    'APPROVAL SHEET\nThis thesis is hereby approved.\n',
+    CONTENTS_PAGE,
+    ABSTRACT_PAGE,
+    'ACKNOWLEDGMENT\nThe researchers thank their adviser.\n',
+]
+
+
+class TestAbstractExtraction:
+    """`_extract_abstract` — the one autofilled field read off a later page."""
+
+    def test_the_abstract_page_is_read_verbatim_and_reflowed(self):
+        abstract = upload._extract_abstract(FRONT_MATTER)
+        # Verbatim: the manuscript's own sentences, not a summary of them.
+        assert abstract.startswith('This study developed a centralized thesis library')
+        # Reflowed: the typesetter's wrapping is gone, the paragraph break stays.
+        assert '\n\n' in abstract
+        assert '\n' not in abstract.replace('\n\n', ' ')
+        assert 'College of Computing Studies, Information and Communication' in abstract
+
+    def test_a_hyphen_at_the_line_break_keeps_its_compound_joined(self):
+        # Word leaves automatic hyphenation off, so a trailing hyphen belongs to
+        # the word. De-hyphenating here would store 'AIpowered'.
+        assert 'AI-powered pipeline' in upload._extract_abstract(FRONT_MATTER)
+
+    def test_the_keyword_list_and_the_next_section_are_left_out(self):
+        abstract = upload._extract_abstract(FRONT_MATTER)
+        assert 'Keywords' not in abstract
+        assert 'ACKNOWLEDGMENT' not in abstract
+        assert 'adviser' not in abstract
+
+    def test_a_contents_entry_is_not_mistaken_for_the_abstract(self):
+        # The decoy heading comes first in the document. Stopping at it would
+        # report the contents list, or -- once the floor rejected that -- report
+        # nothing for a manuscript whose abstract is one page further on.
+        assert upload._extract_abstract(FRONT_MATTER).startswith('This study')
+        # On its own it fills nothing rather than filling the contents list.
+        assert upload._extract_abstract([CONTENTS_PAGE]) == ''
+        assert 'CHAPTER' not in upload._extract_abstract(FRONT_MATTER)
+
+    def test_the_pages_own_identity_block_becomes_a_markdown_list(self):
+        """The layout reported on 2026-09-22, which read as one run-on.
+
+        The abstract page restates the manuscript's identity above the prose as
+        labelled lines. Reflowed together with the prose they became a single
+        1,300-character paragraph opening with bibliographic metadata, so the
+        block is recognised and emitted as its own Markdown list. The wrapped
+        remainder of 'Title :' carries no label of its own, so it has to join
+        that entry rather than open the prose.
+        """
+        page = (
+            'ABSTRACT\n'
+            'Title : FindMe: A Computer Vision-based Detector for Missing\n'
+            'Person\n'
+            'Program: Bachelor of Science in Computer Science-Data Mining Track\n'
+            'Authors: Adrian T. Agustin James Nico V. Caraui\n'
+            'Academic Year: AY 2024-2025\n'
+            'Adviser: Inst. Jenefer P. Bermusa\n'
+            'Traditional methods for locating missing persons, such as manual\n'
+            'searches and witness accounts, often face inefficiencies and resource\n'
+            'constraints. This study presents FindMe, a real-time computer\n'
+            'vision-based system for missing person detection built on MTCNN.\n'
+        )
+        abstract = upload._extract_abstract([page])
+        assert abstract.splitlines()[:5] == [
+            '- **Title:** FindMe: A Computer Vision-based Detector for Missing Person',
+            '- **Program:** Bachelor of Science in Computer Science-Data Mining Track',
+            '- **Authors:** Adrian T. Agustin James Nico V. Caraui',
+            '- **Academic Year:** AY 2024-2025',
+            '- **Adviser:** Inst. Jenefer P. Bermusa',
+        ]
+        # The prose is its own block, so nothing renders as one run-on.
+        identity, _, prose = abstract.partition('\n\n')
+        assert prose.startswith('Traditional methods for locating missing persons')
+        assert 'Title' not in prose and identity.count('\n') == 4
+
+    def test_the_label_spelling_is_normalised_but_the_value_is_not(self):
+        page = (
+            'ABSTRACT\n'
+            'TITLE  :   A Study of Campus Attendance\n'
+            'academic year: AY 2025-2026\n'
+            'Co-Adviser : Dr. Ana D. Cruz\n'
+            + 'The researchers measured attendance across eighty sections. ' * 5
+        )
+        lines = upload._extract_abstract([page]).splitlines()
+        assert lines[0] == '- **Title:** A Study of Campus Attendance'
+        assert lines[1] == '- **Academic Year:** AY 2025-2026'
+        assert lines[2] == '- **Co-Adviser:** Dr. Ana D. Cruz'
+
+    def test_a_page_holding_only_the_identity_block_is_not_an_abstract(self):
+        """The floor is measured on the prose, not on the labels above it.
+
+        A manuscript that sets 'ABSTRACT' and its identity block at the foot of
+        one page, with the prose overleaf, would otherwise clear the floor on
+        label text alone and autofill a heading with no abstract under it.
+        """
+        page = (
+            'ABSTRACT\n'
+            'Title : A Study of Campus Attendance Across the Whole University\n'
+            'Program: Bachelor of Science in Information Technology\n'
+            'Authors: Marvin M. Ualat, Mark Christian U. Padre\n'
+            'Academic Year: AY 2025-2026\n'
+            'Adviser: Inst. Jenefer P. Bermusa, MIT\n'
+        )
+        assert len(page) > upload._ABSTRACT_MIN_CHARS   # the labels alone would clear it
+        assert upload._extract_abstract([page]) == ''
+
+    def test_prose_is_never_mistaken_for_the_identity_block(self):
+        # No header block: the first line is prose and is kept as it stands.
+        assert upload._extract_abstract(
+            ['ABSTRACT\n' + 'This study developed a centralized thesis library. ' * 6],
+        ).startswith('This study developed')
+        # A colon inside the abstract is not a label, because the header window
+        # closes as soon as one prose line has been captured.
+        body = 'The objectives were: to build, to measure, and to compare them. ' * 4
+        assert 'The objectives were:' in upload._extract_abstract(['ABSTRACT\n' + body])
+
+    def test_a_manuscript_without_one_leaves_the_field_blank(self):
+        assert upload._extract_abstract(['Some cover line\n']) == ''
+        assert upload._extract_abstract([]) == ''
+        assert upload._extract_abstract(['']) == ''
+
+    def test_a_fragment_under_the_prose_floor_is_not_autofilled(self):
+        # Presenting a fragment beside an 'autofilled' chip claims it was read.
+        assert upload._extract_abstract(['ABSTRACT\nA short note.\n']) == ''
+
+    def test_an_oversized_abstract_stays_inside_the_form_ceiling(self):
+        clipped = upload._extract_abstract(['ABSTRACT\n' + ('word ' * 4000)])
+        assert clipped.endswith('\u2026')
+        # The ceiling is _validate_metadata's own, so the autofilled value is
+        # always one the upload will accept.
+        upload._validate_metadata('A valid thesis title', 'Ana Cruz', '2026', clipped)
+
+    def test_the_scan_window_reaches_the_abstract_without_widening_the_prompt(self):
+        pdf = _pdf_pages([*FRONT_MATTER, *[f'CHAPTER {n}\nCited in 1999.\n' for n in range(1, 8)]])
+        # Twelve pages are read, so the abstract on page four is reachable.
+        assert upload._extract_abstract(
+            upload._front_matter_texts(pdf, upload._ABSTRACT_SCAN_PAGES),
+        ).startswith('This study')
+        # The Gemini context is still three, which is what keeps a reference
+        # year on page nine away from the completion-year field.
+        assert len(upload._front_matter_texts(pdf)) == upload._TITLE_PAGES == 3
+        assert '1999' not in '\n'.join(upload._front_matter_texts(pdf))
+
+
 class _StatusTable:
     """upload_jobs stub whose extended-column select fails like a legacy schema."""
 
@@ -1036,6 +1227,21 @@ class TestExtractMetadataEndpoint:
         assert body['year'] == '2026'
         assert body['department'] == 'CCSICT'
 
+    def test_the_abstract_is_autofilled_from_its_own_page(self, upload_client, monkeypatch):
+        monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
+
+        def forbidden(*_args, **_kwargs):
+            raise AssertionError('the abstract must never cost a Gemini call')
+        monkeypatch.setattr(upload, 'ChatGoogleGenerativeAI', forbidden)
+        response = self._post(upload_client, _pdf_pages(FRONT_MATTER))
+        assert response.status_code == 200
+        body = response.json()
+        assert body['abstract'].startswith('This study developed a centralized thesis library')
+        assert 'Keywords' not in body['abstract']
+        # The title page still owns the bibliographic fields.
+        assert body['title'] == 'AN INTELLIGENT ARCHIVE PLATFORM'
+        assert body['year'] == '2026'
+
     def test_llm_fills_missing_fields_but_title_page_owns_the_year(self, upload_client, monkeypatch):
         monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
         monkeypatch.setattr(upload, 'ChatGoogleGenerativeAI', lambda **_kwargs: _FakeMetadataLLM(
@@ -1192,6 +1398,18 @@ class TestBatchExtractEndpoint:
             files=[('files', (name, content, mime)) for name, content, mime in files],
         )
 
+    def test_the_batch_reply_carries_no_abstract(self, upload_client, monkeypatch):
+        """The review table has no abstract column, so the reply has no field.
+
+        Twenty manuscripts' abstracts is up to 200 kB of text nothing renders.
+        """
+        monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
+        response = self._post(
+            upload_client, [('thesis.pdf', _pdf_pages(FRONT_MATTER), 'application/pdf')],
+        )
+        assert response.status_code == 200
+        assert 'abstract' not in response.json()['files'][0]
+
     def test_each_file_is_extracted_in_place_and_bad_ones_are_reported(self, upload_client, monkeypatch):
         monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
 
@@ -1270,5 +1488,5 @@ class TestBatchExtractEndpoint:
         assert response.status_code == 200
         assert response.json() == {
             'title': '', 'authors': '', 'year': '', 'department': '',
-            'program_code': '', 'specialization_code': '',
+            'program_code': '', 'specialization_code': '', 'abstract': '',
         }
