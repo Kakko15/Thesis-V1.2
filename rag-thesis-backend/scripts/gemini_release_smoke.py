@@ -58,8 +58,12 @@ def main() -> int:
         google_api_key=settings.gemini_api_key,
         timeout=settings.gemini_timeout_seconds,
         max_retries=settings.gemini_max_retries,
-        max_output_tokens=64,
-        thinking_level='minimal',
+        # Deliberately no thinking_level: the production VERDICT client
+        # (services/gemini_pool.py) does not send one, and this check exists to
+        # exercise the deployed path. It used to pin 'minimal', which
+        # gemini-3.8-flash rejects with 400 INVALID_ARGUMENT, so the smoke
+        # failed on a configuration the application never uses.
+        max_output_tokens=256,
     )
     embeddings = GoogleGenerativeAIEmbeddings(
         model=settings.gemini_embed_model,
