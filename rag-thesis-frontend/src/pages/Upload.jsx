@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { AlertTriangle, ArrowLeft, ArrowRight, Ban, Layers, Sparkles, UploadCloud } from 'lucide-react'
 import {
   uploadPaper, getUploadStatus, getDepartments, apiErrorMessage, extractMetadata,
-  cancelUploadJob,
+  cancelUploadJob, getExtendedAbstract,
 } from '../api'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Button } from '../components/ui/Button'
@@ -21,10 +21,14 @@ import {
 import {
   WIZARD_STEPS, autofilledKeys, extractionDepartment, isTerminalJob, stageView,
 } from './upload/wizardSteps'
+import {
+  ABSTRACT_MODES, receivedAbstract, switchAbstractMode,
+} from './upload/abstractMode'
 import { Dropzone } from '../components/upload/Dropzone'
 import { WizardStepper } from '../components/upload/WizardStepper'
 import { WizardStep } from '../components/upload/WizardStep'
 import { MetadataForm } from '../components/upload/MetadataForm'
+import { AbstractModeToggle } from '../components/upload/AbstractModeToggle'
 import { ReviewPanel } from '../components/upload/ReviewPanel'
 import { PipelineTimeline } from '../components/upload/PipelineTimeline'
 import { IngestOutcome } from '../components/upload/IngestOutcome'
@@ -146,7 +150,10 @@ export default function Upload() {
   const [state, dispatch] = useReducer(uploadReducer, enforcedDepartment, createUploadState)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
-  const { step, direction, file, form, errors, autofilled, job, submitting, parsing, pendingFile, pollError } = state
+  const {
+    step, direction, file, form, errors, autofilled, job, submitting, parsing, pendingFile,
+    pollError, abstractMode, abstractVariants, extendingAbstract,
+  } = state
   const setStep = (value) => dispatch({ type: 'set-step', step: value })
   const setFile = (value) => dispatch({ type: 'set-file', file: value })
   const setForm = (value) => dispatch({ type: 'set-form', value })
@@ -156,6 +163,7 @@ export default function Upload() {
   const setParsing = (value) => dispatch({ type: 'set-parsing', value })
   const setPendingFile = (value) => dispatch({ type: 'set-pending-file', file: value })
   const setPollError = (value) => dispatch({ type: 'set-poll-error', value })
+  const setExtendingAbstract = (value) => dispatch({ type: 'set-extending-abstract', value })
   const pollRef = useRef(null)
   const pollFailuresRef = useRef(0)
   const pollStartedRef = useRef(0)
@@ -263,6 +271,54 @@ export default function Upload() {
       toast.error('Autofill failed', { description: 'Please enter the metadata manually.' })
     } finally {
       setParsing(false)
+    }
+  }
+
+  /**
+   * Move the abstract control, fetching the extended text the first time it is
+   * asked for.
+   *
+   * Whatever is in the field goes back under the setting it was shown as
+   * before anything else happens (`switchAbstractMode`), so an uploader who
+   * trims one version and compares it against the other keeps both. The reply
+   * decides which slot it fills, not the request: the endpoint answers 200
+   * with the manuscript's own abstract whenever generation fails, and the
+   * control follows it back rather than labelling those sentences AI-written.
+   */
+  const handleAbstractMode = async (mode) => {
+    if (mode === abstractMode || extendingAbstract) return
+    const moved = switchAbstractMode({
+      mode, from: abstractMode, current: form.abstract, variants: abstractVariants,
+    })
+    dispatch({ type: 'apply-abstract', ...moved })
+    if (!moved.fetch || !file) return
+
+    setExtendingAbstract(true)
+    try {
+      const applied = receivedAbstract(moved.variants, await getExtendedAbstract(file))
+      dispatch({ type: 'apply-abstract', ...applied })
+      if (applied.extended) {
+        toast.success('Extended abstract ready', {
+          description: 'Gemini wrote it from the manuscript — review it on the next step.',
+        })
+      } else {
+        // 200, but nothing was generated: too little text to summarise, or the
+        // provider was out of capacity. The control is already back on the
+        // manuscript's own abstract; say why it moved.
+        toast.warning('Extended abstract unavailable', {
+          description: "Kept the manuscript's own abstract.",
+        })
+      }
+    } catch (error) {
+      dispatch({
+        type: 'apply-abstract',
+        mode: ABSTRACT_MODES.document,
+        variants: moved.variants,
+        abstract: moved.variants[ABSTRACT_MODES.document],
+      })
+      toast.error('Extended abstract failed', { description: apiErrorMessage(error) })
+    } finally {
+      setExtendingAbstract(false)
     }
   }
 
@@ -503,17 +559,31 @@ export default function Upload() {
                   </motion.div>
                 )}
 
+                {/* The abstract decision belongs to the step that reads the
+                    manuscript: the extended setting spends a generation over
+                    28 pages of it, and offering that beside the textarea on
+                    step 2 would mean meeting the choice after the wizard had
+                    already answered it. */}
+                {file && (
+                  <AbstractModeToggle
+                    mode={abstractMode}
+                    onChange={handleAbstractMode}
+                    busy={extendingAbstract}
+                    disabled={parsing}
+                  />
+                )}
+
                 <StepActions>
                   <p className="text-xs text-ink-faint">
                     {file ? 'Ready to describe the manuscript.' : 'Choose a PDF to continue.'}
                   </p>
                   <Button
-                    disabled={!file || parsing}
-                    loading={parsing}
+                    disabled={!file || parsing || extendingAbstract}
+                    loading={parsing || extendingAbstract}
                     onClick={() => setStep(UPLOAD_STEPS.metadata)}
                     className="group"
                   >
-                    {parsing ? 'Extracting...' : 'Continue'}
+                    {parsing ? 'Extracting...' : (extendingAbstract ? 'Summarizing...' : 'Continue')}
                     <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                   </Button>
                 </StepActions>
@@ -535,6 +605,7 @@ export default function Upload() {
                   onField={setField}
                   onForm={setForm}
                   onBlurValidate={revalidateTouched}
+                  abstractMode={abstractMode}
                 />
                 <StepActions>
                   <Button variant="ghost" onClick={() => setStep(UPLOAD_STEPS.manuscript)}>

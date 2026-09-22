@@ -1064,6 +1064,144 @@ class TestAbstractExtraction:
         assert '1999' not in '\n'.join(upload._front_matter_texts(pdf))
 
 
+# A reply long enough to clear the prose floor `_generate_extended_abstract`
+# applies, and shaped the way the prompt asks for.
+GENERATED_ABSTRACT = (
+    'The study responded to the difficulty CCSICT researchers face when locating prior '
+    'work across a decade of bound manuscripts. Its objectives were to centralize the '
+    'archive, to index every chapter semantically, and to measure retrieval quality '
+    'against the keyword search the college used before it. The researchers ingested '
+    'eighty manuscripts, chunked them, and embedded each chunk, then evaluated the '
+    'answers against a held-out question set. Retrieval quality improved on every '
+    'measure the study reported, and the median time to locate a relevant thesis fell.'
+)
+
+# The chapters the extended read reaches and the verbatim read stops short of.
+# Short lines, because `_pdf_pages` sets one line per item at a fixed leading.
+CHAPTER_PAGE = '\n'.join(
+    ['The researchers surveyed eighty archived CCSICT manuscripts.'] * 30
+)
+
+
+def _fake_extract_slot(monkeypatch, reply):
+    """Answer the pool's EXTRACT slot locally, recording the prompt it was sent.
+
+    `reply` is either the model's text or the exception to raise in its place.
+    """
+    seen: dict[str, str] = {}
+
+    async def fake_arun(_primary, _kind, call):
+        class Recorder:
+            async def ainvoke(self, prompt, **_kwargs):
+                seen['prompt'] = prompt
+                if isinstance(reply, Exception):
+                    raise reply
+                return SimpleNamespace(content=reply)
+        return await call(Recorder())
+
+    monkeypatch.setattr(upload.gemini_pool, 'arun', fake_arun)
+    return seen
+
+
+class TestExtendedAbstract:
+    """The opt-in longer abstract behind the upload form's mode toggle.
+
+    Every route through `_generate_extended_abstract` that cannot produce an
+    honest summary has to answer '', because the endpoint reads that as "keep
+    the manuscript's own abstract" -- the value the form would have been
+    holding with the toggle left alone.
+    """
+
+    PAGES = [*FRONT_MATTER, CHAPTER_PAGE, CHAPTER_PAGE, CHAPTER_PAGE]
+
+    def _post(self, client, pdf):
+        return client.post(
+            '/upload/extended-abstract',
+            files={'file': ('thesis.pdf', pdf, 'application/pdf')},
+        )
+
+    def test_the_source_keeps_page_order_and_drops_empty_pages(self):
+        assert upload._extended_abstract_source(
+            ['One.', '   ', '', 'Two.'],
+        ) == 'One.\n\nTwo.'
+
+    def test_the_source_stops_at_the_prompt_budget(self):
+        source = upload._extended_abstract_source(['word ' * 20000])
+        assert len(source) == upload._EXTENDED_ABSTRACT_SOURCE_CHARS
+
+    def test_a_manuscript_with_no_text_layer_buys_no_model_call(self, monkeypatch):
+        seen = _fake_extract_slot(monkeypatch, GENERATED_ABSTRACT)
+        # A scanned manuscript reaches this endpoint as a few stray characters:
+        # OCR is the ingestion worker's stage, not this one's.
+        assert asyncio.run(upload._generate_extended_abstract('', 'Figure 1.')) == ''
+        assert seen == {}
+
+    def test_the_prompt_carries_both_the_stated_abstract_and_the_chapters(self, monkeypatch):
+        seen = _fake_extract_slot(monkeypatch, GENERATED_ABSTRACT)
+        asyncio.run(upload._generate_extended_abstract(
+            ABSTRACT_PROSE, upload._extended_abstract_source(self.PAGES),
+        ))
+        # Without the chapters the model can only reword the abstract it was
+        # handed, which is the one output this feature has no use for.
+        assert 'This study developed a centralized thesis library' in seen['prompt']
+        assert 'surveyed eighty archived CCSICT manuscripts' in seen['prompt']
+
+    def test_the_sentinel_is_never_stored_as_an_abstract(self, monkeypatch):
+        _fake_extract_slot(monkeypatch, upload.prompts.NO_ABSTRACT_SENTINEL)
+        assert asyncio.run(
+            upload._generate_extended_abstract('', CHAPTER_PAGE * 2),
+        ) == ''
+
+    def test_a_reply_too_short_to_be_an_abstract_is_refused(self, monkeypatch):
+        # A sentence is not an abstract, and pre-filling the form with one puts
+        # a fragment in the archive under a field the card renders whole.
+        _fake_extract_slot(monkeypatch, 'It is about clustering.')
+        assert asyncio.run(
+            upload._generate_extended_abstract('', CHAPTER_PAGE * 2),
+        ) == ''
+
+    def test_a_provider_failure_costs_only_this_one_value(self, monkeypatch):
+        _fake_extract_slot(monkeypatch, RuntimeError('429 quota exhausted'))
+        assert asyncio.run(
+            upload._generate_extended_abstract('', CHAPTER_PAGE * 2),
+        ) == ''
+
+    def test_a_fenced_reply_is_unwrapped_like_every_other_completion(self, monkeypatch):
+        _fake_extract_slot(monkeypatch, '```\n' + GENERATED_ABSTRACT + '\n```')
+        assert asyncio.run(
+            upload._generate_extended_abstract('', CHAPTER_PAGE * 2),
+        ).startswith('The study responded')
+
+    def test_an_oversized_generation_stays_inside_the_form_ceiling(self, monkeypatch):
+        _fake_extract_slot(monkeypatch, 'word ' * 4000)
+        clipped = asyncio.run(
+            upload._generate_extended_abstract('', CHAPTER_PAGE * 2),
+        )
+        assert clipped.endswith('…')
+        upload._validate_metadata('A valid thesis title', 'Ana Cruz', '2026', clipped)
+
+    def test_the_endpoint_labels_what_it_actually_produced(self, upload_client, monkeypatch):
+        _fake_extract_slot(monkeypatch, GENERATED_ABSTRACT)
+        body = self._post(upload_client, _pdf_pages(self.PAGES)).json()
+        assert body['extended'] is True
+        assert body['abstract'].startswith('The study responded')
+
+    def test_a_failed_generation_falls_back_to_the_manuscripts_own_words(
+        self, upload_client, monkeypatch,
+    ):
+        _fake_extract_slot(monkeypatch, RuntimeError('503 model overloaded'))
+        response = self._post(upload_client, _pdf_pages(self.PAGES))
+        # 200 and not 503: the admin is mid-upload and the default value is
+        # sitting right there, so the control degrades instead of failing.
+        assert response.status_code == 200
+        body = response.json()
+        assert body['extended'] is False
+        assert body['abstract'].startswith('This study developed a centralized')
+
+    def test_a_file_the_upload_would_reject_is_rejected_here_too(self, upload_client):
+        assert self._post(upload_client, b'not a pdf at all').status_code in (400, 415, 422)
+
+
 class _StatusTable:
     """upload_jobs stub whose extended-column select fails like a legacy schema."""
 

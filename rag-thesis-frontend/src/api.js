@@ -276,6 +276,26 @@ export async function extractMetadata(file) {
   return data
 }
 
+/**
+ * Gemini's extended abstract for one manuscript.
+ *
+ * Its own call rather than a flag on `extractMetadata`, because the two are
+ * asked for at different moments: the form autofills once on drop, and this
+ * runs only if the uploader then asks for the longer text. It answers with the
+ * manuscript's own abstract and `extended: false` wherever the longer one
+ * could not be written, so the caller always has something to show.
+ */
+export async function getExtendedAbstract(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await api.post('/upload/extended-abstract', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    // A generation over 28 pages of manuscript, not a title-page read.
+    timeout: 3 * 60 * 1000,
+  })
+  return data // { abstract, extended }
+}
+
 // ---------- Batch upload ----------
 // One request per phase on purpose: the upload rate limit is shared by
 // staging, extraction, and cancellation, so N per-file calls would 429 the

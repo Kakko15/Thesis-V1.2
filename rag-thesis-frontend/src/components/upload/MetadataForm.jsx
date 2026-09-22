@@ -105,7 +105,7 @@ function SelectField({ label, required, autofilled, ...props }) {
  */
 export function MetadataForm({
   form, errors, autofilled, departments, isSuperadmin, enforcedDepartment, loadingDepts,
-  programs, specializations, onField, onForm, onBlurValidate,
+  programs, specializations, onField, onForm, onBlurValidate, abstractMode,
 }) {
   const set = (key) => (event) => onField(key, event.target.value)
   const programsUnavailable = !form.department || programs.length === 0
@@ -298,6 +298,7 @@ export function MetadataForm({
         onChange={set('abstract')}
         onClear={() => onField('abstract', '')}
         autofilled={autofilled.abstract}
+        mode={abstractMode}
       />
     </motion.div>
   )

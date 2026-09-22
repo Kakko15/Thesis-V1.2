@@ -13,11 +13,15 @@ const { duration, easing } = motionTokens
  * Identity column carried more weight than the labels they annotated. It is a
  * footnote on a value, not a status worth a pill.
  *
+ * `label` exists for the one field with two provenances: the abstract is
+ * either the manuscript's own page or a model's summary of it, and "autofilled"
+ * covers both without distinguishing the one that matters.
+ *
  * Its own module because both `MetadataForm`'s field labels and
  * `AbstractField`'s header use it, and importing it from the former into the
  * latter would close an import cycle.
  */
-export function AutofillChip({ show }) {
+export function AutofillChip({ show, label = 'autofilled' }) {
   return (
     <AnimatePresence initial={false}>
       {show && (
@@ -28,7 +32,7 @@ export function AutofillChip({ show }) {
           transition={{ duration: duration.short, ease: easing.standard }}
           className="inline-flex items-center gap-1 rounded-full bg-gold-400/15 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-gold-700 dark:text-gold-300 border border-gold-400/30 shadow-xs"
         >
-          <Sparkles size={11} aria-hidden="true" className="animate-pulse" /> autofilled
+          <Sparkles size={11} aria-hidden="true" className="animate-pulse" /> {label}
         </motion.span>
       )}
     </AnimatePresence>

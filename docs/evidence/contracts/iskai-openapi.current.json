@@ -191,6 +191,20 @@
         "title": "BatchUploadAccepted",
         "type": "object"
       },
+      "Body_extended_abstract_upload_extended_abstract_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_extended_abstract_upload_extended_abstract_post",
+        "type": "object"
+      },
       "Body_extract_metadata_batch_upload_batch_extract_metadata_post": {
         "properties": {
           "files": {
@@ -817,6 +831,23 @@
           "question"
         ],
         "title": "DuplicationChatReq",
+        "type": "object"
+      },
+      "ExtendedAbstract": {
+        "description": "One manuscript's abstract, and whether a model wrote the longer one.\n\n`extended` reports what was actually produced, never what was asked for. A\ncapacity error, an unparseable reply, and a scanned manuscript with no text\nlayer all answer 200 with the abstract read off the page and\n`extended=False`, so the upload form can say which of the two texts it is\nholding rather than labelling the manuscript's own words as AI-written.",
+        "properties": {
+          "abstract": {
+            "default": "",
+            "title": "Abstract",
+            "type": "string"
+          },
+          "extended": {
+            "default": false,
+            "title": "Extended",
+            "type": "boolean"
+          }
+        },
+        "title": "ExtendedAbstract",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -3491,6 +3522,55 @@
           }
         ],
         "summary": "Extract Metadata Batch",
+        "tags": [
+          "upload"
+        ]
+      }
+    },
+    "/upload/extended-abstract": {
+      "post": {
+        "description": "The opt-in longer abstract for one manuscript, written by Gemini.\n\nSeparate from `/extract-metadata` rather than a mode flag on it, because\nthe two are asked for at different moments and cost different things. The\nform autofills once, on drop, with the manuscript's own abstract; this is\nwhat the uploader's toggle calls afterwards if they want the longer text,\nand it repeats none of the metadata work -- no department read, no\ncatalog read, and no title-page completion -- for a field none of them\nfill.\n\nIt answers 200 with `extended=False` and the verbatim abstract wherever the\nlonger one could not be written, so a provider outage degrades the control\nto the default instead of failing the upload the admin is in the middle of.\nA rejected PDF still raises: a file this endpoint will not read is a file\nthe upload itself will not accept either, and saying so here is earlier.",
+        "operationId": "extended_abstract_upload_extended_abstract_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_extended_abstract_upload_extended_abstract_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtendedAbstract"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "The request payload or parameters were rejected."
+          },
+          "413": {
+            "description": "The uploaded file exceeds the configured size limit."
+          },
+          "415": {
+            "description": "The uploaded file type is not accepted."
+          },
+          "422": {
+            "description": "The request was well formed but failed validation."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Extended Abstract",
         "tags": [
           "upload"
         ]
