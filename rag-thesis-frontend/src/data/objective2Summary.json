@@ -1,0 +1,113 @@
+{
+  "_generated_by": "rag-thesis-backend/scripts/export_objective2_summary.py",
+  "_do_not_edit": "Regenerate instead; tests/test_objective2_summary_export.py pins this file.",
+  "run": {
+    "id": "5e8fb7f21db6",
+    "date": "2026-09-13",
+    "generated_at": "20260913_064053",
+    "git_commit": "770bad4a56230d32f38a8672022c38801a5fdf7c",
+    "prompt_version": "iskai-prompt-v4",
+    "formal_result": true,
+    "queries_scored": 40,
+    "queries_total": 40,
+    "department": "CCSICT",
+    "framework": "ragas==0.4.3",
+    "judge_model": "gemini-3.5-flash-lite",
+    "answer_model": "gemini-3.6-flash",
+    "metric": "answer_correctness",
+    "evidence_path": "docs/evidence/OBJECTIVE_2_COMPARISON_2026-09-13.html"
+  },
+  "quoted_stratum": "present",
+  "strata": [
+    {
+      "key": "pooled",
+      "label": "Pooled",
+      "baseline": 0.2169,
+      "rag": 0.3024,
+      "n": 40,
+      "delta": 0.0855,
+      "p_value": 3.2221579055837075e-05,
+      "significant": true,
+      "cohens_d_z": 0.743,
+      "ci_95": [
+        0.0487,
+        0.1223
+      ],
+      "quoted": false
+    },
+    {
+      "key": "present",
+      "label": "Topic present in corpus",
+      "baseline": 0.2302,
+      "rag": 0.2903,
+      "n": 16,
+      "delta": 0.0601,
+      "p_value": 0.1256796850888262,
+      "significant": false,
+      "cohens_d_z": 0.4054,
+      "ci_95": [
+        -0.0189,
+        0.1391
+      ],
+      "quoted": true
+    },
+    {
+      "key": "absent_topic",
+      "label": "Topic absent",
+      "baseline": 0.2008,
+      "rag": 0.2874,
+      "n": 17,
+      "delta": 0.0866,
+      "p_value": 0.0009011791515809856,
+      "significant": true,
+      "cohens_d_z": 0.9858,
+      "ci_95": [
+        0.0414,
+        0.1318
+      ],
+      "quoted": false
+    },
+    {
+      "key": "absent_unreleased",
+      "label": "Absent, unreleased",
+      "baseline": 0.1991,
+      "rag": 0.3601,
+      "n": 4,
+      "delta": 0.161,
+      "p_value": 0.04187323463511187,
+      "significant": true,
+      "cohens_d_z": 1.7095,
+      "ci_95": [
+        0.0111,
+        0.3108
+      ],
+      "quoted": false
+    },
+    {
+      "key": "absent_by_design",
+      "label": "Absent by design",
+      "baseline": 0.2616,
+      "rag": 0.3755,
+      "n": 3,
+      "delta": 0.1139,
+      "p_value": 0.012187412305459142,
+      "significant": true,
+      "cohens_d_z": 5.1819,
+      "ci_95": [
+        0.0593,
+        0.1685
+      ],
+      "quoted": false
+    }
+  ],
+  "diagnostics": {
+    "faithfulness": {
+      "mean": 0.6634,
+      "n": 40
+    },
+    "context_precision": {
+      "mean": 0.1944,
+      "n": 40
+    }
+  }
+}
