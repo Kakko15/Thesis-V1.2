@@ -62,7 +62,7 @@ $registerArgs = @{
   Action      = $action
   Trigger     = $trigger
   Settings    = $settings
-  Description = 'Encrypted Supabase database + Storage backup (see docs/OPERATIONS_SECURITY_RUNBOOK.md)'
+  Description = 'Encrypted Supabase database + Storage backup'
   Force       = $true
 }
 

@@ -37,7 +37,6 @@ RESULTS = ROOT / 'rag-thesis-backend' / 'evaluation' / 'results'
 SOURCE = RESULTS / 'comparison_20260913_064053.json'
 RUN_ID = '5e8fb7f21db6'
 RUN_DATE = '2026-09-13'
-EVIDENCE_PATH = 'docs/evidence/OBJECTIVE_2_COMPARISON_2026-09-13.html'
 
 # Section 3.2.5 quotes this stratum: it is the only one with a corpus-derived ground
 # truth to be accurate against. See the 2026-09-07 block in iso25010_evidence.md.
@@ -115,7 +114,6 @@ def build(source: Path = SOURCE) -> dict:
             'judge_model': run['evaluator']['model'],
             'answer_model': run['models']['llm'],
             'metric': 'answer_correctness',
-            'evidence_path': EVIDENCE_PATH,
         },
         'quoted_stratum': QUOTED_STRATUM,
         'strata': strata,

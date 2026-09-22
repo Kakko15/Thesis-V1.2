@@ -188,8 +188,8 @@ export default function AdminOverview() {
           40-query Golden Dataset was panel-validated and scored 40/40 with
           `formal_result: true` (run 5e8fb7f21db6). Until 2026-09-15 the copy
           still read "pending faculty validation", so the console asserted a
-          blocker that no longer existed -- docs/DEFENSE_WALKTHROUGH.md 3.7
-          listed it as a notice not to read aloud during the defense.
+          blocker that no longer existed -- the defense walkthrough (3.7, now
+          in git history) listed it as a notice not to read aloud.
           What survives from the original warning is its reason, not its
           remedy: quoting a headline improvement without its per-stratum
           significance is the misreading that card existed to prevent, and the
@@ -282,12 +282,7 @@ export default function AdminOverview() {
             <p className="mt-2 text-xs leading-relaxed text-ink-faint">
               Retrieval diagnostics, reported separately because they are not part of the paired
               claim: faithfulness {fmtScore(OBJECTIVE2.diagnostics.faithfulness.mean)}, context
-              precision {fmtScore(OBJECTIVE2.diagnostics.context_precision.mean)}. Full result,
-              including the confidence intervals and effect sizes, in{' '}
-              <code className="rounded bg-forest-900/5 px-1 py-0.5">
-                {OBJECTIVE2.run.evidence_path}
-              </code>
-              .
+              precision {fmtScore(OBJECTIVE2.diagnostics.context_precision.mean)}.
             </p>
           </div>
         </div>

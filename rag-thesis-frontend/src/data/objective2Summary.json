@@ -14,8 +14,7 @@
     "framework": "ragas==0.4.3",
     "judge_model": "gemini-3.5-flash-lite",
     "answer_model": "gemini-3.6-flash",
-    "metric": "answer_correctness",
-    "evidence_path": "docs/evidence/OBJECTIVE_2_COMPARISON_2026-09-13.html"
+    "metric": "answer_correctness"
   },
   "quoted_stratum": "present",
   "strata": [

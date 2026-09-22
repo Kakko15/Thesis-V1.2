@@ -3,8 +3,8 @@
  * "WCAG 2.2 AA; zero serious/critical axe issues").
  *
  * Scans every critical surface — public and authenticated — across the theme
- * and contrast states the appearance dialog actually exposes, at the same
- * mobile/desktop widths as the structural visual matrix.
+ * and contrast states the appearance dialog actually exposes, at mobile and
+ * desktop widths.
  *
  * The matrix runs with reduced motion and low visual effects. That is a
  * deliberate determinism choice, not a way to dodge the hard cases: both flags
@@ -21,7 +21,6 @@ import { expect, test } from '@playwright/test'
 import { AxeBuilder } from '@axe-core/playwright'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import process from 'node:process'
 
 const AUTH_FIXTURE_KEY = 'isu_e2e_auth_fixture'
 const PREFERENCES_KEY = 'isu-thesis-preferences-v2'
@@ -558,10 +557,6 @@ test.afterAll(async () => {
   }
 
   const targets = [new URL('../test-results/', import.meta.url)]
-  if (process.env.CAPTURE_A11Y_EVIDENCE === '1') {
-    const stamp = new Date().toISOString().slice(0, 10)
-    targets.push(new URL(`../../docs/evidence/accessibility/${stamp}/`, import.meta.url))
-  }
   for (const directory of targets) {
     await mkdir(fileURLToPath(directory), { recursive: true })
     await writeFile(
