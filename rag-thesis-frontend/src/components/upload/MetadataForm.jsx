@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
-import { BookText, ChevronDown, FileSignature, Lock, Sparkles, Tags } from 'lucide-react'
-import { Input, Textarea, Select, Field } from '../ui/Input'
+import { motion } from 'framer-motion'
+import { FileSignature, Lock, Tags } from 'lucide-react'
+import { Input, Select, Field } from '../ui/Input'
+import { AbstractField } from './AbstractField'
+import { AutofillChip } from './AutofillChip'
 import { cn } from '../../lib/utils'
 import { motionTokens } from '../../design/motion'
 import {
@@ -19,33 +20,6 @@ const sectionStagger = {
 const fieldRise = {
   hidden: { opacity: 0, y: 10 },
   show: { opacity: 1, y: 0, transition: { duration: duration.medium, ease: easing.standard } },
-}
-
-/**
- * The extraction step fills the form silently, so a reader had no way to tell
- * an autofilled value from one they typed — the difference that decides
- * whether a field needs checking. The marker disappears on first edit.
- *
- * Deliberately quiet: this was a filled `Badge`, and three of them down the
- * Identity column carried more weight than the labels they annotated. It is a
- * footnote on a value, not a status worth a pill.
- */
-function AutofillChip({ show }) {
-  return (
-    <AnimatePresence initial={false}>
-      {show && (
-        <motion.span
-          initial={{ opacity: 0, scale: 0.85, y: -2 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.85, y: -2 }}
-          transition={{ duration: duration.short, ease: easing.standard }}
-          className="inline-flex items-center gap-1 rounded-full bg-gold-400/15 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-gold-700 dark:text-gold-300 border border-gold-400/30 shadow-xs"
-        >
-          <Sparkles size={11} aria-hidden="true" className="animate-pulse" /> autofilled
-        </motion.span>
-      )}
-    </AnimatePresence>
-  )
 }
 
 function Section({ icon: Icon, title, headingId, children }) {
@@ -115,72 +89,14 @@ function SelectField({ label, required, autofilled, ...props }) {
   )
 }
 
-function AbstractDisclosure({ value, onChange }) {
-  // Collapsed by default: it is optional, and expanded it pushed the wizard's
-  // own actions below the fold on a laptop. Any pasted text keeps it open.
-  const [open, setOpen] = useState(Boolean(value))
-  const charCount = value ? value.length : 0
-
-  return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)]/60 transition-colors hover:bg-[var(--surface-2)]/90">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3.5 text-left outline-none transition-colors duration-200"
-      >
-        <div className="flex items-center gap-2">
-          <BookText size={15} className="text-ink-muted shrink-0" aria-hidden="true" />
-          <span className="min-w-0 text-xs font-semibold uppercase tracking-wider text-ink-muted">
-            Add an abstract
-          </span>
-          {charCount > 0 && (
-            <span className="rounded-full bg-forest-500/15 px-2 py-0.5 text-[10px] font-mono font-medium text-forest-700 dark:text-forest-300">
-              {charCount} chars
-            </span>
-          )}
-        </div>
-        <ChevronDown
-          size={16}
-          aria-hidden="true"
-          className={cn('shrink-0 text-ink-faint transition-transform duration-300', open && 'rotate-180')}
-        />
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: duration.medium, ease: easing.standard }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-4 pt-1 space-y-2">
-              <Textarea
-                value={value}
-                onChange={onChange}
-                placeholder="Paste the thesis abstract…"
-                rows={4}
-                aria-label="Thesis abstract"
-              />
-              <p className="text-[11px] text-ink-faint">
-                Abstracts provide rich context for semantic indexing and assist researcher discovery.
-              </p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
 /**
- * Step 2 of the wizard, grouped into identity / classification / description.
+ * Step 2 of the wizard, grouped into identity / classification / abstract.
  *
  * The eleven controls used to sit in one flat stack where the thesis title and
  * the optional abstract carried identical weight. Grouping them gives the eye
  * three short lists instead of one long one, and lets the optional third
- * collapse.
+ * collapse — `AbstractField` is that third group, a peer of these two Sections
+ * rather than a card nested inside one.
  *
  * Every grid cell holds exactly one labelled control. The classification row
  * used to stack the program and its specialization in the left cell against a
@@ -376,13 +292,13 @@ export function MetadataForm({
         </div>
       </Section>
 
-      <Section
-        icon={BookText}
-        title="Description"
-        headingId="upload-description-heading"
-      >
-        <AbstractDisclosure value={form.abstract} onChange={set('abstract')} />
-      </Section>
+      <AbstractField
+        variants={fieldRise}
+        value={form.abstract}
+        onChange={set('abstract')}
+        onClear={() => onField('abstract', '')}
+        autofilled={autofilled.abstract}
+      />
     </motion.div>
   )
 }

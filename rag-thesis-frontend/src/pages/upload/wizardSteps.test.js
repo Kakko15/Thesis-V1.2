@@ -138,8 +138,13 @@ test('only fields the extractor actually returned are credited to it', () => {
   assert.deepEqual(autofilledKeys({ title: 'Extracted Title', authors: '', year: 2024 }), ['title', 'year'])
   assert.deepEqual(autofilledKeys({}), [])
   assert.deepEqual(autofilledKeys(), [])
-  assert.deepEqual(autofilledKeys({ abstract: 'not autofillable' }), [])
+  // The abstract is read verbatim off the manuscript's own abstract page, so
+  // it is credited like any other extracted field. It was excluded until the
+  // server learned to fill it.
+  assert.deepEqual(autofilledKeys({ abstract: 'Extracted abstract prose.' }), ['abstract'])
+  assert.deepEqual(autofilledKeys({ abstract: '' }), [])
   assert.ok(AUTOFILLABLE_KEYS.includes('department'))
+  assert.ok(AUTOFILLABLE_KEYS.includes('abstract'))
 })
 
 test('the department the extractor is credited with is only the one it read', () => {

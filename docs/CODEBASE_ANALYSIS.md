@@ -30,6 +30,19 @@ Read this file for orientation and judgement. The per-subsystem and per-flow det
 >   emit C0327 - verified by experiment).
 > - The repository-hygiene findings in 5.23 / 7.22 were fixed in commit `2fcede1`, and
 >   5.23's SonarQube claim was itself overstated - see the note under it.
+> - The upload form's metadata autofill gained the abstract, which supersedes three
+>   claims in the reference files: the extractor no longer reads only pages 1-3 (a
+>   local `_extract_abstract` pass now scans up to `_ABSTRACT_SCAN_PAGES` = 12 for the
+>   abstract page, while the text joined into the Gemini prompt is still the first 3,
+>   deliberately); `_empty_metadata()` returns seven keys rather than six; and
+>   `_title_page_texts` is now `_front_matter_texts`. The extractor also skips
+>   the abstract page's own labelled identity block (`Title :`, `Authors :`,
+>   `Adviser :`) and emits it as a Markdown list above the prose, so the stored
+>   abstract is now Markdown -- rendered in the upload panel's Preview view and
+>   on the archive detail card, and carried into `duplication_summary_prompt`
+>   via `matched_abstract`. The
+>   text-free-PDF shape inconsistency noted for `_extract_one` is unchanged and
+>   still open.
 >
 > Everything else in sections 5 to 7 was still open as of 2026-09-22.
 

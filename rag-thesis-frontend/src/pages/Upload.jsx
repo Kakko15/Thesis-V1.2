@@ -229,6 +229,10 @@ export default function Upload() {
         title: metadata.title || '',
         authors: metadata.authors || '',
         year: metadata.year || '',
+        // Read verbatim off the manuscript's own abstract page, or blank. The
+        // server never asks the model for this one, so a value here is the
+        // thesis's own words rather than a summary of them.
+        abstract: metadata.abstract || '',
         department: extractedDepartment,
         ...(selection || {}),
       }
@@ -237,6 +241,7 @@ export default function Upload() {
         title: patch.title || prev.title,
         authors: patch.authors || prev.authors,
         year: patch.year || prev.year,
+        abstract: patch.abstract || prev.abstract,
         department: department || prev.department,
         // The classification is applied whole or not at all. Merging it field
         // by field would leave the specialization of a previously chosen file
@@ -248,7 +253,8 @@ export default function Upload() {
       // The resolved patch, not the raw reply: a program code that matched no
       // program in this department filled nothing and is claimed by nothing.
       dispatch({ type: 'set-autofilled', keys: autofilledKeys(patch) })
-      if (patch.title || patch.authors || patch.year || patch.department || selection) {
+      if (patch.title || patch.authors || patch.year || patch.abstract
+        || patch.department || selection) {
         toast.success('Metadata autofilled', { description: 'Extracted available information from the document.' })
       } else {
         toast.warning('Extraction incomplete', { description: 'Could not confidently identify thesis details.' })

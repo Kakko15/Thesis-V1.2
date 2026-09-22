@@ -379,8 +379,8 @@ class TestUploadKeepsTheLoopFree:
             upload, '_validate_pdf_upload', spy.blocking('_validate_pdf_upload', 'paper.pdf'),
         )
         monkeypatch.setattr(
-            upload, '_title_page_texts',
-            spy.blocking('_title_page_texts', ['A Study of Campus Attendance'], sleep=0.02),
+            upload, '_front_matter_texts',
+            spy.blocking('_front_matter_texts', ['A Study of Campus Attendance'], sleep=0.02),
         )
         monkeypatch.setattr(upload, 'sb', RecordingClient(
             spy, table_results={'departments': [{'name': 'CCSICT'}]},
@@ -403,7 +403,7 @@ class TestUploadKeepsTheLoopFree:
 
         assert response['title'] == 'A Study of Campus Attendance'
         assert spy.ran_on_main_thread == ['llm.ainvoke']  # native async, by design
-        assert '_title_page_texts' in spy.labels
+        assert '_front_matter_texts' in spy.labels
         assert 'table:departments' in spy.labels
         assert monitor.max_gap < MAX_ACCEPTABLE_LOOP_GAP, (
             f'the event loop stalled for {monitor.max_gap:.3f}s during metadata extraction'
@@ -455,7 +455,7 @@ class TestNoBlockingCallCreepsBackIn:
         'search_chunks', 'screen_new_submission', 'find_papers_by',
         'get_paper_overview_context', 'record_security_event', 'record_storage_cleanup',
         'validate_chunk_records', 'is_noise_chunk', 'hashlib.sha256',
-        '_validate_pdf_upload', '_title_page_texts', '_content_digest',
+        '_validate_pdf_upload', '_front_matter_texts', '_content_digest',
         '_durable_job_status', '_remove_staged_source', '_fail_staging_job',
         '_load_chat_history', '_ensure_session_owner', '_persist_chat_exchange',
     )

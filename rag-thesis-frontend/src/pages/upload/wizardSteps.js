@@ -171,7 +171,7 @@ export function extractionDepartment({
  * resolved to nothing must not be credited to the extractor.
  */
 export const AUTOFILLABLE_KEYS = Object.freeze([
-  'title', 'authors', 'year', 'department', 'program_id',
+  'title', 'authors', 'year', 'department', 'program_id', 'abstract',
 ])
 
 /**
