@@ -67,6 +67,24 @@ tmp-*.log
 _repro*
 *_tmp.py
 tmp_*.py
+# Scratch *directories* beyond the three named above, which each spell out one
+# tool. `rag-thesis-backend/tmp-probe/` was committed on 2026-09-14 by the same
+# `git add -A` as `_repro*` and stayed tracked because no pattern here matches
+# a bare `tmp-<word>/`. sonar-project.properties already generalises this as
+# `rag-thesis-backend/tmp-*/**`; git did not, so the two configs disagreed
+# about what counted as scratch.
+tmp-*/
+# Ad-hoc classifier probes at the backend root. `probe7b.py` was tracked in the
+# same 2026-09-14 commit; it `exec()`s a file under /tmp that no clone has, so
+# it cannot even be imported. It also escapes every gate -- outside pytest's
+# `testpaths=tests`, outside pylint's explicit module list, outside `--cov`,
+# and absent from the Dockerfile COPY list -- while still sitting inside
+# `sonar.sources`, which analysed it as project code.
+probe*.py
+# Byte-code caches anywhere, not just under the backend. Running the
+# out-of-tree pytest module in docs/evidence/security/audit-2026-09-05/ leaves
+# a `__pycache__/` there, which rag-thesis-backend/.gitignore cannot reach.
+__pycache__/
 rag-thesis-backend/.venv*/
 rag-thesis-backend/.pylint-cache-*/
 rag-thesis-backend/.pytest-*/
