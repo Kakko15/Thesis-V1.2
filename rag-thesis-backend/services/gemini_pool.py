@@ -28,8 +28,8 @@ the first key instead of being replayed against every remaining one.
 separately-owned allowance — a co-researcher's key, or the department's — used
 with that owner's consent. Minting extra accounts to multiply one person's free
 tier violates the provider's terms. Every unpaid key also carries the same
-data-use restriction, so a pool buys throughput and never legal headroom (see
-`docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md`).
+data-use restriction, so a pool buys throughput and never legal headroom. The
+PI-08 governance protocol spelled this out; it now lives in git history only.
 """
 
 import logging

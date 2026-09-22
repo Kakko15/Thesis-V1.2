@@ -8,12 +8,12 @@ The production implementation of the ISU CCSICT thesis *"A Centralized AI-Powere
 
 - `rag-thesis-backend/` — FastAPI + LangChain + Gemini + Supabase (Postgres/pgvector/Auth/Storage). Python 3.14.
 - `rag-thesis-frontend/` — React 19 + Vite 8 + Tailwind v4. Unit tests use Node's built-in runner; E2E uses Playwright. Node 24.18.0 / npm 11.16.0 (`.nvmrc`, `engines`).
-- `paper/` — the untouched 2026-08-09 proposal, the corrected `.docx`, and `build_corrections.py`, which regenerates the corrected file from the original so edits can never double-apply.
-- `docs/` — runbooks, the PI-08 governance protocol, and dated evidence bundles. `docs/CODEBASE_ANALYSIS.md` (plus `docs/analysis/`) is the architecture reference; `docs/DEFENSE_WALKTHROUGH.md` is the best prose description of the system as presented at defense.
+- `paper_CORRECTED.docx` / `.pdf` — the final corrected proposal, at the repository root. `paper/` was removed after the defense (2026-09-22): the 2026-08-09 original and `build_corrections.py` are recoverable from git history, so the corrections can still be regenerated, but nothing in the tree regenerates them now.
+- `CODEBASE_ANALYSIS.md` — the architecture reference, at the repository root. `docs/` was removed in the same pass; the runbooks, the PI-08 protocol, `DEFENSE_WALKTHROUGH.md`, the per-subsystem detail in `docs/analysis/`, and the dated evidence bundles all live in git history only. Two files were kept because tests read them: `docs/evidence/contracts/iskai-openapi.current.json` (`tests/test_export_openapi.py`, the API drift gate) and `docs/BACKUP_RESTORE_DRILL.md` (`tests/test_backup_monitoring.py::TestTheDrillDocumentIsHonest`).
 
 The root `README.md` is the authoritative setup, operations, and evaluation reference, and it is **pinned by tests** (`tests/test_readme_accuracy.py` asserts its facts against the code). Read it before touching setup, migrations, evaluation, or CI. This file covers what the README does not: how the pieces fit together and the guardrails that bite when editing.
 
-**`docs/CODEBASE_ANALYSIS.md` is the architecture reference — read it before any non-trivial change.** It describes the system *as built*, from a 2026-09-22 whole-repository analysis in which every claim was fact-checked against source by an independent reviewer. Sections worth reading before you touch anything: cross-cutting patterns (the conventions applied everywhere, where breaking one locally is usually a bug rather than a style choice), must-know facts, coupling seams (`change X ⇒ must also change Y`, with the untested ones flagged), and verified risks. Per-subsystem and per-flow detail is in `docs/analysis/`; that directory is reference lookup, not read-through. Where that file and this one disagree, the analysis records what the code does — verify against source, then fix the drift here. Two caveats on it: every subsystem and flow came back `mostly-accurate` rather than `accurate` (367 first-pass errors were caught and folded in, so the residual rate is low but not zero), and its *absence* claims ("no test covers", "nothing calls", "has no constraint") are its weakest category — re-grep those before relying on one.
+**`CODEBASE_ANALYSIS.md` is the architecture reference — read it before any non-trivial change.** It describes the system *as built*, from a 2026-09-22 whole-repository analysis in which every claim was fact-checked against source by an independent reviewer. Sections worth reading before you touch anything: cross-cutting patterns (the conventions applied everywhere, where breaking one locally is usually a bug rather than a style choice), must-know facts, coupling seams (`change X ⇒ must also change Y`, with the untested ones flagged), and verified risks. Its per-subsystem and per-flow detail (`docs/analysis/`) was removed with `docs/`, so cross-references into that directory now resolve only in git history. Where that file and this one disagree, the analysis records what the code does — verify against source, then fix the drift here. Two caveats on it: every subsystem and flow came back `mostly-accurate` rather than `accurate` (367 first-pass errors were caught and folded in, so the residual rate is low but not zero), and its *absence* claims ("no test covers", "nothing calls", "has no constraint") are its weakest category — re-grep those before relying on one.
 
 This is a thesis artifact, not only an app. Dependency versions, RAG constants, model names, and metric semantics appear in the paper's tables and in dated evidence. A "small" change to any of them is also a paper change (see "Frozen contracts").
 
@@ -66,12 +66,6 @@ npm run test:e2e                         # builds --mode e2e into dist-e2e, prev
 npm run test:e2e -- e2e/critical-flows.spec.js -g "guest"   # extra args pass straight to the Playwright CLI
 ```
 
-### Paper
-
-```powershell
-cd paper; python build_corrections.py    # rebuilds paper_CORRECTED.docx from paper_ORIGINAL_2026-08-09.docx; each edit declares an expected match count and raises on drift
-```
-
 ## Architecture
 
 ### Process topology
@@ -117,7 +111,7 @@ The evaluated pipeline is frozen for the defense. Changing any of the following 
 
 - RAG constants in `config.py`: `Literal[800]` / `Literal[100]` chunking, `Literal[768]` dimensions (a change needs a DB migration), 0.30 retrieval threshold, 5 context blocks, 0.85 duplication threshold.
 - `services/prompts.PROMPT_VERSION`, `services/chunker.CHUNKING_VERSION`, `services/index_provenance.PREPROCESSING_VERSION`. `scripts/release_fingerprint.py` hashes `services/prompts.py` and records all three version values (the latter two via `current_index_fingerprint()`), so a chunker or preprocessing change reaches the manifest only if its version constant is bumped — `services/chunker.py` and `services/index_provenance.py` are not themselves hashed inputs.
-- Model names (`gemini-3.6-flash`, `gemini-3.5-flash-lite`, `models/gemini-embedding-001`) and every pinned dependency version. They are printed in the paper's Tables 1-4 (`paper/build_corrections.py`), and the model names also in the README. The Dockerfile asserts Python is exactly 3.14.7 and CI installs the same; keep the workflow, README, and paper tables in step when it moves.
+- Model names (`gemini-3.6-flash`, `gemini-3.5-flash-lite`, `models/gemini-embedding-001`) and every pinned dependency version. They are printed in the paper's Tables 1-4, which `paper/build_corrections.py` generated before `paper/` was removed — so nothing in the tree now checks a model or version change against those tables; restore the script from git history if you need to. The model names are also in the README. The Dockerfile asserts Python is exactly 3.14.7 and CI installs the same; keep the workflow, README, and paper tables in step when it moves.
 
 Repository-fact tests that fail on drift. Run the matching one after an edit:
 
@@ -136,5 +130,5 @@ Repository-fact tests that fail on drift. Run the matching one after an edit:
 - Commit subjects are `type: what` (`feat:`, `fix:`, `ci:`, `docs:`, `test(e2e):`, `paper:`, `evidence:`). Bodies and code comments explain *why*, usually with the measured failure and date that motivated the change. Match that register, and do not delete those comments when refactoring nearby code.
 - `.env` files at the root, in the backend, and in the frontend hold real keys and are gitignored. Never print or commit them; `.env.example` is the documented surface. The backend `SUPABASE_KEY` is the service-role key.
 - `tmp*/`, `tmp-pytest-*`, `.venv*`, `dist*`, `coverage*`, and `playwright-report/` are local scratch and gitignored. Never treat them as source; `sonar-project.properties` excludes them for the same reason.
-- PI-08 controlled material lives under `docs/governance/private/` and `evaluation/corpus/private/`, both gitignored. Commit only templates and redacted hash receipts.
+- PI-08 controlled material lives under `evaluation/corpus/private/`, gitignored (the `docs/governance/private/` half was removed with `docs/`, though `.gitignore` still reserves the path). Commit only templates and redacted hash receipts.
 - Windows specifics: call JMeter's jar, not `jmeter.bat`; use `curl.exe`, not the PowerShell `curl` alias.

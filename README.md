@@ -1,7 +1,5 @@
 # ISU Centralized AI-Powered Thesis Library
 
-Operational deployment, cancellation, malware scanning, retention, encrypted backup, and disposable restore procedures are in [the operations runbook](docs/OPERATIONS_SECURITY_RUNBOOK.md). Secret rotation is covered by [the secret-rotation runbook](docs/SECRET_ROTATION.md). Institutional approvals, privacy review, and the immutable twelve-thesis defense corpus (the set CCSICT released on 2026-09-07) are controlled by [the PI-08 governance protocol](docs/governance/PI08_APPROVAL_PRIVACY_CORPUS_PROTOCOL.md). [The defense walkthrough](docs/DEFENSE_WALKTHROUGH.md) is the demo script. [The fidelity audit](docs/FIDELITY_AUDIT_2026-09-02.html) is a point-in-time review of the manuscript against this repository, measured at `cc886e5`; open it in a browser.
-
 A production web application implementing the thesis *"A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation"* (Barlis & Gallardo, BSCS Data Mining Track) for the College of Computing Studies, Information and Communication Technology (CCSICT), Isabela State University, Echague.
 
 The system is an **indirect** thesis library: users never view or download full manuscripts. Instead, a closed-domain RAG pipeline retrieves semantically relevant chunks from the CCSICT vector archive and synthesizes citation-backed answers with Gemini.
@@ -15,7 +13,7 @@ The system is an **indirect** thesis library: users never view or download full 
 | `rag-thesis-backend/evaluation/` | Objective 2 harness: baseline LLM vs RAG comparison scored with Ragas |
 | `rag-thesis-backend/tests/` | Objective 4 PyTest suite (Functional Suitability) |
 | `rag-thesis-backend/jmeter/` | Objective 4 Apache JMeter load-test plan (Performance Efficiency) |
-| `paper/` | The thesis proposal: the untouched 2026-08-09 original, the corrected document, and `build_corrections.py`, which regenerates the corrections from the original so they can never double-apply |
+| `paper_CORRECTED.docx` / `.pdf` | The final corrected thesis proposal, at the repository root. The 2026-08-09 original and `build_corrections.py` were removed after the defense; both remain recoverable from git history if the corrections ever need regenerating |
 
 ## Paper-objective mapping
 
@@ -374,8 +372,8 @@ Static analysis is configured in `sonar-project.properties` (repo root).
 **Version note — resolved.** Table 4 previously recorded SonarQube **10.4** while
 the retained evidence in `evaluation/iso25010_evidence.md` was produced on
 **Community Build 26.7.0.124771** with **SonarScanner CLI 8.0.1.6346**. The paper
-was corrected to the version actually used (`paper/CORRECTIONS_APPLIED.md`, Pass 1),
-so the table and the evidence now agree and no re-run on 10.4 is needed.
+was corrected to the version actually used, so the table and the evidence
+now agree and no re-run on 10.4 is needed.
 
 ```bash
 docker run -d --name sonarqube -p 9000:9000 sonarqube:community
@@ -397,7 +395,7 @@ The GitHub Actions workflow `.github/workflows/quality.yml` runs on every push t
 |---|---|
 | **Backend** | hash-verified install from `requirements.lock`, `pip check`, `pip-audit --no-deps` against the lock, PyTest with `--cov-fail-under=85`, Pylint |
 | **Frontend dependency audit** | `npm audit --omit=dev --audit-level=high`, resolved from `package-lock.json` and retried when npm's advisory endpoint is unreachable; a separate job so a registry outage cannot take the build checks down with it |
-| **Frontend** | ESLint, unit tests with coverage thresholds, production build, bundle-size budget, 26 Playwright tests (13 critical flows, the 12-surface axe accessibility matrix, 1 visual-quality matrix) |
+| **Frontend** | ESLint, unit tests with coverage thresholds, production build, bundle-size budget, 25 Playwright tests (13 critical flows, the 12-surface axe accessibility matrix) |
 | **Secret scan** | Gitleaks over full history |
 | **Containers** | build and Trivy-scan both images (CRITICAL/HIGH, fixed only), emit an SPDX SBOM per image |
 | **SonarQube** | consumes both coverage artifacts; skipped when `SONAR_TOKEN` is absent |

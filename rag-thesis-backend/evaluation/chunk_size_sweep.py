@@ -1,6 +1,6 @@
 """Retrieval quality across chunk sizes, for the 800-token claim.
 
-The paper calls 800 tokens "empirically optimized" (paper/build_corrections.py).
+The paper calls 800 tokens "empirically optimized".
 Nothing in the repository measured it, so this harness does: it re-chunks the
 released twelve-thesis corpus at a range of sizes, embeds each variant with the
 same model the application uses, and scores the golden queries whose answer is
