@@ -9,8 +9,8 @@ def test_release_manifest_captures_exact_models_index_and_locks():
     assert manifest['models']['chat'] == settings.gemini_chat_model
     assert manifest['models']['verdict'] == settings.gemini_verdict_model
     assert manifest['models']['embedding'] == settings.gemini_embed_model
-    assert Settings.model_fields['gemini_chat_model'].default == 'gemini-3.6-flash'
-    assert Settings.model_fields['gemini_verdict_model'].default == 'gemini-3.5-flash-lite'
+    assert Settings.model_fields['gemini_chat_model'].default == 'gemini-3.8-flash'
+    assert Settings.model_fields['gemini_verdict_model'].default == 'gemini-3.8-flash'
     assert Settings.model_fields['gemini_timeout_seconds'].default == 60.0
     assert manifest['generation_contract'] == {
         'timeout_seconds': settings.gemini_timeout_seconds,

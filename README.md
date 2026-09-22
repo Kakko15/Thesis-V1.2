@@ -38,7 +38,7 @@ Key paper parameters enforced in code:
 - **Data cleaning pipeline** — page numbers, headers/footers, TOC and bibliography stripped; chunks with >15% non-alphanumeric characters discarded; `FIGURE REDACTED FOR SEMANTIC INDEXING` placeholders injected.
 - **Indirect access model** — private storage bucket; API responses expose citation metadata only.
 - **Knowledge isolation** — the LLM answers exclusively from retrieved CCSICT context.
-- **Current stable model defaults** — `gemini-3.6-flash` for grounded chat, `gemini-3.5-flash-lite` for the novelty-scan verdict and as the Ragas judge (title-page metadata extraction runs on the chat model), and `gemini-embedding-001` at 768 dimensions. Deployment overrides must be captured in the release fingerprint.
+- **Current stable model defaults** — `gemini-3.8-flash` for grounded chat, and the same model for the novelty-scan verdict and as the Ragas judge (title-page metadata extraction also runs on the chat model), with `gemini-embedding-001` at 768 dimensions. Deployment overrides must be captured in the release fingerprint. The committed Objective 2 run was measured on the earlier `gemini-3.6-flash` chat / `gemini-3.5-flash-lite` judge pair, so its figures describe that configuration rather than this one — see `evaluation/iso25010_evidence.md`.
 
 ## Setup
 

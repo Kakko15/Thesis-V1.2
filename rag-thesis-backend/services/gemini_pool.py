@@ -88,10 +88,10 @@ def active_output_ceiling() -> int:
 def _gateway_client(kind: str):
     """One chat client pointed at the gateway, sending the model name unchanged.
 
-    The model name is unchanged, so `gemini-3.6-flash` on a gateway is still
-    `gemini-3.6-flash` and the paper's version tables and Figure 8 stay
-    accurate. **The answers are not equivalent, and this comment used to claim
-    they were.** `thinking_level` is Gemini-native and cannot cross an
+    The model name is unchanged, so `gemini-3.8-flash` on a gateway is still
+    `gemini-3.8-flash` and the release manifest's model block stays accurate.
+    **The answers are not equivalent, and this comment used to claim they
+    were.** `thinking_level` is Gemini-native and cannot cross an
     OpenAI-compatible boundary, so for as long as it was simply dropped nothing
     bounded reasoning on this route: a measured grounded call spent 1,920 of its
     1,996 output tokens reasoning and returned a severed reply, while the same
