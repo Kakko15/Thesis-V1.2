@@ -15,6 +15,7 @@ import { Badge, RoleBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Input'
 import { AnimatedCounter, staggerContainer, staggerItem } from '../../components/ui/Motion'
+import { TableScroller } from '../../components/ui/TableScroller'
 import { timeAgo } from '../../lib/utils'
 // Generated from the formal Objective 2 run by
 // rag-thesis-backend/scripts/export_objective2_summary.py, and pinned against that
@@ -215,8 +216,15 @@ export default function AdminOverview() {
 
             {/* The table scrolls rather than wraps: seven numeric columns collapse into
                 unreadable stacks on a narrow admin window, and a misread p-value is a
-                worse outcome than a horizontal scrollbar. */}
-            <div className="mt-4 overflow-x-auto">
+                worse outcome than a horizontal scrollbar. TableScroller rather than a
+                bare `overflow-x-auto` div, which the 2026-09-22 CI run caught as a
+                serious axe `scrollable-region-focusable` violation at 360px: the table
+                holds no focusable content, so with `min-w-[36rem]` the off-screen
+                columns were unreachable by keyboard. */}
+            <TableScroller
+              label="Objective 2 answer correctness by stratum"
+              className="mt-4"
+            >
               <table className="w-full min-w-[36rem] text-sm">
                 <thead>
                   <tr className="text-xs font-bold uppercase tracking-wider text-ink-faint">
@@ -256,7 +264,7 @@ export default function AdminOverview() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroller>
 
             {/* The whole reason this card may show numbers at all. An earlier revision
                 displayed nothing, on the grounds that a headline improvement without its
