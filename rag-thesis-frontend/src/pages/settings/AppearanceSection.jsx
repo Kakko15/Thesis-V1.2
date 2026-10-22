@@ -1,4 +1,3 @@
-import { Palette } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePreferences } from '../../context/PreferencesContext'
 import { Button } from '../../components/ui/Button'
@@ -16,10 +15,8 @@ export function AppearanceSection() {
   return (
     <div className="space-y-5">
       <SectionCard
-        icon={Palette}
-        title="Appearance"
-        description="Personalize the interface without changing research content or access permissions."
-        tone="gold"
+        title="Display"
+        description="Changes how the library looks on this device only. Research content and access are unaffected."
         actions={<Button variant="ghost" size="sm" onClick={handleReset}>Reset</Button>}
       >
         <AppearanceControls />

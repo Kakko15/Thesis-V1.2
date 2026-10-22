@@ -121,6 +121,7 @@ export function summaryRows(form = {}, context = {}) {
   return [
     { key: 'title', label: 'Title', value: displayValue(form.title), tone: null },
     { key: 'authors', label: 'Authors', value: displayValue(form.authors), tone: null },
+    { key: 'adviser', label: 'Adviser', value: displayValue(form.adviser), tone: null },
     { key: 'year', label: 'Year', value: displayValue(form.year), tone: null },
     { key: 'category', label: 'Category', value: displayValue(categoryLabel), tone: 'forest' },
     { key: 'program', label: 'Program', value: displayValue(program?.code), tone: 'forest' },
@@ -168,11 +169,44 @@ export function extractionDepartment({
  * `program_id` rather than the `program_code` the API returns: the caller
  * resolves the code against the department it selected before it can fill
  * anything, so the id is what the form ends up holding, and a code that
- * resolved to nothing must not be credited to the extractor.
+ * resolved to nothing must not be credited to the extractor. The same holds
+ * for `specialization_id`, which `programSelection` leaves blank when the page
+ * named no major of the resolved program.
  */
 export const AUTOFILLABLE_KEYS = Object.freeze([
-  'title', 'authors', 'year', 'department', 'program_id', 'abstract',
+  'title', 'authors', 'adviser', 'year', 'thesis_category', 'department', 'program_id',
+  'specialization_id', 'abstract',
 ])
+
+// The free-text fields an extraction fills, with the value each falls back to
+// when a manuscript supplies nothing. The classification (department, program,
+// specialization) is not here: it is applied whole or not at all.
+const MERGED_FIELDS = Object.freeze({
+  title: '', authors: '', adviser: '', year: '', abstract: '', thesis_category: 'student',
+})
+
+/**
+ * The form after an extraction: what the manuscript supplied, else what was
+ * there before -- unless what was there before was itself autofilled.
+ *
+ * Keeping every earlier value is right for something the uploader typed, and
+ * wrong for something the extractor put there from a different file. Replacing
+ * manuscript A with B, where B names no adviser, used to leave A's adviser in
+ * place with its "Autofilled" mark gone, so nothing flagged it; it was then
+ * submitted with B, and because the adviser was no longer blank the worker's
+ * read-from-manuscript fallback never ran. `autofilled` is the reducer's claim
+ * map, which already drops a key the moment the uploader edits that field, so
+ * a claimed key is exactly one the uploader has not touched since.
+ */
+export function mergeExtracted(previous = {}, patch = {}, autofilled = {}) {
+  const next = { ...previous }
+  for (const [key, empty] of Object.entries(MERGED_FIELDS)) {
+    const extracted = patch[key]
+    if (extracted) next[key] = extracted
+    else if (autofilled[key]) next[key] = empty
+  }
+  return next
+}
 
 /**
  * The subset of AUTOFILLABLE_KEYS that `patch` actually supplied a value for.

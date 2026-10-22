@@ -124,6 +124,9 @@ export function ReviewPanel({ file, form, program, specialization }) {
           <Cell label="Authors">
             <span className="block text-sm font-medium leading-snug text-ink">{form.authors || '—'}</span>
           </Cell>
+          <Cell label="Adviser">
+            <span className="block text-sm font-medium leading-snug text-ink">{form.adviser || '—'}</span>
+          </Cell>
           <Cell label="Year">
             <span className="block text-sm font-mono font-medium text-ink">{form.year || '—'}</span>
           </Cell>
@@ -140,7 +143,7 @@ export function ReviewPanel({ file, form, program, specialization }) {
               {specialization && <Badge tone="gold">{specialization.code}</Badge>}
             </span>
           </Cell>
-          <Cell label="Department" wide>
+          <Cell label="Department">
             <Badge tone="neutral">{form.department}</Badge>
           </Cell>
         </dl>

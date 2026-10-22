@@ -308,6 +308,10 @@ class TestTransientDetectionIsNotSubstringMatching:
         RuntimeError('code=500 internal server error'),
         RuntimeError('connection reset by peer'),
         TimeoutError('timed out'),
+        # Gemini's gRPC-status spellings.
+        RuntimeError("Error embedding content: 503 UNAVAILABLE. {'error': {'code': 503, 'status': 'UNAVAILABLE'}}"),
+        RuntimeError('The model is overloaded. Please try again later.'),
+        RuntimeError('504 DEADLINE_EXCEEDED'),
     ])
     def test_genuine_transient_failures_still_retry(self, error):
         assert is_transient_network_error(error)
@@ -334,6 +338,22 @@ class TestTransientDetectionIsNotSubstringMatching:
         assert is_transient_network_error(ProviderError(429))
         assert not is_transient_network_error(ProviderError(404))
         assert not is_transient_network_error(ProviderError(422))
+
+    def test_a_google_genai_code_attribute_is_honoured(self):
+        # google-genai's APIError: HTTP status in `code`, gRPC name in `status`.
+        class APIError(RuntimeError):
+            def __init__(self, code, status):
+                super().__init__('provider error')
+                self.code = code
+                self.status = status
+
+        assert is_transient_network_error(APIError(503, 'UNAVAILABLE'))
+        assert is_transient_network_error(APIError(500, 'INTERNAL'))
+        assert not is_transient_network_error(APIError(400, 'INVALID_ARGUMENT'))
+        # A wrapped cause is still found, as LangChain wraps the provider error.
+        wrapped = RuntimeError('Error embedding content')
+        wrapped.__cause__ = APIError(503, 'UNAVAILABLE')
+        assert is_transient_network_error(wrapped)
 
 
 class TestModelOutputParsingIsRobust:

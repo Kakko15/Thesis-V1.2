@@ -60,7 +60,8 @@ class Client:
                 {'id': 'bsit', 'code': 'BSIT', 'name': 'Information Technology', 'department_id': 'dept', 'active': True},
             ],
             'specializations': [
-                {'id': 'dm', 'code': 'DM', 'name': 'Data Mining', 'program_id': 'bscs', 'active': True},
+                # Deactivated by 20260923_bscs_without_specialization.sql.
+                {'id': 'dm', 'code': 'DM', 'name': 'Data Mining', 'program_id': 'bscs', 'active': False},
                 {'id': 'wmad', 'code': 'WMAD', 'name': 'Web and Mobile Application Development', 'program_id': 'bsit', 'active': True},
             ],
         }
@@ -127,12 +128,84 @@ def test_ambiguous_legacy_track_requires_review_for_privileged_upload():
     assert selected.classification_status == 'needs_review'
 
 
-def test_bscs_requires_specialization():
+def test_bsit_requires_specialization():
     with pytest.raises(HTTPException, match='requires a valid specialization'):
         resolve_academic_selection(
-            Client(), department_name='CCSICT', program_id='bscs',
+            Client(), department_name='CCSICT', program_id='bsit',
             specialization_id=None, legacy_track=None, require_program=True,
         )
+
+
+def test_bscs_is_classified_by_program_alone():
+    """Data Mining was retired as a BSCS major on 2026-09-23, so a BSCS thesis
+    carries no specialization and is stamped with the program code."""
+    selected = resolve_academic_selection(
+        Client(), department_name='CCSICT', program_id='bscs',
+        specialization_id=None, legacy_track=None, require_program=True,
+    )
+    assert (selected.program_id, selected.specialization_id) == ('bscs', None)
+    assert selected.display_track == 'BSCS'
+    # The retired major is refused like any archived specialization.
+    with pytest.raises(HTTPException, match='does not belong to the selected program or is archived'):
+        resolve_academic_selection(
+            Client(), department_name='CCSICT', program_id='bscs',
+            specialization_id='dm', legacy_track=None, require_program=True,
+        )
+
+
+def test_whether_a_program_takes_a_specialization_comes_from_the_catalog():
+    """No list of program codes: a program requires one exactly when it has an
+    active one. A hardcoded list refused every BSCS upload the moment a
+    superadmin re-activated DM, while the form (which reads the catalog)
+    demanded a specialization."""
+    client = Client()
+    client.rows['specializations'][0]['active'] = True   # DM re-activated
+    with pytest.raises(HTTPException, match='BSCS requires a valid specialization'):
+        resolve_academic_selection(
+            client, department_name='CCSICT', program_id='bscs',
+            specialization_id=None, legacy_track=None, require_program=True,
+        )
+    selected = resolve_academic_selection(
+        client, department_name='CCSICT', program_id='bscs',
+        specialization_id='dm', legacy_track=None, require_program=True,
+    )
+    assert selected.specialization_id == 'dm'
+    # And a program that gains its first major needs no code change either.
+    client.rows['programs'].append({'id': 'bsis', 'code': 'BSIS', 'name': 'IS', 'department_id': 'dept', 'active': True})
+    client.rows['specializations'].append({'id': 'bpo', 'code': 'BPO', 'name': 'BPO', 'program_id': 'bsis', 'active': True})
+    with pytest.raises(HTTPException, match='BSIS requires a valid specialization'):
+        resolve_academic_selection(
+            client, department_name='CCSICT', program_id='bsis',
+            specialization_id=None, legacy_track=None, require_program=True,
+        )
+
+
+def test_legacy_data_mining_track_maps_onto_plain_bscs():
+    selected = resolve_academic_selection(
+        Client(), department_name='CCSICT', program_id=None,
+        specialization_id=None, legacy_track='Data Mining', require_program=True,
+    )
+    assert (selected.program_id, selected.specialization_id) == ('bscs', None)
+    assert selected.display_track == 'BSCS'
+    assert selected.legacy_track == 'Data Mining'
+    assert selected.classification_status == 'classified'
+
+
+def test_bscs_migration_narrows_the_trigger_before_restamping_and_keeps_the_row():
+    root = Path(__file__).resolve().parents[1]
+    migration = (root / 'migrations/20260923_bscs_without_specialization.sql').read_text(encoding='utf-8')
+    rollback = (root / 'migrations/20260923_bscs_without_specialization.rollback.sql').read_text(encoding='utf-8')
+    lowered = migration.lower()
+    # The re-stamp fires validate_academic_classification, so the new rule has
+    # to be in place first, and DM has to be inactive before papers lose it.
+    assert lowered.index('create or replace function public.validate_academic_classification') \
+        < lowered.index('set active = false') < lowered.index('update public.papers')
+    # The rule reads the catalog rather than naming programs.
+    assert 'exists (' in lowered and "'bscs','bsit'" not in lowered and "in ('bsit')" not in lowered
+    # Deactivated, never deleted: references are ON DELETE RESTRICT.
+    assert 'delete from' not in lowered
+    assert "in ('bscs','bsit')" in rollback.lower()
+    assert rollback.lower().index('create or replace function') < rollback.lower().index('update public.papers')
 
 
 def test_migration_is_additive_seeded_and_has_pre_activation_rollback():
@@ -285,7 +358,9 @@ def test_nested_catalog_contract_and_active_filter(monkeypatch):
     assert payload['contract_version'] == '2026-07-25'
     department = payload['departments'][0]
     assert [program['code'] for program in department['programs']] == ['BSCS', 'BSIT']
-    assert department['tracks'] == ['Data Mining', 'Web and Mobile Application Development']
+    # The inactive DM major is filtered out, so BSCS, left with none, is listed
+    # by its program code -- the value a BSCS paper is stamped with.
+    assert department['tracks'] == ['Web and Mobile Application Development', 'BSCS']
     assert inspect.unwrap(catalog.list_catalog_legacy)(public_request('/catalog/departments/legacy')) == payload['departments']
 
 

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   AUTOFILLABLE_KEYS, PIPELINE_STAGES, WIZARD_STEPS,
-  autofilledKeys, clampPercent, extractionDepartment, formatFileSize, isTerminalJob, railMode,
+  autofilledKeys, clampPercent, extractionDepartment, formatFileSize, isTerminalJob, mergeExtracted, railMode,
   stageView, stepInteraction, summaryRows,
 } from './wizardSteps.js'
 import { UPLOAD_STEPS } from './uploadState.js'
@@ -145,6 +145,13 @@ test('only fields the extractor actually returned are credited to it', () => {
   assert.deepEqual(autofilledKeys({ abstract: '' }), [])
   assert.ok(AUTOFILLABLE_KEYS.includes('department'))
   assert.ok(AUTOFILLABLE_KEYS.includes('abstract'))
+  // Both read off the title page, so both carry the marker when filled; a
+  // specialization programSelection left blank is credited to nobody.
+  assert.deepEqual(
+    autofilledKeys({ thesis_category: 'student', program_id: 'bsit', specialization_id: 'wmad' }),
+    ['thesis_category', 'program_id', 'specialization_id'],
+  )
+  assert.deepEqual(autofilledKeys({ thesis_category: '', specialization_id: '' }), [])
 })
 
 test('the department the extractor is credited with is only the one it read', () => {
@@ -180,4 +187,36 @@ test('the department the extractor is credited with is only the one it read', ()
 
   // Called with nothing at all it must not throw or invent a college.
   assert.deepEqual(extractionDepartment(), { extractedDepartment: '', department: '' })
+})
+
+test('the adviser is credited to the extractor only when it filled one', () => {
+  assert.ok(AUTOFILLABLE_KEYS.includes('adviser'))
+  assert.deepEqual(autofilledKeys({ adviser: 'Dr. Ana Cruz', title: '' }), ['adviser'])
+  assert.deepEqual(autofilledKeys({ adviser: '   ' }), [])
+})
+
+test('summaryRows lists the adviser directly after the authors', () => {
+  const rows = summaryRows({ title: 'A Complete Thesis Title', authors: 'Cruz, A.', adviser: ' Dr. Ana Cruz ' })
+  assert.deepEqual(rows.map((row) => row.key), ['title', 'authors', 'adviser'])
+  assert.equal(rows[2].value, 'Dr. Ana Cruz')
+  assert.equal(rows[2].label, 'Adviser')
+})
+
+test("a new extraction replaces the previous file's autofill but keeps what was typed", () => {
+  const previous = {
+    title: 'Typed Title', authors: 'A. Author', adviser: 'Dr. X', year: '2024',
+    abstract: 'Old abstract.', thesis_category: 'faculty', department: 'CCSICT',
+  }
+  // Everything but the title came from manuscript A's extraction.
+  const claims = { authors: true, adviser: true, year: true, abstract: true, thesis_category: true }
+  const merged = mergeExtracted(previous, { authors: 'B. Author', year: '' }, claims)
+  assert.equal(merged.title, 'Typed Title') // typed, and B supplied none: kept
+  assert.equal(merged.authors, 'B. Author') // B supplied one: replaced
+  assert.equal(merged.adviser, '') // A's, and B named none: cleared, not carried to B
+  assert.equal(merged.year, '')
+  assert.equal(merged.abstract, '')
+  assert.equal(merged.thesis_category, 'student') // back to the form default
+  assert.equal(merged.department, 'CCSICT') // untouched: not a merged field
+  // With no claims, nothing is cleared: the first extraction over typed values.
+  assert.deepEqual(mergeExtracted(previous, {}, {}), previous)
 })

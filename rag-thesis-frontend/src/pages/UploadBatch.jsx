@@ -387,10 +387,11 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
             />
             <FieldError message={row.errors.title} />
           </div>
-          {/* Authors take the room; year, program and specialization are short
-              and sit beside each other until the card gets narrow. */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+          {/* The two names take the room and share a row; year, program and
+              specialization are short and sit beside each other under them
+              until the card gets narrow. */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="min-w-0">
               <CardLabel>Authors</CardLabel>
               <Input
                 value={row.authors}
@@ -399,6 +400,18 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
                 aria-label={`Authors for ${row.name}`}
               />
             </div>
+            <div className="min-w-0">
+              <CardLabel>Adviser</CardLabel>
+              <Input
+                value={row.adviser}
+                onChange={set('adviser')}
+                placeholder="e.g. Dr. Juan Dela Cruz"
+                maxLength={200}
+                aria-label={`Adviser for ${row.name}`}
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
             <div className="min-w-0">
               <CardLabel required>Year</CardLabel>
               <Input
@@ -950,7 +963,8 @@ export default function UploadBatch() {
       const response = await uploadBatch({
         files: targets.map((row) => row.file),
         rows: targets.map((row) => ({
-          title: row.title.trim(), authors: row.authors.trim(), year: row.year.trim(),
+          title: row.title.trim(), authors: row.authors.trim(), adviser: row.adviser.trim(),
+          year: row.year.trim(),
           idempotency_key: row.idempotencyKey,
           program_id: row.program_id, specialization_id: row.specialization_id,
         })),
@@ -1029,8 +1043,8 @@ export default function UploadBatch() {
             Batch <span className="text-gradient-isu">Upload</span>
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-ink-muted">
-            Ingest several thesis manuscripts at once. Titles, authors, years, and the academic program
-            are read from each title page; only the category and department are shared by the whole batch.
+            Ingest several thesis manuscripts at once. Titles, authors, advisers, years, and the academic
+            program are read from each manuscript's front matter; only the category and department are shared by the whole batch.
           </p>
         </div>
         <Button variant="secondary" size="sm" onClick={() => navigate('/upload')} className="shadow-xs hover:shadow-md transition-all">

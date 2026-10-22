@@ -69,7 +69,8 @@ export default function UploadHistoryTab() {
       const q = query.trim().toLowerCase()
       const matchQ = !q ||
         p.title?.toLowerCase().includes(q) ||
-        p.authors?.toLowerCase().includes(q)
+        p.authors?.toLowerCase().includes(q) ||
+        p.adviser?.toLowerCase().includes(q)
       const matchTrack = !trackFilter || p.track === trackFilter
       const matchYear = !yearFilter || String(p.year) === yearFilter
       const matchDepartment = !deptFilter || p.department === deptFilter
@@ -118,7 +119,7 @@ export default function UploadHistoryTab() {
           <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 opacity-40" />
           <Input
             className="pl-11"
-            placeholder="Search titles or authors..."
+            placeholder="Search titles, authors or advisers..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -182,6 +183,9 @@ export default function UploadHistoryTab() {
                     <td className="px-6 py-4 max-w-md">
                       <div className="font-bold line-clamp-1">{p.title}</div>
                       <div className="text-xs text-ink-muted line-clamp-1 mt-0.5">{p.authors || 'Unknown'}</div>
+                      {p.adviser && (
+                        <div className="text-xs text-ink-muted line-clamp-1">Adviser: {p.adviser}</div>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <Badge tone={isFacultyThesis(p) ? 'gold' : 'forest'}>

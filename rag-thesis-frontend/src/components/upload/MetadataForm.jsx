@@ -153,6 +153,22 @@ export function MetadataForm({
               />
             </LabelledField>
           </div>
+          {/* Verbatim as the manuscript prints it, credentials included --
+              the extractor never recases a name that is not set in capitals.
+              200 is the API ceiling (_validate_metadata), so the field cannot
+              hold a value the upload would be refused for. */}
+          <LabelledField
+            label="Adviser"
+            hint="As printed on the approval sheet or the abstract page."
+            autofilled={autofilled.adviser}
+          >
+            <Input
+              value={form.adviser}
+              onChange={set('adviser')}
+              placeholder="e.g. Dr. Juan Dela Cruz"
+              maxLength={200}
+            />
+          </LabelledField>
         </div>
       </Section>
 
@@ -166,6 +182,7 @@ export function MetadataForm({
             <SelectField
               label="Thesis category"
               required
+              autofilled={autofilled.thesis_category}
             >
               <Select value={form.thesis_category} onChange={set('thesis_category')} aria-label="Select thesis category">
                 {THESIS_CATEGORIES.map((category) => (
@@ -270,6 +287,7 @@ export function MetadataForm({
                   label="Specialization"
                   error={errors.specialization_id}
                   required
+                  autofilled={autofilled.specialization_id}
                 >
                   <Select
                     value={form.specialization_id}

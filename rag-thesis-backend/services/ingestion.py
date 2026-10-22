@@ -12,6 +12,7 @@ from services.activity import log_activity
 from services.chunker import build_chunk_metadata, split_document, validate_chunk_records
 from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
+from services.front_matter import extract_adviser, front_matter_texts
 from services.index_provenance import current_index_fingerprint
 from services.malware import MalwareDetected, scan_pdf
 from services.novelty import refresh_after_ingest, screen_new_submission
@@ -80,6 +81,30 @@ def _validate_staged_pdf(file_bytes: bytes, expected_sha256: str) -> None:
         raise PermanentIngestionError('The staged PDF is unreadable') from exc
     if not 1 <= page_count <= settings.max_pdf_pages:
         raise PermanentIngestionError('The staged PDF page count is outside the safety limit')
+
+
+def fill_adviser_from_manuscript(client, paper_id: str, file_bytes: bytes) -> str:
+    """Store the adviser the manuscript names on a paper committed without one.
+
+    The upload form autofills the adviser, but an uploader can skip the
+    autofill, leave a batch row blank or clear the field, and the paper would
+    then reach the archive with none. This reads the same front matter the form
+    does (services/front_matter.py), so the value is the one the form would have
+    offered. The null filter means an adviser already on the paper -- the
+    uploader's, copied there by the hydrate trigger -- is never overwritten.
+
+    Returns what was written, or ''. Never raises: the paper is committed by
+    the time this runs, and an optional field must not fail a finished job.
+    """
+    try:
+        adviser = extract_adviser(front_matter_texts(file_bytes))
+        if adviser:
+            client.table('papers').update({'adviser': adviser}).eq('id', paper_id) \
+                .is_('adviser', 'null').execute()
+        return adviser
+    except Exception as error:  # advisory metadata, never a gate
+        logger.warning('Adviser autofill failed for %s (%s)', paper_id, type(error).__name__)
+        return ''
 
 
 def _require_lease(heartbeat: Callable[..., bool], **updates) -> None:
@@ -203,6 +228,10 @@ def process_ingestion_job(client, job: dict, worker_id: str,
         # reading upload_jobs.request_payload is authoritative. Kept here for
         # symmetry so the committed payload documents the full paper row.
         'thesis_category': payload.get('thesis_category') or 'student',
+        # Inert for the same reason: commit_paper_ingestion's insert list does
+        # not name the column, and the hydrate_paper_adviser trigger reading
+        # the same request_payload is what fills papers.adviser.
+        'adviser': str(payload.get('adviser') or '').strip() or None,
         'filename': filename,
         'storage_path': source_path,
         'chunk_count': len(chunks),
@@ -285,6 +314,12 @@ def process_ingestion_job(client, job: dict, worker_id: str,
         })
     except Exception as activity_error:  # paper commit must not be undone by audit availability
         logger.exception('Upload activity logging failed (%s)', type(activity_error).__name__)
+
+    # An uploader's adviser is already on the paper (the hydrate trigger copied
+    # it from this payload). One left blank is read off the manuscript instead,
+    # so every ingestion path ends up with the adviser the front matter names.
+    if not str(payload.get('adviser') or '').strip():
+        fill_adviser_from_manuscript(client, paper_id, file_bytes)
 
     # Everyone else's screening is now one thesis out of date. Screening runs
     # before a manuscript is indexed, so this one's own record already saw the

@@ -41,7 +41,7 @@ export const ACTIVE_BATCH_STORAGE_KEY = 'activeUploadBatch'
 // requiring one program per request meant uploading the shelf once per degree.
 // The department stays shared because the server pins it for everyone but a
 // superadmin, and the category with it.
-const ROW_METADATA_KEYS = ['title', 'authors', 'year', 'program_id', 'specialization_id']
+const ROW_METADATA_KEYS = ['title', 'authors', 'adviser', 'year', 'program_id', 'specialization_id']
 const DEFAULT_KEYS = ['department']
 
 export function fileValidationError(file) {
@@ -68,6 +68,8 @@ export function createBatchRow(file, ids = {}) {
     size: file.size,
     title: '',
     authors: '',
+    // Read off this manuscript's approval sheet or abstract page, or typed.
+    adviser: '',
     year: '',
     // This manuscript's own classification, read from its own title page.
     program_id: '',
@@ -159,6 +161,7 @@ function applyExtraction(state, files, departments) {
         extractError: null,
         title: row.title || entry.title || '',
         authors: row.authors || entry.authors || '',
+        adviser: row.adviser || entry.adviser || '',
         year: row.year || String(entry.year ?? ''),
         ...(selection || {}),
       }

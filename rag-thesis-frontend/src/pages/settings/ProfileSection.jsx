@@ -1,13 +1,15 @@
 import { useRef, useState } from 'react'
-import { Camera, CalendarDays, Check, Mail, Trash2, UserRound } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Building2, Camera, CalendarDays, Check, Mail, ShieldCheck, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '../../supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { apiErrorMessage, updateMyProfile } from '../../api'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
-import { Badge, RoleBadge } from '../../components/ui/Badge'
-import { SectionCard } from './SectionCard'
+import { RoleBadge } from '../../components/ui/Badge'
+import { staggerItem } from '../../components/ui/Motion'
+import { SectionCard, SettingRow, SettingRows } from './SectionCard'
 import { extractOwnedAvatarPath, formatDate } from '../../lib/utils'
 
 const AVATAR_TYPES = new Map([
@@ -87,15 +89,20 @@ function AvatarEditor({ user, profile, avatarUrl, refreshProfile }) {
     }
   }
 
+  const initial = (profile?.full_name || user?.email || '?').slice(0, 1).toUpperCase()
+
+  /* Google-account style: the photo leads the page, centred, with the name and
+     email under it, because it is the one thing on this page other people
+     see. The camera button stays the upload path, labelled for AT. */
   return (
-    <div className="flex flex-wrap items-center gap-5">
-      <div className="group relative">
-        <div className="h-24 w-24 overflow-hidden rounded-[1.75rem] border-2 border-transparent bg-forest-900/10 shadow-xl shadow-forest-900/10 transition-all duration-300 group-hover:rotate-2 group-hover:scale-[1.03] group-hover:border-forest-500/50 dark:bg-white/10">
+    <motion.div variants={staggerItem} className="flex flex-col items-center py-2 text-center">
+      <div className="relative">
+        <div className="size-24 overflow-hidden rounded-full bg-[var(--primary-container)] ring-4 ring-[var(--surface-0)] dark:ring-[var(--surface-1)] sm:size-28">
           {avatarUrl ? (
             <img src={avatarUrl} alt="Your avatar" className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-forest-600 to-forest-800 font-display text-3xl font-extrabold text-gold-300">
-              {(profile?.full_name || user?.email || '?').slice(0, 1).toUpperCase()}
+            <div className="flex h-full w-full items-center justify-center font-display text-4xl font-bold text-[var(--primary-container-foreground)]">
+              {initial}
             </div>
           )}
         </div>
@@ -104,22 +111,21 @@ function AvatarEditor({ user, profile, avatarUrl, refreshProfile }) {
           onClick={() => fileInputRef.current?.click()}
           disabled={busy}
           aria-label="Upload a new avatar"
-          className="absolute -bottom-1.5 -right-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-forest-600 text-white shadow-lg transition-all duration-200 hover:scale-110 hover:bg-forest-500 disabled:opacity-50"
+          className="absolute bottom-0 right-0 flex size-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-0)] text-ink shadow-sm transition-colors hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:opacity-50 dark:bg-[var(--surface-2)]"
         >
-          <Camera size={15} />
+          <Camera size={16} />
         </button>
         <input type="file" ref={fileInputRef} onChange={handleUpload} accept="image/*" className="hidden" />
       </div>
-      <div className="min-w-0 flex-1">
-        <h3 className="text-sm font-semibold">Profile picture</h3>
-        <p className="mt-0.5 text-xs text-ink-muted">JPG, PNG, or WebP · max 2 MB. Shown across the library.</p>
-        {avatarUrl && (
-          <Button variant="ghost" size="sm" className="mt-2 text-flame-500 hover:bg-flame-500/10" loading={removing} onClick={handleRemove}>
-            <Trash2 size={13} /> Remove photo
-          </Button>
-        )}
-      </div>
-    </div>
+      <p className="mt-4 font-display text-xl font-semibold">{profile?.full_name || 'Your profile'}</p>
+      <p className="mt-0.5 text-sm text-ink-muted">{user?.email}</p>
+      <p className="mt-2 text-xs text-ink-muted">JPG, PNG, or WebP, up to 2 MB.</p>
+      {avatarUrl && (
+        <Button variant="ghost" size="sm" className="mt-1 text-flame-600 hover:bg-flame-500/10 dark:text-flame-200" loading={removing} onClick={handleRemove}>
+          <Trash2 size={13} /> Remove photo
+        </Button>
+      )}
+    </motion.div>
   )
 }
 
@@ -145,38 +151,58 @@ export function ProfileSection() {
 
   return (
     <div className="space-y-5">
-      <SectionCard icon={UserRound} title="Identity" description="How you appear across the thesis library.">
-        <AvatarEditor user={user} profile={profile} avatarUrl={avatarUrl} refreshProfile={refreshProfile} />
+      <AvatarEditor user={user} profile={profile} avatarUrl={avatarUrl} refreshProfile={refreshProfile} />
 
-        <div className="mt-6 space-y-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <Input
-                id="settings-full-name"
-                label="Full name"
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                placeholder="e.g. Juan Dela Cruz"
-                className="flex-1"
-              />
-              <Button onClick={handleSave} loading={saving} disabled={!dirty || !fullName.trim()} className="h-14 rounded-2xl px-6 shrink-0">
-                {dirty ? <><Check size={15} /> Save</> : 'Saved'}
+      <SectionCard title="Basic info" description="Your name as it appears on chats, uploads, and the admin console.">
+        {/* The actions appear only once the name is edited, as in Google's
+            account pages. A permanently disabled "Saved" button beside an
+            untouched field read as a control that was broken, and on a phone
+            it stretched into a full-width bar. */}
+        <form
+          className="space-y-3"
+          onSubmit={(event) => { event.preventDefault(); if (dirty && fullName.trim()) handleSave() }}
+        >
+          <Input
+            id="settings-full-name"
+            label="Full name"
+            value={fullName}
+            onChange={(event) => setFullName(event.target.value)}
+            placeholder="e.g. Juan Dela Cruz"
+          />
+          {dirty && (
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setFullName(profile?.full_name || '')} disabled={saving}>
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" loading={saving} disabled={!fullName.trim()}>
+                <Check size={14} /> Save
               </Button>
             </div>
-          </div>
+          )}
+        </form>
+      </SectionCard>
 
-          <div className="flex flex-wrap items-center gap-2 border-t border-forest-900/10 pt-4 dark:border-white/10">
+      <SectionCard
+        title="Account"
+        description="Assigned by an administrator, so they cannot be changed here."
+        flush
+      >
+        <SettingRows>
+          <SettingRow icon={Mail} label="Email">
+            <span className="break-all">{user?.email}</span>
+          </SettingRow>
+          <SettingRow icon={ShieldCheck} label="Role">
             <RoleBadge role={role} />
-            {department && <Badge tone="neutral">{department}</Badge>}
-            <Badge tone="neutral"><Mail size={11} /> {user?.email}</Badge>
-            {user?.created_at && (
-              <Badge tone="gold"><CalendarDays size={11} /> Member since {formatDate(user.created_at)}</Badge>
-            )}
-          </div>
-          <p className="text-xs text-ink-faint">
-            Your role and department are assigned by an administrator and cannot be changed here.
-          </p>
-        </div>
+          </SettingRow>
+          <SettingRow icon={Building2} label="Department">
+            {department || <span className="text-ink-muted">Not assigned</span>}
+          </SettingRow>
+          {user?.created_at && (
+            <SettingRow icon={CalendarDays} label="Member since">
+              {formatDate(user.created_at)}
+            </SettingRow>
+          )}
+        </SettingRows>
       </SectionCard>
     </div>
   )

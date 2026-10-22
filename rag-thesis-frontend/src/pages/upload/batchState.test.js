@@ -468,3 +468,18 @@ test('the batch rail shows progress only while the workers are running', () => {
   // full-width success screen the way the single wizard does.
   assert.equal(batchRailMode(BATCH_STEPS.ingesting), 'progress')
 })
+
+test('apply-extraction fills each row’s adviser but never overwrites one typed by hand', () => {
+  let state = stateWithFiles(pdf('a.pdf'), pdf('b.pdf'))
+  assert.ok(state.rows.every((row) => row.adviser === ''))
+  state = batchReducer(state, { type: 'set-row-field', id: state.rows[1].id, key: 'adviser', value: 'Typed By Hand' })
+  state = batchReducer(state, {
+    type: 'apply-extraction',
+    files: [
+      { index: 0, title: 'First Title', adviser: 'Dr. Ana D. Cruz' },
+      { index: 1, title: 'Second Title', adviser: 'Dr. Extracted Name' },
+    ],
+  })
+  assert.equal(state.rows[0].adviser, 'Dr. Ana D. Cruz')
+  assert.equal(state.rows[1].adviser, 'Typed By Hand')
+})

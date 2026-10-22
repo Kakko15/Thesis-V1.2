@@ -253,6 +253,10 @@ class TestEarlierMigrationsCannotOverwriteLaterOnes:
             'hydrate_paper_academic_classification', 'match_chunks',
             'prune_inactive_indexes', 'save_chat_exchange', 'schedule_upload_retry',
             'upsert_operational_alert',
+            # 20260725 defined it; 20260923_bscs_without_specialization narrows
+            # the specialization rule to BSIT. Replaying 20260725 would make
+            # BSCS require the retired DM specialization again.
+            'validate_academic_classification',
         }, (
             'the set of functions redefined across migrations changed: '
             f'{sorted(redefined)}. Confirm the newest definition is still the '

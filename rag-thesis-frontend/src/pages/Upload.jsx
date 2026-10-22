@@ -14,12 +14,12 @@ import { PageTransition } from '../components/ui/Motion'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { useAuth } from '../context/AuthContext'
 import { mostSimilarPaper, scanMetrics, verdictLabel } from '../lib/utils'
-import { departmentPrograms, programSelection } from '../lib/catalog'
+import { departmentPrograms, isThesisCategory, programSelection } from '../lib/catalog'
 import {
   createUploadState, emptyUploadForm, isCurrentPoll, uploadMetadataErrors, uploadReducer, UPLOAD_STEPS,
 } from './upload/uploadState'
 import {
-  WIZARD_STEPS, autofilledKeys, extractionDepartment, isTerminalJob, stageView,
+  WIZARD_STEPS, autofilledKeys, extractionDepartment, isTerminalJob, mergeExtracted, stageView,
 } from './upload/wizardSteps'
 import {
   ABSTRACT_MODES, receivedAbstract, switchAbstractMode,
@@ -135,6 +135,42 @@ function IngestingPanel({ job, pollError, onCancel, onResume }) {
   )
 }
 
+/**
+ * What the extractor read off the manuscript, shown on the step that read it.
+ *
+ * Its own component because each optional field is a branch, and inline they
+ * pushed `Upload` past the lint complexity ceiling once the adviser joined.
+ */
+function ExtractedDetails({ form }) {
+  if (!form.title) return null
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mt-4 rounded-2xl border border-gold-400/30 bg-gold-400/8 p-4 shadow-xs text-left backdrop-blur-xs"
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <Sparkles size={14} className="text-gold-500 animate-pulse shrink-0" />
+        <span className="text-xs font-bold uppercase tracking-wider text-ink">
+          Extracted Manuscript Details
+        </span>
+        <span className="ml-auto text-[11px] font-medium text-ink-muted">
+          Autofilled by AI
+        </span>
+      </div>
+      <div className="text-sm font-bold text-ink line-clamp-2">
+        {form.title}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted">
+        {form.authors && <span><strong>Authors:</strong> {form.authors}</span>}
+        {form.adviser && <span><strong>Adviser:</strong> {form.adviser}</span>}
+        {form.year && <span><strong>Year:</strong> {form.year}</span>}
+        {form.department && <span><strong>Department:</strong> {form.department}</span>}
+      </div>
+    </motion.div>
+  )
+}
+
 /** The wizard's own action bar. Sits at the foot of whichever step is showing. */
 function StepActions({ children }) {
   return (
@@ -236,20 +272,25 @@ export default function Upload() {
       const patch = {
         title: metadata.title || '',
         authors: metadata.authors || '',
+        // Read locally off the approval sheet or abstract page, never asked of
+        // the model, so blank means the manuscript did not name one clearly.
+        adviser: metadata.adviser || '',
         year: metadata.year || '',
         // Read verbatim off the manuscript's own abstract page, or blank. The
         // server never asks the model for this one, so a value here is the
         // thesis's own words rather than a summary of them.
         abstract: metadata.abstract || '',
+        // Read locally off the degree sentence ("in partial fulfillment of
+        // the requirements for the degree..."), or blank when the page names
+        // neither kind, in which case the form keeps its default unclaimed.
+        thesis_category: isThesisCategory(metadata.thesis_category) ? metadata.thesis_category : '',
         department: extractedDepartment,
         ...(selection || {}),
       }
+      // Typed values survive a field the extractor left blank; values the
+      // previous manuscript's extraction put there do not (mergeExtracted).
       setForm((prev) => ({
-        ...prev,
-        title: patch.title || prev.title,
-        authors: patch.authors || prev.authors,
-        year: patch.year || prev.year,
-        abstract: patch.abstract || prev.abstract,
+        ...mergeExtracted(prev, patch, autofilled),
         department: department || prev.department,
         // The classification is applied whole or not at all. Merging it field
         // by field would leave the specialization of a previously chosen file
@@ -260,9 +301,11 @@ export default function Upload() {
       // Which fields the extractor actually filled, so the form can mark them.
       // The resolved patch, not the raw reply: a program code that matched no
       // program in this department filled nothing and is claimed by nothing.
-      dispatch({ type: 'set-autofilled', keys: autofilledKeys(patch) })
-      if (patch.title || patch.authors || patch.year || patch.abstract
-        || patch.department || selection) {
+      // The same list decides the toast: a resolved program carries its
+      // `program_id`, so every field the old field-by-field test named is in it.
+      const filled = autofilledKeys(patch)
+      dispatch({ type: 'set-autofilled', keys: filled })
+      if (filled.length > 0) {
         toast.success('Metadata autofilled', { description: 'Extracted available information from the document.' })
       } else {
         toast.warning('Extraction incomplete', { description: 'Could not confidently identify thesis details.' })
@@ -533,31 +576,7 @@ export default function Upload() {
                 <Dropzone file={file} onFile={handleFileSelect} />
 
                 {/* Compact extracted details banner if autofilled on this manuscript */}
-                {file && form.title && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="mt-4 rounded-2xl border border-gold-400/30 bg-gold-400/8 p-4 shadow-xs text-left backdrop-blur-xs"
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Sparkles size={14} className="text-gold-500 animate-pulse shrink-0" />
-                      <span className="text-xs font-bold uppercase tracking-wider text-ink">
-                        Extracted Manuscript Details
-                      </span>
-                      <span className="ml-auto text-[11px] font-medium text-ink-muted">
-                        Autofilled by AI
-                      </span>
-                    </div>
-                    <div className="text-sm font-bold text-ink line-clamp-2">
-                      {form.title}
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted">
-                      {form.authors && <span><strong>Authors:</strong> {form.authors}</span>}
-                      {form.year && <span><strong>Year:</strong> {form.year}</span>}
-                      {form.department && <span><strong>Department:</strong> {form.department}</span>}
-                    </div>
-                  </motion.div>
-                )}
+                {file && <ExtractedDetails form={form} />}
 
                 {/* The abstract decision belongs to the step that reads the
                     manuscript: the extended setting spends a generation over
@@ -685,7 +704,7 @@ export default function Upload() {
         // copy ("Autofilling the field" / "Confirm the file and move on the next
         // step") described neither, so Cancel looked like it discarded the PDF.
         title="Read metadata from this manuscript?"
-        message="The title page is analysed to fill in the title, authors and year — you can edit anything it gets wrong. Cancel keeps the file and leaves the form blank for you to complete."
+        message="The front matter is analysed to fill in the title, authors, adviser and year — you can edit anything it gets wrong. Cancel keeps the file and leaves the form blank for you to complete."
         confirmLabel="Confirm"
       />
       <ConfirmDialog

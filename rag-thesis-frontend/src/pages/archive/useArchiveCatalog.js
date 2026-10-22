@@ -5,11 +5,13 @@ import { apiErrorMessage, deletePaper, getDepartments, getTracks, listPapers } f
 import { paginateItems } from '../../lib/pagination'
 import {
   SORT_OPTIONS,
+  archiveAdvisers,
   archiveYears,
   filterArchivePapers,
   resolveArchivePrograms,
   resolveArchiveTracks,
   sortArchivePapers,
+  trackDisplayLabels,
 } from './archiveFilters'
 
 export const ARCHIVE_PAGE_SIZE = 6
@@ -18,7 +20,7 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
   const queryClient = useQueryClient()
   const [filters, setFilters] = useState({
     query: '', track: '', program_id: '', specialization_id: '', year: '', department: '',
-    thesis_category: '',
+    thesis_category: '', adviser: '',
   })
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [detail, setDetail] = useState(null)
@@ -48,12 +50,16 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
     [departments, filters.program_id, selectedDepartment],
   )
   const years = useMemo(() => archiveYears(papers), [papers])
+  const advisers = useMemo(() => archiveAdvisers(papers), [papers])
+  const trackLabels = useMemo(() => trackDisplayLabels(departments), [departments])
   const filtered = useMemo(
     () => {
-      const matched = filterArchivePapers(papers, { ...filters, superadmin: isSuperadmin })
+      const matched = filterArchivePapers(
+        papers, { ...filters, superadmin: isSuperadmin }, programOptions.programs,
+      )
       return sortArchivePapers(matched, sortBy, filters.query)
     },
-    [filters, isSuperadmin, papers, sortBy],
+    [filters, isSuperadmin, papers, programOptions.programs, sortBy],
   )
   const paginated = useMemo(
     () => paginateItems(filtered, page, ARCHIVE_PAGE_SIZE),
@@ -88,7 +94,7 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
     setPage(1)
     setFilters({
       query: '', track: '', program_id: '', specialization_id: '', year: '', department: '',
-      thesis_category: '',
+      thesis_category: '', adviser: '',
     })
   }
   const submitDelete = async () => {
@@ -111,6 +117,8 @@ export function useArchiveCatalog({ isSuperadmin, userDepartment }) {
     papers,
     departments,
     years,
+    advisers,
+    trackLabels,
     filtered,
     filters,
     setFilter,

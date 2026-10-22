@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  THESIS_CATEGORIES, departmentPrograms, isFacultyThesis, normalizeDepartments,
+  THESIS_CATEGORIES, departmentPrograms, isFacultyThesis, isThesisCategory, normalizeDepartments,
   programSelection, programSelectionById, specializationSelection, thesisCategoryLabel,
 } from './catalog.js'
 
@@ -117,4 +117,12 @@ test('the by-id selections match what programSelection produces', () => {
     specialization_id: 's-dm', track: 'Data Mining',
   })
   assert.deepEqual(specializationSelection(specializations, ''), { specialization_id: '', track: '' })
+})
+
+test('only the two API categories count as an extracted thesis category', () => {
+  assert.equal(isThesisCategory('student'), true)
+  assert.equal(isThesisCategory('faculty'), true)
+  for (const value of ['', 'Student', 'graduate', undefined, null]) {
+    assert.equal(isThesisCategory(value), false)
+  }
 })

@@ -636,6 +636,47 @@ class TestProgramDetection:
         monkeypatch.setattr(upload, 'active_programs', broken)
         assert upload._load_program_records() == []
 
+    def test_an_older_spelling_of_a_major_still_fills_it(self):
+        # 'Web Development' and 'Network Security' are the pre-catalog names,
+        # and title pages from before the rename still print them.
+        for major, code in (('Web Development', 'WMAD'), ('Network Security', 'NETSEC')):
+            page = f'Bachelor of Science in Information Technology\nMajor in {major}\n'
+            assert upload._academic_codes(page, PROGRAMS) == {
+                'program_code': 'BSIT', 'specialization_code': code,
+            }
+
+    def test_an_alias_never_chooses_the_program(self):
+        # 'web development' in a title must not outrank a degree line that
+        # printed only its code: the alias picks a major of the settled program.
+        page = 'A WEB DEVELOPMENT FRAMEWORK FOR CAMPUS SERVICES\nBSIS\n'
+        assert upload._academic_codes(page, PROGRAMS)['program_code'] == 'BSIS'
+
+
+class TestThesisCategoryDetection:
+    """Student thesis or faculty research, read off the title page locally."""
+
+    def test_the_degree_sentence_marks_a_student_thesis(self):
+        for page in (
+            TestProgramDetection.DEGREE_PAGE,
+            'A Thesis Presented in Partial Fulfilment of the Requirements',
+            'for the Degree of Bachelor of Library and Information Science',
+        ):
+            assert upload._thesis_category(page) == 'student'
+
+    def test_a_faculty_research_page_is_marked_faculty(self):
+        page = 'A Faculty Research\nFunded by the University Research and Development Office\n'
+        assert upload._thesis_category(page) == 'faculty'
+
+    def test_the_degree_sentence_wins_over_a_faculty_marker(self):
+        # A student thesis can thank a research office; a faculty paper has no
+        # degree to be in partial fulfillment of.
+        page = 'Research and Development Center\nIn partial fulfillment of the requirements\n'
+        assert upload._thesis_category(page) == 'student'
+
+    def test_a_page_naming_neither_is_left_blank(self):
+        assert upload._thesis_category('SOME TITLE\nJuan Dela Cruz\n2024') == ''
+        assert upload._thesis_category('') == ''
+
 
 class TestDepartmentDetection:
     """The 2026-09-08 report: every ingest autofilled the department as CA.
@@ -1365,6 +1406,21 @@ class TestExtractMetadataEndpoint:
         assert body['year'] == '2026'
         assert body['department'] == 'CCSICT'
 
+    def test_the_thesis_category_is_read_past_the_title_page(self, upload_client, monkeypatch):
+        # The degree sentence here is only on page 2, the approval sheet, as it
+        # is when a scanned title page has no text layer. Reading page 1 alone
+        # left the category blank.
+        monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
+        monkeypatch.setattr(upload, 'ChatGoogleGenerativeAI', lambda *_a, **_k: None)
+        pdf = _pdf_pages([
+            '\n'.join(['An Intelligent Archive Platform for Undergraduate Research', 'By:', 'Ana D. Cruz', 'May 2026']),
+            '\n'.join(['APPROVAL SHEET', 'In partial fulfillment of the requirements for the degree',
+                       'Bachelor of Science in Computer Science']),
+        ])
+        response = self._post(upload_client, pdf)
+        assert response.status_code == 200
+        assert response.json()['thesis_category'] == 'student'
+
     def test_the_abstract_is_autofilled_from_its_own_page(self, upload_client, monkeypatch):
         monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
 
@@ -1579,8 +1635,8 @@ class TestBatchExtractEndpoint:
         assert files[0]['error'] is None
         assert files[1]['status_code'] == 415 and files[1]['filename'] == 'notes.txt'
         assert files[2] == {
-            'index': 2, 'filename': 'blank.pdf', 'title': '', 'authors': '', 'year': '',
-            'department': '', 'program_code': '', 'specialization_code': '',
+            'index': 2, 'filename': 'blank.pdf', 'title': '', 'authors': '', 'adviser': '',
+            'year': '', 'department': '', 'program_code': '', 'specialization_code': '',
             'error': None, 'status_code': None,
         }
 
@@ -1626,5 +1682,6 @@ class TestBatchExtractEndpoint:
         assert response.status_code == 200
         assert response.json() == {
             'title': '', 'authors': '', 'year': '', 'department': '',
-            'program_code': '', 'specialization_code': '', 'abstract': '',
+            'program_code': '', 'specialization_code': '', 'thesis_category': '',
+            'abstract': '', 'adviser': '',
         }

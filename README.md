@@ -218,17 +218,20 @@ a three-table cascade:
 update public.departments set active = true where code = 'CA';
 ```
 
-Before activating a college whose programs carry specializations (CBAPA/BSBA,
-CED/BSED, CED/BTLED — majors are modelled as specializations, matching
-CCSICT's BSIT → WMAD/NETSEC), also widen the two places that currently hardcode
-which programs take a specialization:
+Colleges whose programs carry specializations (CBAPA/BSBA, CED/BSED,
+CED/BTLED — majors are modelled as specializations, matching CCSICT's BSIT →
+WMAD/NETSEC) need no code change before activation. Whether a program takes a
+specialization is read from the catalog: it does exactly when it has an active
+one. `resolve_academic_selection` in `rag-thesis-backend/services/catalog.py`,
+the `validate_academic_classification` trigger (last redefined by
+`20260923_bscs_without_specialization.sql`) and the upload form all apply that
+same rule, so adding or retiring a major through the catalog API changes all
+three at once.
 
-1. `SPECIALIZATION_REQUIRED_PROGRAMS` in `rag-thesis-backend/services/catalog.py`
-2. the `validate_academic_classification` trigger from
-   `20260725_normalized_academic_catalog.sql`
-
-Both list only `BSCS` and `BSIT` today, so a BSED thesis submitted with a major
-would otherwise be refused.
+That migration also retired BSCS's only specialization, Data Mining: BSCS theses
+are classified by the program alone and stamped `track = 'BSCS'`, and the
+migration re-stamped the existing Data Mining papers the same way (the
+specialization row is deactivated, not deleted).
 
 > **Known mismatch — the five legacy track names.** `models.CCSICT_TRACKS` still
 > lists *Data Mining, Web Development, Network Security, Intelligent Systems,
@@ -277,6 +280,38 @@ corpus undergraduate-only by definition.
 - **Idempotency note** — replaying an upload with the same `Idempotency-Key`
   and file but a different category returns the original job; the first
   submission's category wins.
+
+## Thesis advisers
+
+Every paper can record its thesis adviser, introduced by
+`migrations/20260923_paper_adviser.sql`. The Thesis Library shows it on each
+card and in the detail view and matches it in search; the admin upload history
+shows and searches it too.
+
+- **Upload** — optional in the single-upload wizard and on every batch row, at
+  most 200 characters. The form autofills it from the manuscript's own front
+  matter: the abstract page's labelled identity block, an `Adviser:` line, or
+  the approval sheet's signature stack. It is read locally and never asked of
+  the model, and it stays blank whenever the page is ambiguous.
+- **Storage** — carried in the upload request payload and copied onto
+  `papers.adviser` by the `a_papers_hydrate_adviser` trigger, the same route
+  `thesis_category` takes. Retrieval never reads it, so the evaluated pipeline
+  is unchanged.
+- **Automatic at ingestion** — when an upload arrives with the field blank (the
+  autofill was skipped, a batch row missed it, or it was cleared), the
+  ingestion worker reads the adviser off the same manuscript after committing
+  it, with the extractor the form uses (`services/front_matter.py`). It only
+  ever fills an empty field, and a failure there never fails the ingestion.
+- **Existing papers** — backfill them from their archived PDFs, dry run first:
+  ```powershell
+  python -m scripts.backfill_paper_advisers            # report only
+  python -m scripts.backfill_paper_advisers --apply    # fill blanks only
+  ```
+  It never overwrites an adviser that is already set. A scanned manuscript with
+  no text layer reports not-found, as it would in the upload form.
+- **Idempotency note** — as with the category, replaying an upload with the
+  same `Idempotency-Key` returns the original job, so the first submission's
+  adviser wins.
 
 ## Evaluation and testing
 

@@ -19,6 +19,11 @@
       },
       "BatchExtractedFile": {
         "properties": {
+          "adviser": {
+            "default": "",
+            "title": "Adviser",
+            "type": "string"
+          },
           "authors": {
             "default": "",
             "title": "Authors",
@@ -205,6 +210,20 @@
         "title": "Body_extended_abstract_upload_extended_abstract_post",
         "type": "object"
       },
+      "Body_extract_capsule_duplication_capsule_extract_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_extract_capsule_duplication_capsule_extract_post",
+        "type": "object"
+      },
       "Body_extract_metadata_batch_upload_batch_extract_metadata_post": {
         "properties": {
           "files": {
@@ -333,6 +352,11 @@
             "title": "Abstract",
             "type": "string"
           },
+          "adviser": {
+            "default": "",
+            "title": "Adviser",
+            "type": "string"
+          },
           "authors": {
             "default": "",
             "title": "Authors",
@@ -401,6 +425,52 @@
           "title"
         ],
         "title": "Body_upload_paper_upload_paper_post",
+        "type": "object"
+      },
+      "CapsuleScanReq": {
+        "description": "A capsule proposal: the four parts that say what the study is.\n\nEach body section is optional, but at least one must say something, because\na title alone embeds too close to everything to screen. Lengths are capped\nper section so one pasted chapter cannot turn a capsule into a manuscript.",
+        "properties": {
+          "department": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "methodology": {
+            "default": "",
+            "maxLength": 6000,
+            "title": "Methodology",
+            "type": "string"
+          },
+          "objectives": {
+            "default": "",
+            "maxLength": 6000,
+            "title": "Objectives",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "maxLength": 6000,
+            "title": "Rationale",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 300,
+            "minLength": 5,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "CapsuleScanReq",
         "type": "object"
       },
       "CatalogEntityCreate": {
@@ -875,6 +945,17 @@
               }
             ],
             "title": "Abstract"
+          },
+          "adviser": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adviser"
           },
           "authors": {
             "anyOf": [
@@ -2356,6 +2437,97 @@
         ]
       }
     },
+    "/duplication/capsule": {
+      "post": {
+        "description": "Screen a capsule proposal against the archive, one section at a time.\n\nSee services/capsule.py for why a capsule is not screened as a manuscript.\nThe result is stored in scan history like any scan, so the report, the\nmetadata export, and the follow-up chat work unchanged.",
+        "operationId": "scan_capsule_duplication_capsule_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapsuleScanReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "The request was well formed but failed validation."
+          },
+          "502": {
+            "description": "An upstream AI service was unavailable or returned an error."
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Scan Capsule",
+        "tags": [
+          "duplication"
+        ]
+      }
+    },
+    "/duplication/capsule/extract": {
+      "post": {
+        "description": "Read an uploaded capsule into its four sections, for the form to review.\n\nNothing is screened, stored, or sent to a model: the reply only fills the\ncapsule form, which the reviewer checks before POST /duplication/capsule.\nThe file gets the scan endpoint's checks -- size, type, the PDF structure\nchecks, and the malware scan -- because it is the same kind of upload.",
+        "operationId": "extract_capsule_duplication_capsule_extract_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_extract_capsule_duplication_capsule_extract_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "description": "The uploaded file exceeds the configured size limit."
+          },
+          "415": {
+            "description": "The uploaded file type is not accepted."
+          },
+          "422": {
+            "description": "The request was well formed but failed validation."
+          },
+          "503": {
+            "description": "A required backing service is temporarily unavailable."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Extract Capsule",
+        "tags": [
+          "duplication"
+        ]
+      }
+    },
     "/duplication/chat": {
       "post": {
         "operationId": "duplication_chat_duplication_chat_post",
@@ -2431,6 +2603,20 @@
       },
       "get": {
         "operationId": "get_history_duplication_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2439,6 +2625,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [

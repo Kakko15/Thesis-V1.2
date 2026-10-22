@@ -1,6 +1,7 @@
 import { Search, X } from 'lucide-react'
 import { Select } from '../../components/ui/Input'
 import { cn } from '../../lib/utils'
+import { trackDisplayLabel } from './archiveFilters'
 
 // The Select primitive is a form field first, so its trigger carries `w-full`.
 // Here the selects are chips that should size to their own label, and a
@@ -62,7 +63,7 @@ function CategoryTabs({ value, onChange }) {
 // Each chip names the dimension it came from. Without it a removed chip is
 // guesswork once two filters read as bare codes ("BSCS", "DM", "2025"), and
 // the remove button announced the raw state key ("Remove program_id filter").
-function activeFilterChips({ filters, setFilter, programs, specializations }) {
+function activeFilterChips({ filters, setFilter, programs, specializations, trackLabels }) {
   const chips = []
   const push = (key, dimension, label) => {
     chips.push({ key, dimension, label, onRemove: () => setFilter(key, '') })
@@ -81,15 +82,18 @@ function activeFilterChips({ filters, setFilter, programs, specializations }) {
     const specialization = specializations.find((item) => item.id === filters.specialization_id)
     push('specialization_id', 'Specialization', specialization?.code || filters.specialization_id)
   }
-  if (filters.track) push('track', 'Track', filters.track)
+  if (filters.track) push('track', 'Program', trackDisplayLabel(trackLabels, filters.track))
   if (filters.department) push('department', 'Department', filters.department)
   if (filters.year) push('year', 'Year', String(filters.year))
+  if (filters.adviser) push('adviser', 'Adviser', filters.adviser)
 
   return chips
 }
 
-function ActiveFilterChips({ filters, setFilter, clearFilters, programs = [], specializations = [] }) {
-  const chips = activeFilterChips({ filters, setFilter, programs, specializations })
+function ActiveFilterChips({
+  filters, setFilter, clearFilters, programs = [], specializations = [], trackLabels,
+}) {
+  const chips = activeFilterChips({ filters, setFilter, programs, specializations, trackLabels })
   if (chips.length === 0) return null
 
   return (
@@ -133,13 +137,21 @@ export function ArchiveFiltersBar({
   specializations = [],
   activeTracks = [],
   trackLabel = 'track',
+  trackLabels,
   departments = [],
   years = [],
+  advisers = [],
   isSuperadmin = false,
   sortBy = 'newest',
   setSortBy,
   sortOptions = [],
 }) {
+  // Ordered by what the reader sees, not by catalog order: specializations
+  // come first in the catalog and bare program codes after, which listed
+  // "BSIT (NETSEC)" ahead of "BLIS".
+  const trackOptions = activeTracks
+    .map((track) => ({ value: track, label: trackDisplayLabel(trackLabels, track) }))
+    .sort((left, right) => left.label.localeCompare(right.label))
   return (
     <div className="glass space-y-3 rounded-[1.75rem] border border-forest-900/10 p-4 shadow-xs dark:border-white/10">
       {/* Search, then the one filter worth a permanent one-tap control. */}
@@ -153,7 +165,7 @@ export function ArchiveFiltersBar({
           <input
             type="text"
             aria-label="Search the thesis archive"
-            placeholder="Search titles, authors, abstracts…"
+            placeholder="Search titles, authors, abstracts, advisers…"
             value={filters.query}
             onChange={(e) => setFilter('query', e.target.value)}
             className="h-11 w-full rounded-full border border-forest-900/15 bg-white/90 pl-11 pr-10 text-sm font-medium text-ink placeholder:text-ink-muted/60 shadow-2xs outline-none transition-all focus:border-forest-600 focus:shadow-xs dark:border-white/15 dark:bg-forest-950/70"
@@ -200,8 +212,8 @@ export function ArchiveFiltersBar({
             title={filters.track || undefined}
           >
             <option value="">All {trackLabel}s</option>
-            {activeTracks.map((track) => (
-              <option key={track} value={track}>{track}</option>
+            {trackOptions.map((track) => (
+              <option key={track.value} value={track.value}>{track.label}</option>
             ))}
           </Select>
         ) : null}
@@ -250,6 +262,21 @@ export function ArchiveFiltersBar({
           ))}
         </Select>
 
+        {advisers.length > 0 && (
+          <Select
+            value={filters.adviser}
+            onChange={(e) => setFilter('adviser', e.target.value)}
+            className={filterChip(Boolean(filters.adviser))}
+            aria-label="Filter by adviser"
+            title={filters.adviser || undefined}
+          >
+            <option value="">All advisers</option>
+            {advisers.map((adviser) => (
+              <option key={adviser} value={adviser}>{adviser}</option>
+            ))}
+          </Select>
+        )}
+
         {/* SORT_OPTIONS labels already carry their own "Sort:" prefix, so the
             trigger stays self-describing without a decorative icon. */}
         <Select
@@ -270,6 +297,7 @@ export function ArchiveFiltersBar({
         clearFilters={clearFilters}
         programs={programs}
         specializations={specializations}
+        trackLabels={trackLabels}
       />
     </div>
   )

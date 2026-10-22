@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Fingerprint, Laptop, LogOut, Mail, ShieldCheck } from 'lucide-react'
+import { Laptop, LogOut } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '../../supabaseClient'
 import { useAuth } from '../../context/AuthContext'
@@ -12,7 +12,7 @@ import { OtpInput } from '../../components/ui/OtpInput'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
 import { useSecurityGate } from '../../components/security/useSecurityGate'
 import { TwoFactorSettings } from '../../components/TwoFactorSettings'
-import { SectionCard } from './SectionCard'
+import { SectionCard, SettingItem, SettingRows } from './SectionCard'
 import { timeAgo } from '../../lib/utils'
 
 function EmailCard() {
@@ -59,7 +59,7 @@ function EmailCard() {
   }
 
   return (
-    <SectionCard icon={Mail} title="Email address" description="Used for sign-in and security verification codes.">
+    <SectionCard title="Email address" description="Used for sign-in and security verification codes.">
       {verifying ? (
         <div className="space-y-4 rounded-2xl border border-gold-400/20 bg-gold-400/5 p-4">
           <div className="text-sm">Enter the 6-digit code sent to <span className="font-semibold">{email}</span></div>
@@ -79,7 +79,7 @@ function EmailCard() {
               className="flex-1"
               aria-label="Email address"
             />
-            <Button variant="secondary" className="h-14 rounded-2xl px-6 shrink-0" loading={loading} onClick={handleUpdate} disabled={email === user?.email || !email}>
+            <Button variant="secondary" className="h-14 shrink-0 rounded-full px-6" loading={loading} onClick={handleUpdate} disabled={email === user?.email || !email}>
               Update
             </Button>
           </div>
@@ -144,7 +144,7 @@ function PasswordCard() {
   }
 
   return (
-    <SectionCard icon={ShieldCheck} title="Password" description="Changing your password requires a code sent to your email.">
+    <SectionCard title="Password" description="Changing your password requires a code sent to your email.">
       {verifying ? (
         <div className="space-y-4 rounded-2xl border border-gold-400/20 bg-gold-400/5 p-4">
           <div className="text-sm">To change your password, enter the 6-digit code sent to your email.</div>
@@ -167,7 +167,7 @@ function PasswordCard() {
               className="flex-1"
               aria-label="New password"
             />
-            <Button variant="secondary" className="h-14 rounded-2xl px-6 shrink-0" loading={loading} onClick={handleRequest} disabled={!isStrongPassword(password) || captcha.blocked}>
+            <Button variant="secondary" className="h-14 shrink-0 rounded-full px-6" loading={loading} onClick={handleRequest} disabled={!isStrongPassword(password) || captcha.blocked}>
               Update
             </Button>
           </div>
@@ -197,32 +197,30 @@ function SessionsCard() {
   }
 
   return (
-    <SectionCard icon={Laptop} title="Sessions" description="Where your account is currently signed in.">
-      <div className="space-y-3">
-        <div className="glass flex items-center gap-3 rounded-2xl p-4">
-          <span className="relative flex h-2.5 w-2.5 shrink-0">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-forest-500 opacity-60" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-forest-500" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold">This device</div>
-            <div className="text-xs text-ink-muted">
-              {user?.last_sign_in_at ? `Signed in ${timeAgo(user.last_sign_in_at)}` : 'Current session'}
-            </div>
-          </div>
-          <span className="rounded-full bg-forest-500/12 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-forest-700 dark:text-forest-300">
-            Active
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="max-w-sm text-xs text-ink-muted">
-            Lost a device or signed in somewhere public? Revoke every session except this one.
-          </p>
-          <Button variant="outline" size="sm" loading={busy} onClick={signOutOthers}>
-            <LogOut size={14} /> Sign out other devices
-          </Button>
-        </div>
-      </div>
+    <SectionCard title="Your devices" description="Where your account is currently signed in." flush>
+      <SettingRows>
+        <SettingItem
+          icon={Laptop}
+          title="This device"
+          description={user?.last_sign_in_at ? `Signed in ${timeAgo(user.last_sign_in_at)}` : 'Current session'}
+          trailing={(
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--primary-container)] px-2.5 py-1 text-xs font-semibold text-[var(--primary-container-foreground)]">
+              <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+              Active
+            </span>
+          )}
+        />
+        <SettingItem
+          icon={LogOut}
+          title="Sign out other devices"
+          description="Lost a device or signed in somewhere public? Revoke every session except this one."
+          trailing={(
+            <Button variant="outline" size="sm" loading={busy} onClick={signOutOthers}>
+              Sign out
+            </Button>
+          )}
+        />
+      </SettingRows>
     </SectionCard>
   )
 }
@@ -230,7 +228,7 @@ function SessionsCard() {
 export function SecuritySection() {
   return (
     <div className="space-y-5">
-      <SectionCard icon={Fingerprint} title="Two-factor authentication" description="The strongest protection available for your account." tone="gold">
+      <SectionCard title="Two-factor authentication" description="The strongest protection available for your account.">
         <TwoFactorSettings />
       </SectionCard>
       <EmailCard />

@@ -11,6 +11,7 @@ export function buildNoveltyReport(scan, generatedAt = new Date().toISOString())
     generated_at: generatedAt,
     scope: 'metadata-only novelty advisory',
     source: {
+      kind: Array.isArray(scan?.capsule_sections) ? 'capsule proposal' : 'manuscript',
       filename: safeText(scan?.filename) || 'Unnamed submission',
       scanned_at: scan?.created_at || null,
       department: scan?.department || null,
@@ -31,6 +32,20 @@ export function buildNoveltyReport(scan, generatedAt = new Date().toISOString())
       track: safeText(study?.track) || null,
       highest_passage_similarity_percent: normalizePercent(study?.similarity),
     })),
+    // Section, similarity and the closest thesis's title only; the capsule's own
+    // text and the archived excerpts stay out, like the manuscript export.
+    ...(Array.isArray(scan?.capsule_sections) ? {
+      capsule_sections: scan.capsule_sections.map((row) => ({
+        section: safeText(row?.label) || safeText(row?.key) || 'Section',
+        similarity_percent: normalizePercent(row?.similarity),
+        flagged: row?.flagged === true,
+        compared_by: row?.basis === 'wording' ? 'title wording' : 'meaning',
+        closest_thesis: row?.closest ? {
+          title: safeText(row.closest.title) || 'Untitled thesis',
+          year: row.closest.year || null,
+        } : null,
+      })),
+    } : {}),
     limitations: [
       'This screening is advisory and does not determine plagiarism.',
       'Highest passage similarity and matched-chunk coverage measure different properties.',

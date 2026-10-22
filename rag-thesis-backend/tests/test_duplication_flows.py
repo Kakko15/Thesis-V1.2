@@ -229,6 +229,68 @@ class TestNoveltyScan:
         assert response['top_matches'] == []
         assert 'no longer in the archive' in response['verdict_summary']
 
+    def test_embedding_capacity_is_a_retryable_503_not_a_500(self, monkeypatch):
+        # Batch scanning sends manuscripts back to back, so the embedding quota
+        # is reachable in normal use; a bare 500 gave the client nothing to act on.
+        prepare(monkeypatch)
+        def exhausted(*_args):
+            raise RuntimeError('429 RESOURCE_EXHAUSTED: quota exceeded for embed_content')
+        monkeypatch.setattr(duplication, 'embed_texts', exhausted)
+        monkeypatch.setattr(duplication, 'sb', Client([], {}))
+        with pytest.raises(HTTPException) as caught:
+            asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
+        assert caught.value.status_code == 503
+        assert caught.value.headers == {'Retry-After': str(duplication.settings.gemini_capacity_cooldown_seconds)}
+        assert 'usage limit' in caught.value.detail
+
+    def test_a_transient_embedding_failure_is_a_short_retryable_503(self, monkeypatch):
+        prepare(monkeypatch)
+        def overloaded(*_args):
+            raise RuntimeError('503 UNAVAILABLE: The model is overloaded. Please try again later.')
+        monkeypatch.setattr(duplication, 'embed_texts', overloaded)
+        monkeypatch.setattr(duplication, 'sb', Client([], {}))
+        with pytest.raises(HTTPException) as caught:
+            asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
+        assert caught.value.status_code == 503
+        assert caught.value.headers == {'Retry-After': '20'}
+        assert 'temporarily unavailable' in caught.value.detail
+
+    def test_other_embedding_failures_are_a_502(self, monkeypatch):
+        prepare(monkeypatch)
+        def broken(*_args):
+            raise ValueError('unexpected embedding payload')
+        monkeypatch.setattr(duplication, 'embed_texts', broken)
+        monkeypatch.setattr(duplication, 'sb', Client([], {}))
+        with pytest.raises(HTTPException) as caught:
+            asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
+        assert caught.value.status_code == 502
+
+    def test_an_archive_search_outage_is_a_retryable_503(self, monkeypatch):
+        prepare(monkeypatch)
+
+        class TimingOutClient(Client):
+            def rpc(self, _name, _args):
+                raise RuntimeError('canceling statement due to statement timeout')
+
+        monkeypatch.setattr(duplication, 'sb', TimingOutClient([], {}))
+        with pytest.raises(HTTPException) as caught:
+            asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
+        assert caught.value.status_code == 503
+        assert caught.value.headers == {'Retry-After': '30'}
+
+    def test_a_deterministic_archive_search_error_is_not_turned_into_a_503(self, monkeypatch):
+        # A retryable 503 here makes a batch client re-embed the manuscript on
+        # every retry for an error that will never clear.
+        prepare(monkeypatch)
+
+        class BrokenClient(Client):
+            def rpc(self, _name, _args):
+                raise KeyError('content')
+
+        monkeypatch.setattr(duplication, 'sb', BrokenClient([], {}))
+        with pytest.raises(KeyError):
+            asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
+
     def test_extraction_and_empty_content_fail_cleanly(self, monkeypatch):
         monkeypatch.setattr(duplication, 'resolve_effective_department', lambda *_: 'CCSICT')
         monkeypatch.setattr(duplication, 'extract_document', lambda *_: (_ for _ in ()).throw(ValueError('bad')))
@@ -280,6 +342,38 @@ class TestDuplicationChat:
     def test_history_is_owner_scoped(self, monkeypatch):
         monkeypatch.setattr(duplication, 'sb', Client([], {'scan_history': [[{'id': 's1'}]]}))
         assert duplication.get_history(SimpleNamespace(id='u1')) == [{'id': 's1'}]
+
+    def test_history_is_bounded_to_the_most_recent_scans(self, monkeypatch):
+        # Unbounded, the reply grew with every scan ever run, each row carrying
+        # its full write-up and chat log.
+        calls = []
+
+        class RecordingQuery(Query):
+            def eq(self, *args): calls.append(('eq', args)); return self
+            def order(self, *args, **kwargs): calls.append(('order', args, kwargs)); return self
+            def limit(self, *args): calls.append(('limit', args)); return self
+
+        class RecordingClient(Client):
+            def table(self, name): return RecordingQuery(self.table_rows[name].pop(0))
+
+        monkeypatch.setattr(duplication, 'sb', RecordingClient([], {'scan_history': [[], []]}))
+        duplication.get_history(SimpleNamespace(id='u1'))
+        assert ('eq', ('user_id', 'u1')) in calls
+        assert ('order', ('created_at',), {'desc': True}) in calls
+        assert ('limit', (duplication.HISTORY_LIMIT,)) in calls
+        duplication.get_history(SimpleNamespace(id='u1'), limit=5)
+        assert calls[-1] == ('limit', (5,))
+
+    def test_the_history_limit_is_validated_at_the_http_boundary(self):
+        from fastapi.testclient import TestClient  # pylint: disable=import-outside-toplevel
+        from main import app  # pylint: disable=import-outside-toplevel
+        app.dependency_overrides[duplication.require_novelty_access] = lambda: SimpleNamespace(id='u1')
+        try:
+            client = TestClient(app)
+            assert client.get('/duplication/history', params={'limit': 0}).status_code == 422
+            assert client.get('/duplication/history', params={'limit': duplication.HISTORY_LIMIT_MAX + 1}).status_code == 422
+        finally:
+            app.dependency_overrides.pop(duplication.require_novelty_access, None)
 
     def test_delete_scan_removes_owned_record(self, monkeypatch):
         client = Client([], {'scan_history': [[{'id': 's1'}], []]})
