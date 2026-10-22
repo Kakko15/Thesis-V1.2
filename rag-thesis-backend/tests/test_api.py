@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from config import settings
 from main import app
 from models import CCSICT_TRACKS, ChatRequest, DuplicationAlert
 
@@ -29,6 +30,18 @@ def test_duplication_alert_never_serializes_archived_text():
     assert 'matched_abstract' not in public
     assert 'matched_excerpt' not in public
     assert public['summary'] == 'Safe generated summary.'
+
+
+def test_cors_exposes_the_headers_the_client_reads():
+    """Retry-After and the guest-verification signal are not CORS-safelisted.
+
+    A cross-origin browser hides any response header not listed here, so the
+    batch novelty scan would never see how long a 503 asked it to wait.
+    """
+    origin = settings.cors_origin_list[0]
+    response = TestClient(app).get('/health', headers={'Origin': origin})
+    exposed = {value.strip().lower() for value in response.headers['access-control-expose-headers'].split(',')}
+    assert {'retry-after', 'x-guest-verification'} <= exposed
 
 
 class TestHealth:

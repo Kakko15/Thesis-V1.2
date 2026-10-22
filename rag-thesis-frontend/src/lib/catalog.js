@@ -10,6 +10,11 @@ export function thesisCategoryLabel(value) {
   return category ? category.label : 'Student Thesis'
 }
 
+/** True for exactly the values the API accepts as `thesis_category`. */
+export function isThesisCategory(value) {
+  return THESIS_CATEGORIES.some((item) => item.value === value)
+}
+
 export function isFacultyThesis(paper) {
   return paper?.thesis_category === 'faculty'
 }
@@ -46,7 +51,8 @@ export function departmentPrograms(departments, departmentName) {
  *   program takes no specialization. That is what
  *   `services/catalog.py::resolve_academic_selection` stamps into `papers.track`.
  * - `requires_specialization` is simply whether the program offers any; the
- *   backend enforces it for BSCS and BSIT.
+ *   backend enforces it for BSIT. BSCS offered only Data Mining and retired it
+ *   on 2026-09-23, so the catalog now publishes BSCS with none.
  *
  * Lookup is by code rather than id because the extractor returns codes: an id
  * would have to be trusted, while a code is resolved inside the department the

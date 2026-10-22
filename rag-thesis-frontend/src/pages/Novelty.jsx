@@ -1,312 +1,83 @@
-import { useCallback, useRef, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useState } from 'react'
+import { useSearchParams } from 'react-router'
+import { AnimatePresence } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import ReactMarkdown from 'react-markdown'
 import { toast } from 'sonner'
+import { ClipboardList, ShieldCheck, FileSearch, Layers } from 'lucide-react'
 import {
-  ShieldCheck, FileSearch, FileText, X, History,
-  MessageSquareText, Sparkles, ScanSearch, AlertTriangle, Download, Info,
-} from 'lucide-react'
-import {
-  scanDuplication, getScanHistory, deleteScanHistory, clearScanHistory,
-  scanDuplicationChat, apiErrorMessage, isRetryableFailure, getDepartments,
+  scanDuplication, scanCapsule, getScanHistory, deleteScanHistory, clearScanHistory,
+  apiErrorMessage, getDepartments,
 } from '../api'
 import { useAuth } from '../context/AuthContext'
-import { GlassCard } from '../components/ui/GlassCard'
-import { Button } from '../components/ui/Button'
-import { Badge } from '../components/ui/Badge'
-import { ProgressRing } from '../components/ui/ProgressRing'
-import { EmptyState } from '../components/ui/EmptyState'
 import { ConfirmDialog } from '../components/ui/Modal'
 import { PageTransition } from '../components/ui/Motion'
-import { Skeleton } from '../components/ui/Skeleton'
 import { Select } from '../components/ui/Input'
-import { cn, normalizePercent, scanMetrics, timeAgo, verdictLabel, verdictTone } from '../lib/utils'
-import { contentKeys, slotKeys } from '../lib/keys'
-import { downloadNoveltyReport } from './novelty/report'
+import { cn, scanMetrics } from '../lib/utils'
+import { ScanDropzone } from './novelty/ScanDropzone'
+import { BatchScanPanel } from './novelty/BatchScanPanel'
+import { ScanReport } from './novelty/ScanReport'
+import { ScanHistoryPanel } from './novelty/ScanHistoryPanel'
+import { CapsuleForm } from './novelty/CapsuleForm'
+import { capsulePayload, isCapsuleScan } from './novelty/capsule'
+import { PANEL } from './novelty/panel'
 
-const HISTORY_SKELETONS = slotKeys(4, 'novelty-history')
+// Single and batch take manuscripts; a capsule is the short proposal an
+// adviser reviews before any manuscript exists, typed in section by section.
+const SCAN_MODES = [
+  { value: 'single', label: 'Single', icon: FileSearch, hint: 'One manuscript, one advisory report.' },
+  { value: 'batch', label: 'Batch', icon: Layers, hint: 'Each manuscript is scanned and saved to history on its own.' },
+  { value: 'capsule', label: 'Capsule', icon: ClipboardList, hint: 'A proposal before the manuscript: each section is checked on its own.' },
+]
+const MODE_VALUES = new Set(SCAN_MODES.map((item) => item.value))
 
-// Keyed off the shared verdict tone so a history row can never disagree with
-// the verdict it opens onto. Semantic aliases rather than hues, matching the
-// archive card, so the audited AA pairings still apply.
-const HISTORY_TONE = {
-  critical: 'text-flame-500',
-  warning: 'text-gold-text dark:text-gold-300',
-  neutral: 'text-forest-700 dark:text-forest-300',
-}
-// The server's /duplication/scan contract: a PDF or a plain-text manuscript.
-const SCAN_MIME_TYPES = ['application/pdf', 'application/x-pdf', 'text/plain', 'application/octet-stream']
-
-/** Google Fonts (Material Symbols Outlined: arrow_upward_alt, fill 0 / wght 400 / opsz 24). */
-const ARROW_UPWARD_ALT_PATH =
-  'M440-240v-368L296-464l-56-56 240-240 240 240-56 56-144-144v368h-80Z'
-
-function ArrowUpwardAltIcon({ size = 16, className = '' }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 -960 960 960"
-      fill="currentColor"
-      aria-hidden="true"
-      className={className}
-    >
-      <path d={ARROW_UPWARD_ALT_PATH} />
-    </svg>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-function ScanDropzone({ onScan, scanning }) {
-  const [dragging, setDragging] = useState(false)
-  const inputRef = useRef(null)
-
-  const handle = useCallback((files) => {
-    const f = files?.[0]
-    if (!f) return
-    const name = f.name.toLowerCase()
-    const validName = name.endsWith('.pdf') || name.endsWith('.txt')
-    const validMime = !f.type || SCAN_MIME_TYPES.includes(f.type)
-    if (!validName || !validMime) {
-      toast.error('Unsupported file', { description: 'Please upload a PDF or plain-text manuscript.' })
-      return
-    }
-    if (f.size > 25 * 1024 * 1024) {
-      toast.error('File too large', { description: 'Maximum size is 25 MB.' })
-      return
-    }
-    onScan(f)
-  }, [onScan])
-
-  return (
-    <>
-      <input ref={inputRef} type="file" accept=".pdf,.txt" className="hidden" onChange={(e) => handle(e.target.files)} />
-      <button
-      type="button"
-      disabled={scanning}
-      onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); handle(e.dataTransfer.files) }}
-      onClick={() => !scanning && inputRef.current?.click()}
-      className={cn(
-        'flex w-full cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed px-6 py-16 text-center transition-all duration-300',
-        dragging
-          ? 'border-gold-400 bg-gold-400/10 scale-[1.01]'
-          : 'border-forest-700/25 hover:border-forest-600/50 dark:border-white/15 dark:hover:border-gold-400/40',
-        scanning && 'pointer-events-none opacity-60',
-      )}
-    >
-      {scanning ? (
-        <>
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 2.4, repeat: Infinity, ease: 'linear' }}
-            className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-xl"
-          >
-            <ScanSearch size={26} className="text-gold-300" />
-          </motion.div>
-          <div className="font-display text-base font-bold">Scanning against the archive…</div>
-          <p className="mt-1 max-w-xs text-xs text-ink-muted">
-            Every chunk is embedded and compared at the 85% cosine-similarity threshold. This can take a minute for long drafts.
-          </p>
-        </>
-      ) : (
-        <>
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-xl shadow-forest-900/25">
-            <FileSearch size={26} className="text-gold-300" />
-          </div>
-          <div className="font-display text-base font-bold">Drop a proposal or draft to scan</div>
-          <p className="mt-1 text-xs text-ink-muted">PDF or TXT · compared chunk-by-chunk against every archived thesis</p>
-        </>
-      )}
-      </button>
-    </>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-function ScanResult({ scan, onAsk }) {
-  const [question, setQuestion] = useState('')
-  const [chatLog, setChatLog] = useState(scan.chat_log || [])
-  const [asking, setAsking] = useState(false)
-  // The server returns the whole log and trims it to the newest 20, so entries
-  // shift position. Content-derived keys follow an entry across that shift.
-  const chatLogKeys = contentKeys(chatLog.map((m) => `${m.role}|${m.content}`), 'novelty-chat')
-
-  const ask = async (e) => {
-    e.preventDefault()
-    const q = question.trim()
-    if (!q || asking) return
-    setQuestion('')
-    setChatLog((log) => [...log, { role: 'user', content: q }])
-    setAsking(true)
-    try {
-      const res = await scanDuplicationChat(scan.id, q)
-      setChatLog(res.chat_log)
-      onAsk?.()
-    } catch (err) {
-      toast.error('Question failed', { description: apiErrorMessage(err) })
-      setChatLog((log) => log.slice(0, -1))
-    } finally {
-      setAsking(false)
-    }
+/** The toast after a scan, in the terms the scan was graded in. */
+function announceScan(result) {
+  const metrics = scanMetrics(result)
+  if (isCapsuleScan(result)) {
+    const flagged = `${metrics.matchedChunks} of ${metrics.totalChunks} sections flagged`
+    if (metrics.verdict === 'high_overlap') toast.warning(`High overlap—faculty review required: ${flagged}`)
+    else toast.success(`Capsule checked — ${flagged}`)
+    return
   }
+  if (metrics.verdict === 'high_overlap') {
+    toast.warning(`High overlap—faculty review required: ${metrics.concentration.toFixed(1)}% of passages closest to one thesis`)
+  } else {
+    toast.success(`Scan complete — ${metrics.concentration.toFixed(1)}% of passages closest to one thesis`)
+  }
+}
 
-  const metrics = scanMetrics(scan)
-
+/**
+ * The scan mode, as a segmented control -- the same shape as the archive's
+ * category tabs, so the two pages switch views the same way.
+ */
+function ScanModeSwitch({ value, onChange, disabled }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.2, 0, 0, 1] }}
-      className="space-y-5"
+    <div
+      role="radiogroup"
+      aria-label="Scan mode"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-forest-900/10 bg-forest-900/[0.04] p-1 shadow-2xs dark:border-white/10 dark:bg-white/[0.04]"
     >
-      {/* Verdict header */}
-      <GlassCard className="p-6">
-        <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
-          <ProgressRing value={metrics.concentration} label="closest thesis" size={150} />
-          <div className="min-w-0 flex-1 text-center sm:text-left">
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-              <FileText size={15} className="opacity-50" />
-              <span className="truncate text-sm font-semibold">{scan.filename}</span>
-              <Badge tone="neutral">{timeAgo(scan.created_at)}</Badge>
-              {scan.department && <Badge tone="neutral">{scan.department}</Badge>}
-              <Button
-                variant="secondary"
-                size="sm"
-                className="sm:ml-auto"
-                onClick={() => {
-                  downloadNoveltyReport(scan)
-                  toast.success('Metadata-only report downloaded')
-                }}
-              >
-                <Download size={14} /> Download report
-              </Button>
-            </div>
-            <div className="mt-4 grid gap-2 text-left sm:grid-cols-2">
-              <div className="glass rounded-xl p-3">
-                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Highest passage similarity</div>
-                <div className="mt-1 font-display text-xl font-extrabold">{metrics.highest.toFixed(2)}%</div>
-              </div>
-              <div className="glass rounded-xl p-3">
-                {/* The graded figure. Coverage stays below it, relabelled:
-                    on its own it reads as an accusation, because a manuscript
-                    can match something everywhere and still have no single
-                    archived thesis accounting for a tenth of it. */}
-                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Closest single thesis</div>
-                <div className="mt-1 font-display text-xl font-extrabold">{metrics.concentration.toFixed(2)}%</div>
-              </div>
-              <div className="glass rounded-xl p-3">
-                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Matched anywhere in the archive</div>
-                <div className="mt-1 font-display text-xl font-extrabold">{metrics.coverage.toFixed(2)}%</div>
-              </div>
-              <div className="glass rounded-xl p-3">
-                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Matched chunks / total chunks</div>
-                <div className="mt-1 font-display text-xl font-extrabold">{metrics.matchedChunks} / {metrics.totalChunks}</div>
-              </div>
-              <div className="glass rounded-xl p-3">
-                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Advisory verdict</div>
-                <div className="mt-1 text-sm font-bold">{verdictLabel(metrics.verdict)}</div>
-              </div>
-            </div>
-            {scan.top_matches?.length > 0 && (
-              <div className="mt-4 space-y-2">
-                <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Top matching studies</div>
-                {scan.top_matches.map((m) => (
-                  <div key={m.id} className="glass flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-left">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold">{m.title}</div>
-                      <div className="text-xs text-ink-muted">
-                        {m.authors}{m.year ? ` · ${m.year}` : ''}{m.track ? ` · ${m.track}` : ''}
-                      </div>
-                    </div>
-                    <Badge tone={normalizePercent(m.similarity) >= 90 ? 'flame' : 'gold'}>{normalizePercent(m.similarity).toFixed(2)}%</Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </GlassCard>
-
-      {/* Deterministic verdict with optional AI explanation */}
-      <GlassCard className="p-6">
-        <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
-          <Sparkles size={13} /> Advisory explanation
-        </div>
-        <div className="prose-chat">
-          <ReactMarkdown>{scan.verdict_summary || ''}</ReactMarkdown>
-        </div>
-      </GlassCard>
-
-      <GlassCard className="border border-gold-400/25 p-5">
-        <div className="flex items-start gap-3">
-          <Info size={17} className="mt-0.5 shrink-0 text-gold-500" />
-          <div>
-            <div className="text-sm font-bold">Interpretation limits</div>
-            <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-              This is a similarity advisory, not a plagiarism verdict. Highest passage similarity
-              and matched-chunk coverage are separate measures, and faculty review remains required.
-              The downloadable report contains metadata only—never manuscript excerpts or reviewer chat.
-            </p>
-          </div>
-        </div>
-      </GlassCard>
-
-      {/* Follow-up chat */}
-      <GlassCard className="p-6">
-        <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
-          <MessageSquareText size={13} /> Ask about this report
-        </div>
-        <div className="mb-4 max-h-72 space-y-3 overflow-y-auto">
-          {chatLog.length === 0 && (
-            <p className="py-4 text-center text-xs text-ink-faint">
-              e.g. "Which chapter overlaps the most?" or "How can the student differentiate their study?"
-            </p>
+      {SCAN_MODES.map(({ value: mode, label, icon: Icon }) => (
+        <button
+          key={mode}
+          type="button"
+          role="radio"
+          aria-checked={value === mode}
+          disabled={disabled}
+          onClick={() => onChange(mode)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-60',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
+            value === mode
+              ? 'bg-forest-800 font-bold text-white shadow-2xs dark:bg-forest-400 dark:text-forest-950'
+              : 'text-ink-muted hover:bg-forest-900/10 hover:text-ink dark:hover:bg-white/10',
           )}
-          {chatLog.map((m, i) => (
-            <div key={chatLogKeys[i]} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
-              <div
-                className={cn(
-                  'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
-                  m.role === 'user'
-                    ? 'bg-gradient-to-br from-forest-600 to-forest-800 text-white'
-                    : 'glass',
-                )}
-              >
-                {m.role === 'user' ? m.content : (
-                  <div className="prose-chat"><ReactMarkdown>{m.content}</ReactMarkdown></div>
-                )}
-              </div>
-            </div>
-          ))}
-          {asking && (
-            <div className="flex items-center gap-1.5 pl-2">
-              {[0, 1, 2].map((i) => (
-                <motion.span
-                  key={i}
-                  animate={{ y: [0, -4, 0], opacity: [0.4, 1, 0.4] }}
-                  transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.18 }}
-                  className="h-1.5 w-1.5 rounded-full bg-forest-500 dark:bg-gold-300"
-                />
-              ))}
-            </div>
-          )}
-        </div>
-        <form onSubmit={ask} className="glass flex items-center gap-2 rounded-2xl p-1.5">
-          <input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ask the reviewer a follow-up…"
-            className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:opacity-45"
-          />
-          <Button type="submit" size="icon-sm" disabled={!question.trim() || asking} aria-label="Send">
-            <ArrowUpwardAltIcon size={16} />
-          </Button>
-        </form>
-      </GlassCard>
-    </motion.div>
+        >
+          <Icon size={14} aria-hidden="true" />
+          {label}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -321,6 +92,12 @@ export default function Novelty() {
   const [confirmClearOpen, setConfirmClearOpen] = useState(false)
   const [clearing, setClearing] = useState(false)
   const queryClient = useQueryClient()
+  // In the URL, like the settings section, so /novelty?mode=batch deep-links
+  // and survives a reload.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedMode = searchParams.get('mode')
+  const mode = MODE_VALUES.has(requestedMode) ? requestedMode : 'single'
+  const setMode = (next) => setSearchParams(next === 'single' ? {} : { mode: next }, { replace: true })
 
   const {
     data: history = [],
@@ -374,63 +151,93 @@ export default function Novelty() {
     }
   }
 
-  const runScan = async (file) => {
+  const scanDepartment = isSuperadmin ? department || null : null
+  const runScan = async (request) => {
     setScanning(true)
     setActiveScan(null)
     try {
-      const result = await scanDuplication(file, isSuperadmin ? department || null : null)
+      const result = await request()
       setActiveScan(result)
       queryClient.invalidateQueries({ queryKey: ['scan-history'] })
-      const metrics = scanMetrics(result)
-      if (metrics.verdict === 'high_overlap') {
-        toast.warning(`High overlap—faculty review required: ${metrics.concentration.toFixed(1)}% of passages closest to one thesis`)
-      } else {
-        toast.success(`Scan complete — ${metrics.concentration.toFixed(1)}% of passages closest to one thesis`)
-      }
+      announceScan(result)
     } catch (err) {
       toast.error('Scan failed', { description: apiErrorMessage(err) })
     } finally {
       setScanning(false)
     }
   }
+  const scanFile = (file) => runScan(() => scanDuplication(file, scanDepartment))
+  const checkCapsule = (capsule) => runScan(() => scanCapsule(capsulePayload(capsule), scanDepartment))
 
   return (
     <PageTransition className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
+      {/* The department picker was a full-width form field, so on desktop it
+          sat on a row of its own above the access note and pushed the whole
+          page down; as a chip it shares the title's row. */}
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0">
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
             Novelty <span className="text-gradient-isu">Check</span>
           </h1>
           <p className="mt-1 text-sm text-ink-muted">
-            Validate proposed topics against the archive at the paper-mandated 85% similarity threshold.
+            Validate proposed topics against the archive at the 85% similarity threshold.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {isSuperadmin ? (
-            <Select value={department} onChange={(e) => setDepartment(e.target.value)} aria-label="Scan department">
+            <Select
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              aria-label="Scan department"
+              className="h-9 w-auto rounded-full px-3.5 text-xs font-medium"
+            >
               <option value="">Default ({userDepartment || 'CCSICT'})</option>
               {departments.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
             </Select>
           ) : (
-            <Badge tone="neutral">{effectiveDepartment}</Badge>
+            <span className="inline-flex h-9 items-center rounded-full border border-[var(--border)] px-3.5 text-xs font-medium">
+              {effectiveDepartment}
+            </span>
           )}
-          <div className="glass flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-ink-muted">
-            <ShieldCheck size={13} className="text-gold-400" />
-            Faculty & administrators only
-          </div>
+          <span className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--border)] px-3.5 text-xs font-medium text-ink-muted">
+            <ShieldCheck size={13} className="text-gold-text dark:text-gold-300" aria-hidden="true" />
+            Faculty &amp; administrators only
+          </span>
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
         {/* Main column */}
-        <div className="space-y-5 lg:col-span-2">
-          <GlassCard className="p-6">
-            <ScanDropzone onScan={runScan} scanning={scanning} />
-          </GlassCard>
+        <div className="min-w-0 space-y-5">
+          <div className={cn(PANEL, 'space-y-4 p-5 sm:p-6')}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <ScanModeSwitch value={mode} onChange={setMode} disabled={scanning} />
+              <p className="text-xs text-ink-muted">
+                {SCAN_MODES.find((item) => item.value === mode)?.hint}
+              </p>
+            </div>
+            {/* All stay mounted so switching modes never drops a batch that is
+                queued or mid-scan, or a capsule half typed; only the inactive
+                ones are hidden. */}
+            <div hidden={mode !== 'single'}>
+              <ScanDropzone onScan={scanFile} scanning={scanning} />
+            </div>
+            <div hidden={mode !== 'capsule'}>
+              <CapsuleForm onScan={checkCapsule} scanning={scanning} />
+            </div>
+            <div hidden={mode !== 'batch'}>
+              <BatchScanPanel
+                department={scanDepartment}
+                activeScanId={activeScan?.id}
+                onOpen={setActiveScan}
+                onScanned={() => queryClient.invalidateQueries({ queryKey: ['scan-history'] })}
+              />
+            </div>
+          </div>
 
           <AnimatePresence mode="wait">
             {activeScan && (
-              <ScanResult
+              <ScanReport
                 key={activeScan.id}
                 scan={activeScan}
                 onAsk={() => queryClient.invalidateQueries({ queryKey: ['scan-history'] })}
@@ -439,97 +246,16 @@ export default function Novelty() {
           </AnimatePresence>
         </div>
 
-        {/* History timeline */}
-        <GlassCard className="h-fit p-5">
-          <div className="mb-4 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-ink-faint">
-              <History size={13} aria-hidden="true" /> Scan history
-            </div>
-            {history.length > 0 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setConfirmClearOpen(true)}
-                className="h-auto px-2 py-1 text-xs font-semibold text-ink-muted hover:bg-flame-500/10 hover:text-flame-500"
-              >
-                Clear all
-              </Button>
-            )}
-          </div>
-          {loadingHistory ? (
-            <div className="space-y-2">{HISTORY_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-16" />)}</div>
-          ) : historyError ? (
-            <div role="alert" className="rounded-xl bg-flame-500/10 p-3 text-xs">
-              {/* The server states why — a privilege or two-factor refusal is
-                  actionable, and hiding it behind a generic line leaves the
-                  reader with a broken panel and no way to know what to fix. */}
-              <div className="flex items-start gap-2">
-                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                <span>{apiErrorMessage(historyFailure, 'Scan history is unavailable.')}</span>
-              </div>
-              {isRetryableFailure(historyFailure) && (
-                <Button variant="ghost" size="sm" className="mt-2" onClick={() => retryHistory()}>Retry</Button>
-              )}
-            </div>
-          ) : history.length === 0 ? (
-            <EmptyState icon={FileSearch} title="No scans yet" message="Your novelty scans will appear here." />
-          ) : (
-            <div className="space-y-2">
-              {history.map((scan) => {
-                const metrics = scanMetrics(scan)
-                const active = activeScan?.id === scan.id
-                return (
-                  <div
-                    key={scan.id}
-                    className={cn(
-                      'group flex items-center gap-1.5 rounded-2xl p-1.5 transition-colors duration-200',
-                      active
-                        ? 'bg-forest-600/12 dark:bg-forest-400/12'
-                        : 'hover:bg-forest-900/6 dark:hover:bg-white/6',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setActiveScan(scan)}
-                      className="min-w-0 flex-1 rounded-xl p-2 text-left active:scale-[0.98] transition-transform touch-manipulation"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-semibold" title={scan.filename}>{scan.filename}</span>
-                        {/* Coloured by the verdict, not by a coverage band of
-                            its own. While this read `coverage >= 50` and the
-                            verdict was graded on concentration, a row could
-                            show a red number beside a "review suggested"
-                            result. */}
-                        <span
-                          className={cn(
-                            'shrink-0 font-display text-sm font-extrabold',
-                            HISTORY_TONE[verdictTone(metrics.verdict)] ?? HISTORY_TONE.neutral,
-                          )}
-                          title={verdictLabel(metrics.verdict)}
-                        >
-                          {metrics.concentration.toFixed(0)}%
-                        </span>
-                      </div>
-                      <div className="mt-0.5 text-xs text-ink-faint">{timeAgo(scan.created_at)}</div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setDeleteTarget(scan)
-                      }}
-                      aria-label={`Remove scan ${scan.filename}`}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-flame-500/10 hover:text-flame-500 focus-visible:ring-2 focus-visible:ring-[var(--ring)] sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100"
-                    >
-                      <X size={14} aria-hidden="true" />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </GlassCard>
+        <ScanHistoryPanel
+          history={history}
+          loading={loadingHistory}
+          failure={historyError ? historyFailure : null}
+          onRetry={() => retryHistory()}
+          activeScanId={activeScan?.id}
+          onOpen={setActiveScan}
+          onRemove={setDeleteTarget}
+          onClearAll={() => setConfirmClearOpen(true)}
+        />
       </div>
       {isSuperadmin && departmentsError && (
         <p role="alert" className="text-xs text-flame-500">Department choices could not be loaded. The enforced default remains active.</p>

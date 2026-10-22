@@ -11,7 +11,7 @@ from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.catalog import normalize_thesis_category
 from services.cleanup import record_storage_cleanup
-from services.db_errors import identifier_not_found
+from services.db_errors import identifier_not_found, is_missing_column
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,13 @@ CurrentUser = Annotated[Any, Depends(get_current_user)]
 # open to any approved account.
 ArchiveUser = Annotated[Any, Depends(require_archive_access)]
 AdminUser = Annotated[Any, Depends(require_admin)]
+
+
+_ARCHIVE_FIELDS = (
+    'id,title,authors,year,track,abstract,chunk_count,duplication_scan,'
+    'created_at,uploaded_by,department,program_id,specialization_id,'
+    'legacy_track,classification_status,thesis_category'
+)
 
 
 def _ready_papers_query(fields: str, department: str | None):
@@ -54,12 +61,7 @@ def list_papers(
     if current_profile.get('role') != 'superadmin':
         department = current_profile.get('department') or 'CCSICT'
 
-    fields = (
-        'id,title,authors,year,track,abstract,chunk_count,duplication_scan,'
-        'created_at,uploaded_by,department,program_id,specialization_id,'
-        'legacy_track,classification_status,thesis_category'
-    )
-    try:
+    def filtered_query(fields: str):
         query = _ready_papers_query(fields, department)
         if program_id:
             query = query.eq('program_id', program_id)
@@ -67,7 +69,24 @@ def list_papers(
             query = query.eq('specialization_id', specialization_id)
         if thesis_category:
             query = query.eq('thesis_category', thesis_category)
-        papers = query.execute().data or []
+        return query
+
+    try:
+        try:
+            papers = filtered_query(f'{_ARCHIVE_FIELDS},adviser').execute().data or []
+        except Exception as adviser_error:
+            # Its own tier, below the normalized fields rather than beside the
+            # legacy ones. A project that has the catalog and category
+            # migrations but not 20260923_paper_adviser.sql would otherwise
+            # drop to the legacy list and lose thesis_category and the program
+            # filters over one optional column.
+            if not is_missing_column(adviser_error):
+                raise
+            logger.warning(
+                'papers.adviser unavailable; serving the archive without it (%s).',
+                type(adviser_error).__name__,
+            )
+            papers = filtered_query(_ARCHIVE_FIELDS).execute().data or []
     except Exception as normalized_error:
         if program_id or specialization_id or thesis_category:
             raise HTTPException(

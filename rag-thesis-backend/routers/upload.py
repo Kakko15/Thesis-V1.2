@@ -54,6 +54,18 @@ from services.catalog import normalize_thesis_category, resolve_academic_selecti
 from services.db_errors import is_invalid_identifier
 from services import prompts
 from services.filenames import sanitize_filename
+# Imported under the names this router has always used, which are also the
+# names its tests call and monkeypatch.
+from services.front_matter import (
+    ABSTRACT_MIN_CHARS as _ABSTRACT_MIN_CHARS,
+    ADVISER_MAX_CHARS as _ADVISER_MAX_CHARS,
+    FRONT_MATTER_PAGES,
+    author_token as _author_token,
+    clip_abstract as _clip_abstract,
+    extract_abstract as _extract_abstract,
+    extract_adviser as _extract_adviser,
+    front_matter_texts,
+)
 from services.llm_output import coerce_text, strip_code_fence
 from services.rate_limiting import limiter
 from services.operations import record_security_event
@@ -134,30 +146,6 @@ _NOT_A_NAME = (
     'track', 'university', 'college', 'thesis', 'project', 'department',
     'faculty', 'degree', 'bachelor', 'science', 'specialization',
 )
-_AUTHOR_SUFFIXES = {
-    'jr': 'Jr.', 'jr.': 'Jr.', 'sr': 'Sr.', 'sr.': 'Sr.',
-    'ii': 'II', 'iii': 'III', 'iv': 'IV',
-}
-
-
-def _author_token(token: str) -> str:
-    """Recase one name token, leaving a token that is not shouted alone."""
-    if token.casefold() in _AUTHOR_SUFFIXES:
-        return _AUTHOR_SUFFIXES[token.casefold()]
-    if len(token.strip('.')) == 1:
-        # Every other name in the corpus writes its initials with the period,
-        # so 'DANICA NICOLE F' and 'DANICA NICOLE F.' come out as one spelling.
-        return f"{token.strip('.').upper()}."
-    if not token.isupper():
-        # 'Dela Cruz' and 'Jay-Ar' are already cased the way they are written,
-        # and no recasing rule reproduces them from a lowercased form.
-        return token
-    return '-'.join(
-        "'".join(piece.capitalize() for piece in part.split("'"))
-        for part in token.split('-')
-    )
-
-
 def _normalize_author(raw: str) -> str:
     """Return one author as 'Given Names Surname', or '' if it is not a name."""
     name = _AUTHOR_DASH.sub('-', ' '.join((raw or '').split()))
@@ -282,6 +270,24 @@ def _entry_score(haystack: str, entry: Mapping[str, str]) -> int:
     )
 
 
+# Spellings a title page uses for a major that are not the catalog's own name.
+# The catalog renamed both BSIT majors ('Web Development' and 'Network
+# Security' are the pre-catalog track names, services/catalog.py::
+# LEGACY_CLASSIFICATIONS), and title pages from before the rename, or from
+# advisers who never adopted it, still print the old wording. Keyed by program
+# and specialization code so an alias can only ever select a major of the
+# program that owns it.
+_SPECIALIZATION_ALIASES: dict[tuple[str, str], tuple[str, ...]] = {
+    ('BSIT', 'WMAD'): (
+        'web and mobile applications development', 'web and mobile development',
+        'web and mobile application', 'mobile application development', 'web development',
+    ),
+    ('BSIT', 'NETSEC'): (
+        'networking and security', 'network and systems security', 'network security',
+    ),
+}
+
+
 def _best_specialization(
     haystack: str, program: Mapping[str, Any],
 ) -> tuple[Mapping[str, str] | None, int]:
@@ -293,6 +299,28 @@ def _best_specialization(
         if score > best_score:
             best, best_score = specialization, score
     return best, best_score
+
+
+def _aliased_specialization(
+    haystack: str, program: Mapping[str, Any],
+) -> Mapping[str, str] | None:
+    """A major of `program` named only by an alias, longest alias first.
+
+    Deliberately not part of `_best_specialization`'s score, which also decides
+    between programs: an alias as loose as 'networking' or 'web development' is
+    often in a thesis *title*, and letting it nominate BSIT would outrank a
+    degree line that printed only its code, like 'BSIS'. Here the program is
+    already settled and the alias only picks among its own majors.
+    """
+    best: Mapping[str, str] | None = None
+    best_score = 0
+    program_code = str(program.get('code') or '')
+    for specialization in (program.get('specializations') or []):
+        aliases = _SPECIALIZATION_ALIASES.get((program_code, str(specialization.get('code') or '')), ())
+        score = max((_phrase_score(haystack, alias) for alias in aliases), default=0)
+        if score > best_score:
+            best, best_score = specialization, score
+    return best
 
 
 def _match_program(
@@ -307,10 +335,11 @@ def _match_program(
     title.
 
     A specialization may nominate its own program: a page that prints only
-    'major in Data Mining' has still identified BSCS, because a specialization
-    belongs to exactly one program. It is never returned beside a different
-    program than the one that owns it, so BSIT can never come back carrying
-    Data Mining.
+    'major in Network and Security' has still identified BSIT, because a
+    specialization belongs to exactly one program. It is never returned beside
+    a different program than the one that owns it. Once the program is settled
+    and no major was named by its catalog spelling, an older spelling of one of
+    its own majors may still fill it (`_aliased_specialization`).
 
     Returns `(None, None)` when nothing is named clearly enough. Blank is the
     right answer for an unrecognised page: the uploader is shown an empty
@@ -330,6 +359,8 @@ def _match_program(
         score = max(_entry_score(haystack, program), specialization_score)
         if score > best_score:
             best_program, best_specialization, best_score = program, specialization, score
+    if best_program is not None and best_specialization is None:
+        best_specialization = _aliased_specialization(haystack, best_program)
     return best_program, best_specialization
 
 
@@ -357,6 +388,41 @@ def _programs_in_department(
         if str(program.get('department') or '').strip().casefold() == wanted
     ]
     return scoped or programs
+
+
+# The sentence every CCSICT undergraduate title page carries ("...in partial
+# fulfillment of the requirements for the degree Bachelor of Science in...");
+# all twelve PI-08 corpus manuscripts print it. The approval sheet repeats it,
+# so a scanned title page whose text layer is empty still has a second chance.
+_STUDENT_THESIS = re.compile(
+    r'\bpartial(?:ly)?\s+fulfil+ment\b|\bfor\s+the\s+degree\s+(?:of\s+)?bachelor\b'
+    r'|\bundergraduate\s+(?:thesis|research)\b',
+    re.IGNORECASE,
+)
+# Faculty research is not submitted for a degree, so it prints none of the
+# above and says what it is instead.
+_FACULTY_RESEARCH = re.compile(
+    r'\bfaculty\s+research\b|\binstitutional\s+research\b'
+    r'|\bresearch\s+(?:and|&)\s+development\s+(?:office|center|centre|unit|division)\b'
+    r'|\bfunded\s+research\b',
+    re.IGNORECASE,
+)
+
+
+def _thesis_category(text: str) -> str:
+    """'student', 'faculty', or '' when the front matter names neither.
+
+    A degree line wins over a faculty marker: a student thesis may thank a
+    research office or name faculty research it builds on, while a faculty
+    paper has no degree to be in partial fulfillment of. Blank rather than a
+    guess, so the form keeps its default without claiming the extractor set it.
+    """
+    haystack = _WHITESPACE.sub(' ', text or '')
+    if _STUDENT_THESIS.search(haystack):
+        return 'student'
+    if _FACULTY_RESEARCH.search(haystack):
+        return 'faculty'
+    return ''
 
 
 def _academic_codes(
@@ -437,224 +503,6 @@ def _extract_title_page_metadata(
         'year': year_match.group(0) if year_match else '',
         'department': department,
     }
-
-
-# Only a line holding nothing but the word. The contents entry for the abstract
-# carries its own page number out in the right margin ('ABSTRACT ....... iv'),
-# and the block under *that* line is the rest of the contents list.
-_ABSTRACT_HEADING = re.compile(r'^abstract\s*[:.]?$', re.IGNORECASE)
-
-# What ends the abstract: the next front-matter section, or the manuscript
-# proper. The keyword list is a stop rather than part of the capture -- it is
-# set under the abstract as one block, but the field is labelled 'abstract' and
-# an uploader checking an autofilled value should find prose, not indexing
-# terms they did not type.
-_ABSTRACT_STOP = re.compile(
-    r'^(?:table\s+of\s+contents|acknowledg(?:e)?ments?|dedication|approval\s+sheet|'
-    r'curriculum\s+vitae|biographical\s+sketch|list\s+of\s+(?:figures|tables|appendices)|'
-    r'chapter\s+(?:\d+|[ivxlc]+)\b.*|introduction|background(?:\s+of\s+the\s+study)?|'
-    r'keywords?\s*[:.]?.*)$',
-    re.IGNORECASE,
-)
-
-# Front matter is numbered in roman, so both forms are page furniture. Narrower
-# than the full numeral alphabet on purpose: [ivxlc] admits 'civil' as a
-# five-letter numeral, and that word does stand alone on a line.
-_ABSTRACT_PAGE_FURNITURE = re.compile(
-    r'^[-–—\s]*(?:page\s*)?(?:\d{1,4}|[ivxl]{1,6})\s*[-–—\s]*$',
-    re.IGNORECASE,
-)
-
-# Many abstract pages restate the manuscript's identity above the prose, as a
-# block of labelled lines: 'Title : ...', 'Program : ...', 'Authors : ...',
-# 'Academic Year : ...', 'Adviser : ...'. Reflowed with the prose it became one
-# 1,300-character run-on opening with bibliographic metadata (observed
-# 2026-09-22 on two CCSICT manuscripts), so it is now recognised and emitted as
-# a Markdown list above the prose instead. Prose does not open with a label and
-# a colon, which is what makes the block safe to identify at all.
-_ABSTRACT_FIELD_LABEL = re.compile(
-    r'^(?P<label>title|program|course|degree|major|track|specialization|authors?|'
-    r'researchers?|students?|proponents?|academic\s+year|school\s+year|year|'
-    r'advis[eo]r|co-?advis[eo]r|department|college|institution|university|date)'
-    r'\s*[:–—-]',
-    re.IGNORECASE,
-)
-# A label's value wraps, and the wrapped remainder carries no label of its own
-# ('Title : Enhanced K-Means Clustering ... with' / 'Spatiotemporal Data'). Only
-# consulted inside a header block that a labelled line already opened, and only
-# for a line too short to be a line of justified prose that does not end a
-# sentence -- so a genuine first sentence is never the thing dropped.
-_ABSTRACT_HEADER_WRAP_CHARS = 60
-
-# The ceiling _validate_metadata enforces, so an autofilled abstract is always
-# one the form can submit.
-_ABSTRACT_MAX_CHARS = 10000
-# A 200-word abstract runs to roughly 1,300 characters. This floor sits well
-# under the shortest real one and still rejects a fragment.
-_ABSTRACT_MIN_CHARS = 200
-
-
-def _reflow_abstract(lines: Sequence[str]) -> str:
-    """Rejoin the manuscript's hard-wrapped lines into paragraphs.
-
-    A PDF carries the typesetter's line breaks, so an abstract extracted line
-    by line arrives wrapped at whatever width the manuscript was set to. Left
-    that way it lands in the form's textarea as a column of half-sentences,
-    and the uploader has to undo the wrapping before the prose reads -- which
-    is worse than the empty field this autofill replaces.
-
-    Blank lines are the only paragraph signal used. A manuscript that separates
-    paragraphs by first-line indent alone therefore reflows into one, which is
-    still prose and still editable; guessing paragraphs from leading whitespace
-    is not, because PyMuPDF's indentation varies between these templates.
-
-    A line ending in a hyphen is joined without a space and *keeps* its hyphen.
-    Dropping it is the usual de-hyphenation rule and it is wrong for this
-    corpus: these manuscripts are typeset in Word, whose automatic hyphenation
-    is off by default, so a trailing hyphen belongs to a compound word
-    ('AI-powered', 'cross-sectional') rather than marking a syllable break.
-    """
-    paragraphs: list[str] = []
-    buffer = ''
-    for line in lines:
-        text = line.strip()
-        if not text:
-            if buffer:
-                paragraphs.append(buffer)
-                buffer = ''
-            continue
-        if not buffer:
-            buffer = text
-        elif buffer.endswith('-'):
-            buffer += text
-        else:
-            buffer += ' ' + text
-    if buffer:
-        paragraphs.append(buffer)
-    return '\n\n'.join(paragraphs)
-
-
-def _clip_abstract(text: str) -> str:
-    """Hold the abstract inside the ceiling the upload form enforces.
-
-    `_validate_metadata` rejects one over 10,000 characters with 422, so
-    autofilling a longer value would hand back a form that cannot submit and no
-    obvious field to blame -- the same reason `_academic_codes` answers with a
-    code the client can drop rather than a program another college owns. Cut at
-    a word boundary and mark the cut, so the uploader can see text is missing.
-    """
-    if len(text) <= _ABSTRACT_MAX_CHARS:
-        return text
-    clipped = text[:_ABSTRACT_MAX_CHARS - 1]
-    return (clipped.rsplit(' ', 1)[0] or clipped).rstrip() + '…'
-
-
-def _is_wrapped_label_value(line: str) -> bool:
-    """Whether a line reads as the overflow of the labelled line above it."""
-    return (
-        len(line) < _ABSTRACT_HEADER_WRAP_CHARS
-        and not line.endswith(('.', '!', '?'))
-    )
-
-
-def _abstract_sections(
-    lines: Sequence[str], start: int,
-) -> tuple[list[list[str]], list[str]]:
-    """Split one 'ABSTRACT' heading's block into (identity entries, prose).
-
-    An identity entry is `[label, *value lines]`, because a label's value wraps
-    and the wrapped remainder carries no label of its own.
-
-    Both are only recognised while no prose has been captured yet, so a
-    sentence inside the abstract that happens to carry a colon is safe. Leading
-    blanks are skipped rather than captured for the same reason: appending one
-    would close that window before the block had been passed.
-    """
-    identity: list[list[str]] = []
-    body: list[str] = []
-    for line in lines[start:]:
-        stripped = line.strip()
-        if _ABSTRACT_STOP.match(stripped):
-            break
-        if _ABSTRACT_PAGE_FURNITURE.match(stripped):
-            continue
-        if not body:
-            if not stripped:
-                continue
-            matched = _ABSTRACT_FIELD_LABEL.match(stripped)
-            if matched:
-                identity.append([
-                    matched.group('label'), stripped[matched.end():].strip(),
-                ])
-                continue
-            if identity and _is_wrapped_label_value(stripped):
-                identity[-1].append(stripped)
-                continue
-        body.append(stripped)
-    return identity, body
-
-
-def _identity_markdown(entries: Sequence[Sequence[str]]) -> str:
-    """The identity block as a Markdown list, one bullet per labelled field.
-
-    A list rather than the bare lines the page prints, because Markdown joins
-    consecutive lines into one paragraph: bare lines would render as the same
-    run-on this exists to undo, unless every one of them carried two trailing
-    spaces -- invisible state in stored text that an uploader's own edit would
-    silently strip. A bullet survives editing and reads correctly raw.
-    """
-    bullets: list[str] = []
-    for label, *parts in entries:
-        value = _reflow_abstract([part for part in parts if part])
-        if not value:
-            continue
-        bullets.append(f'- **{_WHITESPACE.sub(" ", label).strip().title()}:** {value}')
-    return '\n'.join(bullets)
-
-
-def _extract_abstract(page_texts: Sequence[str]) -> str:
-    """The manuscript's own abstract as Markdown, read off the front matter.
-
-    Local, and never asked of the model like the fields `_ai_completion` fills.
-    The other four are short enough to ask a model to copy and then check
-    against the page afterwards -- which is exactly what the year does there.
-    An abstract is 200-350 words: a completion paraphrases it often enough that
-    the stored text would stop being the manuscript's, and this value is shown
-    on the archive card and summarised into the duplication verdict. Verbatim
-    or blank is the only safe pair, so this reads the page or leaves the field
-    to the uploader. It also costs no call, which is why 'abstract' sits
-    outside `_METADATA_FIELDS`: a manuscript whose abstract could not be found
-    must not buy a Gemini completion that would not fill it either.
-
-    Markdown, not flat text, because these pages carry two different kinds of
-    content: an optional labelled identity block, and the prose. Flattened
-    together they read as one run-on paragraph opening with bibliographic
-    metadata. The words are still the page's own -- the only additions are the
-    list markers and the emphasis around labels the page already printed.
-
-    Every heading match is tried rather than only the first. A contents page
-    that sets an entry's page number on its own line instead of after a dot
-    leader puts a bare 'ABSTRACT' above the rest of the list, and stopping
-    there would report the contents list -- or, once the length floor rejected
-    it, nothing at all -- for a manuscript whose real abstract is two pages on.
-
-    The floor is measured against the prose alone. A page holding only the
-    identity block (its abstract having been set overleaf) would otherwise
-    clear the floor on labels and report a heading with no abstract under it.
-    """
-    lines: list[str] = []
-    for page in page_texts:
-        lines.extend((page or '').splitlines())
-    for index, line in enumerate(lines):
-        if not _ABSTRACT_HEADING.match(line.strip()):
-            continue
-        identity, body = _abstract_sections(lines, index + 1)
-        prose = _reflow_abstract(body)
-        if len(prose) < _ABSTRACT_MIN_CHARS:
-            continue
-        blocks = [block for block in (_identity_markdown(identity), prose) if block]
-        return _clip_abstract('\n\n'.join(blocks))
-    return ''
 
 
 def _as_text(value, fallback: str = '') -> str:
@@ -740,11 +588,15 @@ async def _read_limited_upload(file: UploadFile) -> bytes:
     return content
 
 
-def _validate_metadata(title: str, authors: str, year: str, abstract: str) -> None:
+def _validate_metadata(
+    title: str, authors: str, year: str, abstract: str, adviser: str = '',
+) -> None:
     if not 5 <= len(title.strip()) <= 300:
         raise HTTPException(422, 'Title must contain between 5 and 300 characters')
     if len(authors) > 500:
         raise HTTPException(422, 'Authors must not exceed 500 characters')
+    if len(adviser.strip()) > _ADVISER_MAX_CHARS:
+        raise HTTPException(422, f'Adviser must not exceed {_ADVISER_MAX_CHARS} characters')
     if len(abstract) > 10000:
         raise HTTPException(422, 'Abstract must not exceed 10,000 characters')
     # Timezone-aware on purpose: datetime.now() used the server's local zone
@@ -834,13 +686,10 @@ def _queue_durable_job(job_id: str, owner_id: str) -> bool:
 # The bibliographic fields are on the title page, and three pages has always
 # been the window for them.
 _TITLE_PAGES = 3
-# The abstract is the one autofilled field never printed on the title page. ISU
-# front matter runs title -> approval sheet -> acknowledgment -> abstract ->
-# contents, so it lands on page four or five, and later still where the
-# approval sheet or the acknowledgment runs long. Twelve reaches it without
-# turning one autofill into a whole-document read; the manuscript body is the
-# ingestion worker's job, not this endpoint's.
-_ABSTRACT_SCAN_PAGES = 12
+# The front-matter window, shared with the ingestion worker and the adviser
+# backfill so all three read the same pages; services/front_matter.py says
+# why it is twelve.
+_ABSTRACT_SCAN_PAGES = FRONT_MATTER_PAGES
 # The extended abstract summarises the study rather than its front matter, so
 # it reads past the page the verbatim scan stops at: the objectives, the
 # methodology and the findings are in the chapters, and a summary written from
@@ -862,11 +711,7 @@ _EXTENDED_ABSTRACT_MIN_SOURCE_CHARS = 1200
 
 def _front_matter_texts(file_bytes: bytes, pages: int = _TITLE_PAGES) -> list[str]:
     """Return the first `pages` pages of text, which carry the front matter."""
-    document = fitz.open(stream=file_bytes, filetype='pdf')
-    try:
-        return [document[index].get_text() for index in range(min(pages, len(document)))]
-    finally:
-        document.close()
+    return front_matter_texts(file_bytes, pages)
 
 
 @dataclass(frozen=True)
@@ -1011,7 +856,7 @@ class _ClassificationCache:
 
 async def _stage_and_queue_one(
     ctx: _StagingContext, file: UploadFile, *, title: str, authors: str,
-    year: str, abstract: str, idempotency_key: str | None,
+    year: str, abstract: str, idempotency_key: str | None, adviser: str = '',
 ) -> UploadAccepted:
     """Validate, privately stage, and durably queue one manuscript.
 
@@ -1034,6 +879,10 @@ async def _stage_and_queue_one(
     request_payload = {
         'title': title.strip(),
         'authors': authors.strip(),
+        # Always present, even when empty: the hydrate_paper_adviser trigger
+        # (migrations/20260923_paper_adviser.sql) reads it by key, and a blank
+        # value is stored as null there.
+        'adviser': ' '.join(adviser.split()),
         'year': year,
         'abstract': abstract,
         **ctx.classification_payload,
@@ -1136,6 +985,7 @@ async def upload_paper(
     title: Annotated[str, Form()],
     user: UploadUser,
     authors: Annotated[str, Form()] = '',
+    adviser: Annotated[str, Form()] = '',
     year: Annotated[str, Form()] = '',
     abstract: Annotated[str, Form()] = '',
     track: Annotated[str, Form()] = '',
@@ -1148,14 +998,14 @@ async def upload_paper(
     # Department first, metadata second, catalog last: the order the clients
     # and their tests have always observed for a request that is wrong twice.
     department = await asyncio.to_thread(resolve_effective_department, user, department)
-    _validate_metadata(title, authors, year, abstract)
+    _validate_metadata(title, authors, year, abstract, adviser=adviser)
     ctx = await _resolve_staging_context(
         user, department=department, thesis_category=thesis_category,
         program_id=program_id, specialization_id=specialization_id, track=track,
     )
     return await _stage_and_queue_one(
         ctx, file, title=title, authors=authors, year=year, abstract=abstract,
-        idempotency_key=idempotency_key,
+        idempotency_key=idempotency_key, adviser=adviser,
     )
 
 
@@ -1183,7 +1033,7 @@ def _parse_batch_rows(raw: str, *, expected: int) -> list[BatchRow]:
         rows = _ROWS_ADAPTER.validate_json(raw)
     except ValidationError as error:
         raise HTTPException(
-            422, 'rows must be a JSON list of {title, authors, year, idempotency_key} objects',
+            422, 'rows must be a JSON list of {title, authors, adviser, year, idempotency_key} objects',
         ) from error
     if len(rows) != expected:
         raise HTTPException(422, f'rows lists {len(rows)} entries for {expected} files')
@@ -1223,11 +1073,11 @@ async def _stage_batch_file(
     """
     base = {'index': index, 'filename': _batch_filename(file, index), 'idempotency_key': row.idempotency_key}
     try:
-        _validate_metadata(row.title, row.authors, row.year, '')
+        _validate_metadata(row.title, row.authors, row.year, '', adviser=row.adviser)
         ctx = await classifications.context(row.program_id, row.specialization_id)
         accepted = await _stage_and_queue_one(
             ctx, file, title=row.title, authors=row.authors, year=row.year,
-            abstract='', idempotency_key=row.idempotency_key,
+            abstract='', idempotency_key=row.idempotency_key, adviser=row.adviser,
         )
     except HTTPException as error:
         return BatchFileResult(**base, error=str(error.detail), status_code=error.status_code)
@@ -1563,6 +1413,11 @@ _METADATA_FIELDS = ('title', 'authors', 'year', 'department')
 # Gemini completion, and a page whose degree line is unrecognised must not buy
 # an AI call that cannot fill the field either.
 _ACADEMIC_FIELDS = ('program_code', 'specialization_code')
+# Read off the same title page by `_thesis_category`, and local for the same
+# reason. Single uploads only: a batch sets one category for every file (the
+# request-level thesis_category form field), so BatchExtractedFile has no
+# column for a per-file answer.
+_CATEGORY_FIELDS = ('thesis_category',)
 # Read off the front matter by `_extract_abstract`, so it sits outside
 # _METADATA_FIELDS for the same reason the program pair does: that tuple gates
 # the Gemini completion, and this field is never asked of the model. Single
@@ -1570,6 +1425,12 @@ _ACADEMIC_FIELDS = ('program_code', 'specialization_code')
 # review table has no column for one and a twenty-file reply would hand back
 # up to 200 kB of text nothing renders.
 _DESCRIPTION_FIELDS = ('abstract',)
+# Read off the front matter by `_extract_adviser`, and outside _METADATA_FIELDS
+# for the reason the program pair is: that tuple gates the Gemini completion,
+# and a manuscript that names no adviser must not buy a call that could only
+# guess one. Unlike the abstract it is one short line, so batch replies carry
+# it too.
+_ADVISER_FIELDS = ('adviser',)
 # Gemini completions a batch extraction may run at once. Bounded because the
 # pool's EXTRACT slot rotates keys reactively: a twenty-way fan-out would trip
 # the capacity cooldown on every key before the first reply came back.
@@ -1579,7 +1440,9 @@ _EXTRACT_CONCURRENCY = 3
 def _empty_metadata() -> dict[str, str]:
     return {
         field: ''
-        for field in _METADATA_FIELDS + _ACADEMIC_FIELDS + _DESCRIPTION_FIELDS
+        for field in (
+            _METADATA_FIELDS + _ACADEMIC_FIELDS + _CATEGORY_FIELDS + _ADVISER_FIELDS + _DESCRIPTION_FIELDS
+        )
     }
 
 
@@ -1648,27 +1511,30 @@ async def _read_front_matter(file: UploadFile, pages: int) -> list[str]:
 
 async def _title_pages(
     file: UploadFile, *, with_abstract: bool = False,
-) -> tuple[str, str, str]:
-    """Validate the upload and return (title-page text, first page, abstract).
+) -> tuple[str, str, str, str]:
+    """Validate the upload and return (title-page text, first page, abstract, adviser).
 
     Use the title page as the authoritative source for bibliographic fields.
     Later pages are context for Gemini, but their citation years must never be
-    mistaken for the thesis completion year -- which is why the abstract scan
-    widens the pages *read* and never the three joined into `text`. Twelve
-    pages of front matter in the prompt would put a dozen reference years in
-    front of the model that `_ai_completion` then has to reject.
+    mistaken for the thesis completion year -- which is why the front-matter
+    scan widens the pages *read* and never the three joined into `text`.
+    Twelve pages of front matter in the prompt would put a dozen reference
+    years in front of the model that `_ai_completion` then has to reject.
 
-    `with_abstract` is off by default because the batch review table has no
-    abstract column to fill, so a twenty-manuscript batch would otherwise read
-    nine extra pages apiece for a value it discards.
+    All twelve are read for every manuscript, batch included, because the
+    adviser is printed on the approval sheet and the abstract page rather than
+    the title page, and the same PDF should autofill the same adviser in the
+    wizard, in a batch and in the backfill. The extra pages are text-layer
+    reads only. `with_abstract` still gates the abstract itself, which the
+    batch review table has no column for.
     """
-    pages = _ABSTRACT_SCAN_PAGES if with_abstract else _TITLE_PAGES
-    page_texts = await _read_front_matter(file, pages)
+    page_texts = await _read_front_matter(file, _ABSTRACT_SCAN_PAGES)
     title_pages = page_texts[:_TITLE_PAGES]
     return (
         '\n'.join(title_pages),
         (title_pages[0] if title_pages else ''),
         _extract_abstract(page_texts) if with_abstract else '',
+        _extract_adviser(page_texts),
     )
 
 
@@ -1716,7 +1582,7 @@ async def _extract_one(
     programs: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Local title-page pass first; Gemini only for what it leaves blank."""
-    text, title_page_text, abstract = await _title_pages(file, with_abstract=True)
+    text, title_page_text, abstract, adviser = await _title_pages(file, with_abstract=True)
     if not text.strip():
         return {'title': '', 'authors': ''}
     if dept_names is None:
@@ -1731,9 +1597,15 @@ async def _extract_one(
     academic = _academic_codes(
         title_page_text, programs, local_data.get('department', ''),
     )
-    # The abstract rides beside both routes: it is read locally either way, and
-    # `_ai_completion` answers with the four model fields only.
-    described = {**academic, 'abstract': abstract}
+    # The abstract and the adviser ride beside both routes: they are read
+    # locally either way, and `_ai_completion` answers with the four model
+    # fields only.
+    described = {
+        # All three front-matter pages, not the title page alone: the approval
+        # sheet repeats the degree sentence, and a scanned title page has none.
+        **academic, 'thesis_category': _thesis_category(text),
+        'abstract': abstract, 'adviser': adviser,
+    }
     if all(local_data.get(field) for field in _METADATA_FIELDS):
         return {**local_data, **described}
     return {
@@ -1851,7 +1723,7 @@ def _extracted_file(index: int, filename: str, data: dict[str, str] | None = Non
                     **extra) -> BatchExtractedFile:
     fields = {
         field: str((data or {}).get(field) or '')
-        for field in _METADATA_FIELDS + _ACADEMIC_FIELDS
+        for field in _METADATA_FIELDS + _ACADEMIC_FIELDS + _ADVISER_FIELDS
     }
     return BatchExtractedFile(index=index, filename=filename, **fields, **extra)
 
@@ -1883,7 +1755,7 @@ async def extract_metadata_batch(
         filename = _batch_filename(file, index)
         try:
             # No abstract: the batch review table has no field to put one in.
-            text, title_page_text, _ = await _title_pages(file)
+            text, title_page_text, _, adviser = await _title_pages(file)
         except HTTPException as error:
             results[index] = _extracted_file(
                 index, filename, error=str(error.detail), status_code=error.status_code,
@@ -1903,7 +1775,7 @@ async def extract_metadata_batch(
         academic = _academic_codes(
             title_page_text, programs, page_data.get('department', ''),
         )
-        local_data = {**page_data, **academic}
+        local_data = {**page_data, **academic, 'adviser': adviser}
         if all(local_data.get(field) for field in _METADATA_FIELDS):
             results[index] = _extracted_file(index, filename, local_data)
             continue
@@ -1915,7 +1787,7 @@ async def extract_metadata_batch(
         async with semaphore:
             data = await _ai_completion(local_data, text, first_page, dept_names)
         # _ai_completion answers with the four model fields only; the locally
-        # matched program pair rides along beside them.
+        # matched program pair and the adviser ride along beside them.
         results[index] = _extracted_file(index, filename, {**local_data, **data})
 
     await asyncio.gather(*(complete(*entry) for entry in pending))

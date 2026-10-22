@@ -19,6 +19,7 @@
  */
 import { expect, test } from '@playwright/test'
 import { AxeBuilder } from '@axe-core/playwright'
+import { Buffer } from 'node:buffer'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
@@ -80,15 +81,17 @@ const PAPERS = [
     id: 'paper-1',
     title: 'A Centralized AI-Powered Thesis Library',
     authors: 'A. Researcher, C. Researcher',
+    // Scanned on the archive card and in admin upload history.
+    adviser: 'Dr. Liza M. Bautista',
     abstract: 'A closed-domain retrieval-augmented archive for campus research.',
     year: 2026,
-    track: 'Data Mining',
+    track: 'BSCS',
     department: 'CCSICT',
     chunk_count: 42,
     created_at: '2026-07-01T00:00:00Z',
     uploader_name: 'E2E Reviewer',
     program_id: 'program-bscs',
-    specialization_id: 'specialization-dm',
+    specialization_id: null,
     legacy_track: null,
     classification_status: 'classified',
     duplication_scan: {
@@ -123,14 +126,14 @@ const CATALOG = [{
   id: 'dept-ccsict',
   name: 'CCSICT',
   track_label: 'Program / specialization',
-  tracks: ['Data Mining', 'WMAD', 'NETSEC'],
+  tracks: ['Web and Mobile Application Development', 'Network and Security', 'BSCS'],
   created_at: '2026-01-01T00:00:00Z',
   programs: [
     {
       id: 'program-bscs',
       code: 'BSCS',
       name: 'Bachelor of Science in Computer Science',
-      specializations: [{ id: 'specialization-dm', code: 'DM', name: 'Data Mining' }],
+      specializations: [],
     },
     {
       id: 'program-bsit',
@@ -160,7 +163,7 @@ const API_FIXTURES = {
   '/analytics/overview': {
     papers: {
       total: 2,
-      per_track: { 'Data Mining': 1, 'Network Security': 1 },
+      per_track: { BSCS: 1, 'Network and Security': 1 },
       per_year: { 2025: 1, 2026: 1 },
       total_chunks: 73,
     },
@@ -211,7 +214,7 @@ const API_FIXTURES = {
     specialization_id: null,
   },
   '/papers': PAPERS,
-  '/upload/tracks': { tracks: ['Data Mining', 'Web Development', 'Network Security'] },
+  '/upload/tracks': { tracks: ['BSCS', 'Web and Mobile Application Development', 'Network and Security'] },
   '/catalog/departments/legacy': CATALOG,
   '/sessions': [{
     id: 'session-1',
@@ -220,6 +223,28 @@ const API_FIXTURES = {
     created_at: '2026-07-28T02:00:00Z',
   }],
   '/duplication/history': [{
+    id: 'capsule-1',
+    filename: 'A Smart Intruder Detection System',
+    department: 'CCSICT',
+    duplication_percentage: 50,
+    highest_similarity: 92,
+    matched_chunk_percentage: 50,
+    matched_chunk_count: 1,
+    total_chunks: 2,
+    verdict_level: 'review_suggested',
+    top_matches: [{
+      id: 'paper-1', title: 'A Centralized AI-Powered Thesis Library', authors: 'A. Researcher',
+      year: 2026, track: 'BSCS', department: 'CCSICT', match_count: 1, similarity: 92,
+    }],
+    verdict_summary: '### Capsule screening: Review suggested',
+    chat_log: [],
+    created_at: '2026-07-21T00:00:00Z',
+    capsule_sections: [
+      { key: 'title', label: 'Working title', words: 5, similarity: 92, flagged: true, basis: 'wording',
+        closest: { id: 'paper-1', title: 'A Centralized AI-Powered Thesis Library', authors: 'A. Researcher', year: 2026, track: 'BSCS' } },
+      { key: 'methodology', label: 'Methodology', words: 14, similarity: 0, flagged: false, basis: 'meaning', closest: null },
+    ],
+  }, {
     id: 'scan-1',
     filename: 'proposal.txt',
     department: 'CCSICT',
@@ -229,7 +254,11 @@ const API_FIXTURES = {
     matched_chunk_count: 2,
     total_chunks: 8,
     verdict_level: 'review_suggested',
-    top_matches: [],
+    // One match, so the report's Matches tab renders a real row when scanned.
+    top_matches: [{
+      id: 'paper-1', title: 'A Centralized AI-Powered Thesis Library', authors: 'A. Researcher',
+      year: 2026, track: 'BSCS', department: 'CCSICT', match_count: 2, similarity: 91.25,
+    }],
     verdict_summary: 'Two passages should be reviewed by faculty.',
     chat_log: [],
     created_at: '2026-07-20T00:00:00Z',
@@ -357,6 +386,43 @@ const SURFACES = [
     ready: (page) => expect(page.getByRole('heading', { name: /Novelty/, level: 1 })).toBeVisible(),
   },
   {
+    // The report card itself: summary strip, figures, and the tab strip.
+    name: 'novelty-report',
+    path: '/novelty',
+    fixture: facultyFixture,
+    ready: (page) => expect(page.getByRole('heading', { name: /Novelty/, level: 1 })).toBeVisible(),
+    prepare: async (page) => {
+      await page.getByRole('button', { name: /^proposal\.txt/ }).click()
+      await expect(page.getByRole('tab', { name: /Matches/ })).toHaveAttribute('aria-selected', 'true')
+    },
+  },
+  {
+    name: 'novelty-capsule',
+    path: '/novelty?mode=capsule',
+    fixture: facultyFixture,
+    ready: (page) => expect(page.getByRole('form', { name: 'Capsule proposal' })).toBeVisible(),
+    // The capsule report too: open the capsule scan from history.
+    prepare: async (page) => {
+      await page.getByRole('button', { name: /^A Smart Intruder Detection System/ }).click()
+      await expect(page.getByRole('list', { name: 'Capsule sections' })).toBeVisible()
+    },
+  },
+  {
+    name: 'novelty-batch',
+    path: '/novelty?mode=batch',
+    fixture: facultyFixture,
+    ready: (page) => expect(page.getByRole('radio', { name: 'Batch' })).toHaveAttribute('aria-checked', 'true'),
+    // A queued batch, so the rows, their controls, and the progress bar are
+    // scanned rather than an empty dropzone.
+    prepare: async (page) => {
+      await page.locator('input[aria-label="Choose manuscripts to scan"]').setInputFiles([
+        { name: 'first-proposal.txt', mimeType: 'text/plain', buffer: Buffer.from('First proposal.') },
+        { name: 'second-proposal.txt', mimeType: 'text/plain', buffer: Buffer.from('Second proposal.') },
+      ])
+      await expect(page.getByRole('button', { name: 'Scan 2 manuscripts' })).toBeVisible()
+    },
+  },
+  {
     name: 'upload',
     path: '/upload',
     fixture: adminFixture,
@@ -367,6 +433,24 @@ const SURFACES = [
     path: '/upload/batch',
     fixture: adminFixture,
     ready: (page) => expect(page.getByRole('heading', { name: /Batch/, level: 1 })).toBeVisible(),
+  },
+  {
+    name: 'settings-profile',
+    path: '/settings',
+    fixture: studentFixture,
+    ready: (page) => expect(page.getByRole('heading', { name: 'Basic info' })).toBeVisible(),
+  },
+  {
+    name: 'settings-chat',
+    path: '/settings?section=chat',
+    fixture: studentFixture,
+    ready: (page) => expect(page.getByRole('switch', { name: 'Press Enter to send messages' })).toBeVisible(),
+  },
+  {
+    name: 'settings-security',
+    path: '/settings?section=security',
+    fixture: studentFixture,
+    ready: (page) => expect(page.getByRole('heading', { name: 'Your devices' })).toBeVisible(),
   },
   {
     name: 'admin-overview',

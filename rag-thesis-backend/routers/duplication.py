@@ -8,19 +8,23 @@ advisers and administrators for title-defense topic validation.
 import asyncio
 import html
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 
 import fitz
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from langchain_google_genai import ChatGoogleGenerativeAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from config import settings
 from dependencies.auth import require_novelty_access, resolve_effective_department, sb
 from routers.openapi_responses import errors
 from services.activity import log_activity
-from services.chunker import split_document, validate_chunk_records
-from services.db_errors import is_invalid_identifier
+from services.chat_notices import is_capacity_error
+from services.network_retry import is_transient_network_error
+from services import capsule
+from services.capsule_extract import CapsuleFileError, docx_text, split_capsule
+from services.chunker import split_document, split_text, validate_chunk_records
+from services.db_errors import is_invalid_identifier, is_missing_column
 from services.index_provenance import retrieval_provenance_params
 from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
@@ -54,6 +58,33 @@ llm = ChatGoogleGenerativeAI(
 class DuplicationChatReq(BaseModel):
     scan_id: str = Field(..., min_length=1, max_length=64)
     question: str = Field(..., min_length=1, max_length=4000)
+
+
+class CapsuleScanReq(BaseModel):
+    """A capsule proposal: the four parts that say what the study is.
+
+    Each body section is optional, but at least one must say something, because
+    a title alone embeds too close to everything to screen. Lengths are capped
+    per section so one pasted chapter cannot turn a capsule into a manuscript.
+    """
+
+    title: str = Field(..., min_length=5, max_length=300)
+    rationale: str = Field('', max_length=6000)
+    objectives: str = Field('', max_length=6000)
+    methodology: str = Field('', max_length=6000)
+    department: Optional[str] = Field(None, max_length=64)
+
+    @model_validator(mode='after')
+    def _needs_a_body_section(self):
+        if not any(
+            len(capsule.clean_text(getattr(self, key))) >= capsule.MIN_SECTION_CHARACTERS
+            for key, _label in capsule.CAPSULE_SECTIONS[1:]
+        ):
+            raise ValueError(
+                'Add at least one of the rationale, the objectives, or the methodology '
+                f'({capsule.MIN_SECTION_CHARACTERS} characters or more).'
+            )
+        return self
 
 
 def compute_duplication_percentage(matched: int, total: int) -> float:
@@ -93,6 +124,9 @@ _PUBLIC_SCAN_FIELDS = (
     'id', 'filename', 'department', 'duplication_percentage', 'highest_similarity',
     'matched_chunk_percentage', 'matched_chunk_count', 'total_chunks',
     'verdict_level', 'top_matches', 'verdict_summary', 'chat_log', 'created_at',
+    # Null for a manuscript scan; set, a capsule proposal's per-section result.
+    # Metadata only -- the archived excerpts behind it stay in matched_chunks.
+    'capsule_sections',
 )
 
 
@@ -154,6 +188,46 @@ def _match_chunks_against_archive(
                 'archived_section': best_match.get('section'),
             })
     return match_scores, text_pairs
+
+
+async def _embed_for_scan(texts: list[str], noun: str) -> list[list[float]]:
+    """Embed a scan's texts, turning provider failures into statuses a client can act on.
+
+    Batch novelty scanning (2026-09-23) sends manuscripts back to back, and a
+    large one embeds dozens of batches, so the provider's quota is reachable
+    from these endpoints in normal use. Unhandled, it surfaced as a bare 500
+    the reviewer could not act on and the client could not tell apart from a
+    bad file. Capacity is a 503 with the pool's cooldown as Retry-After, and so
+    is any other transient provider failure (an overloaded model, a timeout,
+    a 5xx) with a shorter wait, because the same input will very likely scan a
+    moment later. Only a failure that is not transient is a 502.
+    """
+    try:
+        embeddings = await asyncio.to_thread(embed_texts, texts)
+    except Exception as error:
+        if is_capacity_error(error):
+            logger.warning('Novelty scan embedding hit provider capacity (%s)', type(error).__name__)
+            raise HTTPException(
+                503,
+                f'The embedding service has reached its usage limit. Try this {noun} again in a minute.',
+                headers={'Retry-After': str(settings.gemini_capacity_cooldown_seconds)},
+            ) from error
+        if is_transient_network_error(error):
+            logger.warning('Novelty scan embedding failed transiently (%s): %s', type(error).__name__, error)
+            raise HTTPException(
+                503,
+                f'The embedding service is temporarily unavailable. Try this {noun} again shortly.',
+                headers={'Retry-After': '20'},
+            ) from error
+        logger.exception('Novelty scan embedding failed')
+        raise HTTPException(
+            502, f'The embedding service could not process this {noun}. Try again shortly.',
+        ) from error
+    if len(embeddings) != len(texts):
+        raise HTTPException(502, 'The embedding provider returned an incomplete scan result')
+    if any(len(vector) != settings.embedding_dimensions for vector in embeddings):
+        raise HTTPException(502, 'The embedding provider returned an invalid scan result')
+    return embeddings
 
 
 def _reject_unsafe_scan_upload(file_bytes: bytes, suffix: str) -> None:
@@ -269,20 +343,30 @@ async def scan_duplication(
     chunks = [record['content'] for record in chunk_records]
     if not chunk_records:
         raise HTTPException(400, 'The document contained no clean, indexable text')
-    embeddings = await asyncio.to_thread(embed_texts, chunks)
-    if len(embeddings) != len(chunks):
-        raise HTTPException(502, 'The embedding provider returned an incomplete scan result')
-    if any(len(vector) != settings.embedding_dimensions for vector in embeddings):
-        raise HTTPException(502, 'The embedding provider returned an invalid scan result')
+    embeddings = await _embed_for_scan(chunks, 'manuscript')
 
-    # Per-chunk nearest-neighbor search at the paper's 85% threshold
-    match_scores, text_pairs = await asyncio.to_thread(
-        _match_chunks_against_archive,
-        embeddings,
-        chunk_records,
-        chunks,
-        effective_department,
-    )
+    # Per-chunk nearest-neighbor search at the paper's 85% threshold. One RPC
+    # per chunk, so a long manuscript is also the likeliest to meet a database
+    # timeout; that is a transient outage of the archive, not a fault in the file,
+    # and is a retryable 503. Anything else is a bug that would fail the same way
+    # on every retry -- after re-embedding the manuscript each time -- so it is
+    # left to surface as a 500.
+    try:
+        match_scores, text_pairs = await asyncio.to_thread(
+            _match_chunks_against_archive,
+            embeddings,
+            chunk_records,
+            chunks,
+            effective_department,
+        )
+    except Exception as error:
+        if not is_transient_network_error(error):
+            raise
+        logger.exception('Novelty scan archive search failed')
+        raise HTTPException(
+            503, 'The archive search is unavailable right now. Try this manuscript again shortly.',
+            headers={'Retry-After': '30'},
+        ) from error
 
     percentage = compute_duplication_percentage(len(match_scores), len(chunks))
     highest_similarity = percent(max((m.get('similarity', 0.0) for m in match_scores), default=0.0))
@@ -460,6 +544,249 @@ async def scan_duplication(
     return _public_scan(hist_res.data[0])
 
 
+def _closest_archived_chunks(embeddings: list[list[float]], department: str) -> list[list[dict]]:
+    """The nearest archived chunks for each capsule piece, above the display floor.
+
+    Same RPC and provenance filter as the manuscript scan, but with the capsule
+    floor rather than the duplication threshold, because a proposal's report
+    names the closest thesis even when nothing is flagged.
+    """
+    results = []
+    for emb in embeddings:
+        res = sb.rpc('match_chunks', {
+            'query_embedding': emb,
+            'match_count': 3,
+            'match_threshold': capsule.CLOSEST_FLOOR,
+            'p_department': department,
+            **retrieval_provenance_params(),
+        }).execute()
+        results.append(res.data or [])
+    return results
+
+
+def _department_papers(department: str) -> list[dict]:
+    """Archived paper metadata for one department, for the title comparison."""
+    return (
+        sb.table('papers')
+        .select('id,title,authors,year,track,department')
+        .eq('department', department)
+        # The archive lists ready papers only (routers/papers.py), and so does
+        # match_chunks; a deletion_pending or failed paper must not be named.
+        .eq('ingestion_status', 'ready')
+        .limit(5000)
+        .execute()
+    ).data or []
+
+
+@router.post('/capsule', responses=errors(422, 502, 503))
+@limiter.limit(settings.rate_limit_scan)
+async def scan_capsule(request: Request, body: CapsuleScanReq, user: NoveltyUser):
+    """Screen a capsule proposal against the archive, one section at a time.
+
+    See services/capsule.py for why a capsule is not screened as a manuscript.
+    The result is stored in scan history like any scan, so the report, the
+    metadata export, and the follow-up chat work unchanged.
+    """
+    del request  # consumed by the rate limiter
+    effective_department = await asyncio.to_thread(
+        resolve_effective_department, user, body.department,
+    )
+    threshold = settings.duplication_threshold
+
+    sections: list[capsule.SectionResult] = []
+    pieces: list[str] = []
+    owners: list[int] = []
+    for key, _label in capsule.CAPSULE_SECTIONS:
+        text = capsule.clean_text(getattr(body, key))
+        if key != 'title' and len(text) < capsule.MIN_SECTION_CHARACTERS:
+            continue
+        sections.append(capsule.SectionResult(key=key, text=text))
+        # A long section is split with the ingestion chunker, so no single
+        # embedding request exceeds the size the archive was embedded at.
+        parts = [text] if key == 'title' else (split_text(text) or [text])
+        for part in parts:
+            pieces.append(part)
+            owners.append(len(sections) - 1)
+
+    embeddings = await _embed_for_scan(pieces, 'capsule')
+    try:
+        candidates = await asyncio.to_thread(_closest_archived_chunks, embeddings, effective_department)
+    except Exception as error:
+        if not is_transient_network_error(error):
+            raise
+        logger.exception('Capsule scan archive search failed')
+        raise HTTPException(
+            503, 'The archive search is unavailable right now. Try this capsule again shortly.',
+            headers={'Retry-After': '30'},
+        ) from error
+
+    for owner, matches in zip(owners, candidates):
+        best = capsule.best_match(matches)
+        section = sections[owner]
+        if best and (best.get('similarity') or 0.0) > section.similarity:
+            section.similarity = float(best['similarity'])
+            section.paper_id = str(best['paper_id'])
+            section.archived_excerpt = _short_excerpt(best.get('content') or '')
+
+    # Titles are compared on wording as well as meaning: an embedding of eight
+    # words sits close to every thesis in one department, while two titles that
+    # share nearly every word are the plainest sign a study was already done.
+    try:
+        department_papers = await asyncio.to_thread(_department_papers, effective_department)
+    except Exception:
+        logger.exception('Capsule scan title comparison unavailable; continuing without it')
+        department_papers = []
+    title_section = sections[0]
+    title_paper, wording = await asyncio.to_thread(
+        capsule.closest_title, title_section.text, department_papers,
+    )
+    if title_paper is not None and wording > title_section.similarity:
+        title_section.similarity = wording
+        title_section.paper_id = str(title_paper['id'])
+        title_section.archived_excerpt = _short_excerpt(title_paper.get('title') or '')
+        title_section.basis = 'wording'
+
+    papers_by_id = {str(paper['id']): paper for paper in department_papers}
+    missing = sorted({s.paper_id for s in sections if s.paper_id and s.paper_id not in papers_by_id})
+    if missing:
+        fetched = await asyncio.to_thread(
+            lambda: sb.table('papers').select('id,title,authors,year,track,department')
+            .in_('id', missing).eq('ingestion_status', 'ready').execute(),
+        )
+        papers_by_id.update({str(paper['id']): paper for paper in (fetched.data or [])})
+    # A matched paper deleted mid-scan has no metadata left to show.
+    for section in sections:
+        if section.paper_id and section.paper_id not in papers_by_id:
+            section.similarity, section.paper_id, section.archived_excerpt = 0.0, None, ''
+
+    graded = capsule.grade(sections, threshold)
+    rows = capsule.public_sections(sections, papers_by_id, threshold)
+    top_matches = []
+    for pid, entry in graded['ranked_papers'][:3]:
+        paper = papers_by_id[pid]
+        top_matches.append({
+            'id': paper['id'],
+            'title': paper.get('title', ''),
+            'authors': paper.get('authors', ''),
+            'year': paper.get('year', ''),
+            'track': paper.get('track', ''),
+            'department': paper.get('department', ''),
+            'match_count': entry['count'],
+            'similarity': percent(entry['similarity']),
+        })
+    # Private, like a manuscript scan's: the follow-up chat compares the capsule
+    # with these archived excerpts, and they never reach the client. Flagged
+    # sections only, because the chat prompt presents every pair as duplicated
+    # text; a merely close section would be described as copied.
+    matched_chunks = [
+        {
+            'paper_id': section.paper_id,
+            'section': capsule.SECTION_LABELS[section.key],
+            'uploaded_text': _short_excerpt(section.text),
+            'database_text': section.archived_excerpt,
+            'similarity': percent(section.similarity),
+        }
+        for section in sections
+        if section.flagged(threshold)
+    ]
+    name = capsule.display_name(body.title)
+    history_data = {
+        'user_id': user.id,
+        'filename': name,
+        'department': effective_department,
+        'duplication_percentage': graded['duplication_percentage'],
+        'highest_similarity': graded['highest_similarity'],
+        'matched_chunk_percentage': graded['matched_chunk_percentage'],
+        'matched_chunk_count': graded['matched_chunk_count'],
+        'total_chunks': graded['total_chunks'],
+        'verdict_level': graded['verdict_level'],
+        'top_matches': top_matches,
+        'verdict_summary': capsule.summary_markdown(
+            rows, graded['verdict_level'], threshold, effective_department,
+        ),
+        'matched_chunks': matched_chunks,
+        'capsule_sections': rows,
+        'chat_log': [],
+    }
+    try:
+        hist_res = await asyncio.to_thread(
+            lambda: sb.table('scan_history').insert(history_data).execute()
+        )
+    except Exception as error:
+        if is_missing_column(error):
+            logger.error('scan_history.capsule_sections is missing; apply 20260923_scan_history_capsule.sql')
+            raise HTTPException(
+                503, 'Capsule screening is not set up on this server yet: a database migration is pending.',
+            ) from error
+        raise
+
+    await asyncio.to_thread(log_activity, user.id, 'capsule_scan', {
+        'filename': name,
+        'sections': graded['total_chunks'],
+        'flagged_sections': graded['matched_chunk_count'],
+        'highest_similarity': graded['highest_similarity'],
+        'verdict_level': graded['verdict_level'],
+    })
+    if not hist_res.data:
+        logger.error('Capsule scan was stored but PostgREST returned no representation')
+        raise HTTPException(
+            502,
+            'The scan completed and was saved, but its identifier could not be read '
+            'back. Open it from the scan history to ask follow-up questions.',
+        )
+    return _public_scan(hist_res.data[0])
+
+
+_CAPSULE_FILE_TYPES = {'pdf', 'txt', 'docx'}
+
+
+def _capsule_text(file_bytes: bytes, suffix: str, filename: str) -> str:
+    """The plain text of an uploaded capsule, whatever format it came in."""
+    if suffix == 'docx':
+        return docx_text(file_bytes)
+    return extract_document(file_bytes, filename).text
+
+
+@router.post('/capsule/extract', responses=errors(413, 415, 422, 503))
+@limiter.limit(settings.rate_limit_upload)
+async def extract_capsule(
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    user: NoveltyUser,
+):
+    """Read an uploaded capsule into its four sections, for the form to review.
+
+    Nothing is screened, stored, or sent to a model: the reply only fills the
+    capsule form, which the reviewer checks before POST /duplication/capsule.
+    The file gets the scan endpoint's checks -- size, type, the PDF structure
+    checks, and the malware scan -- because it is the same kind of upload.
+    """
+    del request, user  # the limiter and the access guard consume them
+    limit = settings.max_upload_mb * 1024 * 1024
+    file_bytes = await file.read(limit + 1)
+    if len(file_bytes) > limit:
+        raise HTTPException(413, f'File exceeds the {settings.max_upload_mb} MB limit')
+    filename = file.filename or ''
+    suffix = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+    if suffix not in _CAPSULE_FILE_TYPES:
+        raise HTTPException(415, 'Upload the capsule as a PDF, a Word (.docx) document, or a text file.')
+    if suffix == 'pdf' and not file_bytes.startswith(b'%PDF-'):
+        raise HTTPException(422, 'File content is not a valid PDF')
+    if suffix == 'docx' and not file_bytes.startswith(b'PK'):
+        raise HTTPException(422, 'File content is not a valid Word document')
+    await asyncio.to_thread(_reject_unsafe_scan_upload, file_bytes, suffix)
+    try:
+        text = await asyncio.to_thread(_capsule_text, file_bytes, suffix, filename)
+    except CapsuleFileError as error:
+        raise HTTPException(422, str(error)) from error
+    except Exception as error:
+        logger.exception('Capsule file extraction failed')
+        raise HTTPException(422, 'The capsule could not be read.') from error
+    if not text.strip():
+        raise HTTPException(422, 'No text could be read from this capsule.')
+    return await asyncio.to_thread(split_capsule, text)
+
+
 @router.post('/chat', responses=errors(404, 502))
 @limiter.limit(settings.rate_limit_followup)
 def duplication_chat(
@@ -549,20 +876,47 @@ AI:
     return {'answer': answer, 'chat_log': chat_log}
 
 
+# Most recent first, and bounded. The read had no limit, and every row carries
+# its full verdict write-up and chat log, so the reply grew with each scan a
+# reviewer ever ran -- batch scanning (2026-09-23) made ten at a time routine.
+# The panel that renders it shows recent work; older scans stay stored and can
+# still be deleted, since both deletions are owner-scoped rather than
+# list-scoped.
+HISTORY_LIMIT = 50
+HISTORY_LIMIT_MAX = 100
+
+
 @router.get('/history')
-def get_history(user: NoveltyUser):
+def get_history(
+    user: NoveltyUser,
+    limit: Annotated[int, Query(ge=1, le=HISTORY_LIMIT_MAX)] = HISTORY_LIMIT,
+):
     fields = (
         'id,user_id,filename,department,duplication_percentage,highest_similarity,'
         'matched_chunk_percentage,matched_chunk_count,total_chunks,verdict_level,'
         'top_matches,verdict_summary,chat_log,created_at'
     )
-    res = (
-        sb.table('scan_history')
-        .select(fields)
-        .eq('user_id', user.id)
-        .order('created_at', desc=True)
-        .execute()
-    )
+
+    def read(columns: str):
+        return (
+            sb.table('scan_history')
+            .select(columns)
+            .eq('user_id', user.id)
+            .order('created_at', desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+    try:
+        res = read(f'{fields},capsule_sections')
+    except Exception as error:
+        # A project without 20260923_scan_history_capsule.sql still has every
+        # manuscript scan; losing the whole history over a column only capsule
+        # scans use would be the worse failure.
+        if not is_missing_column(error):
+            raise
+        logger.warning('scan_history.capsule_sections unavailable; serving history without it.')
+        res = read(fields)
     return res.data or []
 
 

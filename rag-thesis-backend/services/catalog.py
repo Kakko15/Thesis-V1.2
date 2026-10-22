@@ -4,13 +4,23 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException
 
-LEGACY_CLASSIFICATIONS = {
-    'Data Mining': ('BSCS', 'DM'),
+# A None specialization code means the legacy track maps onto the program
+# itself. BSCS stopped offering Data Mining as a specialization on 2026-09-23
+# (migrations/20260923_bscs_without_specialization.sql), so a pre-catalog
+# 'Data Mining' paper now classifies as plain BSCS.
+LEGACY_CLASSIFICATIONS: dict[str, tuple[str, str | None]] = {
+    'Data Mining': ('BSCS', None),
     'Web Development': ('BSIT', 'WMAD'),
     'Network Security': ('BSIT', 'NETSEC'),
 }
 AMBIGUOUS_LEGACY_TRACKS = {'Intelligent Systems', 'Information Management'}
-SPECIALIZATION_REQUIRED_PROGRAMS = {'BSCS', 'BSIT'}
+# Whether a program takes a specialization is read from the catalog, not a
+# list of codes: it does exactly when it has an active one. That is the rule
+# the upload form already applies (lib/catalog.js, requires_specialization),
+# and the validate_academic_classification trigger applies it too since
+# 20260923_bscs_without_specialization.sql. A hardcoded list disagreed with
+# both the moment a superadmin added or re-activated a major through the
+# catalog API: the form then demanded one and the server refused it.
 
 # Authorship provenance of a manuscript. Deliberately unrelated to
 # profiles.role, which also has a 'faculty' value: the category classifies
@@ -72,6 +82,11 @@ def resolve_academic_selection(
             .eq('department_id', department['id']).eq('code', program_code).eq('active', True),
             'The legacy track program is unavailable.',
         )
+        if specialization_code is None:
+            return AcademicSelection(
+                str(department['id']), str(program['id']), None,
+                str(program['code']), normalized_track, 'classified',
+            )
         specialization = _single(
             client.table('specializations').select('id,code,name,program_id,active')
             .eq('program_id', program['id']).eq('code', specialization_code).eq('active', True),
@@ -103,10 +118,14 @@ def resolve_academic_selection(
             .eq('id', specialization_id).eq('program_id', program['id']).eq('active', True),
             'Specialization does not belong to the selected program or is archived.',
         )
-    if program['code'] in SPECIALIZATION_REQUIRED_PROGRAMS and not specialization:
-        raise HTTPException(422, f"{program['code']} requires a valid specialization.")
-    if program['code'] not in SPECIALIZATION_REQUIRED_PROGRAMS and specialization:
-        raise HTTPException(422, f"{program['code']} does not accept a specialization.")
+    if specialization is None:
+        offered = (
+            client.table('specializations').select('id')
+            .eq('program_id', program['id']).eq('active', True)
+            .limit(1).execute().data
+        )
+        if offered:
+            raise HTTPException(422, f"{program['code']} requires a valid specialization.")
     display = str(specialization['name']) if specialization else str(program['code'])
     return AcademicSelection(
         str(department['id']), str(program['id']),

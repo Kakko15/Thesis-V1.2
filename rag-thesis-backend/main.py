@@ -197,7 +197,10 @@ app.add_middleware(
     allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allow_headers=['Authorization', 'Content-Type', 'X-Guest-ID', 'Idempotency-Key', 'X-Turnstile-Token'],
     # The guest-chat guard signals "solve the challenge" via this header.
-    expose_headers=['X-Guest-Verification'],
+    # Retry-After is not CORS-safelisted, so without it a cross-origin client
+    # reading a 429 or a novelty scan's 503 sees no wait and falls back to a
+    # guess; a batch scan then burns its retries inside the provider cooldown.
+    expose_headers=['X-Guest-Verification', 'Retry-After'],
 )
 
 

@@ -259,6 +259,13 @@ alter table public.papers add column if not exists redaction_stats jsonb not nul
 -- backfill to 'student' (the pre-2026-08 corpus is exclusively undergraduate
 -- work per proposal Section 1.3).
 alter table public.papers add column if not exists thesis_category text not null default 'student';
+-- The thesis adviser as printed in the manuscript, for the Thesis Library.
+-- Nullable: optional at upload, and papers indexed before
+-- migrations/20260923_paper_adviser.sql stay null until
+-- scripts/backfill_paper_advisers.py reads it from their archived PDF. That
+-- migration also installs the trigger that fills it at ingestion; this file
+-- carries the column only, as it does for the catalog columns.
+alter table public.papers add column if not exists adviser text;
 update public.papers set active_index_version = gen_random_uuid() where active_index_version is null;
 alter table public.papers alter column active_index_version set not null;
 alter table public.papers alter column active_index_version set default gen_random_uuid();
@@ -714,6 +721,10 @@ alter table public.scan_history add column if not exists matched_chunk_percentag
 alter table public.scan_history add column if not exists matched_chunk_count integer not null default 0;
 alter table public.scan_history add column if not exists total_chunks integer not null default 0;
 alter table public.scan_history add column if not exists verdict_level text not null default 'clear';
+-- A capsule proposal's per-section result (routers/duplication.py::scan_capsule);
+-- null for a manuscript scan. Metadata only: section, similarity, and the
+-- closest archived thesis's title -- never archived text.
+alter table public.scan_history add column if not exists capsule_sections jsonb;
 do $$
 begin
   if not exists (

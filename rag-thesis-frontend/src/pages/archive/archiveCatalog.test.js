@@ -2,11 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   SORT_OPTIONS,
+  archiveAdvisers,
   archiveYears,
   filterArchivePapers,
   resolveArchivePrograms,
   resolveArchiveTracks,
   sortArchivePapers,
+  trackDisplayLabel,
+  trackDisplayLabels,
 } from './archiveFilters.js'
 
 const papers = [
@@ -110,6 +113,22 @@ test('normalized catalog options remain department-owned', () => {
   })
 })
 
+test('with no department selected the program and its majors stay separate pickers', () => {
+  const departments = [
+    { name: 'CCSICT', programs: [
+      { id: 'bscs', code: 'BSCS', specializations: [] },
+      { id: 'bsit', code: 'BSIT', specializations: [{ id: 'netsec', code: 'NETSEC' }, { id: 'wmad', code: 'WMAD' }] },
+    ] },
+    { name: 'CAS', programs: [{ id: 'bsbio', code: 'BSBIO', specializations: [] }] },
+    { name: 'LEGACY' },
+  ]
+  const unscoped = resolveArchivePrograms({ departments, selectedDepartment: '' })
+  assert.deepEqual(unscoped.programs.map((program) => program.code), ['BSCS', 'BSIT', 'BSBIO'])
+  assert.deepEqual(unscoped.specializations, [])
+  const bsit = resolveArchivePrograms({ departments, selectedDepartment: '', programId: 'bsit' })
+  assert.deepEqual(bsit.specializations.map((item) => item.code), ['NETSEC', 'WMAD'])
+})
+
 test('sortArchivePapers orders papers deterministically by multiple criteria', () => {
   const dataset = [
     { id: '1', title: 'Banana AI', year: 2024, created_at: '2024-01-01T00:00:00Z', authors: 'Alice', abstract: 'Deep learning' },
@@ -136,4 +155,88 @@ test('sortArchivePapers orders papers deterministically by multiple criteria', (
   assert.deepEqual(sortArchivePapers([], 'newest'), [])
   assert.deepEqual(sortArchivePapers(null, 'newest'), [])
   assert.ok(SORT_OPTIONS.length >= 5)
+})
+
+test('the archive search finds a thesis by its adviser and ranks that between authors and abstract', () => {
+  const advised = [
+    { id: 'abstract', title: 'Study A', abstract: 'Reviewed by Bautista', created_at: '2026-03-01' },
+    { id: 'adviser', title: 'Study B', adviser: 'Dr. Liza M. Bautista', created_at: '2026-02-01' },
+    { id: 'author', title: 'Study C', authors: 'Bautista, R.', created_at: '2026-01-01' },
+    { id: 'unrelated', title: 'Study D', created_at: '2026-04-01' },
+  ]
+  const matched = filterArchivePapers(advised, { query: 'bautista' })
+  assert.deepEqual(matched.map((paper) => paper.id).sort(), ['abstract', 'adviser', 'author'])
+  assert.deepEqual(
+    sortArchivePapers(matched, 'relevance', 'bautista').map((paper) => paper.id),
+    ['author', 'adviser', 'abstract'],
+  )
+  // Papers indexed before the adviser was recorded carry none, and still filter.
+  assert.deepEqual(filterArchivePapers(papers, { query: 'network' }).map((paper) => paper.id), ['2'])
+})
+
+test('track labels name the program, and the specialization only when it distinguishes', () => {
+  const labels = trackDisplayLabels([{
+    name: 'CCSICT',
+    programs: [
+      { code: 'BSCS', specializations: [{ code: 'DM', name: 'Data Mining' }] },
+      {
+        code: 'BSIT',
+        specializations: [
+          { code: 'NETSEC', name: 'Network and Security' },
+          { code: 'WMAD', name: 'Web and Mobile Application Development' },
+        ],
+      },
+      { code: 'BSIS', specializations: [] },
+    ],
+  }])
+  assert.equal(trackDisplayLabel(labels, 'Data Mining'), 'BSCS')
+  assert.equal(trackDisplayLabel(labels, 'Network and Security'), 'BSIT (NETSEC)')
+  assert.equal(trackDisplayLabel(labels, 'Web and Mobile Application Development'), 'BSIT (WMAD)')
+  // Program codes are already their own label, and an unknown value passes through.
+  assert.equal(trackDisplayLabel(labels, 'BSIS'), 'BSIS')
+  assert.equal(trackDisplayLabel(labels, 'Legacy Track'), 'Legacy Track')
+  assert.equal(trackDisplayLabel(undefined, ''), '')
+})
+
+test('the adviser filter lists recorded advisers once and matches them exactly', () => {
+  const advised = [
+    null,
+    { id: 'a', adviser: 'Albert A. Vinluan, DIT' },
+    { id: 'b', adviser: ' Albert A. Vinluan, DIT ' },
+    { id: 'c', adviser: 'Maria Santos' },
+    { id: 'd', adviser: null },
+  ]
+  assert.deepEqual(archiveAdvisers(advised), ['Albert A. Vinluan, DIT', 'Maria Santos'])
+  assert.deepEqual(
+    filterArchivePapers(advised, { adviser: 'Albert A. Vinluan, DIT' }).map((paper) => paper.id),
+    ['a', 'b'],
+  )
+  assert.deepEqual(filterArchivePapers(advised, { adviser: '' }).map((paper) => paper.id), ['a', 'b', 'c', 'd'])
+})
+
+test('a program filter also finds pre-catalog papers by the track they carry', () => {
+  const programs = [
+    { id: 'bscs', code: 'BSCS', specializations: [] },
+    { id: 'bsit', code: 'BSIT', specializations: [
+      { id: 'wmad', code: 'WMAD', name: 'Web and Mobile Application Development' },
+      { id: 'netsec', code: 'NETSEC', name: 'Network and Security' },
+    ] },
+  ]
+  const rows = [
+    { id: 'catalogued', program_id: 'bsit', specialization_id: 'wmad', track: 'Web and Mobile Application Development' },
+    { id: 'legacy-name', program_id: null, track: 'Web Development' },
+    { id: 'catalog-name', program_id: null, track: 'Network and Security' },
+    { id: 'restamped', program_id: null, track: 'BSCS' },
+    { id: 'legacy-dm', program_id: null, track: 'Data Mining' },
+    { id: 'unclassified', program_id: null, track: 'Intelligent Systems' },
+    // A catalogued paper is matched on its id alone, never on its text.
+    { id: 'other-program', program_id: 'bscs', track: 'Web Development' },
+  ]
+  const ids = (filters) => filterArchivePapers(rows, filters, programs).map((paper) => paper.id)
+  assert.deepEqual(ids({ program_id: 'bsit' }), ['catalogued', 'legacy-name', 'catalog-name'])
+  assert.deepEqual(ids({ program_id: 'bsit', specialization_id: 'wmad' }), ['catalogued', 'legacy-name'])
+  assert.deepEqual(ids({ program_id: 'bsit', specialization_id: 'netsec' }), ['catalog-name'])
+  assert.deepEqual(ids({ program_id: 'bscs' }), ['restamped', 'legacy-dm', 'other-program'])
+  // Without the catalog to read, only ids match, as before.
+  assert.deepEqual(filterArchivePapers(rows, { program_id: 'bsit' }).map((paper) => paper.id), ['catalogued'])
 })

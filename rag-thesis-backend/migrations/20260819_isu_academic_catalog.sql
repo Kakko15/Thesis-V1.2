@@ -14,10 +14,11 @@
 --   update public.departments set active = true where code = 'CA';
 --
 -- rather than a three-table cascade. See the activation checklist in the
--- README (Institutional catalog) before flipping one on: programs carrying
--- specializations additionally need services/catalog.py
--- SPECIALIZATION_REQUIRED_PROGRAMS and the validate_academic_classification
--- trigger from 20260725 widened beyond BSCS/BSIT.
+-- README (Institutional catalog) before flipping one on. (Programs carrying
+-- specializations used to need services/catalog.py and the
+-- validate_academic_classification trigger widened beyond BSCS/BSIT; since
+-- 20260923_bscs_without_specialization.sql both read the rule from the
+-- catalog instead.)
 --
 -- Additive and idempotent. Never deletes and never changes an existing
 -- department's `active` state, so a college someone already turned on stays on.

@@ -1,5 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { BookMarked, Trash2, Library, Lock, X, ShieldAlert, AlertTriangle } from 'lucide-react'
+import {
+  BookOpen, ChevronRight, GraduationCap, Trash2, Library, Lock, X, ShieldAlert, AlertTriangle, Users,
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Badge } from '../components/ui/Badge'
@@ -19,6 +21,7 @@ import { isFacultyThesis, thesisCategoryLabel } from '../lib/catalog'
 import { slotKeys } from '../lib/keys'
 import { useArchiveCatalog } from './archive/useArchiveCatalog'
 import { ArchiveFiltersBar } from './archive/ArchiveFiltersBar'
+import { trackDisplayLabel } from './archive/archiveFilters'
 
 const ARCHIVE_SKELETONS = slotKeys(6, 'archive-card')
 
@@ -79,21 +82,24 @@ const METER_TEXT = {
  * Concentration and not coverage, for the reason `scanMetrics` gives at
  * length: coverage saturates toward 100% for every thesis as a one-department
  * archive grows, so a bar of it would sit full for everyone and mean nothing.
+ *
+ * Only the two band marks are labelled. The track already runs low to high,
+ * so "Clear" and "High overlap" under its ends restated the verdict heading
+ * the panel opens with.
  */
-function ConcentrationMeter({ value, tone, caption }) {
+function ConcentrationMeter({ value, tone }) {
   const pct = Math.min(100, Math.max(0, value))
   return (
     <div className="mt-3">
-      <div className="flex flex-wrap items-baseline gap-x-2">
+      <div className="flex items-baseline gap-2">
         <span className={cn('font-display text-3xl font-extrabold leading-none tabular-nums', METER_TEXT[tone])}>
           {pct.toFixed(1)}%
         </span>
-        <span className="text-ink-muted">of this thesis points at one archived thesis</span>
+        <span className="text-ink-muted">closest to one archived thesis</span>
       </div>
-      {/* aria-hidden throughout: the track restates the number above it and the
-          band labels restate the verdict beside it, so announcing either again
-          is noise to a reader who has already heard both. */}
-      <div className="relative mt-2.5 h-2 rounded-full bg-[var(--border)]" aria-hidden="true">
+      {/* aria-hidden throughout: the track restates the number above it, so
+          announcing it again is noise to a reader who has already heard it. */}
+      <div className="relative mt-2.5 h-1.5 rounded-full bg-[var(--border)]" aria-hidden="true">
         <div
           className={cn('absolute inset-y-0 left-0 rounded-full', METER_FILL[tone])}
           style={{ width: `${pct}%` }}
@@ -101,18 +107,15 @@ function ConcentrationMeter({ value, tone, caption }) {
         {[REVIEW_MARK, HIGH_OVERLAP_MARK].map((mark) => (
           <div
             key={mark}
-            className="absolute inset-y-0 w-0.5 bg-white/80 dark:bg-black/50"
+            className="absolute -inset-y-0.5 w-0.5 rounded-full bg-ink-faint/50"
             style={{ left: `${mark}%` }}
           />
         ))}
       </div>
-      <div className="relative mt-1 h-3.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint" aria-hidden="true">
-        <span className="absolute left-0">Clear</span>
+      <div className="relative mt-1 h-3 text-[10px] font-semibold tabular-nums text-ink-faint" aria-hidden="true">
         <span className="absolute -translate-x-1/2" style={{ left: `${REVIEW_MARK}%` }}>{REVIEW_MARK}%</span>
         <span className="absolute -translate-x-1/2" style={{ left: `${HIGH_OVERLAP_MARK}%` }}>{HIGH_OVERLAP_MARK}%</span>
-        <span className="absolute right-0">High overlap</span>
       </div>
-      {caption && <div className="mt-1.5 text-ink-faint">{caption}</div>}
     </div>
   )
 }
@@ -121,42 +124,37 @@ function ConcentrationMeter({ value, tone, caption }) {
  * The archived theses a screening matched, ranked, each as a share of this
  * thesis's passages.
  *
- * The share is the meter's quantity per paper: "22 of 27 passages" is what
- * makes a total legible, and a row of bars shows at a glance whether one
- * thesis accounts for the verdict or several split it. Only the leader is
- * painted in the verdict's colour, because colouring all of them would say
- * every match is as serious as the one that set the grade.
+ * A row of bars shows at a glance whether one thesis accounts for the verdict
+ * or several split it. Only the leader is painted in the verdict's colour,
+ * because colouring all of them would say every match is as serious as the one
+ * that set the grade. The per-paper counts ("11 of 27 passages", closest
+ * passage) live in the row's tooltip: printed under every title they doubled
+ * the panel's height and repeated the closest-passage figure the footnote
+ * already gives.
  */
 function MatchedTheses({ papers, totalChunks, tone }) {
   if (!papers.length) return null
   return (
-    <ul className="mt-3 space-y-1.5">
+    <ul className="mt-3 space-y-2.5">
       {papers.map((paper, index) => {
         const matched = Number(paper.match_count) || 0
         const share = totalChunks ? Math.min(100, (matched / totalChunks) * 100) : 0
+        const closest = normalizePercent(paper.similarity)
+        const title = `${paper.title || 'Untitled thesis'}${paper.year ? ` (${paper.year})` : ''}`
+        const detail = [
+          matched ? `${matched} of ${totalChunks} passages` : '',
+          `closest passage ${closest.toFixed(2)}%`,
+        ].filter(Boolean).join(' · ')
         return (
-          <li
-            key={paper.id}
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/60 px-2.5 py-2"
-          >
-            <div className="flex items-start gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="line-clamp-2 font-semibold">
-                  {paper.title || 'Untitled thesis'}{paper.year ? ` (${paper.year})` : ''}
-                </div>
-                <div className="mt-0.5 text-ink-muted">
-                  {matched ? `${matched} of ${totalChunks} passages · ` : ''}
-                  closest passage {normalizePercent(paper.similarity).toFixed(2)}%
-                </div>
-              </div>
-              {share > 0 && (
-                <span className="shrink-0 font-display text-sm font-extrabold tabular-nums">
-                  {share.toFixed(0)}%
-                </span>
-              )}
+          <li key={paper.id} title={`${title} — ${detail}`}>
+            <div className="flex items-baseline gap-3">
+              <span className="min-w-0 flex-1 truncate font-medium text-ink">{title}</span>
+              <span className="shrink-0 font-semibold tabular-nums text-ink-muted">
+                {(share > 0 ? share : closest).toFixed(0)}%
+              </span>
             </div>
             {share > 0 && (
-              <div className="mt-1.5 h-1 rounded-full bg-[var(--border)]" aria-hidden="true">
+              <div className="mt-1 h-1 rounded-full bg-[var(--border)]" aria-hidden="true">
                 <div
                   className={cn('h-1 rounded-full', index === 0 ? METER_FILL[tone] : 'bg-ink-faint/40')}
                   style={{ width: `${share}%` }}
@@ -171,31 +169,24 @@ function MatchedTheses({ papers, totalChunks, tone }) {
 }
 
 /**
- * The supporting figures, deliberately below the meter and all at one weight.
+ * The supporting figures and the run's date, as one quiet line.
  *
- * These are the numbers a reviewer asks for second. Coverage stays, because it
- * is what the earlier records and the paper's tables report, but it is
- * labelled for what it is: on its own it reads as an accusation, since a
- * thesis can match something everywhere and still have no single archived
- * thesis accounting for a tenth of it.
+ * These are the numbers a reviewer asks for second, so they no longer get a
+ * four-cell grid of their own. "18/27 passages ≥ 85% similar" carries the
+ * matched count, the coverage it implies, and the threshold in one phrase.
+ * Coverage is spelled out as a percentage only when a stored record has no
+ * chunk counts to show it as a fraction (see scanMetrics).
  */
-function ScreeningFigures({ metrics, threshold }) {
-  const figures = [
-    ['Closest passage', `${metrics.highest.toFixed(2)}%`],
-    ['Matched anywhere', `${metrics.coverage.toFixed(2)}%`],
-    ['Matched passages', `${metrics.matchedChunks} / ${metrics.totalChunks}`],
-    ['Match threshold', `${normalizePercent(threshold).toFixed(2)}%`],
-  ]
-  return (
-    <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-[var(--border)] pt-2.5 sm:grid-cols-4">
-      {figures.map(([label, value]) => (
-        <div key={label}>
-          <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{label}</dt>
-          <dd className="font-semibold tabular-nums text-ink-muted">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  )
+function ScreeningFootnote({ metrics, threshold, caption }) {
+  const matched = metrics.totalChunks
+    ? `${metrics.matchedChunks}/${metrics.totalChunks} passages`
+    : `${metrics.coverage.toFixed(2)}% of passages`
+  const parts = [
+    caption,
+    `${matched} ≥ ${normalizePercent(threshold).toFixed(0)}% similar`,
+    `closest ${metrics.highest.toFixed(2)}%`,
+  ].filter(Boolean)
+  return <p className="mt-3 text-ink-faint">{parts.join(' · ')}</p>
 }
 
 /**
@@ -212,26 +203,25 @@ function ScreeningRun({ screening, when, tone }) {
   const against = archiveSizeLabel(screening)
   const caption = [when ? formatDate(when) : '', against].filter(Boolean).join(' · ')
   if (metrics.matchedChunks === 0) {
-    /* A run that matched nothing has no figures worth four cells of zeros.
-       This is the normal shape of an early upload's record: the archive it was
-       screened against did not yet hold anything it resembles. */
+    /* A run that matched nothing has no figures worth drawing. This is the
+       normal shape of an early upload's record: the archive it was screened
+       against did not yet hold anything it resembles. */
     return (
-      <div className="mt-2 text-ink-muted">
-        No passage reached the {normalizePercent(screening.threshold).toFixed(2)}% threshold
-        {metrics.totalChunks ? ` across all ${metrics.totalChunks} passages.` : '.'}
-        {caption ? ` (${caption})` : ''}
-      </div>
+      <p className="mt-2 text-ink-muted">
+        No passage reached {normalizePercent(screening.threshold).toFixed(0)}% similarity
+        {caption ? ` (${caption})` : ''}.
+      </p>
     )
   }
   return (
     <>
-      <ConcentrationMeter value={metrics.concentration} tone={tone} caption={caption} />
+      <ConcentrationMeter value={metrics.concentration} tone={tone} />
       <MatchedTheses
         papers={screening.matched_papers || []}
         totalChunks={metrics.totalChunks}
         tone={tone}
       />
-      <ScreeningFigures metrics={metrics} threshold={screening.threshold} />
+      <ScreeningFootnote metrics={metrics} threshold={screening.threshold} caption={caption} />
     </>
   )
 }
@@ -260,11 +250,13 @@ function ScreeningDetail({ scan, indexedAt }) {
         'mt-1.5 rounded-xl border px-4 py-3.5 text-xs leading-relaxed',
         SCREENING_SURFACE[tone] ?? SCREENING_SURFACE.neutral,
       )}>
-        <div className="flex items-center gap-1.5 text-sm font-semibold">
+        {/* The explanation sentence rides on the heading as a tooltip rather
+            than a paragraph: the meter below already shows where the figure
+            falls between the bands, which is what the sentence described. */}
+        <div className="flex items-center gap-1.5 text-sm font-semibold" title={verdictExplanation(metrics.verdict)}>
           <ShieldAlert size={14} className={cn('shrink-0', SCREENING_ICON[tone] ?? SCREENING_ICON.neutral)} />
           {verdictLabel(metrics.verdict)}
         </div>
-        <p className="mt-1.5 text-ink-muted">{verdictExplanation(metrics.verdict)}</p>
         <ScreeningRun
           screening={current}
           when={current.screened_at || (rescanned ? null : indexedAt)}
@@ -274,11 +266,10 @@ function ScreeningDetail({ scan, indexedAt }) {
           <details className="group mt-3 border-t border-[var(--border)] pt-2.5">
             <summary className="cursor-pointer list-none font-semibold text-ink-muted marker:content-none hover:text-ink">
               <span className="inline-block transition-transform group-open:rotate-90">&#9656;</span>{' '}
-              What the screening saw at upload{uploadDate ? ` · ${formatDate(uploadDate)}` : ''}
+              At upload{uploadDate ? ` · ${formatDate(uploadDate)}` : ''}
             </summary>
             <p className="mt-1.5 text-ink-faint">
-              Screening runs once when a thesis is uploaded, so it only sees what was already in
-              the archive. The recheck above compares against everything indexed since.
+              Compared only against theses already in the archive at the time.
             </p>
             <ScreeningRun
               screening={atUpload}
@@ -289,8 +280,7 @@ function ScreeningDetail({ scan, indexedAt }) {
         )}
         {rescanned && unchanged && (
           <p className="mt-3 border-t border-[var(--border)] pt-2.5 text-ink-faint">
-            Unchanged since this thesis was uploaded on {formatDate(uploadDate)} — it was indexed
-            late enough to have already seen the whole archive.
+            Unchanged since upload on {formatDate(uploadDate)}.
           </p>
         )}
       </div>
@@ -298,9 +288,27 @@ function ScreeningDetail({ scan, indexedAt }) {
   )
 }
 
-function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
+/**
+ * One archived thesis, laid out as a Material 3 outlined card.
+ *
+ * Read top to bottom: what kind of study it is (track, year, college), its
+ * title, who wrote and advised it, then only the signals worth a reader's
+ * attention -- a screening verdict, a faculty provenance mark. The earlier card
+ * led with a decorative icon tile and ended in a row of five equal-weight
+ * chips, so the year and the college competed with the verdict for the eye.
+ * Here the classification is a quiet overline and the chips that remain each
+ * mean something.
+ */
+function PaperCard({ paper, isAdmin, onDelete, onOpen, trackLabels }) {
   // The badge must agree with the panel, so both read the current screening.
   const screening = scanMetrics(currentScreening(paper.duplication_scan))
+  const faculty = isFacultyThesis(paper)
+  const flagged = isScreeningFlagged(paper.duplication_scan)
+  const overline = trackDisplayLabel(trackLabels, paper.track) || (faculty ? thesisCategoryLabel(paper.thesis_category) : 'Thesis')
+  // A faculty paper with no track already says so in its overline; the gold
+  // chip is only for when the overline is naming something else.
+  const facultyChip = faculty && Boolean(paper.track)
+  const meta = [paper.year, paper.department].filter(Boolean).join(' · ')
   return (
     <>
       {/* R9: this card used to be role="button" with tabIndex={0} while
@@ -310,72 +318,124 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen }) {
           the keyboard and AT path, and the delete button is its sibling rather
           than its descendant. The onClick here survives only as a mouse
           convenience for the wider hit area — it exposes no role, so nothing is
-          announced twice. */}
-      <GlassCard
-        hover
-        className="group flex h-full cursor-pointer flex-col p-5 active:scale-[0.98] transition-all duration-200 touch-manipulation"
+          announced twice.
+
+          Material 3 interaction states rather than a lift: the state layer
+          tints the surface on hover and press, elevation rises one level, and
+          keyboard focus inside the card rings the whole card, not just the
+          title text. */}
+      <div
+        className={cn(
+          'state-layer group flex h-full cursor-pointer flex-col rounded-2xl border p-4 sm:p-5 touch-manipulation',
+          // Lighter than the page in light mode, as an outlined card sits; in
+          // dark mode the page is the darkest tone, so the card steps up one.
+          'border-[var(--border)] bg-[var(--surface-0)] text-ink dark:bg-[var(--surface-1)]',
+          'transition-[box-shadow,border-color] duration-200',
+          'hover:border-transparent hover:shadow-[0_1px_2px_rgb(0_0_0/0.3),0_2px_6px_2px_rgb(0_0_0/0.15)]',
+          'has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--ring)]',
+        )}
         onClick={() => onOpen(paper)}
       >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800 shadow-md">
-            <BookMarked size={16} className="text-gold-300" />
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--primary-container)] text-[var(--primary-container-foreground)]"
+          >
+            <BookOpen size={16} />
+          </span>
+          <div className="min-w-0 flex-1 pt-0.5">
+            <p className="truncate text-xs font-semibold tracking-wide text-[var(--primary)]" title={overline}>
+              {overline}
+            </p>
+            {meta && <p className="mt-0.5 text-xs text-ink-muted">{meta}</p>}
           </div>
           {isAdmin && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onDelete(paper) }}
               aria-label={`Delete ${paper.title}`}
-              className="rounded-lg p-1.5 text-flame-500 opacity-0 transition-opacity hover:bg-flame-500/10 group-hover:opacity-70 hover:!opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-flame-500"
+              className="-mr-1.5 -mt-1.5 flex size-9 shrink-0 items-center justify-center rounded-full text-ink-muted opacity-0 transition hover:bg-flame-500/10 hover:text-flame-600 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none pointer-coarse:opacity-100 dark:hover:text-flame-200"
             >
-              <Trash2 size={15} />
+              <Trash2 size={16} />
             </button>
           )}
         </div>
         {/* h2: the card titles are the first headings under the page h1. */}
-        <h2 className="font-display mt-3.5 text-sm font-bold leading-snug">
+        <h2 className="font-display mt-3.5 text-[0.95rem] font-semibold leading-snug">
           {/* The visible title is contained in the accessible name, so the
-              longer label satisfies WCAG 2.5.3 Label in Name. */}
+              longer label satisfies WCAG 2.5.3 Label in Name. Its focus is
+              shown by the card's ring. */}
           <button
             type="button"
             aria-label={`View metadata for ${paper.title}`}
             onClick={(event) => { event.stopPropagation(); onOpen(paper) }}
-            className="line-clamp-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400"
+            className="line-clamp-2 text-left outline-none transition-colors group-hover:text-[var(--primary)]"
           >
             {paper.title}
           </button>
         </h2>
-        <p className="mt-1.5 line-clamp-1 text-xs text-ink-muted">
-          {paper.authors || 'Unknown authors'}
-        </p>
-        <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-4">
-          {isFacultyThesis(paper) && <Badge tone="gold">Faculty Research</Badge>}
-          {paper.track && <Badge tone="forest">{paper.track}</Badge>}
-          {paper.year && <Badge tone="neutral">{paper.year}</Badge>}
-          {paper.department && <Badge tone="neutral">{paper.department}</Badge>}
-          {isScreeningFlagged(paper.duplication_scan) && (
-            /* Concentration, not coverage, because the badge's tone already
-               comes from `verdictTone` and the verdict is graded on
-               concentration: showing coverage next to it let a card read
-               "100.00%" in the colour of a clear result, or a low number in
-               the colour of a high-overlap one. Coverage falls back in only
-               when a stored record has no chunk counts to derive
-               concentration from (see scanMetrics), where it is the only
-               figure there is. */
-            <Badge
-              tone={verdictTone(screening.verdict)}
-              title={
-                `${screening.matchedChunks} of ${screening.totalChunks} passages matched an `
-                + `archived thesis at or above the screening threshold — ${verdictLabel(screening.verdict).toLowerCase()}`
-              }
-            >
-              <ShieldAlert size={11} />{' '}
-              {screening.concentration > 0
-                ? `${screening.concentration.toFixed(2)}% closest thesis`
-                : `${screening.coverage.toFixed(2)}% matched coverage`}
-            </Badge>
+        <div className="mt-2.5 space-y-1 text-xs text-ink-muted">
+          <p className="flex items-start gap-2">
+            <Users size={14} aria-hidden="true" className="mt-px shrink-0" />
+            <span className="line-clamp-1" title={paper.authors || undefined}>
+              <span className="sr-only">Authors: </span>
+              {paper.authors || 'Unknown authors'}
+            </span>
+          </p>
+          {/* Only when recorded: papers indexed before the adviser was
+              captured carry none until the backfill reads it, and a row of
+              "Unknown" under every older card would say nothing. ink-muted
+              rather than ink-faint, because the accessibility scan fails on
+              contrast. */}
+          {paper.adviser && (
+            <p className="flex items-start gap-2">
+              <GraduationCap size={14} aria-hidden="true" className="mt-px shrink-0" />
+              <span className="line-clamp-1" title={paper.adviser}>
+                <span className="font-medium text-ink">Adviser:</span> {paper.adviser}
+              </span>
+            </p>
           )}
         </div>
-      </GlassCard>
+        <div className="mt-auto pt-4">
+          <div className="flex items-center gap-2 border-t border-[var(--border)] pt-3">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+              {facultyChip && <Badge tone="gold">Faculty Research</Badge>}
+              {flagged && (
+                /* Concentration, not coverage, because the badge's tone already
+                   comes from `verdictTone` and the verdict is graded on
+                   concentration: showing coverage next to it let a card read
+                   "100.00%" in the colour of a clear result, or a low number in
+                   the colour of a high-overlap one. Coverage falls back in only
+                   when a stored record has no chunk counts to derive
+                   concentration from (see scanMetrics), where it is the only
+                   figure there is. */
+                <Badge
+                  tone={verdictTone(screening.verdict)}
+                  title={
+                    `${screening.matchedChunks} of ${screening.totalChunks} passages matched an `
+                    + `archived thesis at or above the screening threshold — ${verdictLabel(screening.verdict).toLowerCase()}`
+                  }
+                >
+                  <ShieldAlert size={11} />{' '}
+                  {screening.concentration > 0
+                    ? `${screening.concentration.toFixed(2)}% closest thesis`
+                    : `${screening.coverage.toFixed(2)}% matched coverage`}
+                </Badge>
+              )}
+            </div>
+            {/* A visual affordance only: the title button is the action, so
+                this is hidden from assistive technology rather than being a
+                second, identically-named stop in the tab order. */}
+            <span
+              aria-hidden="true"
+              className="flex shrink-0 items-center gap-0.5 text-xs font-semibold text-[var(--primary)]"
+            >
+              Details
+              <ChevronRight size={15} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+            </span>
+          </div>
+        </div>
+      </div>
     </>
   )
 }
@@ -391,6 +451,7 @@ function ArchiveResults({
   isAdmin,
   onDelete,
   onOpen,
+  trackLabels,
   onClear,
   onRetry,
 }) {
@@ -398,7 +459,7 @@ function ArchiveResults({
   if (isLoading) {
     return (
       <div className="grid min-h-[380px] content-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {ARCHIVE_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-44" />)}
+        {ARCHIVE_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-52 rounded-2xl" />)}
       </div>
     )
   }
@@ -441,6 +502,7 @@ function ArchiveResults({
       isAdmin={isAdmin}
       onDelete={onDelete}
       onOpen={onOpen}
+      trackLabels={trackLabels}
     />
   ))
   const grid = 'grid content-start gap-4 sm:grid-cols-2 lg:grid-cols-3'
@@ -472,7 +534,7 @@ function ArchiveResults({
   )
 }
 
-function ArchiveDetailModal({ detail, onClose }) {
+function ArchiveDetailModal({ detail, onClose, trackLabels }) {
   return (
     <Modal open={Boolean(detail)} onClose={onClose} title={detail?.title} size="lg">
       <div className="space-y-4">
@@ -480,15 +542,25 @@ function ArchiveDetailModal({ detail, onClose }) {
           <Badge tone={isFacultyThesis(detail) ? 'gold' : 'forest'}>
             {thesisCategoryLabel(detail?.thesis_category)}
           </Badge>
-          {detail?.track && <Badge tone="forest">{detail.track}</Badge>}
+          {detail?.track && <Badge tone="forest">{trackDisplayLabel(trackLabels, detail.track)}</Badge>}
           {detail?.department && <Badge tone="neutral">{detail.department}</Badge>}
           {detail?.year && <Badge tone="gold">{detail.year}</Badge>}
           <Badge tone="neutral">Indexed {formatDate(detail?.created_at)}</Badge>
         </div>
-        <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Authors</div>
-          <p className="mt-1 text-sm">{detail?.authors || 'Unknown'}</p>
-        </div>
+        {/* Side by side: each is a line or two, and stacked they spent more
+            height on their labels than on the names. */}
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[2fr_1fr]">
+          <div>
+            <dt className="text-xs font-bold uppercase tracking-wider text-ink-faint">Authors</dt>
+            <dd className="mt-1 text-sm">{detail?.authors || 'Unknown'}</dd>
+          </div>
+          {detail?.adviser && (
+            <div>
+              <dt className="text-xs font-bold uppercase tracking-wider text-ink-faint">Adviser</dt>
+              <dd className="mt-1 text-sm">{detail.adviser}</dd>
+            </div>
+          )}
+        </dl>
         {detail?.abstract && (
           <div>
             <div className="text-xs font-bold uppercase tracking-wider text-ink-faint">Abstract</div>
@@ -498,11 +570,10 @@ function ArchiveDetailModal({ detail, onClose }) {
           </div>
         )}
         <ScreeningDetail scan={detail?.duplication_scan} indexedAt={detail?.created_at} />
-        <div className="glass flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs text-ink-muted">
+        <p className="flex items-center gap-2 text-xs text-ink-muted">
           <Lock size={13} className="shrink-0 text-gold-400" />
-          Full text is available only through AI-mediated synthesis in Chat — this protects the
-          author's intellectual property.
-        </div>
+          Full text stays private to protect the authors. Ask about it in Chat.
+        </p>
       </div>
     </Modal>
   )
@@ -512,7 +583,7 @@ export default function Archive() {
   const { isAdmin, isSuperadmin, department: userDepartment } = useAuth()
   const archive = useArchiveCatalog({ isSuperadmin, userDepartment })
   const {
-    papers, isLoading, isError: papersError, departments, years, filtered,
+    papers, isLoading, isError: papersError, departments, years, advisers, trackLabels, filtered,
     filters, setFilter, clearFilters, activeTracks, trackLabel,
     programs, specializations, refetch,
     deleteTarget, setDeleteTarget, detail, setDetail, busy, submitDelete,
@@ -547,8 +618,10 @@ export default function Archive() {
         specializations={specializations}
         activeTracks={activeTracks}
         trackLabel={trackLabel}
+        trackLabels={trackLabels}
         departments={departments}
         years={years}
+        advisers={advisers}
         isSuperadmin={isSuperadmin}
         sortBy={sortBy}
         setSortBy={setSortBy}
@@ -579,6 +652,7 @@ export default function Archive() {
           onOpen={setDetail}
           onClear={clearFilters}
           onRetry={() => refetch()}
+          trackLabels={trackLabels}
         />
 
         {/* Pagination matching DailyUI Challenge #085 */}
@@ -606,7 +680,7 @@ export default function Archive() {
       </div>
 
       {/* Detail modal — metadata only (indirect access model) */}
-      <ArchiveDetailModal detail={detail} onClose={() => setDetail(null)} />
+      <ArchiveDetailModal detail={detail} onClose={() => setDetail(null)} trackLabels={trackLabels} />
 
       <ConfirmDialog
         open={!!deleteTarget}

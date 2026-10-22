@@ -236,13 +236,14 @@ export async function getTracks() {
 
 // ---------- Upload (background ingestion) ----------
 export async function uploadPaper({
-  file, title, authors, year, abstract, track, department,
+  file, title, authors, adviser, year, abstract, track, department,
   program_id, specialization_id, thesis_category, idempotencyKey,
 }) {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('title', title)
   formData.append('authors', authors || '')
+  formData.append('adviser', adviser || '')
   formData.append('year', year || '')
   formData.append('abstract', abstract || '')
   formData.append('track', track || '')
@@ -272,7 +273,7 @@ export async function extractMetadata(file) {
   const { data } = await api.post('/upload/extract-metadata', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
-  // { title, authors, year, department, program_code, specialization_code, abstract }
+  // { title, authors, adviser, year, department, program_code, specialization_code, abstract }
   return data
 }
 
@@ -308,11 +309,12 @@ export async function extractMetadataBatch(files) {
     // Up to twenty title pages plus their Gemini completions.
     timeout: 10 * 60 * 1000,
   })
-  return data // { files: [{ index, filename, title, authors, year, department, error, status_code }] }
+  return data // { files: [{ index, filename, title, authors, adviser, year, department, program_code, specialization_code, error, status_code }] }
 }
 /**
- * `rows` carries each manuscript's own title, authors, year, idempotency key
- * and academic program; only the department and the category are request-level.
+ * `rows` carries each manuscript's own title, authors, adviser, year,
+ * idempotency key and academic program; only the department and the category
+ * are request-level.
  * The server still accepts a request-level `program_id` as the fallback for a
  * row that names none, which this page no longer needs to send.
  */
@@ -344,8 +346,25 @@ export async function scanDuplication(file, department = null) {
   const { data } = await api.post('/duplication/scan', formData)
   return data
 }
+// A capsule proposal, screened section by section (routers/duplication.py::
+// scan_capsule). JSON rather than a file: a capsule is typed, not uploaded.
+export async function scanCapsule(capsule, department = null) {
+  const { data } = await api.post('/duplication/capsule', { ...capsule, ...(department ? { department } : {}) })
+  return data
+}
+// An uploaded capsule (PDF, Word or text) read into its four sections, to fill
+// the capsule form for review. Nothing is screened or stored by this call.
+export async function extractCapsule(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await api.post('/duplication/capsule/extract', formData)
+  return data // { title, rationale, objectives, methodology, detected_sections }
+}
+// The server returns the most recent scans only (routers/duplication.py,
+// HISTORY_LIMIT); older ones stay stored and are still removed by "Clear all".
+export const SCAN_HISTORY_LIMIT = 50
 export async function getScanHistory() {
-  const { data } = await api.get('/duplication/history')
+  const { data } = await api.get('/duplication/history', { params: { limit: SCAN_HISTORY_LIMIT } })
   return data
 }
 export async function deleteScanHistory(scanId) {

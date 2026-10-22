@@ -36,3 +36,24 @@ test('novelty export fails closed for malformed optional values', () => {
   assert.deepEqual(report.matched_studies, [])
   assert.equal(report.advisory.matched_chunks, 0)
 })
+
+test('a capsule export names its sections and still carries no text', () => {
+  const report = buildNoveltyReport({
+    filename: 'A Smart Intruder Detection System',
+    total_chunks: 4,
+    matched_chunk_count: 1,
+    capsule_sections: [
+      { key: 'title', label: 'Working title', similarity: 92, flagged: true, basis: 'wording',
+        closest: { id: 'p1', title: 'SECURE: A Smart Intruder Detection System', year: 2024 } },
+      { key: 'methodology', label: 'Methodology', similarity: 0, flagged: false, basis: 'meaning', closest: null },
+    ],
+  })
+  assert.equal(report.source.kind, 'capsule proposal')
+  assert.deepEqual(report.capsule_sections, [
+    { section: 'Working title', similarity_percent: 92, flagged: true, compared_by: 'title wording',
+      closest_thesis: { title: 'SECURE: A Smart Intruder Detection System', year: 2024 } },
+    { section: 'Methodology', similarity_percent: 0, flagged: false, compared_by: 'meaning', closest_thesis: null },
+  ])
+  assert.equal(buildNoveltyReport({ filename: 'draft.pdf' }).source.kind, 'manuscript')
+  assert.equal('capsule_sections' in buildNoveltyReport({ filename: 'draft.pdf' }), false)
+})

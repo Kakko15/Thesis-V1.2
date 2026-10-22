@@ -25,6 +25,15 @@ _TRANSIENT_MARKERS = (
     'gateway timeout',
     'resource_exhausted',
     'rate limit',
+    # Google's own spellings of a transient failure. The Gemini API reports
+    # these as gRPC status names ("503 UNAVAILABLE", "DEADLINE_EXCEEDED") with
+    # "The model is overloaded" as the message, none of which the HTTP
+    # phrasing above matches, so an overloaded embedding call during a batch of
+    # novelty scans (2026-09-23) was classed as permanent.
+    'model is overloaded',
+    '503 unavailable',
+    'deadline_exceeded',
+    'deadline exceeded',
 )
 # Retryable HTTP statuses. Matched as a labelled status rather than as a bare
 # substring: '429', '502', '503' and '504' appear inside ordinary text — row
@@ -71,6 +80,11 @@ def is_transient_network_error(error: BaseException) -> bool:
             return True
         status = getattr(current, 'status_code', None) or getattr(current, 'status', None)
         if str(status) in _RETRYABLE_STATUSES:
+            return True
+        # google-genai's APIError carries the HTTP status as `code` and the gRPC
+        # name ('UNAVAILABLE') as `status`, so the check above never saw it.
+        code = getattr(current, 'code', None)
+        if isinstance(code, int) and not isinstance(code, bool) and str(code) in _RETRYABLE_STATUSES:
             return True
         message = str(current).lower()
         if any(marker in message for marker in _TRANSIENT_MARKERS):

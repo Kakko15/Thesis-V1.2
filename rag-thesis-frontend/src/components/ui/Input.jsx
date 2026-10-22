@@ -192,6 +192,15 @@ export const Textarea = forwardRef(function Textarea(
             )}
             {...props}
           />
+          {/* An opaque band under the floated label. The label sits inside the
+              textarea's scrolling box, so once a long section scrolls its lines
+              slid up underneath the label and the two printed on top of each
+              other (2026-09-24, an uploaded capsule). It stops short of the
+              right edge so the scrollbar stays reachable. */}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-px right-4 top-px h-6 rounded-tl-2xl bg-[var(--surface-0)]"
+          />
           <FloatingLabel
             label={label}
             htmlFor={fieldId}

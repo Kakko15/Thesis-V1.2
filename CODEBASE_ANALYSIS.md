@@ -44,6 +44,21 @@ Read this file for orientation and judgement. The per-subsystem and per-flow det
 >   text-free-PDF shape inconsistency noted for `_extract_one` is unchanged and
 >   still open.
 >
+> - Papers gained an optional `adviser` on 2026-09-23
+>   (`migrations/20260923_paper_adviser.sql`). It reaches the paper through a
+>   second BEFORE INSERT trigger, `a_papers_hydrate_adviser`, which reads the
+>   same `upload_jobs.request_payload` as `a_papers_hydrate_academic_classification`,
+>   so 4.13's "the hydrate trigger" is now two. That adds a coupling seam shaped
+>   like 6.12 and 6.13: a new `papers` column set at upload needs a payload key in
+>   `_stage_and_queue_one`, a hydrate trigger (because `commit_paper_ingestion`
+>   inserts a fixed column list), `PaperOut`, the `list_papers` field list, and a
+>   regenerated OpenAPI snapshot. Existing rows are filled by
+>   `scripts/backfill_paper_advisers.py`. A blank upload adviser is filled
+>   after commit by `services/ingestion.fill_adviser_from_manuscript` (null
+>   filter, never raises). The abstract and adviser extractors moved out of
+>   `routers/upload.py` into `services/front_matter.py` so the worker need not
+>   import a router; the router re-imports them under their old private names.
+>
 > Everything else in sections 5 to 7 was still open as of 2026-09-22.
 
 ---
