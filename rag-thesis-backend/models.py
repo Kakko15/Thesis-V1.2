@@ -21,8 +21,10 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = Field(None, max_length=64)
     department_filter: Optional[str] = Field(None, min_length=1, max_length=100)
     # Optional content scope, not a security boundary: any client (guests
-    # included) may narrow retrieval to student or faculty theses.
+    # included) may narrow retrieval to student or faculty theses, or to a
+    # recency window such as the last 5 years.
     thesis_category_filter: Optional[str] = Field(None, pattern='^(student|faculty)$')
+    min_year: Optional[int] = Field(None, ge=1900, le=2100)
     # Ephemeral guest context contains user questions only. It is never stored
     # or treated as thesis evidence, and authenticated clients cannot use it.
     guest_history: list[

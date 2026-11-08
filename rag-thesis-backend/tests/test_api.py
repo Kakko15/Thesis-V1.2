@@ -158,6 +158,7 @@ class TestValidation:
             'session_id': None,
             'department_filter': None,
             'thesis_category_filter': None,
+            'min_year': None,
             'guest_history': [],
             'guest_source_ids': [],
             'edit_from_turn': None,

@@ -607,3 +607,32 @@ class TestPaperDiversityCap:
         # while other papers qualify.
         assert paper_ids.count('p1') == 1
         assert len(paper_ids) == retriever.settings.retrieval_match_count
+
+    def test_search_chunks_min_year_excludes_older_theses(self, monkeypatch):
+        pool = [
+            {'id': 1, 'paper_id': 'p_old', 'chunk_index': 1,
+             'content': 'legacy thesis evidence', 'similarity': 0.92,
+             'page_start': 1, 'page_end': 1, 'section': 'Results'},
+            {'id': 2, 'paper_id': 'p_recent', 'chunk_index': 1,
+             'content': 'recent thesis evidence', 'similarity': 0.88,
+             'page_start': 2, 'page_end': 2, 'section': 'Results'},
+        ]
+        papers = [
+            {'id': 'p_old', 'title': 'Old 2019 Thesis', 'authors': 'Author A',
+             'year': 2019, 'track': 'Data Mining', 'department': 'CCSICT'},
+            {'id': 'p_recent', 'title': 'Recent 2025 Thesis', 'authors': 'Author B',
+             'year': 2025, 'track': 'Data Mining', 'department': 'CCSICT'},
+        ]
+
+        class _PoolClient(_RetrieverClient):
+            def table(self, name):
+                assert name == 'papers'
+                return _Query(papers)
+
+        monkeypatch.setattr(retriever, 'sb', _PoolClient(chunks=pool))
+        context, sources, _ = retriever.search_chunks(
+            'evidence query', 'CCSICT', [0.1] * 768, min_year=2021,
+        )
+        assert [s['id'] for s in sources] == ['p_recent']
+        assert 'Recent 2025 Thesis' in context
+        assert 'Old 2019 Thesis' not in context

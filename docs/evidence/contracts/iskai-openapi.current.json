@@ -287,6 +287,19 @@
             "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
+          },
+          "min_year": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 1900.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Year"
           }
         },
         "required": [
@@ -473,6 +486,19 @@
             "title": "Methodology",
             "type": "string"
           },
+          "min_year": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 1900.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Year"
+          },
           "objectives": {
             "default": "",
             "maxLength": 6000,
@@ -614,6 +640,19 @@
             "maxItems": 10,
             "title": "Guest Source Ids",
             "type": "array"
+          },
+          "min_year": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 1900.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Year"
           },
           "question": {
             "maxLength": 4000,

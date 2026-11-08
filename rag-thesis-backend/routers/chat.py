@@ -1914,6 +1914,7 @@ async def _retrieve_evidence(
     is_overview_followup: bool,
     thesis_category: str | None = None,
     per_paper_cap: int | None = None,
+    min_year: int | None = None,
 ):
     """Run the current-evidence retrieval path under one traceable boundary."""
     if isinstance(referenced_paper_id, list):
@@ -1976,10 +1977,11 @@ async def _retrieve_evidence(
                 thesis_category,
             )
 
+    extra_args = (min_year,) if min_year is not None else ()
     result, alert = await asyncio.gather(
         asyncio.to_thread(
             search_chunks, question, department, query_embedding, thesis_category,
-            per_paper_cap,
+            per_paper_cap, *extra_args,
         ),
         check_duplication(),
     )
@@ -2603,6 +2605,11 @@ async def _chat_impl_unstamped(
             'embedding_model': settings.gemini_embed_model,
             'question_type': question_type,
         }) as retrieval_run:
+            extra_kwargs = (
+                {'min_year': req.min_year}
+                if getattr(req, 'min_year', None) is not None
+                else {}
+            )
             retrieval_result, alert_data = await _retrieve_evidence(
                 retrieval_question,
                 effective_department,
@@ -2610,6 +2617,7 @@ async def _chat_impl_unstamped(
                 is_overview_followup,
                 req.thesis_category_filter,
                 per_paper_cap=1 if question_type == AGGREGATE else None,
+                **extra_kwargs,
             )
         context, sources, _top_similarity = retrieval_result
         if evaluation_trace is not None:

@@ -266,6 +266,13 @@ class TestCapsuleEndpoint:
         assert caught.value.status_code == 503
         assert 'migration' in caught.value.detail
 
+    def test_min_year_excludes_older_theses_when_5_year_window_is_selected(self, monkeypatch):
+        matches = [[chunk('p1', 0.93)]] * 4
+        client = Client(matches)
+        result = run({**BODY, 'min_year': 2025}, client, monkeypatch)
+        assert result['verdict_level'] == 'clear'
+        assert result['top_matches'] == []
+
 
 def test_history_survives_a_project_without_the_capsule_column(monkeypatch):
     selects = []

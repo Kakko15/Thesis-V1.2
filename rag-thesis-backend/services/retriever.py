@@ -761,25 +761,26 @@ def apply_paper_diversity(
     return selected
 
 
-def search_chunks(
-    question: str,
-    department_filter: str | None = None,
-    query_embedding: list[float] | None = None,
-    thesis_category: str | None = None,
-    per_paper_cap: int | None = None,
-):
-    """Return (context, sources, top_similarity) for a natural-language query.
+def _filter_pool_by_min_year(pool: list[dict], min_year: int | None) -> list[dict]:
+    """Filter candidate chunks to papers completed in or after `min_year`."""
+    if not min_year or not pool:
+        return pool
+    paper_ids = list({c['paper_id'] for c in pool if c.get('paper_id')})
+    if not paper_ids:
+        return pool
+    rows = retry_transient(
+        lambda: sb.table('papers').select('id,year').in_('id', paper_ids).execute(),
+        label='Supabase min_year filter lookup', logger=logger,
+    ).data or []
+    allowed = {r['id'] for r in rows if int(r.get('year') or 0) <= 0 or int(r.get('year') or 0) >= min_year}
+    return [c for c in pool if c.get('paper_id') in allowed]
 
-    Selection happens in two stages. The RPC fetches a candidate pool
-    (`retrieval_candidate_pool`) at the frozen 0.30 threshold; a deterministic
-    hybrid rerank plus a per-paper cap then choose exactly
-    `retrieval_match_count` chunks for the context. Citation numbers are
-    assigned to that final selection in rank order BEFORE LongContextReorder,
-    so sorted marker order == the post-rerank quality rank the system asserts
-    -- the invariant `run_comparison._ranked_contexts` and Context Precision
-    are defined on. `per_paper_cap` overrides the configured cap (the
-    aggregate-question path passes 1 to sample distinct theses).
-    """
+
+def search_chunks(
+    question: str, department_filter: str | None = None, query_embedding: list[float] | None = None,
+    thesis_category: str | None = None, per_paper_cap: int | None = None, min_year: int | None = None,
+):
+    """Return (context, sources, top_similarity) for a natural-language query."""
     q_embedding = query_embedding if query_embedding is not None else embed_text(question)
     final_count = settings.retrieval_match_count
     pool_size = max(settings.retrieval_candidate_pool, final_count)
@@ -799,7 +800,7 @@ def search_chunks(
         label='Supabase chunk retrieval',
         logger=logger,
     )
-    pool = result.data or []
+    pool = _filter_pool_by_min_year(result.data or [], min_year)
     if not pool:
         return '', [], 0.0
 

@@ -175,12 +175,14 @@ export const chatQuery = async (
   thesis_category_filter = null,
   edit_from_turn = null,
   conversation_replies = [],
+  min_year = null,
 ) => {
   const { data } = await api.post('/chat', {
     question: query,
     session_id,
     department_filter,
     thesis_category_filter,
+    ...(min_year ? { min_year } : {}),
     guest_history,
     guest_source_ids,
     edit_from_turn,
@@ -341,17 +343,22 @@ export async function getUploadJobs(ids) {
 }
 
 // ---------- Topic novelty / duplication (faculty + admin) ----------
-export async function scanDuplication(file, department = null) {
+export async function scanDuplication(file, department = null, minYear = null) {
   const formData = new FormData()
   formData.append('file', file)
   if (department) formData.append('department', department)
+  if (minYear) formData.append('min_year', String(minYear))
   const { data } = await api.post('/duplication/scan', formData)
   return data
 }
 // A capsule proposal, screened section by section (routers/duplication.py::
 // scan_capsule). JSON rather than a file: a capsule is typed, not uploaded.
-export async function scanCapsule(capsule, department = null) {
-  const { data } = await api.post('/duplication/capsule', { ...capsule, ...(department ? { department } : {}) })
+export async function scanCapsule(capsule, department = null, minYear = null) {
+  const { data } = await api.post('/duplication/capsule', {
+    ...capsule,
+    ...(department ? { department } : {}),
+    ...(minYear ? { min_year: minYear } : {}),
+  })
   return data
 }
 // An uploaded capsule (PDF, Word or text) analyzed as a whole into its four
