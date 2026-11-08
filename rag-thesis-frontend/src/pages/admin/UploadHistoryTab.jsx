@@ -70,7 +70,9 @@ export default function UploadHistoryTab() {
       const matchQ = !q ||
         p.title?.toLowerCase().includes(q) ||
         p.authors?.toLowerCase().includes(q) ||
-        p.adviser?.toLowerCase().includes(q)
+        p.adviser?.toLowerCase().includes(q) ||
+        p.panel_chair?.toLowerCase().includes(q) ||
+        p.panel_members?.toLowerCase().includes(q)
       const matchTrack = !trackFilter || p.track === trackFilter
       const matchYear = !yearFilter || String(p.year) === yearFilter
       const matchDepartment = !deptFilter || p.department === deptFilter

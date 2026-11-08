@@ -191,15 +191,31 @@ test('the department the extractor is credited with is only the one it read', ()
 
 test('the adviser is credited to the extractor only when it filled one', () => {
   assert.ok(AUTOFILLABLE_KEYS.includes('adviser'))
+  assert.ok(AUTOFILLABLE_KEYS.includes('panel_chair'))
+  assert.ok(AUTOFILLABLE_KEYS.includes('panel_members'))
   assert.deepEqual(autofilledKeys({ adviser: 'Dr. Ana Cruz', title: '' }), ['adviser'])
-  assert.deepEqual(autofilledKeys({ adviser: '   ' }), [])
+  assert.deepEqual(
+    autofilledKeys({ panel_chair: 'Dr. Chair', panel_members: 'Dr. A; Dr. B' }),
+    ['panel_chair', 'panel_members'],
+  )
+  assert.deepEqual(autofilledKeys({ adviser: '   ', panel_chair: ' ', panel_members: '' }), [])
 })
 
 test('summaryRows lists the adviser directly after the authors', () => {
-  const rows = summaryRows({ title: 'A Complete Thesis Title', authors: 'Cruz, A.', adviser: ' Dr. Ana Cruz ' })
-  assert.deepEqual(rows.map((row) => row.key), ['title', 'authors', 'adviser'])
+  const rows = summaryRows({
+    title: 'A Complete Thesis Title',
+    authors: 'Cruz, A.',
+    adviser: ' Dr. Ana Cruz ',
+    panel_chair: ' Dr. Albert Vinluan ',
+    panel_members: ' Dr. Benchie Maribao; Dr. Joe Lagarteja ',
+  })
+  assert.deepEqual(rows.map((row) => row.key), ['title', 'authors', 'adviser', 'panel_chair', 'panel_members'])
   assert.equal(rows[2].value, 'Dr. Ana Cruz')
   assert.equal(rows[2].label, 'Adviser')
+  assert.equal(rows[3].value, 'Dr. Albert Vinluan')
+  assert.equal(rows[3].label, 'Panel chair')
+  assert.equal(rows[4].value, 'Dr. Benchie Maribao; Dr. Joe Lagarteja')
+  assert.equal(rows[4].label, 'Panel members')
 })
 
 test("a new extraction replaces the previous file's autofill but keeps what was typed", () => {

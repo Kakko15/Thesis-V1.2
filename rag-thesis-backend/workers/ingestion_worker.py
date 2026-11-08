@@ -222,7 +222,10 @@ class _Housekeeping:
     def tick(self, current_job_id: str | None = None) -> None:
         now = time.monotonic()
         if now >= self.registry_at:
-            self.scan_state = scanner_status(self.client)
+            try:
+                self.scan_state = scanner_status(self.client)
+            except TypeError:
+                self.scan_state = scanner_status()
             if current_job_id:
                 state, extra = 'processing', {'current_job_id': current_job_id}
             else:

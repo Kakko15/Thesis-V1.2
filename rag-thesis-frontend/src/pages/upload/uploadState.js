@@ -4,7 +4,8 @@ export const UPLOAD_STEPS = Object.freeze({ manuscript: 0, metadata: 1, review: 
 
 export function emptyUploadForm(department = 'CCSICT') {
   return {
-    title: '', authors: '', adviser: '', year: '', abstract: '', track: '', department,
+    title: '', authors: '', adviser: '', panel_chair: '', panel_members: '',
+    year: '', abstract: '', track: '', department,
     program_id: '', specialization_id: '', requires_specialization: false,
     thesis_category: 'student',
   }

@@ -267,7 +267,10 @@ def _reject_unsafe_scan_upload(file_bytes: bytes, suffix: str, client=sb) -> Non
                 422, f'PDF exceeds the {settings.max_pdf_pages}-page safety limit',
             )
     try:
-        scan_pdf(file_bytes, client)
+        try:
+            scan_pdf(file_bytes, client)
+        except TypeError:
+            scan_pdf(file_bytes)
     except MalwareDetected as error:
         raise HTTPException(
             422, 'The uploaded manuscript failed malware scanning',

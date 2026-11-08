@@ -73,7 +73,16 @@ def list_papers(
 
     try:
         try:
-            papers = filtered_query(f'{_ARCHIVE_FIELDS},adviser').execute().data or []
+            try:
+                papers = filtered_query(f'{_ARCHIVE_FIELDS},panel_chair,panel_members,adviser').execute().data or []
+            except Exception as panel_error:
+                if not is_missing_column(panel_error) or 'adviser' in str(panel_error):
+                    raise
+                logger.warning(
+                    'papers.panel_chair/panel_members unavailable; serving without them (%s).',
+                    type(panel_error).__name__,
+                )
+                papers = filtered_query(f'{_ARCHIVE_FIELDS},adviser').execute().data or []
         except Exception as adviser_error:
             # Its own tier, below the normalized fields rather than beside the
             # legacy ones. A project that has the catalog and category

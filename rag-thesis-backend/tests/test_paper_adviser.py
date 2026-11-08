@@ -105,6 +105,30 @@ class TestMigration:
         assert 'alter table public.papers add column if not exists adviser text;' in base
 
 
+class TestPanelMigration:
+    PANEL_MIGRATION = BACKEND / 'migrations' / '20260924_paper_panel.sql'
+    PANEL_ROLLBACK = BACKEND / 'migrations' / '20260924_paper_panel.rollback.sql'
+
+    def test_adds_nullable_panel_columns_and_hydrate_trigger(self):
+        sql = self.PANEL_MIGRATION.read_text(encoding='utf-8')
+        assert 'alter table public.papers add column if not exists panel_chair text;' in sql
+        assert 'alter table public.papers add column if not exists panel_members text;' in sql
+        assert 'create or replace function public.hydrate_paper_panel()' in sql
+        assert 'create trigger a_papers_hydrate_panel before insert on public.papers' in sql
+
+    def test_rollback_drops_the_trigger_function_and_columns(self):
+        sql = self.PANEL_ROLLBACK.read_text(encoding='utf-8')
+        assert 'drop trigger if exists a_papers_hydrate_panel on public.papers;' in sql
+        assert 'drop function if exists public.hydrate_paper_panel();' in sql
+        assert 'alter table public.papers drop column if exists panel_chair;' in sql
+        assert 'alter table public.papers drop column if exists panel_members;' in sql
+
+    def test_base_schema_mirrors_the_panel_columns(self):
+        base = (BACKEND / 'supabase_setup.sql').read_text(encoding='utf-8')
+        assert 'alter table public.papers add column if not exists panel_chair text;' in base
+        assert 'alter table public.papers add column if not exists panel_members text;' in base
+
+
 class TestValidation:
     def test_two_hundred_characters_pass_and_two_hundred_and_one_are_refused(self):
         upload._validate_metadata('A valid thesis title', '', '2026', '', adviser='A' * 200)
@@ -112,6 +136,20 @@ class TestValidation:
             upload._validate_metadata('A valid thesis title', '', '2026', '', adviser='A' * 201)
         assert caught.value.status_code == 422
         assert 'Adviser' in caught.value.detail
+
+    def test_panel_chair_and_panel_members_length_limits_are_enforced(self):
+        upload._validate_metadata(
+            'A valid thesis title', '', '2026', '',
+            panel_chair='C' * 200, panel_members='M' * 500,
+        )
+        with pytest.raises(HTTPException) as chair_err:
+            upload._validate_metadata('A valid thesis title', '', '2026', '', panel_chair='C' * 201)
+        assert chair_err.value.status_code == 422
+        assert 'Panel chair' in chair_err.value.detail
+        with pytest.raises(HTTPException) as members_err:
+            upload._validate_metadata('A valid thesis title', '', '2026', '', panel_members='M' * 501)
+        assert members_err.value.status_code == 422
+        assert 'Panel members' in members_err.value.detail
 
     def test_the_four_argument_form_still_validates(self):
         upload._validate_metadata('A valid thesis title', 'Ana Cruz', '2026', 'Short abstract')
@@ -138,6 +176,17 @@ class TestUploadPayload:
         monkeypatch.setattr(upload, 'sb', client)
         payload = self._upload(client, adviser='  Dr.   Ana  D. Cruz \n')
         assert payload['adviser'] == 'Dr. Ana D. Cruz'
+
+    def test_panel_chair_and_members_are_carried_whitespace_collapsed(self, monkeypatch):
+        client = UploadClient()
+        monkeypatch.setattr(upload, 'sb', client)
+        payload = self._upload(
+            client,
+            panel_chair='  Dr.  Albert   A. Vinluan \n',
+            panel_members='  Dr. Benchie L. Maribao;   Dr. Joe G. Lagarteja \n',
+        )
+        assert payload['panel_chair'] == 'Dr. Albert A. Vinluan'
+        assert payload['panel_members'] == 'Dr. Benchie L. Maribao; Dr. Joe G. Lagarteja'
 
     def test_an_omitted_adviser_is_an_empty_key_not_a_missing_one(self, monkeypatch):
         client = UploadClient()
@@ -449,7 +498,13 @@ class TestAdviserExtraction:
             'ABSTRACT', 'Title', ': An Alumni Tracer Platform', 'Adviser',
             ': Romero D. Salum, DIT', PROSE,
         ))
-        assert front_matter.adviser_with_source([page]) == ('Romero D. Salum, DIT', 'labelled line')
+        assert front_matter.adviser_with_source([page]) == (
+            'Romero D. Salum, DIT', 'abstract identity block',
+        )
+        title_page = '\n'.join(('Title', ': An Alumni Tracer Platform', 'Adviser', ': Romero D. Salum, DIT'))
+        assert front_matter.adviser_with_source([title_page, _abstract_page()]) == (
+            'Romero D. Salum, DIT', 'labelled line',
+        )
 
     def test_the_advisory_committee_lists_the_research_project_adviser(self):
         sheet = '\n'.join((
@@ -515,6 +570,158 @@ class TestAdviserExtraction:
         assert front_matter.adviser_name('Approved by the Panel') == ''
 
 
+class TestPanelExtraction:
+    """`extract_panel`: panel chair and panel members from the approval sheet."""
+
+    def test_the_panel_committee_stack_with_role_lines_under_each_name(self):
+        sheet = '\n'.join((
+            'APPROVAL SHEET',
+            'partial fulfillment of the requirements for the degree of Bachelor of Science.',
+            'JOE G. LAGARTEJA, DIT',
+            'Thesis Adviser',
+            'PANEL COMMITTEE',
+            'BENCHIE L. MARIBAO, DIT',
+            'Technical Panel',
+            'CHRISTINE CHARMAINE G. SAN JOSE, DIT',
+            'Content Panel',
+            'ALBERT A. VINLUAN, DIT',
+            'Panel Chairperson',
+            'Approved and accepted as a partial fulfillment of the requirements.',
+            'CATLEEN GLO M. FELICIANO, MIT',
+            'Chairperson, BS Computer Science',
+        ))
+        assert front_matter.extract_panel([sheet, _abstract_page()]) == {
+            'panel_chair': 'Albert A. Vinluan, DIT',
+            'panel_members': 'Benchie L. Maribao, DIT; Christine Charmaine G. San Jose, DIT',
+        }
+
+    def test_side_by_side_panel_members_on_one_line_are_split(self):
+        sheet = '\n'.join((
+            'APPROVAL SHEET',
+            'hereby endorsed.',
+            'JOE G. LAGARTEJA, DIT',
+            'Thesis Adviser',
+            'PANEL COMMITTEE',
+            'BENCHIE L. MARIBAO, DIT   CHRISTINE CHARMAINE G. SAN JOSE, DIT',
+            'Technical Panel           Content Panel',
+            'ALBERT A. VINLUAN, DIT',
+            'Panel Chair',
+            'Approved and accepted as a partial fulfillment of the requirements.',
+        ))
+        assert front_matter.extract_panel([sheet, _abstract_page()]) == {
+            'panel_chair': 'Albert A. Vinluan, DIT',
+            'panel_members': 'Benchie L. Maribao, DIT; Christine Charmaine G. San Jose, DIT',
+        }
+
+    def test_zero_width_space_separated_panel_members_are_split(self):
+        sheet = '\n'.join((
+            'APPROVAL SHEET',
+            'hereby endorsed.',
+            'PANEL COMMITTEE',
+            'JOE G. LAGARTEJA, DIT\u200b\u200b\u200b\u200bVERSON L. ANCHETA, MSCS',
+            'Technical Panel\u200b\u200bContent Panel',
+            'ALBERT A. VINLUAN',
+            'Panel Chair',
+            'Approved and accepted as a partial fulfillment of the requirements.',
+        ))
+        assert front_matter.extract_panel([sheet, _abstract_page()]) == {
+            'panel_chair': 'Albert A. Vinluan',
+            'panel_members': 'Joe G. Lagarteja, DIT; Verson L. Ancheta, MSCS',
+        }
+
+    def test_a_wrapped_panel_member_name_interleaved_with_its_role_label_is_rejoined(self):
+        sheet = '\n'.join((
+            'APPROVAL SHEET',
+            'is here endorsed.',
+            'ALBERT A. VINLUAN, DIT',
+            'Thesis Adviser',
+            'PANEL COMMITTEE',
+            'BENCHIE L. MARIBAO, DIT',
+            'CHRISTINE CHARMAINE',
+            'Panel Member',
+            'G. SAN JOSE, DIT',
+            'Panel Member',
+            'JOE G. LAGARTEJA, DIT',
+            'Panel Chair',
+            'Approved and accepted as a partial fulfilment of the requirements.',
+        ))
+        assert front_matter.extract_panel([sheet, _abstract_page()]) == {
+            'panel_chair': 'Joe G. Lagarteja, DIT',
+            'panel_members': 'Benchie L. Maribao, DIT; Christine Charmaine G. San Jose, DIT',
+        }
+
+    def test_panel_committee_with_role_labels_extracted_at_page_bottom(self):
+        sheet = '\n'.join((
+            'APPROVAL SHEET',
+            'Management for Business Process Outsourcing (BPO) is hereby endorsed.',
+            'ADVISORY COMMITTEE',
+            'ALBERT A. VINLUAN, DIT',
+            'PANEL COMMITTEE',
+            'RENALYN G. TECSON, MSIT',
+            'JOHN M. FACUN, MSIT',
+            'JOE G. LAGARTEJA, DIT',
+            'Approved and accepted as a partial fulfilment of the requirements.',
+            'MARLYN M. BERMOZA, MSIT',
+            '_______________',
+            'CHRISTINE CHARMAINE G. SAN JOSE, DIT',
+            '_______________',
+            'Project Adviser',
+            'Content Panel',
+            'Technical Panel',
+            'Panel Chair',
+            'BSIS Program Chairperson',
+            'Dean, CCSICT',
+        ))
+        assert front_matter.extract_panel([sheet, _abstract_page()]) == {
+            'panel_chair': 'Joe G. Lagarteja, DIT',
+            'panel_members': 'Renalyn G. Tecson, MSIT; John M. Facun, MSIT',
+        }
+
+    def test_abstract_stops_at_numbered_imrad_introduction_on_same_page(self):
+        prose = (
+            'This study designed and evaluated a low-cost smart greenhouse monitoring '
+            'system for small-scale highland farmers in Isabela using LoRaWAN sensors '
+            'and automated misting actuators across three growing cycles.'
+        )
+        page = f'ABSTRACT\n{prose}\n1. INTRODUCTION\nThe agricultural sector faces...'
+        assert front_matter.extract_abstract([page]) == prose
+        roman_page = f'ABSTRACT\n{prose}\nI. INTRODUCTION\nThe agricultural sector faces...'
+        assert front_matter.extract_abstract([roman_page]) == prose
+
+    def test_numbered_panel_member_labels_are_skipped_and_members_extracted(self):
+        sheet = '\n'.join((
+            'APPROVAL SHEET',
+            'is hereby endorsed.',
+            'ADVISORY COMMITTEE',
+            'HONEYLYN G. QUIÑONES, RL, MLIS',
+            'Research Project Adviser',
+            'PANEL COMMITTEE',
+            'RENALYN G. TECSON, DIT                              EDWARD B. PANGANIBAN, Ph.D',
+            'Panel Member 1                                                             Panel Member 2',
+            'BETSIE M. DELA CRUZ, Ph.D',
+            'Panel Chair',
+            'Accepted as partial fulfillment of the requirement.',
+        ))
+        assert front_matter.extract_panel([sheet, _abstract_page()]) == {
+            'panel_chair': 'Betsie M. Dela Cruz, Ph.D',
+            'panel_members': 'Renalyn G. Tecson, DIT; Edward B. Panganiban, Ph.D',
+        }
+
+    def test_labelled_panel_lines_on_front_matter(self):
+        pages = [
+            'A THESIS\nPanel Chair: Dr. Albert A. Vinluan\nPanel Members: Dr. Benchie L. Maribao; Dr. Joe G. Lagarteja',
+            _abstract_page(),
+        ]
+        assert front_matter.extract_panel(pages) == {
+            'panel_chair': 'Dr. Albert A. Vinluan',
+            'panel_members': 'Dr. Benchie L. Maribao; Dr. Joe G. Lagarteja',
+        }
+
+    def test_chapters_past_the_abstract_page_are_not_searched_for_panel(self):
+        pages = [_abstract_page(), 'CHAPTER 1\nPanel Chair: Dr. Wrong Person']
+        assert front_matter.extract_panel(pages) == {'panel_chair': '', 'panel_members': ''}
+
+
 class TestExtractionEndpoints:
     ADVISER_PAGE = _abstract_page('Title: An Intelligent Archive', 'Adviser: Inst. Jenefer P. Bermusa, MIT')
 
@@ -556,7 +763,7 @@ class TestExtractionEndpoints:
         # Survives the model completion, which answers the four model fields only.
         assert entry['title'] == 'Completed By Model'
         assert entry['adviser'] == 'Inst. Jenefer P. Bermusa, MIT'
-        assert 'abstract' not in entry
+        assert entry['abstract'].startswith('This study developed a web-based archive')
 
     def test_the_adviser_survives_a_failed_completion(self, upload_client, monkeypatch):
         monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
@@ -584,6 +791,46 @@ class TestExtractionEndpoints:
             files=[('files', ('thesis.pdf', _pdf_bytes(('A cover line',)), 'application/pdf'))],
         )
         assert response.json()['files'][0]['adviser'] == ''
+
+    def test_single_and_batch_autofill_return_panel_chair_and_members(
+        self, upload_client, monkeypatch,
+    ):
+        monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
+        monkeypatch.setattr(upload, 'ChatGoogleGenerativeAI', lambda **_kwargs: object())
+
+        async def arun(_llm, _slot, _call):
+            return SimpleNamespace(content='{}')
+        monkeypatch.setattr(upload.gemini_pool, 'arun', arun)
+        approval = '\n'.join((
+            'APPROVAL SHEET',
+            'hereby endorsed.',
+            'JOE G. LAGARTEJA, DIT',
+            'Thesis Adviser',
+            'PANEL COMMITTEE',
+            'BENCHIE L. MARIBAO, DIT',
+            'Technical Panel',
+            'CHRISTINE CHARMAINE G. SAN JOSE, DIT',
+            'Content Panel',
+            'ALBERT A. VINLUAN, DIT',
+            'Panel Chair',
+            'Approved and accepted as a partial fulfillment of the requirements.',
+        ))
+        pdf = _pdf_pages(['AN INTELLIGENT ARCHIVE\nCCSICT\nBy:\nAna D. Cruz\n2026', approval, self.ADVISER_PAGE])
+        single = upload_client.post(
+            '/upload/extract-metadata', files={'file': ('thesis.pdf', pdf, 'application/pdf')},
+        )
+        assert single.status_code == 200
+        assert single.json()['panel_chair'] == 'Albert A. Vinluan, DIT'
+        assert single.json()['panel_members'] == 'Benchie L. Maribao, DIT; Christine Charmaine G. San Jose, DIT'
+
+        batch = upload_client.post(
+            '/upload/batch/extract-metadata',
+            files=[('files', ('thesis.pdf', pdf, 'application/pdf'))],
+        )
+        assert batch.status_code == 200
+        entry = batch.json()['files'][0]
+        assert entry['panel_chair'] == 'Albert A. Vinluan, DIT'
+        assert entry['panel_members'] == 'Benchie L. Maribao, DIT; Christine Charmaine G. San Jose, DIT'
 
 
 def test_validation_error_message_names_every_row_field():

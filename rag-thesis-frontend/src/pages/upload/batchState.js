@@ -1,4 +1,5 @@
 import { uploadMetadataErrors } from './uploadState.js'
+import { ABSTRACT_MODES, emptyAbstractVariants } from './abstractMode.js'
 import { programSelection } from '../../lib/catalog.js'
 
 /**
@@ -41,7 +42,10 @@ export const ACTIVE_BATCH_STORAGE_KEY = 'activeUploadBatch'
 // requiring one program per request meant uploading the shelf once per degree.
 // The department stays shared because the server pins it for everyone but a
 // superadmin, and the category with it.
-const ROW_METADATA_KEYS = ['title', 'authors', 'adviser', 'year', 'program_id', 'specialization_id']
+const ROW_METADATA_KEYS = [
+  'title', 'authors', 'adviser', 'panel_chair', 'panel_members',
+  'abstract', 'year', 'program_id', 'specialization_id',
+]
 const DEFAULT_KEYS = ['department']
 
 export function fileValidationError(file) {
@@ -70,6 +74,12 @@ export function createBatchRow(file, ids = {}) {
     authors: '',
     // Read off this manuscript's approval sheet or abstract page, or typed.
     adviser: '',
+    panel_chair: '',
+    panel_members: '',
+    abstract: '',
+    abstractMode: ABSTRACT_MODES.document,
+    abstractVariants: emptyAbstractVariants(),
+    extendingAbstract: false,
     year: '',
     // This manuscript's own classification, read from its own title page.
     program_id: '',
@@ -141,6 +151,9 @@ function extractionNotes(row, entry, selection) {
   if (!row.title && !entry.title) notes.title = 'Not autofilled: no recognizable thesis title was found in this document.'
   if (!row.authors && !entry.authors) notes.authors = 'Not autofilled: no recognizable author names were found in this document.'
   if (!row.adviser && !entry.adviser) notes.adviser = 'Not autofilled: no adviser was identified on the approval or abstract pages.'
+  if (!row.panel_chair && !entry.panel_chair) notes.panel_chair = 'Not autofilled: no panel chair was identified on the approval sheet.'
+  if (!row.panel_members && !entry.panel_members) notes.panel_members = 'Not autofilled: no panel members were identified on the approval sheet.'
+  if (!row.abstract && !entry.abstract) notes.abstract = 'Not autofilled: no clearly labelled abstract was found in this document.'
   if (!row.year && !entry.year) notes.year = 'Not autofilled: no valid completion year was found in this document.'
   if (!row.program_id && !selection) {
     notes.program_id = entry.program_code
@@ -163,33 +176,43 @@ function extractionNotes(row, entry, selection) {
  * from another college resolve to nothing and the row simply keeps its empty
  * program, which is the same fail-safe the single wizard uses.
  */
+function extractedRow(row, entry, departments, department) {
+  if (!entry) return row
+  if (entry.error) return { ...row, extracted: true, extractError: entry.error }
+  const selection = row.program_id ? null : programSelection(
+    departments, department, entry.program_code, entry.specialization_code,
+  )
+  const docAbstract = entry.abstract || ''
+  const prevDoc = row.abstractVariants?.[ABSTRACT_MODES.document]
+  return {
+    ...row,
+    extracted: true,
+    extractError: null,
+    autofillError: null,
+    autofillNotes: extractionNotes(row, entry, selection),
+    title: row.title || entry.title || '',
+    authors: row.authors || entry.authors || '',
+    adviser: row.adviser || entry.adviser || '',
+    panel_chair: row.panel_chair || entry.panel_chair || '',
+    panel_members: row.panel_members || entry.panel_members || '',
+    abstract: row.abstract || docAbstract,
+    abstractVariants: {
+      ...emptyAbstractVariants(),
+      ...(row.abstractVariants || {}),
+      [ABSTRACT_MODES.document]: prevDoc || docAbstract,
+    },
+    year: row.year || String(entry.year ?? ''),
+    ...(selection || {}),
+  }
+}
+
 function applyExtraction(state, files, departments) {
   const byIndex = new Map((files ?? []).map((entry) => [entry.index, entry]))
   return {
     ...state,
-    rows: state.rows.map((row, index) => {
-      const entry = byIndex.get(index)
-      if (!entry) return row
-      if (entry.error) return { ...row, extracted: true, extractError: entry.error }
-      // Never overwrite a program already chosen for this row by hand or by
-      // "apply to all", the same rule the text fields follow.
-      const selection = row.program_id ? null : programSelection(
-        departments, state.defaults.department, entry.program_code, entry.specialization_code,
-      )
-      const autofillNotes = extractionNotes(row, entry, selection)
-      return {
-        ...row,
-        extracted: true,
-        extractError: null,
-        autofillError: null,
-        autofillNotes,
-        title: row.title || entry.title || '',
-        authors: row.authors || entry.authors || '',
-        adviser: row.adviser || entry.adviser || '',
-        year: row.year || String(entry.year ?? ''),
-        ...(selection || {}),
-      }
-    }),
+    rows: state.rows.map((row, index) => (
+      extractedRow(row, byIndex.get(index), departments, state.defaults.department)
+    )),
   }
 }
 
@@ -201,7 +224,10 @@ function markExtractionFailed(state, message) {
       ...row,
       autofillError: message || 'Metadata extraction was unavailable.',
       autofillNotes: Object.fromEntries(
-        ['title', 'authors', 'adviser', 'year', 'program_id', 'specialization_id'].map((key) => [key, note]),
+        [
+          'title', 'authors', 'adviser', 'panel_chair', 'panel_members',
+          'abstract', 'year', 'program_id', 'specialization_id',
+        ].map((key) => [key, note]),
       ),
     })),
   }
@@ -273,13 +299,30 @@ function applyJobStatuses(state, jobs) {
   }
 }
 
+const FLAG_KEYS = {
+  'set-extracting': 'extracting',
+  'set-submitting': 'submitting',
+  'set-upload-progress': 'uploadProgress',
+  'set-poll-error': 'pollError',
+  'set-default-errors': 'defaultErrors',
+}
+
 export function batchReducer(state, action) {
+  if (action.type in FLAG_KEYS) {
+    const key = FLAG_KEYS[action.type]
+    return { ...state, [key]: action.value ?? action.errors }
+  }
   switch (action.type) {
     case 'add-rows': return addRows(state, action.files)
     case 'remove-row': return { ...state, rows: state.rows.filter((row) => row.id !== action.id) }
     case 'set-row-field': return updateRow(state, action.id, { [action.key]: action.value })
-    // Choosing a program rewrites four fields at once, so it cannot go through
-    // the single-key action without leaving the row half-classified in between.
+    case 'set-row-extending': return updateRow(state, action.id, { extendingAbstract: Boolean(action.value) })
+    case 'apply-row-abstract': return updateRow(state, action.id, {
+      abstractMode: action.mode,
+      abstractVariants: action.variants,
+      abstract: action.abstract || '',
+      extendingAbstract: false,
+    })
     case 'patch-row': return updateRow(state, action.id, action.patch)
     case 'apply-extraction': return applyExtraction(state, action.files, action.departments)
     case 'mark-extraction-failed': return markExtractionFailed(state, action.message)
@@ -289,7 +332,6 @@ export function batchReducer(state, action) {
       ...state,
       defaults: typeof action.value === 'function' ? action.value(state.defaults) : action.value,
     }
-    case 'set-default-errors': return { ...state, defaultErrors: action.errors }
     case 'set-row-errors': return {
       ...state,
       rows: state.rows.map((row) => ({ ...row, errors: action.errorsById[row.id] ?? {} })),
@@ -299,12 +341,8 @@ export function batchReducer(state, action) {
       step: action.step,
       direction: action.step < state.step ? -1 : 1,
     }
-    case 'set-extracting': return { ...state, extracting: action.value }
-    case 'set-submitting': return { ...state, submitting: action.value }
-    case 'set-upload-progress': return { ...state, uploadProgress: action.value }
     case 'apply-submit-results': return applySubmitResults(state, action.results, action.rowIds)
     case 'apply-job-statuses': return applyJobStatuses(state, action.jobs)
-    case 'set-poll-error': return { ...state, pollError: action.value }
     case 'restore': return { ...state, rows: action.rows, step: BATCH_STEPS.ingesting, direction: 1 }
     case 'reset': return createBatchState(action.department)
     default: return state

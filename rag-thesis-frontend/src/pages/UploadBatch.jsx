@@ -4,11 +4,12 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  ArrowLeft, ArrowRight, FileText, Trash2, Layers, AlertTriangle, RefreshCw, UploadCloud, Ban,
+  ArrowLeft, ArrowRight, BookText, FileText, Trash2, Layers, AlertTriangle, RefreshCw, UploadCloud, Ban,
   CheckCircle2, Sparkles, PartyPopper, Clock3, XCircle, FileWarning, Loader2, Lock,
 } from 'lucide-react'
 import {
-  getDepartments, extractMetadataBatch, uploadBatch, getUploadJobs, cancelUploadJob, apiErrorMessage,
+  getDepartments, extractMetadataBatch, uploadBatch, getUploadJobs, cancelUploadJob,
+  getExtendedAbstract, apiErrorMessage,
 } from '../api'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Button } from '../components/ui/Button'
@@ -25,6 +26,9 @@ import { cn } from '../lib/utils'
 import {
   THESIS_CATEGORIES, departmentPrograms, programSelectionById, specializationSelection,
 } from '../lib/catalog'
+import {
+  ABSTRACT_MODES, ABSTRACT_MODE_COPY, ABSTRACT_MODE_ORDER, receivedAbstract, switchAbstractMode,
+} from './upload/abstractMode'
 import {
   ACTIVE_BATCH_STORAGE_KEY, BATCH_STEPS, BATCH_WIZARD_STEPS, MAX_BATCH_FILES,
   activeJobIds, allTerminal, batchProgress, batchReducer, batchSummary, createBatchState,
@@ -248,18 +252,21 @@ function ProgramBulkBar({ programs, disabled, onApply }) {
  * realistic titles were cut off. No character count can be right; the content's
  * own height can.
  */
-function AutoGrowTitle({ value, ...props }) {
+function AutoGrowTitle({ value, minHeightPx = 44, ...props }) {
   const ref = useRef(null)
 
   useLayoutEffect(() => {
     const node = ref.current
     if (!node) return undefined
     const fit = () => {
-      node.style.height = 'auto'
-      // Tailwind's preflight is border-box, so `height` has to carry the
-      // borders that scrollHeight leaves out or the field lands 2px short.
+      // Clear any CSS min-height (`min-h-24` on Textarea) while measuring so a
+      // one-line title reports its real single-line scrollHeight instead of 96px.
+      node.style.minHeight = '0px'
+      node.style.height = '0px'
       const borders = node.offsetHeight - node.clientHeight
-      node.style.height = `${node.scrollHeight + borders}px`
+      const measured = Math.max(minHeightPx, node.scrollHeight + borders)
+      node.style.minHeight = `${minHeightPx}px`
+      node.style.height = `${measured}px`
     }
     fit()
     // The column narrows with the viewport, which changes the line count.
@@ -267,7 +274,7 @@ function AutoGrowTitle({ value, ...props }) {
     // the callback resizes that very element, which would re-trigger it.
     window.addEventListener('resize', fit)
     return () => window.removeEventListener('resize', fit)
-  }, [value])
+  }, [minHeightPx, value])
 
   return <Textarea ref={ref} value={value} {...props} />
 }
@@ -322,7 +329,138 @@ function CardLabel({ children, required }) {
  *
  * A card wraps instead of scrolling, so the fields are visible at any width.
  */
-function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
+function RowCommitteeFields({ row, set }) {
+  const summary = [
+    row.adviser ? 'Adviser' : null,
+    (row.panel_chair || row.panel_members) ? 'Panel' : null,
+  ].filter(Boolean).join(' + ')
+  return (
+    <div className="rounded-xl border border-[var(--border)]/70 bg-[var(--surface-2)]/35 p-3.5 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">
+          Advisory &amp; Examining Committee
+        </span>
+        {summary && (
+          <span className="rounded-full bg-forest-500/10 px-2 py-0.5 text-[10px] font-semibold text-forest-700 dark:text-forest-300">
+            {summary}
+          </span>
+        )}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="min-w-0">
+          <CardLabel>Adviser</CardLabel>
+          <Input
+            value={row.adviser}
+            onChange={set('adviser')}
+            maxLength={200}
+            aria-label={`Adviser for ${row.name}`}
+          />
+          <AutofillNote message={!row.adviser ? row.autofillNotes?.adviser : ''} />
+        </div>
+        <div className="min-w-0">
+          <CardLabel>Panel chair</CardLabel>
+          <Input
+            value={row.panel_chair}
+            onChange={set('panel_chair')}
+            maxLength={200}
+            aria-label={`Panel chair for ${row.name}`}
+          />
+          <AutofillNote message={!row.panel_chair ? row.autofillNotes?.panel_chair : ''} />
+        </div>
+      </div>
+      <div className="min-w-0">
+        <CardLabel>Panel members</CardLabel>
+        <Input
+          value={row.panel_members}
+          onChange={set('panel_members')}
+          maxLength={500}
+          aria-label={`Panel members for ${row.name}`}
+        />
+        <AutofillNote message={!row.panel_members ? row.autofillNotes?.panel_members : ''} />
+      </div>
+    </div>
+  )
+}
+
+function RowAbstractField({ row, set, onAbstractMode }) {
+  const trimmed = (row.abstract || '').trim()
+  const abstractWords = trimmed ? trimmed.split(/\s+/).length : 0
+  const currentAbstractMode = row.abstractMode || ABSTRACT_MODES.document
+  const disabled = Boolean(row.extendingAbstract || !row.file)
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            aria-hidden="true"
+            className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint"
+          >
+            Abstract
+          </span>
+          {abstractWords > 0 && (
+            <span className="rounded-full bg-forest-500/10 px-2 py-0.5 text-[10px] font-semibold text-forest-700 dark:text-forest-300">
+              {ABSTRACT_MODE_COPY[currentAbstractMode]?.provenance}
+            </span>
+          )}
+          {abstractWords > 0 && (
+            <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-mono font-medium text-ink-muted">
+              {abstractWords} words · {(row.abstract || '').length.toLocaleString()} chars
+            </span>
+          )}
+        </div>
+
+        <div
+          role="group"
+          aria-label={`Abstract mode for ${row.name}`}
+          className="inline-flex rounded-full bg-forest-900/6 p-0.5 dark:bg-white/8"
+        >
+          {ABSTRACT_MODE_ORDER.map((modeValue) => {
+            const active = currentAbstractMode === modeValue
+            const pending = row.extendingAbstract && modeValue === ABSTRACT_MODES.extended
+            const ModeIcon = modeValue === ABSTRACT_MODES.extended ? Sparkles : BookText
+            return (
+              <button
+                key={modeValue}
+                type="button"
+                disabled={disabled}
+                onClick={() => onAbstractMode?.(row, modeValue)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
+                  active
+                    ? 'bg-gradient-to-br from-forest-600 to-forest-800 text-white shadow-2xs dark:from-gold-300 dark:to-gold-500 dark:text-forest-950'
+                    : 'text-ink-muted hover:text-ink',
+                  disabled && 'cursor-not-allowed opacity-60',
+                )}
+              >
+                {pending ? (
+                  <Loader2 size={12} aria-hidden="true" className="animate-spin" />
+                ) : (
+                  <ModeIcon size={12} aria-hidden="true" />
+                )}
+                {ABSTRACT_MODE_COPY[modeValue].label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <AutoGrowTitle
+        value={row.abstract}
+        onChange={set('abstract')}
+        rows={3}
+        minHeightPx={96}
+        maxLength={10000}
+        disabled={row.extendingAbstract}
+        className="max-h-64 overflow-y-auto resize-y py-3 text-sm leading-relaxed"
+        aria-label={`Abstract for ${row.name}`}
+      />
+      <AutofillNote message={!row.abstract ? row.autofillNotes?.abstract : ''} />
+    </div>
+  )
+}
+
+function ReviewCard({ row, index, programs, onChange, onPatch, onAbstractMode, onRemove }) {
   const set = (key) => (event) => onChange(row.id, key, event.target.value)
   const hasErrors = Object.keys(row.errors).length > 0
   const rejected = Boolean(row.extractError)
@@ -337,7 +475,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
       exit={{ opacity: 0, scale: 0.98 }}
       transition={{ duration: 0.25, delay: index * 0.03 }}
       className={cn(
-        'rounded-2xl border p-4 transition-colors',
+        'overflow-hidden rounded-2xl border transition-all shadow-xs hover:shadow-md',
         rejected
           ? 'border-flame-500/25 bg-flame-500/5'
           : hasErrors
@@ -345,18 +483,19 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
             : 'border-[var(--border)] bg-[var(--surface-1)]',
       )}
     >
-      <div className="flex items-start gap-3">
+      {/* Card Header */}
+      <div className="flex items-center gap-3 border-b border-[var(--border)]/60 bg-[var(--surface-2)]/50 px-4 py-3 sm:px-5">
         <span className={cn(
-          'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl',
-          rejected ? 'bg-flame-500/10 text-flame-500' : 'bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300',
+          'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-mono font-bold',
+          rejected
+            ? 'bg-flame-500/15 text-flame-500'
+            : 'bg-forest-600/15 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300 ring-1 ring-forest-500/20',
         )}>
-          {rejected ? <FileWarning size={16} /> : <FileText size={16} />}
+          {rejected ? <FileWarning size={15} /> : index + 1}
         </span>
-        {/* min-w-0 is what lets the filename truncate: without it the flex item
-            takes its content's width and pushes the card open. */}
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold" title={row.name}>{row.name}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+          <div className="truncate text-sm font-bold text-ink" title={row.name}>{row.name}</div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
             <span>PDF · {formatFileSize(row.size)}</span>
             {rejected ? (
               <Badge tone="flame"><XCircle size={11} /> Rejected</Badge>
@@ -367,6 +506,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
             ) : (
               <Badge tone="neutral">Manual</Badge>
             )}
+            {program && <Badge tone="neutral">{program.code}</Badge>}
           </div>
         </div>
         <Button variant="ghost" size="icon-sm" onClick={() => onRemove(row.id)} aria-label={`Remove ${row.name}`}>
@@ -375,53 +515,36 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
       </div>
 
       {rejected ? (
-        <p className="mt-3 flex items-center gap-2 rounded-xl border border-flame-500/25 bg-flame-500/5 px-3 py-2.5 text-xs text-ink">
-          <AlertTriangle size={14} className="shrink-0 text-flame-500" />
-          {row.extractError}. Remove this file to continue.
-        </p>
+        <div className="p-4 sm:p-5">
+          <p className="flex items-center gap-2 rounded-xl border border-flame-500/25 bg-flame-500/5 px-3 py-2.5 text-xs text-ink">
+            <AlertTriangle size={14} className="shrink-0 text-flame-500" />
+            {row.extractError}. Remove this file to continue.
+          </p>
+        </div>
       ) : (
-        <div className="mt-4 space-y-3">
+        <div className="space-y-4 p-4 sm:p-5">
           <div>
             <CardLabel required>Title</CardLabel>
             <AutoGrowTitle
               value={row.title}
               onChange={set('title')}
               placeholder="Full official thesis title"
-              rows={2}
+              rows={1}
+              minHeightPx={44}
               error={row.errors.title}
-              className="min-h-[3.25rem] resize-none py-2.5 text-sm leading-snug"
+              className="resize-none py-2.5 text-sm font-medium leading-snug"
               aria-label={`Title for ${row.name}`}
             />
             <FieldError message={row.errors.title} />
             <AutofillNote message={!row.title ? row.autofillNotes?.title : ''} />
           </div>
-          {/* The two names take the room and share a row; year, program and
-              specialization are short and sit beside each other under them
-              until the card gets narrow. */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="min-w-0">
-              <CardLabel>Authors</CardLabel>
-              <Input
-                value={row.authors}
-                onChange={set('authors')}
-                placeholder="Dela Cruz, J., Santos, M."
-                aria-label={`Authors for ${row.name}`}
-              />
-              <AutofillNote message={!row.authors ? row.autofillNotes?.authors : ''} />
-            </div>
-            <div className="min-w-0">
-              <CardLabel>Adviser</CardLabel>
-              <Input
-                value={row.adviser}
-                onChange={set('adviser')}
-                placeholder="e.g. Dr. Juan Dela Cruz"
-                maxLength={200}
-                aria-label={`Adviser for ${row.name}`}
-              />
-              <AutofillNote message={!row.adviser ? row.autofillNotes?.adviser : ''} />
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+
+          <div className={cn(
+            'grid gap-3',
+            specializations.length > 0
+              ? 'sm:grid-cols-[8.5rem_minmax(0,1fr)_minmax(0,1fr)]'
+              : 'sm:grid-cols-[8.5rem_minmax(0,1fr)]',
+          )}>
             <div className="min-w-0">
               <CardLabel required>Year</CardLabel>
               <Input
@@ -446,12 +569,10 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
                 aria-label={`Program for ${row.name}`}
               >
                 <option value="">Select program…</option>
-                {programs.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}
+                {programs.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
               </Select>
               <AutofillNote message={!row.program_id ? row.autofillNotes?.program_id : ''} />
             </div>
-            {/* Only some programs carry one, so the cell reveals itself rather
-                than reserving an empty slot in every card. */}
             {specializations.length > 0 && (
               <div className="min-w-0">
                 <CardLabel required>Specialization</CardLabel>
@@ -468,13 +589,65 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
               </div>
             )}
           </div>
+
+          <div className="min-w-0">
+            <CardLabel>Authors</CardLabel>
+            <Input
+              value={row.authors}
+              onChange={set('authors')}
+              placeholder="Dela Cruz, J., Santos, M."
+              aria-label={`Authors for ${row.name}`}
+            />
+            <AutofillNote message={!row.authors ? row.autofillNotes?.authors : ''} />
+          </div>
+
+          <RowCommitteeFields row={row} set={set} />
+          <RowAbstractField row={row} set={set} onAbstractMode={onAbstractMode} />
         </div>
       )}
     </motion.li>
   )
 }
 
-function ReviewList({ rows, programs, onChange, onPatch, onRemove }) {
+function BatchMetadataHeaderActions({
+  rows, submitting, extractionRejects, onBatchAbstractMode, onRemove,
+}) {
+  const hasValidFiles = rows.some((row) => !row.extractError && row.file)
+  const extending = rows.some((row) => row.extendingAbstract)
+  const busy = submitting || extending
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {hasValidFiles && (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => onBatchAbstractMode(ABSTRACT_MODES.document)}
+          >
+            <BookText size={13} aria-hidden="true" /> All: In document
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={extending}
+            disabled={busy}
+            onClick={() => onBatchAbstractMode(ABSTRACT_MODES.extended)}
+          >
+            <Sparkles size={13} aria-hidden="true" /> All: AI extended
+          </Button>
+        </>
+      )}
+      {extractionRejects.length > 0 && (
+        <Button variant="outline" size="sm" onClick={() => extractionRejects.forEach((row) => onRemove(row.id))}>
+          <Trash2 size={13} /> Remove {extractionRejects.length} rejected
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function ReviewList({ rows, programs, onChange, onPatch, onAbstractMode, onRemove }) {
   return (
     <ul className="space-y-3" aria-label="Batch metadata review">
       <AnimatePresence initial={false}>
@@ -486,6 +659,7 @@ function ReviewList({ rows, programs, onChange, onPatch, onRemove }) {
             programs={programs}
             onChange={onChange}
             onPatch={onPatch}
+            onAbstractMode={onAbstractMode}
             onRemove={onRemove}
           />
         ))}
@@ -906,6 +1080,46 @@ export default function UploadBatch() {
   const applyProgramToAll = (selection) => dispatch({ type: 'apply-program', selection })
   const removeRow = (id) => dispatch({ type: 'remove-row', id })
 
+  const handleRowAbstractMode = async (row, mode) => {
+    const from = row.abstractMode || ABSTRACT_MODES.document
+    if (mode === from || row.extendingAbstract) return
+    const moved = switchAbstractMode({
+      mode, from, current: row.abstract, variants: row.abstractVariants,
+    })
+    dispatch({ type: 'apply-row-abstract', id: row.id, ...moved })
+    if (!moved.fetch || !row.file) return
+
+    dispatch({ type: 'set-row-extending', id: row.id, value: true })
+    try {
+      const applied = receivedAbstract(moved.variants, await getExtendedAbstract(row.file))
+      dispatch({ type: 'apply-row-abstract', id: row.id, ...applied })
+      if (applied.extended) {
+        toast.success(`Extended abstract ready for ${row.name}`)
+      } else {
+        toast.warning(`Extended abstract unavailable for ${row.name}`, {
+          description: "Kept the manuscript's own abstract.",
+        })
+      }
+    } catch (error) {
+      dispatch({
+        type: 'apply-row-abstract',
+        id: row.id,
+        mode: ABSTRACT_MODES.document,
+        variants: moved.variants,
+        abstract: moved.variants[ABSTRACT_MODES.document],
+      })
+      toast.error(`Extended abstract failed for ${row.name}`, { description: apiErrorMessage(error) })
+    }
+  }
+
+  const handleBatchAbstractMode = async (mode) => {
+    const validRows = rows.filter((row) => !row.extractError && row.file)
+    for (const row of validRows) {
+      // Sequential per row so every card updates live as its extended abstract arrives
+      await handleRowAbstractMode(row, mode)
+    }
+  }
+
   /**
    * Add files, and say so when the batch could not take all of them.
    *
@@ -979,6 +1193,8 @@ export default function UploadBatch() {
         files: targets.map((row) => row.file),
         rows: targets.map((row) => ({
           title: row.title.trim(), authors: row.authors.trim(), adviser: row.adviser.trim(),
+          panel_chair: row.panel_chair.trim(), panel_members: row.panel_members.trim(),
+          abstract: row.abstract.trim(),
           year: row.year.trim(),
           idempotency_key: row.idempotencyKey,
           program_id: row.program_id, specialization_id: row.specialization_id,
@@ -1137,11 +1353,13 @@ export default function UploadBatch() {
                     icon={Sparkles}
                     title="Manuscript metadata"
                   >
-                    {extractionRejects.length > 0 && (
-                      <Button variant="outline" size="sm" onClick={() => extractionRejects.forEach((row) => removeRow(row.id))}>
-                        <Trash2 size={13} /> Remove {extractionRejects.length} rejected
-                      </Button>
-                    )}
+                    <BatchMetadataHeaderActions
+                      rows={rows}
+                      submitting={submitting}
+                      extractionRejects={extractionRejects}
+                      onBatchAbstractMode={handleBatchAbstractMode}
+                      onRemove={removeRow}
+                    />
                   </SectionHeading>
                   {defaultErrors.rows && <p role="alert" className="mb-2 text-xs text-[var(--destructive)]">{defaultErrors.rows}</p>}
                   <ProgramBulkBar
@@ -1155,6 +1373,7 @@ export default function UploadBatch() {
                     programs={programs}
                     onChange={changeRow}
                     onPatch={patchRow}
+                    onAbstractMode={handleRowAbstractMode}
                     onRemove={removeRow}
                   />
                 </section>

@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { FileSignature, Lock, Tags } from 'lucide-react'
+import { FileSignature, GraduationCap, Lock, Tags } from 'lucide-react'
 import { Input, Select, Field } from '../ui/Input'
 import { AbstractField } from './AbstractField'
 import { AutofillChip } from './AutofillChip'
@@ -114,7 +114,7 @@ export function MetadataForm({
     <motion.div variants={sectionStagger} initial="hidden" animate="show" className="space-y-7">
       <Section
         icon={FileSignature}
-        title="Identity"
+        title="Identity & Authorship"
         headingId="upload-identity-heading"
       >
         <div className="space-y-5">
@@ -161,22 +161,54 @@ export function MetadataForm({
               />
             </LabelledField>
           </div>
-          {/* Verbatim as the manuscript prints it, credentials included --
-              the extractor never recases a name that is not set in capitals.
-              200 is the API ceiling (_validate_metadata), so the field cannot
-              hold a value the upload would be refused for. */}
+        </div>
+      </Section>
+
+      <Section
+        icon={GraduationCap}
+        title="Advisory & Examining Committee"
+        headingId="upload-committee-heading"
+      >
+        <div className="space-y-5">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <LabelledField
+              label="Adviser"
+              hint={!form.adviser && autofillNotes.adviser
+                ? autofillNotes.adviser
+                : 'As printed on the approval sheet or the abstract page.'}
+              autofilled={autofilled.adviser}
+            >
+              <Input
+                value={form.adviser}
+                onChange={set('adviser')}
+                maxLength={200}
+              />
+            </LabelledField>
+            <LabelledField
+              label="Panel chair"
+              hint={!form.panel_chair && autofillNotes.panel_chair
+                ? autofillNotes.panel_chair
+                : "As printed on the approval sheet's panel committee."}
+              autofilled={autofilled.panel_chair}
+            >
+              <Input
+                value={form.panel_chair}
+                onChange={set('panel_chair')}
+                maxLength={200}
+              />
+            </LabelledField>
+          </div>
           <LabelledField
-            label="Adviser"
-            hint={!form.adviser && autofillNotes.adviser
-              ? autofillNotes.adviser
-              : 'As printed on the approval sheet or the abstract page.'}
-            autofilled={autofilled.adviser}
+            label="Panel members"
+            hint={!form.panel_members && autofillNotes.panel_members
+              ? autofillNotes.panel_members
+              : 'Semicolon-separated as printed on the approval sheet.'}
+            autofilled={autofilled.panel_members}
           >
             <Input
-              value={form.adviser}
-              onChange={set('adviser')}
-              placeholder="e.g. Dr. Juan Dela Cruz"
-              maxLength={200}
+              value={form.panel_members}
+              onChange={set('panel_members')}
+              maxLength={500}
             />
           </LabelledField>
         </div>

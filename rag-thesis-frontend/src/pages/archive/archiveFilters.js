@@ -1,3 +1,39 @@
+export const ARCHIVE_RETENTION_YEARS = 5
+
+export function isWithinRetentionWindow(
+  year,
+  referenceYear = new Date().getFullYear(),
+  retentionYears = ARCHIVE_RETENTION_YEARS,
+) {
+  const numericYear = Number(year)
+  if (!Number.isFinite(numericYear) || numericYear <= 0) return true
+  return numericYear >= referenceYear - retentionYears
+}
+
+export function summarizeArchiveRetention(
+  papers = [],
+  referenceYear = new Date().getFullYear(),
+  retentionYears = ARCHIVE_RETENTION_YEARS,
+) {
+  const validPapers = (papers || []).filter(Boolean)
+  const cutoffYear = referenceYear - retentionYears
+  const expiredPapers = validPapers.filter((paper) => !isWithinRetentionWindow(paper.year, referenceYear, retentionYears))
+  const activeCount = validPapers.length - expiredPapers.length
+  const estimatedVectorKb = validPapers.length * 120
+  const projectedFiveYearMb = Number(((Math.max(validPapers.length, 100) * retentionYears * 120) / 1024).toFixed(1))
+  return {
+    retentionYears,
+    referenceYear,
+    cutoffYear,
+    totalPapers: validPapers.length,
+    activeCount,
+    expiredCount: expiredPapers.length,
+    expiredPapers,
+    estimatedVectorKb,
+    projectedFiveYearMb,
+  }
+}
+
 export function archiveYears(papers = []) {
   return [...new Set(papers.filter(Boolean).map((paper) => paper.year).filter(Boolean))]
     .sort((left, right) => right - left)
@@ -62,6 +98,7 @@ function relevanceScore(paper, query) {
   const title = String(paper.title || '').toLowerCase()
   const authors = String(paper.authors || '').toLowerCase()
   const adviser = String(paper.adviser || '').toLowerCase()
+  const panel = `${paper.panel_chair || ''} ${paper.panel_members || ''}`.toLowerCase()
   const abstract = String(paper.abstract || '').toLowerCase()
   let score = 0
   if (title.startsWith(q)) score += 50
@@ -70,6 +107,7 @@ function relevanceScore(paper, query) {
   // A named person, so it outranks a passing mention in the abstract, but the
   // thesis's own authors stay the stronger match for a name.
   if (adviser.includes(q)) score += 10
+  if (panel.includes(q)) score += 8
   if (abstract.includes(q)) score += 5
   return score
 }
@@ -142,6 +180,13 @@ function legacyTrackMatches(paper, program, specialization) {
   return names.has(paper.track) || Boolean(legacy && legacy[0] === program.code)
 }
 
+function matchesYearFilter(paperYear, filterYear, referenceYear) {
+  if (!filterYear) return true
+  if (filterYear === 'recent_5') return isWithinRetentionWindow(paperYear, referenceYear)
+  if (filterYear === 'expired_5') return !isWithinRetentionWindow(paperYear, referenceYear)
+  return String(paperYear) === String(filterYear)
+}
+
 export function filterArchivePapers(papers = [], filters = {}, catalogPrograms = []) {
   const query = (filters.query || '').trim().toLowerCase()
   const program = filters.program_id
@@ -151,15 +196,16 @@ export function filterArchivePapers(papers = [], filters = {}, catalogPrograms =
     ? (program?.specializations || []).find((item) => item?.id === filters.specialization_id)
     : null
   return papers.filter(Boolean).filter((paper) => {
-    const matchesQuery = !query || [paper.title, paper.authors, paper.adviser, paper.abstract]
-      .some((value) => String(value || '').toLowerCase().includes(query))
+    const matchesQuery = !query || [
+      paper.title, paper.authors, paper.adviser, paper.panel_chair, paper.panel_members, paper.abstract,
+    ].some((value) => String(value || '').toLowerCase().includes(query))
     const matchesTrack = !filters.track || paper.track === filters.track
     const matchesProgram = !filters.program_id || paper.program_id === filters.program_id
       || legacyTrackMatches(paper, program, null)
     const matchesSpecialization = !filters.specialization_id
       || paper.specialization_id === filters.specialization_id
       || legacyTrackMatches(paper, program, specialization)
-    const matchesYear = !filters.year || String(paper.year) === String(filters.year)
+    const matchesYear = matchesYearFilter(paper.year, filters.year, filters.referenceYear)
     const matchesAdviser = !filters.adviser || String(paper.adviser || '').trim() === filters.adviser
     const matchesDepartment = !filters.superadmin || !filters.department || paper.department === filters.department
     // Papers indexed before the category migration carry no field and are

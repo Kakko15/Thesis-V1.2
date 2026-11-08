@@ -179,9 +179,11 @@ test('a hand-typed abstract drops the provenance chip the control set', () => {
 
 test('a fresh upload form carries an empty adviser, and editing it drops its autofill claim', () => {
   assert.equal(emptyUploadForm().adviser, '')
+  assert.equal(emptyUploadForm().panel_chair, '')
+  assert.equal(emptyUploadForm().panel_members, '')
   let state = createUploadState('CCSICT')
-  state = uploadReducer(state, { type: 'set-autofilled', keys: ['adviser', 'title'] })
+  state = uploadReducer(state, { type: 'set-autofilled', keys: ['adviser', 'panel_chair', 'panel_members', 'title'] })
   state = uploadReducer(state, { type: 'set-field', key: 'adviser', value: 'Dr. Ana Cruz' })
-  assert.deepEqual(state.autofilled, { title: true })
+  assert.deepEqual(state.autofilled, { panel_chair: true, panel_members: true, title: true })
   assert.equal(state.form.adviser, 'Dr. Ana Cruz')
 })

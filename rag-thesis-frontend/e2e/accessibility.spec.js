@@ -320,6 +320,11 @@ const API_FIXTURES = {
     resolved_operational_alerts: 1,
     security_audit_events: 2,
   },
+  '/settings/malware-scanning': {
+    enabled: true,
+    configured: true,
+    status: 'enabled',
+  },
 }
 
 async function mockApi(page, unmocked) {

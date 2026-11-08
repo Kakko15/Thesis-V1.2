@@ -177,6 +177,20 @@ class TestSectionHeadingDetection:
         '2.6. TECHNICAL BACKGROUND',
         '3.1:  KEY CONCEPTS AND TERMINOLOGY',
         '4.3.1 User Testing Phase:',
+        'Materials and Methods',
+        'Methods',
+        'Results and Discussions',
+        'Conclusions and Recommendations',
+        '1. Introduction',
+        '2. Methodology',
+        '2. Materials and Methods',
+        '3. Results and Discussion',
+        '4. Discussion',
+        '5. Conclusion',
+        'I. INTRODUCTION',
+        'II. METHODOLOGY',
+        'III. RESULTS AND DISCUSSION',
+        'IV. DISCUSSION',
     ])
     def test_accepts_real_headings(self, line):
         assert _is_section_heading(line)

@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, Pencil, Plus, Save, Search, ShieldCheck, TerminalSquare, Trash2, UserCog, X as CloseIcon,
+  AlertTriangle, Clock3, Pencil, Plus, Save, Search, ShieldCheck, TerminalSquare, Trash2, UserCog, X as CloseIcon,
 } from 'lucide-react'
 import {
-  apiErrorMessage, createDepartment, deleteDepartment, deleteUser, getDepartments,
+  apiErrorMessage, createDepartment, deleteDepartment, deletePaper, deleteUser, getDepartments,
   getFeaturePermissions, getMalwareScanningSetting, getSystemLogs, listPapers, listUsers,
   updateDepartment, updateFeaturePermissions, updateMalwareScanningSetting,
   updateUserDetails, updateUserRole,
@@ -23,6 +23,9 @@ import { avatarPublicUrl } from '../../lib/avatar'
 import { TableScroller } from '../../components/ui/TableScroller'
 import { TableStateRow } from '../../components/ui/TableStateRow'
 import { PaginationFooter } from '../../components/ui/Pagination'
+import {
+  ARCHIVE_RETENTION_YEARS, isWithinRetentionWindow, summarizeArchiveRetention,
+} from '../archive/archiveFilters'
 
 function PaginationControls({ page, setPage, total, limit }) {
   return (
@@ -458,6 +461,127 @@ function departmentOptions(departments, current) {
   return current && !names.includes(current) ? [current, ...names] : names
 }
 
+function FiveYearStorageRetentionCard({ papers }) {
+  const queryClient = useQueryClient()
+  const [confirmPurge, setConfirmPurge] = useState(false)
+  const [purging, setPurging] = useState(false)
+  const summary = summarizeArchiveRetention(papers)
+  const currentMb = (summary.estimatedVectorKb / 1024).toFixed(2)
+
+  const handlePurgeExpired = async () => {
+    setPurging(true)
+    let removed = 0
+    try {
+      for (const paper of summary.expiredPapers) {
+        await deletePaper(paper.id)
+        removed += 1
+      }
+      queryClient.invalidateQueries({ queryKey: ['papers'] })
+      toast.success(`Purged ${removed} expired manuscript${removed === 1 ? '' : 's'} older than ${ARCHIVE_RETENTION_YEARS} years`)
+    } catch (err) {
+      toast.error('Retention purge encountered an error', { description: apiErrorMessage(err) })
+    } finally {
+      setPurging(false)
+      setConfirmPurge(false)
+    }
+  }
+
+  return (
+    <>
+      <GlassCard className="overflow-hidden">
+        <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300">
+              <Clock3 size={16} aria-hidden="true" />
+            </span>
+            <div>
+              <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">
+                {ARCHIVE_RETENTION_YEARS}-Year Storage &amp; Archive Retention Policy
+              </div>
+              <p className="text-xs text-ink-muted">
+                Active recency window: <span className="font-semibold text-ink">{summary.cutoffYear}–{summary.referenceYear}</span>.
+                {' '}Staged PDFs are deleted after chunking &amp; vector indexing (~120 KB per thesis).
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={summary.expiredCount === 0 || purging}
+            onClick={() => setConfirmPurge(true)}
+          >
+            <Trash2 size={13} /> Purge &gt; {ARCHIVE_RETENTION_YEARS} yrs ({summary.expiredCount})
+          </Button>
+        </div>
+
+        <div className="grid gap-4 p-6 sm:grid-cols-4">
+          <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
+            <div className="text-xs font-medium text-ink-muted">Active Window (≤ {ARCHIVE_RETENTION_YEARS} yrs)</div>
+            <div className="mt-1 font-display text-2xl font-extrabold text-forest-700 dark:text-forest-300">
+              {summary.activeCount}
+            </div>
+            <div className="mt-0.5 text-[11px] text-ink-faint">
+              Completed {summary.cutoffYear}–{summary.referenceYear}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
+            <div className="text-xs font-medium text-ink-muted">Past {ARCHIVE_RETENTION_YEARS}-Year Window</div>
+            <div className="mt-1 font-display text-2xl font-extrabold text-ink">
+              {summary.expiredCount}
+            </div>
+            <div className="mt-0.5 text-[11px] text-ink-faint">
+              Completed before {summary.cutoffYear}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
+            <div className="text-xs font-medium text-ink-muted">Current Index Footprint</div>
+            <div className="mt-1 font-display text-2xl font-extrabold text-ink">
+              ~{currentMb} MB
+            </div>
+            <div className="mt-0.5 text-[11px] text-ink-faint">
+              0 MB permanent PDF bloat
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
+            <div className="text-xs font-medium text-ink-muted">5-Year Capacity Projection</div>
+            <div className="mt-1 font-display text-2xl font-extrabold text-ink">
+              ~{summary.projectedFiveYearMb} MB
+            </div>
+            <div className="mt-0.5 text-[11px] text-ink-faint">
+              Est. 5-year pgvector + metadata
+            </div>
+          </div>
+        </div>
+      </GlassCard>
+
+      <ConfirmDialog
+        open={confirmPurge}
+        onClose={() => !purging && setConfirmPurge(false)}
+        onConfirm={handlePurgeExpired}
+        title={`Purge ${summary.expiredCount} expired thesis record${summary.expiredCount === 1 ? '' : 's'}?`}
+        message={`This permanently removes ${summary.expiredCount} thesis record${summary.expiredCount === 1 ? '' : 's'} completed before ${summary.cutoffYear} (outside the ${ARCHIVE_RETENTION_YEARS}-year retention window) and their vector chunks.`}
+        confirmLabel="Purge expired theses"
+        danger
+        loading={purging}
+      />
+    </>
+  )
+}
+
+function filterAdminPapers(papers, deptFilter, retentionFilter, searchQuery) {
+  const q = (searchQuery || '').toLowerCase()
+  return papers.filter((p) => {
+    if (deptFilter !== 'all' && p.department !== deptFilter) return false
+    if (retentionFilter === 'active' && !isWithinRetentionWindow(p.year)) return false
+    if (retentionFilter === 'expired' && isWithinRetentionWindow(p.year)) return false
+    if (q && !p.title?.toLowerCase().includes(q) && !p.authors?.toLowerCase().includes(q)) return false
+    return true
+  })
+}
+
 export default function SystemManagementTab() {
   const { user: me, role: myRole, isSuperadmin, department: myDept } = useAuth()
   const queryClient = useQueryClient()
@@ -469,6 +593,7 @@ export default function SystemManagementTab() {
   const [userPage, setUserPage] = useState(1)
   const [paperSearchQuery, setPaperSearchQuery] = useState('')
   const [paperDeptFilter, setPaperDeptFilter] = useState(isSuperadmin ? 'all' : (myDept || 'all'))
+  const [paperRetentionFilter, setPaperRetentionFilter] = useState('all')
   const [paperPage, setPaperPage] = useState(1)
   const [confirmation, setConfirmation] = useState(null)
   const [confirming, setConfirming] = useState(false)
@@ -515,14 +640,7 @@ export default function SystemManagementTab() {
     queryKey: ['papers', 'all'],
     queryFn: () => listPapers(null),
   })
-  const filteredPapers = papers.filter(p => {
-    if (paperDeptFilter !== 'all' && p.department !== paperDeptFilter) return false
-    if (paperSearchQuery) {
-      const q = paperSearchQuery.toLowerCase()
-      if (!p.title?.toLowerCase().includes(q) && !p.authors?.toLowerCase().includes(q)) return false
-    }
-    return true
-  })
+  const filteredPapers = filterAdminPapers(papers, paperDeptFilter, paperRetentionFilter, paperSearchQuery)
   const paginatedPapers = filteredPapers.slice((paperPage - 1) * 5, paperPage * 5)
 
   const handleUpdate = async (userId, data) => {
@@ -810,6 +928,8 @@ export default function SystemManagementTab() {
         </>
       )}
 
+      <FiveYearStorageRetentionCard papers={papers} />
+
       <GlassCard className="flex flex-col justify-between overflow-hidden">
         <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-col gap-4 sm:flex-row sm:items-center justify-between">
           <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">Database Papers & Buckets</div>
@@ -823,6 +943,16 @@ export default function SystemManagementTab() {
                 onChange={(e) => { setPaperSearchQuery(e.target.value); setPaperPage(1); }}
               />
             </div>
+            <Select
+              value={paperRetentionFilter}
+              onChange={(e) => { setPaperRetentionFilter(e.target.value); setPaperPage(1); }}
+              className="h-8 w-[140px] rounded-xl px-2.5 text-xs"
+              aria-label="Filter papers by 5-year retention"
+            >
+              <option value="all">All Years</option>
+              <option value="active">Active (≤ 5 yrs)</option>
+              <option value="expired">Past 5 yrs</option>
+            </Select>
             {isSuperadmin && (
               <Select value={paperDeptFilter} onChange={e => { setPaperDeptFilter(e.target.value); setPaperPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter papers by department">
                 <option value="all">All Depts</option>
@@ -836,7 +966,7 @@ export default function SystemManagementTab() {
             <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
               <tr>
                 <th className="px-6 py-3">Title & Authors</th>
-                <th className="px-6 py-3">Dept / Track</th>
+                <th className="px-6 py-3">Dept / Track / Retention</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
@@ -858,9 +988,13 @@ export default function SystemManagementTab() {
                       <div className="text-xs text-ink-muted line-clamp-1 mt-0.5">{p.authors || 'Unknown'}</div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex gap-1">
+                      <div className="flex flex-wrap gap-1">
                         <Badge tone="neutral">{p.department || 'Unassigned'}</Badge>
                         <Badge tone="forest">{p.track}</Badge>
+                        {p.year && <Badge tone="neutral">{p.year}</Badge>}
+                        <Badge tone={isWithinRetentionWindow(p.year) ? 'forest' : 'gold'}>
+                          {isWithinRetentionWindow(p.year) ? '≤ 5 yrs' : '> 5 yrs'}
+                        </Badge>
                         {isFacultyThesis(p) && <Badge tone="gold">Faculty Research</Badge>}
                       </div>
                     </td>

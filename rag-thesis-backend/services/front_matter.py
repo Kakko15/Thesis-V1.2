@@ -25,7 +25,7 @@ _WHITESPACE = re.compile(r'\s+')
 # sheet or the acknowledgment runs long. Twelve pages reach both without turning
 # one read into a whole-document read; the manuscript body is the ingestion
 # pipeline's job.
-FRONT_MATTER_PAGES = 12
+FRONT_MATTER_PAGES = 16
 
 
 def front_matter_texts(file_bytes: bytes, pages: int = FRONT_MATTER_PAGES) -> list[str]:
@@ -61,10 +61,11 @@ def author_token(token: str) -> str:
     )
 
 
-# Only a line holding nothing but the word. The contents entry for the abstract
-# carries its own page number out in the right margin ('ABSTRACT ....... iv'),
-# and the block under *that* line is the rest of the contents list.
-_ABSTRACT_HEADING = re.compile(r'^abstract\s*[:.]?$', re.IGNORECASE)
+# Only a line holding nothing but the heading. The contents entry for the
+# abstract carries its own page number out in the right margin
+# ('ABSTRACT ....... iv'), and the block under *that* line is the rest of the
+# contents list. BSIS capstone manuscripts title this section 'EXECUTIVE SUMMARY'.
+_ABSTRACT_HEADING = re.compile(r'^(?:abstract|executive\s+summary)\s*[:.]?$', re.IGNORECASE)
 
 # What ends the abstract: the next front-matter section, or the manuscript
 # proper. The keyword list is a stop rather than part of the capture -- it is
@@ -74,7 +75,9 @@ _ABSTRACT_HEADING = re.compile(r'^abstract\s*[:.]?$', re.IGNORECASE)
 _ABSTRACT_STOP = re.compile(
     r'^(?:table\s+of\s+contents|acknowledg(?:e)?ments?|dedication|approval\s+sheet|'
     r'curriculum\s+vitae|biographical\s+sketch|list\s+of\s+(?:figures|tables|appendices)|'
-    r'chapter\s+(?:\d+|[ivxlc]+)\b.*|introduction|background(?:\s+of\s+the\s+study)?|'
+    r'chapter\s+(?:\d+|[ivxlc]+)\b.*|'
+    r'(?:(?:[ivxlc]+|[1-9]\d?(?:\.0)?)\.?\s*:?\s*)?'
+    r'(?:introduction|background(?:\s+of\s+the\s+study)?|methodology|materials\s+and\s+methods)|'
     r'keywords?\s*[:.]?.*)$',
     re.IGNORECASE,
 )
@@ -101,6 +104,13 @@ _ABSTRACT_FIELD_LABEL = re.compile(
     r'\s*[:–—-]',
     re.IGNORECASE,
 )
+_ABSTRACT_BARE_LABEL = re.compile(
+    r'^(?P<label>title|program|course|degree|major|track|specialization|authors?|'
+    r'researchers?|students?|proponents?|academic\s+year|school\s+year|year|'
+    r'advis[eo]r|co-?advis[eo]r|department|college|institution|university|date)$',
+    re.IGNORECASE,
+)
+_LEADING_SEPARATOR = re.compile(r'^[:–—-]+\s*(?P<value>.*)$')
 # A label's value wraps, and the wrapped remainder carries no label of its own
 # ('Title : Enhanced K-Means Clustering ... with' / 'Spatiotemporal Data'). Only
 # consulted inside a header block that a labelled line already opened, and only
@@ -179,6 +189,31 @@ def _is_wrapped_label_value(line: str) -> bool:
     )
 
 
+def _consume_identity_line(identity: list[list[str]], stripped: str) -> bool:
+    """Append `stripped` to `identity` when it belongs to the header block."""
+    matched = _ABSTRACT_FIELD_LABEL.match(stripped)
+    if matched:
+        rest = _LEADING_SEPARATOR.sub(r'\g<value>', stripped[matched.end():].strip()).strip()
+        identity.append([matched.group('label'), *([rest] if rest else [])])
+        return True
+    bare = _ABSTRACT_BARE_LABEL.match(stripped)
+    if bare:
+        identity.append([bare.group('label')])
+        return True
+    if not identity:
+        return False
+    sep = _LEADING_SEPARATOR.match(stripped)
+    if sep:
+        value = sep.group('value').strip()
+        if value:
+            identity[-1].append(value)
+        return True
+    if len(identity[-1]) == 1 or _is_wrapped_label_value(stripped):
+        identity[-1].append(stripped)
+        return True
+    return False
+
+
 def _abstract_sections(
     lines: Sequence[str], start: int,
 ) -> tuple[list[list[str]], list[str]]:
@@ -201,37 +236,10 @@ def _abstract_sections(
         if _ABSTRACT_PAGE_FURNITURE.match(stripped):
             continue
         if not body:
-            if not stripped:
-                continue
-            matched = _ABSTRACT_FIELD_LABEL.match(stripped)
-            if matched:
-                identity.append([
-                    matched.group('label'), stripped[matched.end():].strip(),
-                ])
-                continue
-            if identity and _is_wrapped_label_value(stripped):
-                identity[-1].append(stripped)
+            if not stripped or _consume_identity_line(identity, stripped):
                 continue
         body.append(stripped)
     return identity, body
-
-
-def _identity_markdown(entries: Sequence[Sequence[str]]) -> str:
-    """The identity block as a Markdown list, one bullet per labelled field.
-
-    A list rather than the bare lines the page prints, because Markdown joins
-    consecutive lines into one paragraph: bare lines would render as the same
-    run-on this exists to undo, unless every one of them carried two trailing
-    spaces -- invisible state in stored text that an uploader's own edit would
-    silently strip. A bullet survives editing and reads correctly raw.
-    """
-    bullets: list[str] = []
-    for label, *parts in entries:
-        value = _reflow_abstract([part for part in parts if part])
-        if not value:
-            continue
-        bullets.append(f'- **{_WHITESPACE.sub(" ", label).strip().title()}:** {value}')
-    return '\n'.join(bullets)
 
 
 def extract_abstract(page_texts: Sequence[str]) -> str:
@@ -268,9 +276,8 @@ def extract_abstract(page_texts: Sequence[str]) -> str:
     accepted = _accepted_abstract(_front_matter_lines(page_texts))
     if accepted is None:
         return ''
-    _heading, identity, prose = accepted
-    blocks = [block for block in (_identity_markdown(identity), prose) if block]
-    return clip_abstract('\n\n'.join(blocks))
+    _heading, _identity, prose = accepted
+    return clip_abstract(prose)
 
 
 def _front_matter_lines(page_texts: Sequence[str]) -> list[str]:
@@ -577,3 +584,179 @@ def adviser_with_source(page_texts: Sequence[str]) -> tuple[str, str]:
 def extract_adviser(page_texts: Sequence[str]) -> str:
     """The manuscript's adviser, read off its front matter, or ''."""
     return adviser_with_source(page_texts)[0]
+
+
+# ---------------------------------------------------------------------------
+# Panel committee (chair and members)
+# ---------------------------------------------------------------------------
+
+PANEL_CHAIR_MAX_CHARS = 200
+PANEL_MEMBERS_MAX_CHARS = 500
+
+_ZERO_WIDTH = re.compile(r'[\u200b\u200c\u200d\ufeff]+')
+_SIDE_BY_SIDE_GAP = re.compile(r'(?:[\u200b\u200c\u200d\ufeff\t]+|\s{2,})')
+_PANEL_COMMITTEE = re.compile(
+    r'^(?:panel\s+committee|panel\s+of\s+examiners)\s*:?$', re.IGNORECASE,
+)
+_PANEL_SECTION_END = re.compile(
+    r'^(?:approved\b|accepted\b|advisory\s+committee\b|recommended\b)|partial\s+fulfil+ment',
+    re.IGNORECASE,
+)
+_PANEL_CHAIR_ROLE = re.compile(
+    r'^(?:panel\s+)?chair(?:man|person)?\s*:?$', re.IGNORECASE,
+)
+_PANEL_MEMBER_ROLE = re.compile(
+    r'^(?:(?:technical|content)\s+panel|panel(?:\s+member(?:\s*\d+)?)?|examiner|panelist|member)\s*:?$',
+    re.IGNORECASE,
+)
+_PANEL_CHAIR_LABELLED = re.compile(
+    r'^(?:panel\s+)?chair(?:man|person)?\s*[:–—-]\s*(?P<value>.+)$', re.IGNORECASE,
+)
+_PANEL_MEMBERS_LABELLED = re.compile(
+    r'^(?:panel\s+members?|panelists?|examiners?|(?:technical|content)\s+panel)\s*[:–—-]\s*(?P<value>.+)$',
+    re.IGNORECASE,
+)
+_CONTINUATION_INITIAL = re.compile(r'^[A-Z]\.\s+[A-Z]')
+
+
+def _is_panel_role(text: str) -> bool:
+    return bool(_PANEL_CHAIR_ROLE.match(text) or _PANEL_MEMBER_ROLE.match(text))
+
+
+def _split_panel_cells(raw_line: str) -> list[str]:
+    """Split a line that sets two panelists or two role labels side by side."""
+    if _SIDE_BY_SIDE_GAP.search(raw_line):
+        parts = [
+            _WHITESPACE.sub(' ', _ZERO_WIDTH.sub(' ', part)).strip()
+            for part in _SIDE_BY_SIDE_GAP.split(raw_line)
+        ]
+        parts = [part for part in parts if part]
+        if len(parts) >= 2 and all(adviser_name(part) or _is_panel_role(part) for part in parts):
+            return parts
+    cleaned = _WHITESPACE.sub(' ', _ZERO_WIDTH.sub(' ', raw_line or '')).strip()
+    return [cleaned] if cleaned else []
+
+
+def _rejoin_wrapped_panel_cells(cells: Sequence[str]) -> list[str]:
+    """Rejoin a long panelist name split across lines around a role label."""
+    rejoined: list[str] = []
+    index = 0
+    total = len(cells)
+    while index < total:
+        current = cells[index]
+        if ',' not in current and adviser_name(current):
+            next_idx = index + 2 if (
+                index + 2 < total and _PANEL_MEMBER_ROLE.match(cells[index + 1])
+            ) else (index + 1 if index + 1 < total else -1)
+            if next_idx != -1 and _CONTINUATION_INITIAL.match(cells[next_idx]):
+                combined = f'{current} {cells[next_idx]}'
+                if adviser_name(combined):
+                    rejoined.append(combined)
+                    if next_idx == index + 2:
+                        rejoined.append(cells[index + 1])
+                    index = next_idx + 1
+                    continue
+        rejoined.append(current)
+        index += 1
+    return rejoined
+
+
+def _panel_committee_block(lines: Sequence[str]) -> tuple[str, list[str]]:
+    """Return (panel_chair, panel_members) from a 'PANEL COMMITTEE' block."""
+    cells: list[str] = []
+    in_block = False
+    for raw_line in lines:
+        cleaned = _WHITESPACE.sub(' ', _ZERO_WIDTH.sub(' ', raw_line or '')).strip()
+        if not cleaned or re.fullmatch(r'[_\W\d]+', cleaned):
+            continue
+        if not in_block:
+            if _PANEL_COMMITTEE.match(cleaned):
+                in_block = True
+            continue
+        if _PANEL_SECTION_END.search(cleaned):
+            break
+        cells.extend(_split_panel_cells(raw_line))
+
+    if not cells:
+        return '', []
+
+    cells = _rejoin_wrapped_panel_cells(cells)
+    names: list[str] = []
+    chair = ''
+    for cell in cells:
+        if _PANEL_CHAIR_ROLE.match(cell):
+            if names and not chair:
+                chair = names[-1]
+            continue
+        if _PANEL_MEMBER_ROLE.match(cell):
+            continue
+        parsed = adviser_name(cell)
+        if parsed and parsed not in names:
+            names.append(parsed)
+
+    if not chair and len(names) >= 2:
+        chair = names[-1]
+    members = [name for name in names if name != chair]
+    return chair[:PANEL_CHAIR_MAX_CHARS], members
+
+
+def _labelled_panel(lines: Sequence[str]) -> tuple[str, list[str]]:
+    """Read explicit 'Panel Chair: ...' and 'Panel Members: ...' lines."""
+    chair = ''
+    members: list[str] = []
+    for raw_line in lines:
+        line = _WHITESPACE.sub(' ', _ZERO_WIDTH.sub(' ', raw_line or '')).strip()
+        if not line:
+            continue
+        if not chair:
+            chair_match = _PANEL_CHAIR_LABELLED.match(line)
+            if chair_match:
+                parsed = adviser_name(chair_match.group('value'))
+                if parsed:
+                    chair = parsed
+                continue
+        member_match = _PANEL_MEMBERS_LABELLED.match(line)
+        if member_match:
+            for item in re.split(r'\s*;\s*', member_match.group('value')):
+                parsed = adviser_name(item)
+                if parsed and parsed not in members:
+                    members.append(parsed)
+    return chair[:PANEL_CHAIR_MAX_CHARS], members
+
+
+def panel_with_source(page_texts: Sequence[str]) -> tuple[str, str, str]:
+    """Return (panel_chair, panel_members, source) from the front matter."""
+    pages = list(page_texts)
+    accepted = _accepted_abstract(_front_matter_lines(pages))
+    if accepted is not None:
+        pages = pages[:_page_of_line(pages, accepted[0]) + 1]
+
+    for page in pages:
+        if not _APPROVAL_PAGE.search(page or ''):
+            continue
+        chair, members = _panel_committee_block((page or '').splitlines())
+        if chair or members:
+            joined = '; '.join(members)[:PANEL_MEMBERS_MAX_CHARS]
+            return chair, joined, 'panel committee block'
+
+    chair, members = _labelled_panel(_front_matter_lines(pages))
+    if chair or members:
+        joined = '; '.join(members)[:PANEL_MEMBERS_MAX_CHARS]
+        return chair, joined, 'labelled line'
+    return '', '', ''
+
+
+def extract_panel(page_texts: Sequence[str]) -> dict[str, str]:
+    """The manuscript's panel chair and panel members, read off its front matter."""
+    chair, members, _source = panel_with_source(page_texts)
+    return {'panel_chair': chair, 'panel_members': members}
+
+
+def extract_panel_chair(page_texts: Sequence[str]) -> str:
+    """The manuscript's panel chair, or ''."""
+    return panel_with_source(page_texts)[0]
+
+
+def extract_panel_members(page_texts: Sequence[str]) -> str:
+    """The manuscript's panel members joined by '; ', or ''."""
+    return panel_with_source(page_texts)[1]

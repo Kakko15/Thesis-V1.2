@@ -84,7 +84,9 @@ function activeFilterChips({ filters, setFilter, programs, specializations, trac
   }
   if (filters.track) push('track', 'Program', trackDisplayLabel(trackLabels, filters.track))
   if (filters.department) push('department', 'Department', filters.department)
-  if (filters.year) push('year', 'Year', String(filters.year))
+  if (filters.year) {
+    push('year', 'Year', filters.year === 'recent_5' ? 'Last 5 years' : String(filters.year))
+  }
   if (filters.adviser) push('adviser', 'Adviser', filters.adviser)
 
   return chips
@@ -257,6 +259,7 @@ export function ArchiveFiltersBar({
           aria-label="Filter by year"
         >
           <option value="">All years</option>
+          <option value="recent_5">Last 5 years (Recency)</option>
           {years.map((year) => (
             <option key={year} value={year}>{year}</option>
           ))}
