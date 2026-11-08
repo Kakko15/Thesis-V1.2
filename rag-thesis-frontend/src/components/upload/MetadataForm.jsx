@@ -104,7 +104,7 @@ function SelectField({ label, required, autofilled, ...props }) {
  * and left a hole under Department.
  */
 export function MetadataForm({
-  form, errors, autofilled, departments, isSuperadmin, enforcedDepartment, loadingDepts,
+  form, errors, autofilled, autofillNotes = {}, departments, isSuperadmin, enforcedDepartment, loadingDepts,
   programs, specializations, onField, onForm, onBlurValidate, abstractMode,
 }) {
   const set = (key) => (event) => onField(key, event.target.value)
@@ -118,7 +118,13 @@ export function MetadataForm({
         headingId="upload-identity-heading"
       >
         <div className="space-y-5">
-          <LabelledField label="Thesis title" error={errors.title} required autofilled={autofilled.title}>
+          <LabelledField
+            label="Thesis title"
+            error={errors.title}
+            hint={!form.title ? autofillNotes.title : ''}
+            required
+            autofilled={autofilled.title}
+          >
             <Input
               value={form.title}
               onChange={set('title')}
@@ -131,6 +137,7 @@ export function MetadataForm({
             <LabelledField
               label="Authors"
               autofilled={autofilled.authors}
+              hint={!form.authors ? autofillNotes.authors : ''}
             >
               <Input value={form.authors} onChange={set('authors')} placeholder="Dela Cruz, J., Santos, M." />
             </LabelledField>
@@ -141,6 +148,7 @@ export function MetadataForm({
               label="Year completed"
               error={errors.year}
               autofilled={autofilled.year}
+              hint={!form.year ? autofillNotes.year : ''}
             >
               <Input
                 value={form.year}
@@ -159,7 +167,9 @@ export function MetadataForm({
               hold a value the upload would be refused for. */}
           <LabelledField
             label="Adviser"
-            hint="As printed on the approval sheet or the abstract page."
+            hint={!form.adviser && autofillNotes.adviser
+              ? autofillNotes.adviser
+              : 'As printed on the approval sheet or the abstract page.'}
             autofilled={autofilled.adviser}
           >
             <Input
@@ -203,6 +213,7 @@ export function MetadataForm({
                 error={errors.department}
                 required
                 autofilled={autofilled.department}
+                hint={!form.department ? autofillNotes.department : ''}
               >
                 <Select
                   value={form.department}
@@ -252,6 +263,7 @@ export function MetadataForm({
                 error={errors.program_id}
                 required={form.thesis_category !== 'faculty'}
                 autofilled={autofilled.program_id}
+                hint={!form.program_id ? autofillNotes.program_id : ''}
               >
                 <Select
                   value={form.program_id}
@@ -288,6 +300,7 @@ export function MetadataForm({
                   error={errors.specialization_id}
                   required
                   autofilled={autofilled.specialization_id}
+                  hint={!form.specialization_id ? autofillNotes.specialization_id : ''}
                 >
                   <Select
                     value={form.specialization_id}
@@ -316,6 +329,7 @@ export function MetadataForm({
         onChange={set('abstract')}
         onClear={() => onField('abstract', '')}
         autofilled={autofilled.abstract}
+        missingHint={!form.abstract ? autofillNotes.abstract : ''}
         mode={abstractMode}
       />
     </motion.div>

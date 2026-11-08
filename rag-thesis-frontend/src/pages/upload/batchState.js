@@ -78,6 +78,8 @@ export function createBatchRow(file, ids = {}) {
     track: '',
     extracted: false,
     extractError: null,
+    autofillError: null,
+    autofillNotes: {},
     errors: {},
     jobId: null,
     submitError: null,
@@ -134,6 +136,25 @@ function updateRow(state, id, patch) {
   }
 }
 
+function extractionNotes(row, entry, selection) {
+  const notes = {}
+  if (!row.title && !entry.title) notes.title = 'Not autofilled: no recognizable thesis title was found in this document.'
+  if (!row.authors && !entry.authors) notes.authors = 'Not autofilled: no recognizable author names were found in this document.'
+  if (!row.adviser && !entry.adviser) notes.adviser = 'Not autofilled: no adviser was identified on the approval or abstract pages.'
+  if (!row.year && !entry.year) notes.year = 'Not autofilled: no valid completion year was found in this document.'
+  if (!row.program_id && !selection) {
+    notes.program_id = entry.program_code
+      ? 'Not autofilled: the program printed in this document did not match the selected department’s catalog.'
+      : 'Not autofilled: no recognizable academic program was found in this document.'
+  }
+  if (selection?.requires_specialization && !selection.specialization_id) {
+    notes.specialization_id = entry.specialization_code
+      ? 'Not autofilled: the printed specialization did not match this program’s catalog.'
+      : 'Not autofilled: no specialization was identified in this document.'
+  }
+  return notes
+}
+
 /**
  * Fold the title-page extraction into the rows it was run for.
  *
@@ -155,10 +176,13 @@ function applyExtraction(state, files, departments) {
       const selection = row.program_id ? null : programSelection(
         departments, state.defaults.department, entry.program_code, entry.specialization_code,
       )
+      const autofillNotes = extractionNotes(row, entry, selection)
       return {
         ...row,
         extracted: true,
         extractError: null,
+        autofillError: null,
+        autofillNotes,
         title: row.title || entry.title || '',
         authors: row.authors || entry.authors || '',
         adviser: row.adviser || entry.adviser || '',
@@ -166,6 +190,20 @@ function applyExtraction(state, files, departments) {
         ...(selection || {}),
       }
     }),
+  }
+}
+
+function markExtractionFailed(state, message) {
+  const note = 'Autofill unavailable: the document could not be read. Enter this field manually.'
+  return {
+    ...state,
+    rows: state.rows.map((row) => ({
+      ...row,
+      autofillError: message || 'Metadata extraction was unavailable.',
+      autofillNotes: Object.fromEntries(
+        ['title', 'authors', 'adviser', 'year', 'program_id', 'specialization_id'].map((key) => [key, note]),
+      ),
+    })),
   }
 }
 
@@ -244,6 +282,7 @@ export function batchReducer(state, action) {
     // the single-key action without leaving the row half-classified in between.
     case 'patch-row': return updateRow(state, action.id, action.patch)
     case 'apply-extraction': return applyExtraction(state, action.files, action.departments)
+    case 'mark-extraction-failed': return markExtractionFailed(state, action.message)
     case 'apply-program': return applyProgramToRows(state, action.selection)
     case 'set-defaults-field': return { ...state, defaults: { ...state.defaults, [action.key]: action.value } }
     case 'set-defaults': return {

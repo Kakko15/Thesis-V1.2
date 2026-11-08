@@ -352,8 +352,8 @@ export async function scanCapsule(capsule, department = null) {
   const { data } = await api.post('/duplication/capsule', { ...capsule, ...(department ? { department } : {}) })
   return data
 }
-// An uploaded capsule (PDF, Word or text) read into its four sections, to fill
-// the capsule form for review. Nothing is screened or stored by this call.
+// An uploaded capsule (PDF, Word or text) analyzed as a whole into its four
+// semantic fields, to fill the form for review. Nothing is screened or stored.
 export async function extractCapsule(file) {
   const formData = new FormData()
   formData.append('file', file)
@@ -482,6 +482,14 @@ export async function getFeaturePermissions() {
 }
 export async function updateFeaturePermissions(payload) {
   const { data } = await api.put('/settings/features', payload)
+  return data
+}
+export async function getMalwareScanningSetting() {
+  const { data } = await api.get('/settings/malware-scanning')
+  return data
+}
+export async function updateMalwareScanningSetting(enabled) {
+  const { data } = await api.put('/settings/malware-scanning', { enabled })
   return data
 }
 

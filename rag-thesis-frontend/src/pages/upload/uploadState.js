@@ -22,6 +22,10 @@ export function createUploadState(department = 'CCSICT') {
     // Keys the title-page extractor filled, for the "Autofilled" provenance
     // chips. Cleared per key on first edit so a chip never outlives its claim.
     autofilled: {},
+    // Why a blank field was not filled by the most recent extraction. Kept
+    // separately from validation: this is guidance, not an invalid-value
+    // error, and it is only shown while the corresponding control is empty.
+    autofillNotes: {},
     job: null,
     submitting: false,
     parsing: false,
@@ -85,6 +89,7 @@ export function uploadReducer(state, action) {
     case 'set-autofilled': return {
       ...state,
       autofilled: Object.fromEntries((action.keys ?? []).map((key) => [key, true])),
+      autofillNotes: action.notes ?? {},
     }
     case 'set-field': return {
       ...state,

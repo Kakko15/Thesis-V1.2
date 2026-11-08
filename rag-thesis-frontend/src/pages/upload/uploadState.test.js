@@ -89,6 +89,16 @@ test('autofill provenance is recorded per key and cleared on first edit', () => 
   assert.deepEqual(state.autofilled, {})
 })
 
+test('autofill notes are retained separately from successful field claims', () => {
+  const state = uploadReducer(createUploadState('CCSICT'), {
+    type: 'set-autofilled',
+    keys: ['title'],
+    notes: { adviser: 'Not autofilled: no adviser was found.' },
+  })
+  assert.deepEqual(state.autofilled, { title: true })
+  assert.deepEqual(state.autofillNotes, { adviser: 'Not autofilled: no adviser was found.' })
+})
+
 test('set-form drops the autofill claims whose value it changed', () => {
   // A Select is edited through set-form, so without this the extractor went on
   // being credited for a department or program the uploader had since changed

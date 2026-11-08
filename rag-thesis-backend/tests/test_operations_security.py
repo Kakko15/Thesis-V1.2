@@ -107,6 +107,32 @@ def test_disabled_scanner_skips_local_development(monkeypatch):
     assert malware.scanner_status() == 'disabled'
 
 
+def test_runtime_policy_can_disable_configured_clamav(monkeypatch):
+    class PolicyQuery:
+        def select(self, *_args): return self
+        def eq(self, *_args): return self
+        def execute(self): return SimpleNamespace(data=[{'value': False}])
+
+    client = SimpleNamespace(table=lambda _name: PolicyQuery())
+    monkeypatch.setattr(malware.settings, 'malware_scan_mode', 'clamav')
+    monkeypatch.setattr(malware, '_command', lambda *_args: pytest.fail('scanner called'))
+    malware.invalidate_malware_setting()
+
+    assert malware.malware_scanning_enabled(client, refresh=True) is False
+    malware.scan_pdf(b'%PDF-local', client)
+    assert malware.scanner_status(client) == 'disabled'
+
+
+def test_runtime_policy_read_failure_keeps_scanning_enabled(monkeypatch):
+    class BrokenClient:
+        def table(self, _name):
+            raise RuntimeError('settings unavailable')
+
+    monkeypatch.setattr(malware.settings, 'malware_scan_mode', 'clamav')
+    malware.invalidate_malware_setting()
+    assert malware.malware_scanning_enabled(BrokenClient(), refresh=True) is True
+
+
 def test_production_fails_closed_without_clamav():
     with pytest.raises(ValidationError, match='ClamAV'):
         Settings(
