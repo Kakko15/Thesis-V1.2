@@ -1024,17 +1024,9 @@ class TestAbstractExtraction:
             'vision-based system for missing person detection built on MTCNN.\n'
         )
         abstract = upload._extract_abstract([page])
-        assert abstract.splitlines()[:5] == [
-            '- **Title:** FindMe: A Computer Vision-based Detector for Missing Person',
-            '- **Program:** Bachelor of Science in Computer Science-Data Mining Track',
-            '- **Authors:** Adrian T. Agustin James Nico V. Caraui',
-            '- **Academic Year:** AY 2024-2025',
-            '- **Adviser:** Inst. Jenefer P. Bermusa',
-        ]
-        # The prose is its own block, so nothing renders as one run-on.
-        identity, _, prose = abstract.partition('\n\n')
-        assert prose.startswith('Traditional methods for locating missing persons')
-        assert 'Title' not in prose and identity.count('\n') == 4
+        assert abstract.startswith('Traditional methods for locating missing persons')
+        assert 'Title' not in abstract
+        assert 'Adviser' not in abstract
 
     def test_the_label_spelling_is_normalised_but_the_value_is_not(self):
         page = (
@@ -1044,10 +1036,37 @@ class TestAbstractExtraction:
             'Co-Adviser : Dr. Ana D. Cruz\n'
             + 'The researchers measured attendance across eighty sections. ' * 5
         )
-        lines = upload._extract_abstract([page]).splitlines()
-        assert lines[0] == '- **Title:** A Study of Campus Attendance'
-        assert lines[1] == '- **Academic Year:** AY 2025-2026'
-        assert lines[2] == '- **Co-Adviser:** Dr. Ana D. Cruz'
+        abstract = upload._extract_abstract([page])
+        assert abstract.startswith('The researchers measured attendance across eighty sections.')
+        assert 'Title' not in abstract and 'Co-Adviser' not in abstract
+
+    def test_split_column_identity_labels_and_executive_summary_heading_are_extracted(self):
+        split_page = '\n'.join((
+            'ABSTRACT',
+            'Title',
+            ': Alumni Tracer Platform Using Web Crawler',
+            'Program',
+            ': Bachelor of Science in Computer Science',
+            'Authors',
+            ': Fernando D. Pagbilao Jr.',
+            '  Rosel V. Mina',
+            'Academic Year',
+            ': AY 2024-2025',
+            'Adviser',
+            ': Romero Dante C. Salum, DIT',
+            '',
+            'The study developed an automated Alumni Tracer Platform to provide ' * 5,
+        ))
+        extracted = upload._extract_abstract([split_page])
+        assert extracted.startswith('The study developed an automated Alumni Tracer Platform')
+        assert 'Title' not in extracted and 'Romero Dante' not in extracted
+
+        exec_summary = 'EXECUTIVE SUMMARY\n\n' + (
+            'The Performance Appraisal System replaced manual tracking with a web platform. ' * 5
+        )
+        assert upload._extract_abstract([exec_summary]).startswith(
+            'The Performance Appraisal System replaced',
+        )
 
     def test_a_page_holding_only_the_identity_block_is_not_an_abstract(self):
         """The floor is measured on the prose, not on the labels above it.
@@ -1592,17 +1611,16 @@ class TestBatchExtractEndpoint:
             files=[('files', (name, content, mime)) for name, content, mime in files],
         )
 
-    def test_the_batch_reply_carries_no_abstract(self, upload_client, monkeypatch):
-        """The review table has no abstract column, so the reply has no field.
-
-        Twenty manuscripts' abstracts is up to 200 kB of text nothing renders.
-        """
+    def test_the_batch_reply_carries_the_extracted_abstract(self, upload_client, monkeypatch):
+        """Each batch file receives its own extracted abstract."""
         monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
         response = self._post(
             upload_client, [('thesis.pdf', _pdf_pages(FRONT_MATTER), 'application/pdf')],
         )
         assert response.status_code == 200
-        assert 'abstract' not in response.json()['files'][0]
+        assert response.json()['files'][0]['abstract'].startswith(
+            'This study developed a centralized thesis library',
+        )
 
     def test_each_file_is_extracted_in_place_and_bad_ones_are_reported(self, upload_client, monkeypatch):
         monkeypatch.setattr(upload, 'sb', _TableRouter({'departments': [{'name': 'CCSICT'}]}))
@@ -1636,6 +1654,7 @@ class TestBatchExtractEndpoint:
         assert files[1]['status_code'] == 415 and files[1]['filename'] == 'notes.txt'
         assert files[2] == {
             'index': 2, 'filename': 'blank.pdf', 'title': '', 'authors': '', 'adviser': '',
+            'panel_chair': '', 'panel_members': '', 'abstract': '',
             'year': '', 'department': '', 'program_code': '', 'specialization_code': '',
             'error': None, 'status_code': None,
         }
@@ -1683,5 +1702,5 @@ class TestBatchExtractEndpoint:
         assert response.json() == {
             'title': '', 'authors': '', 'year': '', 'department': '',
             'program_code': '', 'specialization_code': '', 'thesis_category': '',
-            'abstract': '', 'adviser': '',
+            'abstract': '', 'adviser': '', 'panel_chair': '', 'panel_members': '',
         }

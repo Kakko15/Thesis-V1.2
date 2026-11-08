@@ -1,13 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  ARCHIVE_RETENTION_YEARS,
   SORT_OPTIONS,
   archiveAdvisers,
   archiveYears,
   filterArchivePapers,
+  isWithinRetentionWindow,
   resolveArchivePrograms,
   resolveArchiveTracks,
   sortArchivePapers,
+  summarizeArchiveRetention,
   trackDisplayLabel,
   trackDisplayLabels,
 } from './archiveFilters.js'
@@ -239,4 +242,32 @@ test('a program filter also finds pre-catalog papers by the track they carry', (
   assert.deepEqual(ids({ program_id: 'bscs' }), ['restamped', 'legacy-dm', 'other-program'])
   // Without the catalog to read, only ids match, as before.
   assert.deepEqual(filterArchivePapers(rows, { program_id: 'bsit' }).map((paper) => paper.id), ['catalogued'])
+})
+
+test('5-year retention policy classifies active and expired papers and filters by recency', () => {
+  assert.equal(ARCHIVE_RETENTION_YEARS, 5)
+  assert.equal(isWithinRetentionWindow(2026, 2026), true)
+  assert.equal(isWithinRetentionWindow(2021, 2026), true)
+  assert.equal(isWithinRetentionWindow(2020, 2026), false)
+
+  const shelf = [
+    { id: 'curr', title: 'Current Thesis', year: 2025 },
+    { id: 'edge', title: 'Boundary Thesis', year: 2021 },
+    { id: 'old1', title: 'Older Thesis 1', year: 2020 },
+    { id: 'old2', title: 'Older Thesis 2', year: 2018 },
+  ]
+  const summary = summarizeArchiveRetention(shelf, 2026)
+  assert.equal(summary.cutoffYear, 2021)
+  assert.equal(summary.activeCount, 2)
+  assert.equal(summary.expiredCount, 2)
+  assert.deepEqual(summary.expiredPapers.map((p) => p.id), ['old1', 'old2'])
+
+  assert.deepEqual(
+    filterArchivePapers(shelf, { year: 'recent_5', referenceYear: 2026 }).map((p) => p.id),
+    ['curr', 'edge'],
+  )
+  assert.deepEqual(
+    filterArchivePapers(shelf, { year: 'expired_5', referenceYear: 2026 }).map((p) => p.id),
+    ['old1', 'old2'],
+  )
 })

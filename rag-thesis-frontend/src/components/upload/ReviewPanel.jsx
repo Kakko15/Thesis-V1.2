@@ -127,6 +127,12 @@ export function ReviewPanel({ file, form, program, specialization }) {
           <Cell label="Adviser">
             <span className="block text-sm font-medium leading-snug text-ink">{form.adviser || '—'}</span>
           </Cell>
+          <Cell label="Panel chair">
+            <span className="block text-sm font-medium leading-snug text-ink">{form.panel_chair || '—'}</span>
+          </Cell>
+          <Cell label="Panel members" wide>
+            <span className="block text-sm font-medium leading-snug text-ink">{form.panel_members || '—'}</span>
+          </Cell>
           <Cell label="Year">
             <span className="block text-sm font-mono font-medium text-ink">{form.year || '—'}</span>
           </Cell>
@@ -146,6 +152,13 @@ export function ReviewPanel({ file, form, program, specialization }) {
           <Cell label="Department">
             <Badge tone="neutral">{form.department}</Badge>
           </Cell>
+          {form.abstract && (
+            <Cell label="Abstract" wide>
+              <p className="max-h-40 overflow-y-auto text-xs leading-relaxed text-ink-muted">
+                {form.abstract}
+              </p>
+            </Cell>
+          )}
         </dl>
       </div>
 

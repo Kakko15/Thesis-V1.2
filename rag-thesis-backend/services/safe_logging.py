@@ -42,6 +42,19 @@ class PrivacyFilter(logging.Filter):
         return True
 
 
+class AccessNoiseFilter(logging.Filter):
+    """Drop routine local health/model-discovery probes from uvicorn.access."""
+
+    _SILENCED_PATHS = ('"GET /v1/models ', '"GET /health ')
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except (TypeError, ValueError):
+            message = str(record.msg)
+        return not any(probe in message for probe in self._SILENCED_PATHS)
+
+
 def configure_safe_logging() -> None:
     """Apply redaction globally and silence routine HTTP polling noise."""
     root = logging.getLogger()
@@ -50,5 +63,11 @@ def configure_safe_logging() -> None:
     for handler in root.handlers:
         if not any(isinstance(item, PrivacyFilter) for item in handler.filters):
             handler.addFilter(PrivacyFilter())
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(item, AccessNoiseFilter) for item in access_logger.filters):
+        access_logger.addFilter(AccessNoiseFilter())
+    for handler in access_logger.handlers:
+        if not any(isinstance(item, AccessNoiseFilter) for item in handler.filters):
+            handler.addFilter(AccessNoiseFilter())
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)

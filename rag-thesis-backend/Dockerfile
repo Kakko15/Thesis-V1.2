@@ -14,9 +14,16 @@
 # OpenSSL's QUIC server. Nothing here serves QUIC, so exposure was nil, but the
 # CI container scan is fix-available-only and failed on it for eight
 # consecutive runs. Re-pinning to a build carrying 3.6.3-r5 clears it.
+FROM cgr.dev/chainguard/python:latest@sha256:f487e51ca6ee4b20e07e1b4c9c44d3108ab305d2318b0f233f5b72529f52a6aa AS runtime-base
+
 FROM cgr.dev/chainguard/python:latest-dev@sha256:f0f3f01288b7ae009d90828d2dbd2f3c949aa3b6e820081cb278880d758ffb44 AS build
 
 USER root
+COPY --from=runtime-base / /runtime-rootfs
+RUN apk --root /runtime-rootfs update \
+    && apk --root /runtime-rootfs upgrade --no-cache --no-scripts \
+    && apk --root /runtime-rootfs add --no-cache --no-scripts --upgrade ca-certificates-bundle libexpat1 zlib py3-pip-wheel \
+    && rm -rf /runtime-rootfs/var/cache/apk/*
 # Deliberately exact, not a range: the paper's version tables record this
 # number, so a silent patch bump would make them wrong. Re-pinning the digest
 # above is the moment to confirm this number and the tables together — and it
@@ -61,8 +68,11 @@ COPY workers/*.py ./workers/
 COPY scripts/gemini_release_smoke.py ./scripts/
 RUN chown -R 65532:65532 /app /opt/venv /opt/tiktoken-cache
 
-# Runtime stage, pinned by digest for the same reason as the build stage above.
-FROM cgr.dev/chainguard/python:latest@sha256:f487e51ca6ee4b20e07e1b4c9c44d3108ab305d2318b0f233f5b72529f52a6aa
+# Runtime stage, built from the digest-pinned Chainguard runtime rootfs after
+# applying Wolfi security updates in the build stage above.
+FROM scratch
+
+COPY --from=build /runtime-rootfs/ /
 
 WORKDIR /app
 ENV PATH="/opt/venv/bin:$PATH" \

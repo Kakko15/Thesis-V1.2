@@ -12,7 +12,7 @@ from services.activity import log_activity
 from services.chunker import build_chunk_metadata, split_document, validate_chunk_records
 from services.document_processor import extract_document, is_noise_chunk
 from services.embedder import embed_texts
-from services.front_matter import extract_adviser, front_matter_texts
+from services.front_matter import extract_adviser, extract_panel, front_matter_texts
 from services.index_provenance import current_index_fingerprint
 from services.malware import MalwareDetected, scan_pdf
 from services.novelty import refresh_after_ingest, screen_new_submission
@@ -107,6 +107,22 @@ def fill_adviser_from_manuscript(client, paper_id: str, file_bytes: bytes) -> st
         return ''
 
 
+def fill_panel_from_manuscript(client, paper_id: str, file_bytes: bytes) -> dict[str, str]:
+    """Store panel_chair and panel_members on a paper committed without them."""
+    try:
+        panel = extract_panel(front_matter_texts(file_bytes))
+        if panel.get('panel_chair'):
+            client.table('papers').update({'panel_chair': panel['panel_chair']}) \
+                .eq('id', paper_id).is_('panel_chair', 'null').execute()
+        if panel.get('panel_members'):
+            client.table('papers').update({'panel_members': panel['panel_members']}) \
+                .eq('id', paper_id).is_('panel_members', 'null').execute()
+        return panel
+    except Exception as error:  # advisory metadata, never a gate
+        logger.warning('Panel autofill failed for %s (%s)', paper_id, type(error).__name__)
+        return {'panel_chair': '', 'panel_members': ''}
+
+
 def _require_lease(heartbeat: Callable[..., bool], **updates) -> None:
     if not heartbeat(**updates):
         raise LeaseLostError('The ingestion worker lease is no longer valid')
@@ -137,7 +153,10 @@ def process_ingestion_job(client, job: dict, worker_id: str,
         message='Scanning the private manuscript for malware...',
     )
     try:
-        scan_pdf(file_bytes, client)
+        try:
+            scan_pdf(file_bytes, client)
+        except TypeError:
+            scan_pdf(file_bytes)
     except MalwareDetected as error:
         raise MalwareDetectedIngestionError('The staged manuscript failed malware scanning') from error
 
@@ -232,6 +251,8 @@ def process_ingestion_job(client, job: dict, worker_id: str,
         # not name the column, and the hydrate_paper_adviser trigger reading
         # the same request_payload is what fills papers.adviser.
         'adviser': str(payload.get('adviser') or '').strip() or None,
+        'panel_chair': str(payload.get('panel_chair') or '').strip() or None,
+        'panel_members': str(payload.get('panel_members') or '').strip() or None,
         'filename': filename,
         'storage_path': source_path,
         'chunk_count': len(chunks),
@@ -320,6 +341,8 @@ def process_ingestion_job(client, job: dict, worker_id: str,
     # so every ingestion path ends up with the adviser the front matter names.
     if not str(payload.get('adviser') or '').strip():
         fill_adviser_from_manuscript(client, paper_id, file_bytes)
+    if not str(payload.get('panel_chair') or '').strip() or not str(payload.get('panel_members') or '').strip():
+        fill_panel_from_manuscript(client, paper_id, file_bytes)
 
     # Everyone else's screening is now one thesis out of date. Screening runs
     # before a manuscript is indexed, so this one's own record already saw the

@@ -99,13 +99,18 @@ class _LazyTokenSplitter:
 
 splitter = _LazyTokenSplitter()
 
-# The canonical thesis chapter names. These are headings wherever a line
-# holds nothing else.
+# The canonical thesis and IMRAD section names. These are headings wherever a
+# line holds nothing else (with an optional top-level Arabic or Roman numeral).
 _NAMED_HEADING = re.compile(
     r'^(?:chapter\s+(?:\d+|[ivxlc]+)\b.*|'
-    r'abstract|introduction|background(?: of the study)?|review of related literature|'
-    r'methodology|research methodology|results(?: and discussion)?|discussion|conclusion(?:s)?|'
-    r'recommendations?)$',
+    r'(?:(?:[ivxlc]+|[1-9]\d?(?:\.0)?)\.?\s*:?\s*)?(?:'
+    r'abstract|executive\s+summary|introduction|background(?:\s+of\s+the\s+study)?|'
+    r'review\s+of\s+related\s+literature(?:\s+and\s+studies)?|literature\s+review|related\s+literature|'
+    r'methodology|research\s+methodology|materials\s+and\s+methods|methods|'
+    r'results(?:\s+and\s+discussions?)?|findings|discussions?|'
+    r'conclusions?(?:\s+and\s+recommendations?)?|'
+    r'summary,?\s+conclusions?,?\s+and\s+recommendations?|recommendations?'
+    r'))$',
     re.IGNORECASE,
 )
 

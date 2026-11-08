@@ -122,6 +122,8 @@ export function summaryRows(form = {}, context = {}) {
     { key: 'title', label: 'Title', value: displayValue(form.title), tone: null },
     { key: 'authors', label: 'Authors', value: displayValue(form.authors), tone: null },
     { key: 'adviser', label: 'Adviser', value: displayValue(form.adviser), tone: null },
+    { key: 'panel_chair', label: 'Panel chair', value: displayValue(form.panel_chair), tone: null },
+    { key: 'panel_members', label: 'Panel members', value: displayValue(form.panel_members), tone: null },
     { key: 'year', label: 'Year', value: displayValue(form.year), tone: null },
     { key: 'category', label: 'Category', value: displayValue(categoryLabel), tone: 'forest' },
     { key: 'program', label: 'Program', value: displayValue(program?.code), tone: 'forest' },
@@ -174,7 +176,8 @@ export function extractionDepartment({
  * named no major of the resolved program.
  */
 export const AUTOFILLABLE_KEYS = Object.freeze([
-  'title', 'authors', 'adviser', 'year', 'thesis_category', 'department', 'program_id',
+  'title', 'authors', 'adviser', 'panel_chair', 'panel_members',
+  'year', 'thesis_category', 'department', 'program_id',
   'specialization_id', 'abstract',
 ])
 
@@ -182,7 +185,8 @@ export const AUTOFILLABLE_KEYS = Object.freeze([
 // when a manuscript supplies nothing. The classification (department, program,
 // specialization) is not here: it is applied whole or not at all.
 const MERGED_FIELDS = Object.freeze({
-  title: '', authors: '', adviser: '', year: '', abstract: '', thesis_category: 'student',
+  title: '', authors: '', adviser: '', panel_chair: '', panel_members: '',
+  year: '', abstract: '', thesis_category: 'student',
 })
 
 /**

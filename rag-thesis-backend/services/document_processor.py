@@ -73,7 +73,20 @@ _EXCLUDED_SECTION_HEADINGS = re.compile(
     r'list\s+of\s+(figures|tables|appendices))\s*$',
     re.IGNORECASE,
 )
-_CHAPTER_HEADING = re.compile(r'^\s*(chapter\s+\d+|chapter\s+[ivxlc]+)\b', re.IGNORECASE)
+_CHAPTER_HEADING = re.compile(
+    r'^\s*(?:'
+    r'chapter\s+(?:\d+|[ivxlc]+)\b(?!.*\.{2,}\s*\d{1,4}\s*$).*|'
+    r'(?:(?:[ivxlc]+|[1-9]\d?(?:\.0)?)\.?\s*:?\s*)?(?:'
+    r'abstract|executive\s+summary|introduction|background(?:\s+of\s+the\s+study)?|'
+    r'review\s+of\s+related\s+literature(?:\s+and\s+studies)?|literature\s+review|related\s+literature|'
+    r'methodology|research\s+methodology|materials\s+and\s+methods|methods|'
+    r'results(?:\s+and\s+discussions?)?|findings|discussions?|'
+    r'conclusions?(?:\s+and\s+recommendations?)?|'
+    r'summary,?\s+conclusions?,?\s+and\s+recommendations?|recommendations?'
+    r')'
+    r')\s*$',
+    re.IGNORECASE,
+)
 
 _PAGE_NUMBER_LINE = re.compile(
     r'^[-–—\s]*(?:page\s*)?\d{1,4}\s*(?:of\s+\d{1,4})?[-–—\s]*$',

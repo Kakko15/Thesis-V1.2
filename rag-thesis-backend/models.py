@@ -98,6 +98,8 @@ class PaperOut(BaseModel):
     # Optional at upload and null on papers indexed before the adviser migration
     # until the backfill reads it, so absent is a normal value here.
     adviser: Optional[str] = None
+    panel_chair: Optional[str] = None
+    panel_members: Optional[str] = None
     year: Optional[int] = None
     abstract: Optional[str] = None
     track: Optional[str] = None
@@ -174,6 +176,9 @@ class BatchRow(BaseModel):
     # Length is checked per row by _validate_metadata rather than here: a
     # Field(max_length=...) would reject the whole batch for one long name.
     adviser: str = ''
+    panel_chair: str = ''
+    panel_members: str = ''
+    abstract: str = ''
     year: str = ''
     idempotency_key: str
     program_id: Optional[str] = None
@@ -196,6 +201,9 @@ class BatchExtractedFile(BaseModel):
     title: str = ''
     authors: str = ''
     adviser: str = ''
+    panel_chair: str = ''
+    panel_members: str = ''
+    abstract: str = ''
     year: str = ''
     department: str = ''
     # Codes, not ids: the client resolves them inside the department it has

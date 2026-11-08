@@ -242,6 +242,37 @@ def test_privacy_filter_redacts_the_traceback_carried_by_exception_logging():
     assert 'Traceback' in record.exc_text
 
 
+def test_uvicorn_access_filter_silences_background_model_and_health_probes():
+    from services.safe_logging import AccessNoiseFilter, configure_safe_logging
+
+    configure_safe_logging()
+    access_logger = logging.getLogger('uvicorn.access')
+    assert any(isinstance(f, AccessNoiseFilter) for f in access_logger.filters)
+
+    noise_filter = AccessNoiseFilter()
+    probe_models = logging.LogRecord(
+        'uvicorn.access', logging.INFO, '', 1,
+        '%s - "%s %s HTTP/%s" %d',
+        ('127.0.0.1:63376', 'GET', '/v1/models', '1.1', 404),
+        None,
+    )
+    probe_health = logging.LogRecord(
+        'uvicorn.access', logging.INFO, '', 1,
+        '%s - "%s %s HTTP/%s" %d',
+        ('127.0.0.1:63376', 'GET', '/health', '1.1', 200),
+        None,
+    )
+    real_route = logging.LogRecord(
+        'uvicorn.access', logging.INFO, '', 1,
+        '%s - "%s %s HTTP/%s" %d',
+        ('127.0.0.1:63376', 'POST', '/upload/extract-metadata', '1.1', 200),
+        None,
+    )
+    assert noise_filter.filter(probe_models) is False
+    assert noise_filter.filter(probe_health) is False
+    assert noise_filter.filter(real_route) is True
+
+
 def test_storage_encryption_round_trip_and_wrong_passphrase(tmp_path):
     source = tmp_path / 'source.tar.gz'
     encrypted = tmp_path / 'storage.isubackup'

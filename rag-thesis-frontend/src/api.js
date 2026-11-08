@@ -236,7 +236,7 @@ export async function getTracks() {
 
 // ---------- Upload (background ingestion) ----------
 export async function uploadPaper({
-  file, title, authors, adviser, year, abstract, track, department,
+  file, title, authors, adviser, panel_chair, panel_members, year, abstract, track, department,
   program_id, specialization_id, thesis_category, idempotencyKey,
 }) {
   const formData = new FormData()
@@ -244,6 +244,8 @@ export async function uploadPaper({
   formData.append('title', title)
   formData.append('authors', authors || '')
   formData.append('adviser', adviser || '')
+  formData.append('panel_chair', panel_chair || '')
+  formData.append('panel_members', panel_members || '')
   formData.append('year', year || '')
   formData.append('abstract', abstract || '')
   formData.append('track', track || '')

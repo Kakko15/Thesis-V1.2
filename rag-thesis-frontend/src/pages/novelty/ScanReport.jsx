@@ -2,13 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import { toast } from 'sonner'
-import { ClipboardList, Download, FileText, Info } from 'lucide-react'
+import { ClipboardList, Download, FileText, Info, PenLine } from 'lucide-react'
 import { scanDuplicationChat, apiErrorMessage } from '../../api'
 import { Button } from '../../components/ui/Button'
+import { Input } from '../../components/ui/Input'
 import { ProgressRing } from '../../components/ui/ProgressRing'
 import { cn, normalizePercent, scanMetrics, timeAgo, verdictLabel, verdictTone } from '../../lib/utils'
 import { contentKeys } from '../../lib/keys'
-import { downloadNoveltyReport } from './report'
+import {
+  DEFAULT_DEAN_NAME,
+  DEFAULT_DEAN_TITLE,
+  downloadNoveltyReport,
+} from './report'
 import { isCapsuleScan } from './capsule'
 
 /** Google Fonts (Material Symbols Outlined: arrow_upward_alt, fill 0 / wght 400 / opsz 24). */
@@ -74,6 +79,77 @@ function CapsuleSections({ sections }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+function ReportHeader({ scan, capsule }) {
+  const [editingSignatories, setEditingSignatories] = useState(false)
+  const [adviserName, setAdviserName] = useState('')
+  const [deanName, setDeanName] = useState(DEFAULT_DEAN_NAME)
+  const [deanTitle, setDeanTitle] = useState(DEFAULT_DEAN_TITLE)
+
+  const handleDownload = () => {
+    downloadNoveltyReport(scan, { adviserName, deanName, deanTitle })
+    toast.success('Official novelty report (.docx) downloaded', {
+      description: `Includes endorsement block for ${deanName || DEFAULT_DEAN_NAME}.`,
+    })
+  }
+
+  return (
+    <div className="px-5 pt-5 sm:px-6">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {capsule
+          ? <ClipboardList size={18} className="shrink-0 text-ink-muted" aria-hidden="true" />
+          : <FileText size={18} className="shrink-0 text-ink-muted" aria-hidden="true" />}
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold" title={scan.filename}>{scan.filename}</h2>
+          <p className="text-xs text-ink-muted">
+            {capsule ? 'Capsule proposal · ' : ''}
+            {timeAgo(scan.created_at)}{scan.department ? ` · ${scan.department}` : ''}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setEditingSignatories((open) => !open)}
+            aria-expanded={editingSignatories}
+          >
+            <PenLine size={13} /> Signatories
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownload}
+          >
+            <Download size={14} /> Download report (.docx)
+          </Button>
+        </div>
+      </div>
+
+      {editingSignatories && (
+        <div className="mt-3 grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)]/50 p-3.5 sm:grid-cols-3">
+          <Input
+            label="Prepared / Screened by (Adviser)"
+            value={adviserName}
+            onChange={(e) => setAdviserName(e.target.value)}
+            maxLength={200}
+          />
+          <Input
+            label="Noted & Endorsed by (Dean)"
+            value={deanName}
+            onChange={(e) => setDeanName(e.target.value)}
+            maxLength={200}
+          />
+          <Input
+            label="Dean Title / College"
+            value={deanTitle}
+            onChange={(e) => setDeanTitle(e.target.value)}
+            maxLength={120}
+          />
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -170,29 +246,7 @@ export function ScanReport({ scan, onAsk }) {
       transition={{ duration: 0.4, ease: [0.2, 0, 0, 1] }}
       className="scroll-mt-6 overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface-0)] dark:bg-[var(--surface-1)]"
     >
-      {/* Title row */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 pt-5 sm:px-6">
-        {capsule
-          ? <ClipboardList size={18} className="shrink-0 text-ink-muted" aria-hidden="true" />
-          : <FileText size={18} className="shrink-0 text-ink-muted" aria-hidden="true" />}
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-base font-semibold" title={scan.filename}>{scan.filename}</h2>
-          <p className="text-xs text-ink-muted">
-            {capsule ? 'Capsule proposal · ' : ''}
-            {timeAgo(scan.created_at)}{scan.department ? ` · ${scan.department}` : ''}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            downloadNoveltyReport(scan)
-            toast.success('Metadata-only report downloaded')
-          }}
-        >
-          <Download size={14} /> Download report
-        </Button>
-      </div>
+      <ReportHeader scan={scan} capsule={capsule} />
 
       {/* Verdict and figures */}
       <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:gap-6 sm:px-6">

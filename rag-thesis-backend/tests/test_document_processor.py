@@ -80,6 +80,41 @@ class TestExcludedSections:
         assert '1.1 Background' not in result
         assert 'Real content.' in result
 
+    def test_imrad_manuscript_resumes_after_excluded_front_matter(self):
+        text = (
+            'Approval Sheet\nSigned by the examining committee.\n'
+            'Table of Contents\nIntroduction ... 1\n'
+            'INTRODUCTION\nThis IMRAD study investigates automated irrigation.\n'
+            'MATERIALS AND METHODS\nSensor nodes were deployed across three plots.\n'
+            'RESULTS AND DISCUSSION\nWater consumption dropped by 28 percent.\n'
+            'References\nSmith, J. (2024). Smart farming.\n'
+        )
+        result = _remove_excluded_sections(text)
+        assert 'Signed by the examining committee.' not in result
+        assert 'This IMRAD study investigates automated irrigation.' in result
+        assert 'Sensor nodes were deployed across three plots.' in result
+        assert 'Water consumption dropped by 28 percent.' in result
+        assert 'Smith, J. (2024).' not in result
+
+    def test_numbered_and_roman_imrad_headings_resume_after_front_matter_in_pdf(self):
+        pdf = fitz.open()
+        toc_page = pdf.new_page()
+        toc_page.insert_text((72, 72), 'TABLE OF CONTENTS\nI. Introduction ........ 1\n')
+        body_page = pdf.new_page()
+        body_page.insert_text(
+            (72, 72),
+            '1. INTRODUCTION\nThis IMRAD manuscript has no Chapter 1 heading at all.\n'
+            '2. METHODOLOGY\nExperimental setup and evaluation metrics.\n',
+        )
+        payload = pdf.tobytes()
+        pdf.close()
+
+        document = extract_pdf_document(payload)
+        assert len(document.pages) == 1
+        assert document.pages[0].page_number == 2
+        assert 'This IMRAD manuscript has no Chapter 1 heading at all.' in document.text
+        assert 'Experimental setup and evaluation metrics.' in document.text
+
 
 class TestExtractText:
     def test_plain_text_passthrough(self):

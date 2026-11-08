@@ -60,10 +60,13 @@ from services.front_matter import (
     ABSTRACT_MIN_CHARS as _ABSTRACT_MIN_CHARS,
     ADVISER_MAX_CHARS as _ADVISER_MAX_CHARS,
     FRONT_MATTER_PAGES,
+    PANEL_CHAIR_MAX_CHARS as _PANEL_CHAIR_MAX_CHARS,
+    PANEL_MEMBERS_MAX_CHARS as _PANEL_MEMBERS_MAX_CHARS,
     author_token as _author_token,
     clip_abstract as _clip_abstract,
     extract_abstract as _extract_abstract,
     extract_adviser as _extract_adviser,
+    extract_panel as _extract_panel,
     front_matter_texts,
 )
 from services.llm_output import coerce_text, strip_code_fence
@@ -590,6 +593,7 @@ async def _read_limited_upload(file: UploadFile) -> bytes:
 
 def _validate_metadata(
     title: str, authors: str, year: str, abstract: str, adviser: str = '',
+    panel_chair: str = '', panel_members: str = '',
 ) -> None:
     if not 5 <= len(title.strip()) <= 300:
         raise HTTPException(422, 'Title must contain between 5 and 300 characters')
@@ -597,6 +601,10 @@ def _validate_metadata(
         raise HTTPException(422, 'Authors must not exceed 500 characters')
     if len(adviser.strip()) > _ADVISER_MAX_CHARS:
         raise HTTPException(422, f'Adviser must not exceed {_ADVISER_MAX_CHARS} characters')
+    if len(panel_chair.strip()) > _PANEL_CHAIR_MAX_CHARS:
+        raise HTTPException(422, f'Panel chair must not exceed {_PANEL_CHAIR_MAX_CHARS} characters')
+    if len(panel_members.strip()) > _PANEL_MEMBERS_MAX_CHARS:
+        raise HTTPException(422, f'Panel members must not exceed {_PANEL_MEMBERS_MAX_CHARS} characters')
     if len(abstract) > 10000:
         raise HTTPException(422, 'Abstract must not exceed 10,000 characters')
     # Timezone-aware on purpose: datetime.now() used the server's local zone
@@ -857,6 +865,7 @@ class _ClassificationCache:
 async def _stage_and_queue_one(
     ctx: _StagingContext, file: UploadFile, *, title: str, authors: str,
     year: str, abstract: str, idempotency_key: str | None, adviser: str = '',
+    panel_chair: str = '', panel_members: str = '',
 ) -> UploadAccepted:
     """Validate, privately stage, and durably queue one manuscript.
 
@@ -883,6 +892,8 @@ async def _stage_and_queue_one(
         # (migrations/20260923_paper_adviser.sql) reads it by key, and a blank
         # value is stored as null there.
         'adviser': ' '.join(adviser.split()),
+        'panel_chair': ' '.join(panel_chair.split()),
+        'panel_members': ' '.join(panel_members.split()),
         'year': year,
         'abstract': abstract,
         **ctx.classification_payload,
@@ -986,6 +997,8 @@ async def upload_paper(
     user: UploadUser,
     authors: Annotated[str, Form()] = '',
     adviser: Annotated[str, Form()] = '',
+    panel_chair: Annotated[str, Form()] = '',
+    panel_members: Annotated[str, Form()] = '',
     year: Annotated[str, Form()] = '',
     abstract: Annotated[str, Form()] = '',
     track: Annotated[str, Form()] = '',
@@ -998,7 +1011,10 @@ async def upload_paper(
     # Department first, metadata second, catalog last: the order the clients
     # and their tests have always observed for a request that is wrong twice.
     department = await asyncio.to_thread(resolve_effective_department, user, department)
-    _validate_metadata(title, authors, year, abstract, adviser=adviser)
+    _validate_metadata(
+        title, authors, year, abstract,
+        adviser=adviser, panel_chair=panel_chair, panel_members=panel_members,
+    )
     ctx = await _resolve_staging_context(
         user, department=department, thesis_category=thesis_category,
         program_id=program_id, specialization_id=specialization_id, track=track,
@@ -1006,6 +1022,7 @@ async def upload_paper(
     return await _stage_and_queue_one(
         ctx, file, title=title, authors=authors, year=year, abstract=abstract,
         idempotency_key=idempotency_key, adviser=adviser,
+        panel_chair=panel_chair, panel_members=panel_members,
     )
 
 
@@ -1073,11 +1090,15 @@ async def _stage_batch_file(
     """
     base = {'index': index, 'filename': _batch_filename(file, index), 'idempotency_key': row.idempotency_key}
     try:
-        _validate_metadata(row.title, row.authors, row.year, '', adviser=row.adviser)
+        _validate_metadata(
+            row.title, row.authors, row.year, row.abstract,
+            adviser=row.adviser, panel_chair=row.panel_chair, panel_members=row.panel_members,
+        )
         ctx = await classifications.context(row.program_id, row.specialization_id)
         accepted = await _stage_and_queue_one(
             ctx, file, title=row.title, authors=row.authors, year=row.year,
-            abstract='', idempotency_key=row.idempotency_key, adviser=row.adviser,
+            abstract=row.abstract, idempotency_key=row.idempotency_key, adviser=row.adviser,
+            panel_chair=row.panel_chair, panel_members=row.panel_members,
         )
     except HTTPException as error:
         return BatchFileResult(**base, error=str(error.detail), status_code=error.status_code)
@@ -1425,12 +1446,12 @@ _CATEGORY_FIELDS = ('thesis_category',)
 # review table has no column for one and a twenty-file reply would hand back
 # up to 200 kB of text nothing renders.
 _DESCRIPTION_FIELDS = ('abstract',)
-# Read off the front matter by `_extract_adviser`, and outside _METADATA_FIELDS
-# for the reason the program pair is: that tuple gates the Gemini completion,
-# and a manuscript that names no adviser must not buy a call that could only
-# guess one. Unlike the abstract it is one short line, so batch replies carry
-# it too.
-_ADVISER_FIELDS = ('adviser',)
+# Read off the front matter by `_extract_adviser` and `_extract_panel`, and
+# outside _METADATA_FIELDS for the reason the program pair is: that tuple gates
+# the Gemini completion, and a manuscript that names no adviser or panel must
+# not buy a call that could only guess one. Unlike the abstract they are short
+# lines, so batch replies carry them too.
+_ADVISER_FIELDS = ('adviser', 'panel_chair', 'panel_members')
 # Gemini completions a batch extraction may run at once. Bounded because the
 # pool's EXTRACT slot rotates keys reactively: a twenty-way fan-out would trip
 # the capacity cooldown on every key before the first reply came back.
@@ -1441,7 +1462,7 @@ def _empty_metadata() -> dict[str, str]:
     return {
         field: ''
         for field in (
-            _METADATA_FIELDS + _ACADEMIC_FIELDS + _CATEGORY_FIELDS + _ADVISER_FIELDS + _DESCRIPTION_FIELDS
+            _METADATA_FIELDS + _ACADEMIC_FIELDS + _CATEGORY_FIELDS + _DESCRIPTION_FIELDS + _ADVISER_FIELDS
         )
     }
 
@@ -1511,8 +1532,8 @@ async def _read_front_matter(file: UploadFile, pages: int) -> list[str]:
 
 async def _title_pages(
     file: UploadFile, *, with_abstract: bool = False,
-) -> tuple[str, str, str, str]:
-    """Validate the upload and return (title-page text, first page, abstract, adviser).
+) -> tuple[str, str, str, str, dict[str, str]]:
+    """Validate the upload and return (title-page text, first page, abstract, adviser, panel).
 
     Use the title page as the authoritative source for bibliographic fields.
     Later pages are context for Gemini, but their citation years must never be
@@ -1522,11 +1543,11 @@ async def _title_pages(
     years in front of the model that `_ai_completion` then has to reject.
 
     All twelve are read for every manuscript, batch included, because the
-    adviser is printed on the approval sheet and the abstract page rather than
-    the title page, and the same PDF should autofill the same adviser in the
-    wizard, in a batch and in the backfill. The extra pages are text-layer
-    reads only. `with_abstract` still gates the abstract itself, which the
-    batch review table has no column for.
+    adviser and panel are printed on the approval sheet and the abstract page
+    rather than the title page, and the same PDF should autofill the same
+    fields in the wizard, in a batch and in the backfill. The extra pages are
+    text-layer reads only. `with_abstract` still gates the abstract itself,
+    which the batch review table has no column for.
     """
     page_texts = await _read_front_matter(file, _ABSTRACT_SCAN_PAGES)
     title_pages = page_texts[:_TITLE_PAGES]
@@ -1535,6 +1556,7 @@ async def _title_pages(
         (title_pages[0] if title_pages else ''),
         _extract_abstract(page_texts) if with_abstract else '',
         _extract_adviser(page_texts),
+        _extract_panel(page_texts),
     )
 
 
@@ -1582,7 +1604,7 @@ async def _extract_one(
     programs: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Local title-page pass first; Gemini only for what it leaves blank."""
-    text, title_page_text, abstract, adviser = await _title_pages(file, with_abstract=True)
+    text, title_page_text, abstract, adviser, panel = await _title_pages(file, with_abstract=True)
     if not text.strip():
         return {'title': '', 'authors': ''}
     if dept_names is None:
@@ -1597,14 +1619,14 @@ async def _extract_one(
     academic = _academic_codes(
         title_page_text, programs, local_data.get('department', ''),
     )
-    # The abstract and the adviser ride beside both routes: they are read
+    # The abstract, adviser, and panel ride beside both routes: they are read
     # locally either way, and `_ai_completion` answers with the four model
     # fields only.
     described = {
         # All three front-matter pages, not the title page alone: the approval
         # sheet repeats the degree sentence, and a scanned title page has none.
         **academic, 'thesis_category': _thesis_category(text),
-        'abstract': abstract, 'adviser': adviser,
+        'abstract': abstract, 'adviser': adviser, **panel,
     }
     if all(local_data.get(field) for field in _METADATA_FIELDS):
         return {**local_data, **described}
@@ -1723,7 +1745,7 @@ def _extracted_file(index: int, filename: str, data: dict[str, str] | None = Non
                     **extra) -> BatchExtractedFile:
     fields = {
         field: str((data or {}).get(field) or '')
-        for field in _METADATA_FIELDS + _ACADEMIC_FIELDS + _ADVISER_FIELDS
+        for field in _METADATA_FIELDS + _ACADEMIC_FIELDS + _DESCRIPTION_FIELDS + _ADVISER_FIELDS
     }
     return BatchExtractedFile(index=index, filename=filename, **fields, **extra)
 
@@ -1754,8 +1776,7 @@ async def extract_metadata_batch(
     for index, file in enumerate(files):
         filename = _batch_filename(file, index)
         try:
-            # No abstract: the batch review table has no field to put one in.
-            text, title_page_text, _, adviser = await _title_pages(file)
+            text, title_page_text, abstract, adviser, panel = await _title_pages(file, with_abstract=True)
         except HTTPException as error:
             results[index] = _extracted_file(
                 index, filename, error=str(error.detail), status_code=error.status_code,
@@ -1775,7 +1796,7 @@ async def extract_metadata_batch(
         academic = _academic_codes(
             title_page_text, programs, page_data.get('department', ''),
         )
-        local_data = {**page_data, **academic, 'adviser': adviser}
+        local_data = {**page_data, **academic, 'abstract': abstract, 'adviser': adviser, **panel}
         if all(local_data.get(field) for field in _METADATA_FIELDS):
             results[index] = _extracted_file(index, filename, local_data)
             continue

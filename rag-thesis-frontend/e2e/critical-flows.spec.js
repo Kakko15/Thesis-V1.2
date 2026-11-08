@@ -437,8 +437,8 @@ test('faculty novelty scan renders deterministic advisory metrics', async ({ pag
   await expect(page.getByText('2 / 8')).toBeVisible()
   await expect(page.getByText('Review suggested')).toBeVisible()
   const reportDownload = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Download report' }).click()
-  await expect((await reportDownload).suggestedFilename()).toMatch(/^novelty-report-.*\.json$/)
+  await page.getByRole('button', { name: /Download report/i }).click()
+  await expect((await reportDownload).suggestedFilename()).toMatch(/^novelty-report-.*\.(?:docx|json)$/)
   expect(unexpected).toEqual([])
 })
 

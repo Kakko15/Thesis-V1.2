@@ -481,15 +481,56 @@ test('the batch rail shows progress only while the workers are running', () => {
 
 test('apply-extraction fills each row’s adviser but never overwrites one typed by hand', () => {
   let state = stateWithFiles(pdf('a.pdf'), pdf('b.pdf'))
-  assert.ok(state.rows.every((row) => row.adviser === ''))
+  assert.ok(state.rows.every((row) => (
+    row.adviser === '' && row.panel_chair === '' && row.panel_members === '' && row.abstract === ''
+  )))
   state = batchReducer(state, { type: 'set-row-field', id: state.rows[1].id, key: 'adviser', value: 'Typed By Hand' })
   state = batchReducer(state, {
     type: 'apply-extraction',
     files: [
-      { index: 0, title: 'First Title', adviser: 'Dr. Ana D. Cruz' },
-      { index: 1, title: 'Second Title', adviser: 'Dr. Extracted Name' },
+      {
+        index: 0,
+        title: 'First Title',
+        adviser: 'Dr. Ana D. Cruz',
+        panel_chair: 'Dr. Chair',
+        panel_members: 'Dr. M1; Dr. M2',
+        abstract: 'Extracted abstract for first manuscript.',
+      },
+      { index: 1, title: 'Second Title', adviser: 'Dr. Extracted Name', panel_chair: 'Dr. Chair 2' },
     ],
   })
   assert.equal(state.rows[0].adviser, 'Dr. Ana D. Cruz')
+  assert.equal(state.rows[0].panel_chair, 'Dr. Chair')
+  assert.equal(state.rows[0].panel_members, 'Dr. M1; Dr. M2')
+  assert.equal(state.rows[0].abstract, 'Extracted abstract for first manuscript.')
   assert.equal(state.rows[1].adviser, 'Typed By Hand')
+  assert.equal(state.rows[1].panel_chair, 'Dr. Chair 2')
+})
+
+test('each batch row tracks its own document and AI extended abstract variants', () => {
+  let state = stateWithFiles(pdf('a.pdf'))
+  const rowId = state.rows[0].id
+  state = batchReducer(state, {
+    type: 'apply-extraction',
+    files: [{ index: 0, title: 'First Title', abstract: 'Verbatim abstract from PDF.' }],
+  })
+  assert.equal(state.rows[0].abstractMode, 'document')
+  assert.equal(state.rows[0].abstractVariants.document, 'Verbatim abstract from PDF.')
+  assert.equal(state.rows[0].abstract, 'Verbatim abstract from PDF.')
+
+  state = batchReducer(state, { type: 'set-row-extending', id: rowId, value: true })
+  assert.equal(state.rows[0].extendingAbstract, true)
+
+  state = batchReducer(state, {
+    type: 'apply-row-abstract',
+    id: rowId,
+    mode: 'extended',
+    variants: { document: 'Verbatim abstract from PDF.', extended: 'AI extended abstract.' },
+    abstract: 'AI extended abstract.',
+  })
+  assert.equal(state.rows[0].extendingAbstract, false)
+  assert.equal(state.rows[0].abstractMode, 'extended')
+  assert.equal(state.rows[0].abstract, 'AI extended abstract.')
+  assert.equal(state.rows[0].abstractVariants.document, 'Verbatim abstract from PDF.')
+  assert.equal(state.rows[0].abstractVariants.extended, 'AI extended abstract.')
 })

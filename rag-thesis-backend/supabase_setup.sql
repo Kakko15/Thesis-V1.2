@@ -266,6 +266,8 @@ alter table public.papers add column if not exists thesis_category text not null
 -- migration also installs the trigger that fills it at ingestion; this file
 -- carries the column only, as it does for the catalog columns.
 alter table public.papers add column if not exists adviser text;
+alter table public.papers add column if not exists panel_chair text;
+alter table public.papers add column if not exists panel_members text;
 update public.papers set active_index_version = gen_random_uuid() where active_index_version is null;
 alter table public.papers alter column active_index_version set not null;
 alter table public.papers alter column active_index_version set default gen_random_uuid();

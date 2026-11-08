@@ -143,29 +143,43 @@ function IngestingPanel({ job, pollError, onCancel, onResume }) {
  */
 function ExtractedDetails({ form }) {
   if (!form.title) return null
+  const abstractWords = (form.abstract || '').trim() ? (form.abstract || '').trim().split(/\s+/).length : 0
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mt-4 rounded-2xl border border-gold-400/30 bg-gold-400/8 p-4 shadow-xs text-left backdrop-blur-xs"
+      className="mt-4 overflow-hidden rounded-2xl border border-forest-500/25 bg-[var(--surface-1)] shadow-xs text-left"
     >
-      <div className="flex items-center gap-2 mb-2">
-        <Sparkles size={14} className="text-gold-500 animate-pulse shrink-0" />
+      <div className="flex items-center gap-2 border-b border-[var(--border)]/60 bg-[var(--surface-2)]/50 px-4 py-2.5">
+        <Sparkles size={14} className="text-forest-600 dark:text-gold-300 shrink-0" />
         <span className="text-xs font-bold uppercase tracking-wider text-ink">
           Extracted Manuscript Details
         </span>
-        <span className="ml-auto text-[11px] font-medium text-ink-muted">
-          Autofilled by AI
+        <span className="ml-auto rounded-full bg-forest-500/12 px-2.5 py-0.5 text-[10px] font-semibold text-forest-700 dark:text-forest-300">
+          Autofilled from PDF
         </span>
       </div>
-      <div className="text-sm font-bold text-ink line-clamp-2">
-        {form.title}
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted">
-        {form.authors && <span><strong>Authors:</strong> {form.authors}</span>}
-        {form.adviser && <span><strong>Adviser:</strong> {form.adviser}</span>}
-        {form.year && <span><strong>Year:</strong> {form.year}</span>}
-        {form.department && <span><strong>Department:</strong> {form.department}</span>}
+      <div className="space-y-3 p-4">
+        <div className="font-display text-sm font-bold leading-snug text-ink">
+          {form.title}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 text-xs text-ink-muted">
+          {form.authors && <div><span className="font-semibold text-ink">Authors:</span> {form.authors}</div>}
+          {form.adviser && <div><span className="font-semibold text-ink">Adviser:</span> {form.adviser}</div>}
+          {form.panel_chair && <div><span className="font-semibold text-ink">Panel chair:</span> {form.panel_chair}</div>}
+          {form.panel_members && <div><span className="font-semibold text-ink">Panel members:</span> {form.panel_members}</div>}
+          {form.year && <div><span className="font-semibold text-ink">Year:</span> {form.year}</div>}
+          {form.department && <div><span className="font-semibold text-ink">Department:</span> {form.department}</div>}
+        </div>
+        {form.abstract && (
+          <div className="rounded-xl border border-[var(--border)]/60 bg-[var(--surface-0)] p-3 text-xs leading-relaxed text-ink-muted">
+            <div className="mb-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-ink-faint">
+              <span>Abstract Preview</span>
+              <span>{abstractWords} words</span>
+            </div>
+            <p className="line-clamp-3">{form.abstract}</p>
+          </div>
+        )}
       </div>
     </motion.div>
   )
@@ -178,6 +192,37 @@ function StepActions({ children }) {
       {children}
     </div>
   )
+}
+
+const MISSING_AUTOFILL_NOTES = {
+  title: 'Not autofilled: no recognizable thesis title was found in the document.',
+  authors: 'Not autofilled: no recognizable author names were found in the document.',
+  adviser: 'Not autofilled: no adviser was identified on the approval or abstract pages.',
+  panel_chair: 'Not autofilled: no panel chair was identified on the approval sheet.',
+  panel_members: 'Not autofilled: no panel members were identified on the approval sheet.',
+  year: 'Not autofilled: no valid completion year was found in the document.',
+  abstract: 'Not autofilled: no clearly labelled abstract was found in the document.',
+}
+
+function buildAutofillNotes(metadata, extractedDepartment, selection) {
+  const notes = {}
+  for (const [key, message] of Object.entries(MISSING_AUTOFILL_NOTES)) {
+    if (!metadata[key]) notes[key] = message
+  }
+  if (!extractedDepartment) {
+    notes.department = 'Not autofilled: no recognizable department was found in the document.'
+  }
+  if (!selection) {
+    notes.program_id = metadata.program_code
+      ? 'Not autofilled: the program printed in the document did not match this department’s catalog.'
+      : 'Not autofilled: no recognizable academic program was found in the document.'
+  }
+  if (selection?.requires_specialization && !selection.specialization_id) {
+    notes.specialization_id = metadata.specialization_code
+      ? 'Not autofilled: the printed specialization did not match this program’s catalog.'
+      : 'Not autofilled: no specialization was identified in the document.'
+  }
+  return notes
 }
 
 export default function Upload() {
@@ -275,6 +320,8 @@ export default function Upload() {
         // Read locally off the approval sheet or abstract page, never asked of
         // the model, so blank means the manuscript did not name one clearly.
         adviser: metadata.adviser || '',
+        panel_chair: metadata.panel_chair || '',
+        panel_members: metadata.panel_members || '',
         year: metadata.year || '',
         // Read verbatim off the manuscript's own abstract page, or blank. The
         // server never asks the model for this one, so a value here is the
@@ -304,24 +351,7 @@ export default function Upload() {
       // The same list decides the toast: a resolved program carries its
       // `program_id`, so every field the old field-by-field test named is in it.
       const filled = autofilledKeys(patch)
-      const notes = {
-        ...(!metadata.title ? { title: 'Not autofilled: no recognizable thesis title was found in the document.' } : {}),
-        ...(!metadata.authors ? { authors: 'Not autofilled: no recognizable author names were found in the document.' } : {}),
-        ...(!metadata.adviser ? { adviser: 'Not autofilled: no adviser was identified on the approval or abstract pages.' } : {}),
-        ...(!metadata.year ? { year: 'Not autofilled: no valid completion year was found in the document.' } : {}),
-        ...(!metadata.abstract ? { abstract: 'Not autofilled: no clearly labelled abstract was found in the document.' } : {}),
-        ...(!extractedDepartment ? { department: 'Not autofilled: no recognizable department was found in the document.' } : {}),
-        ...(!selection ? {
-          program_id: metadata.program_code
-            ? 'Not autofilled: the program printed in the document did not match this department’s catalog.'
-            : 'Not autofilled: no recognizable academic program was found in the document.',
-        } : {}),
-        ...(selection?.requires_specialization && !selection.specialization_id ? {
-          specialization_id: metadata.specialization_code
-            ? 'Not autofilled: the printed specialization did not match this program’s catalog.'
-            : 'Not autofilled: no specialization was identified in the document.',
-        } : {}),
-      }
+      const notes = buildAutofillNotes(metadata, extractedDepartment, selection)
       dispatch({ type: 'set-autofilled', keys: filled, notes })
       if (filled.length > 0) {
         toast.success('Metadata autofilled', { description: 'Extracted available information from the document.' })
@@ -334,7 +364,8 @@ export default function Upload() {
         type: 'set-autofilled',
         keys: [],
         notes: Object.fromEntries([
-          'title', 'authors', 'adviser', 'year', 'abstract', 'department', 'program_id', 'specialization_id',
+          'title', 'authors', 'adviser', 'panel_chair', 'panel_members',
+          'year', 'abstract', 'department', 'program_id', 'specialization_id',
         ].map((key) => [key, message])),
       })
       toast.error('Autofill failed', { description: 'Please enter the metadata manually.' })

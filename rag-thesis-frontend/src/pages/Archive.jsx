@@ -560,6 +560,18 @@ function ArchiveDetailModal({ detail, onClose, trackLabels }) {
               <dd className="mt-1 text-sm">{detail.adviser}</dd>
             </div>
           )}
+          {detail?.panel_chair && (
+            <div>
+              <dt className="text-xs font-bold uppercase tracking-wider text-ink-faint">Panel Chair</dt>
+              <dd className="mt-1 text-sm">{detail.panel_chair}</dd>
+            </div>
+          )}
+          {detail?.panel_members && (
+            <div>
+              <dt className="text-xs font-bold uppercase tracking-wider text-ink-faint">Panel Members</dt>
+              <dd className="mt-1 text-sm">{detail.panel_members}</dd>
+            </div>
+          )}
         </dl>
         {detail?.abstract && (
           <div>
