@@ -36,6 +36,7 @@ import { Sheet } from '../components/ui/Sheet'
 import { cn, normalizePercent, timeAgo } from '../lib/utils'
 import { getChatPrefs } from '../lib/chatPrefs'
 import { THESIS_CATEGORIES } from '../lib/catalog'
+import { resolveRecencyMinYear } from './archive/archiveFilters'
 
 const STARTERS = [
   'What machine learning techniques were used in past CCSICT theses?',
@@ -886,6 +887,7 @@ export default function Chat() {
   // may narrow retrieval to student or faculty theses. Starts from the default
   // chosen in Settings → Chat & AI.
   const [filterCategory, setFilterCategory] = useState(() => getChatPrefs().defaultCategory)
+  const [recencyScope, setRecencyScope] = useState('all')
   const [sendKey] = useState(() => getChatPrefs().sendKey)
   const [sending, setSending] = useState(false)
   const [chatError, setChatError] = useState(null)
@@ -1148,6 +1150,7 @@ export default function Chat() {
           .map((message) => message.answer)
           .filter(withinReplyLimit)
           .slice(-30),
+        resolveRecencyMinYear(recencyScope),
       )
       if (controller.signal.aborted) return
       guestGate.markPassed()
@@ -1294,6 +1297,15 @@ export default function Chat() {
             </div>
           </div>
           <div className="flex min-w-0 items-center gap-2">
+            <Select
+              value={recencyScope}
+              onChange={(e) => setRecencyScope(e.target.value)}
+              className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none"
+              aria-label="Filter research by publication recency"
+            >
+              <option value="all">All theses</option>
+              <option value="recent_5">Last 5 years</option>
+            </Select>
             <Select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}

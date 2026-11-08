@@ -74,6 +74,7 @@ class CapsuleScanReq(BaseModel):
     objectives: str = Field('', max_length=6000)
     methodology: str = Field('', max_length=6000)
     department: Optional[str] = Field(None, max_length=64)
+    min_year: Optional[int] = Field(None, ge=1900, le=2100)
 
     @model_validator(mode='after')
     def _needs_a_body_section(self):
@@ -291,6 +292,7 @@ async def scan_duplication(
     file: Annotated[UploadFile, File()],
     user: NoveltyUser,
     department: Annotated[str | None, Form()] = None,
+    min_year: Annotated[int | None, Form(ge=1900, le=2100)] = None,
 ):
     # Every blocking call below is offloaded with asyncio.to_thread, matching
     # routers/chat.py. FastAPI runs an `async def` handler on the event loop
@@ -370,6 +372,12 @@ async def scan_duplication(
             503, 'The archive search is unavailable right now. Try this manuscript again shortly.',
             headers={'Retry-After': '30'},
         ) from error
+
+    if min_year:
+        allowed_papers = await asyncio.to_thread(_department_papers, effective_department, min_year)
+        allowed_ids = {str(p['id']) for p in allowed_papers}
+        match_scores = [m for m in match_scores if str(m.get('paper_id')) in allowed_ids]
+        text_pairs = [p for p in text_pairs if str(p.get('paper_id')) in allowed_ids]
 
     percentage = compute_duplication_percentage(len(match_scores), len(chunks))
     highest_similarity = percent(max((m.get('similarity', 0.0) for m in match_scores), default=0.0))
@@ -567,9 +575,20 @@ def _closest_archived_chunks(embeddings: list[list[float]], department: str) -> 
     return results
 
 
-def _department_papers(department: str) -> list[dict]:
+def _paper_within_min_year(paper: dict | None, min_year: int | None) -> bool:
+    """Whether `paper` satisfies an optional minimum completion year."""
+    if not min_year or not paper:
+        return True
+    try:
+        year = int(paper.get('year') or 0)
+    except (TypeError, ValueError):
+        return True
+    return year <= 0 or year >= min_year
+
+
+def _department_papers(department: str, min_year: int | None = None) -> list[dict]:
     """Archived paper metadata for one department, for the title comparison."""
-    return (
+    rows = (
         sb.table('papers')
         .select('id,title,authors,year,track,department')
         .eq('department', department)
@@ -579,6 +598,7 @@ def _department_papers(department: str) -> list[dict]:
         .limit(5000)
         .execute()
     ).data or []
+    return [row for row in rows if _paper_within_min_year(row, min_year)]
 
 
 @router.post('/capsule', responses=errors(422, 502, 503))
@@ -623,6 +643,22 @@ async def scan_capsule(request: Request, body: CapsuleScanReq, user: NoveltyUser
             headers={'Retry-After': '30'},
         ) from error
 
+    # Titles are compared on wording as well as meaning: an embedding of eight
+    # words sits close to every thesis in one department, while two titles that
+    # share nearly every word are the plainest sign a study was already done.
+    try:
+        department_papers = await asyncio.to_thread(_department_papers, effective_department, body.min_year)
+    except Exception:
+        logger.exception('Capsule scan title comparison unavailable; continuing without it')
+        department_papers = []
+
+    if body.min_year:
+        allowed_ids = {str(paper['id']) for paper in department_papers}
+        candidates = [
+            [m for m in matches if str(m.get('paper_id')) in allowed_ids]
+            for matches in candidates
+        ]
+
     for owner, matches in zip(owners, candidates):
         best = capsule.best_match(matches)
         section = sections[owner]
@@ -631,14 +667,6 @@ async def scan_capsule(request: Request, body: CapsuleScanReq, user: NoveltyUser
             section.paper_id = str(best['paper_id'])
             section.archived_excerpt = _short_excerpt(best.get('content') or '')
 
-    # Titles are compared on wording as well as meaning: an embedding of eight
-    # words sits close to every thesis in one department, while two titles that
-    # share nearly every word are the plainest sign a study was already done.
-    try:
-        department_papers = await asyncio.to_thread(_department_papers, effective_department)
-    except Exception:
-        logger.exception('Capsule scan title comparison unavailable; continuing without it')
-        department_papers = []
     title_section = sections[0]
     title_paper, wording = await asyncio.to_thread(
         capsule.closest_title, title_section.text, department_papers,
@@ -656,7 +684,11 @@ async def scan_capsule(request: Request, body: CapsuleScanReq, user: NoveltyUser
             lambda: sb.table('papers').select('id,title,authors,year,track,department')
             .in_('id', missing).eq('ingestion_status', 'ready').execute(),
         )
-        papers_by_id.update({str(paper['id']): paper for paper in (fetched.data or [])})
+        papers_by_id.update({
+            str(paper['id']): paper
+            for paper in (fetched.data or [])
+            if _paper_within_min_year(paper, body.min_year)
+        })
     # A matched paper deleted mid-scan has no metadata left to show.
     for section in sections:
         if section.paper_id and section.paper_id not in papers_by_id:

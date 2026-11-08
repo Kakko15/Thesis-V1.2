@@ -20,6 +20,7 @@ import { ScanHistoryPanel } from './novelty/ScanHistoryPanel'
 import { CapsuleForm } from './novelty/CapsuleForm'
 import { capsulePayload, isCapsuleScan } from './novelty/capsule'
 import { PANEL } from './novelty/panel'
+import { resolveRecencyMinYear } from './archive/archiveFilters'
 
 // Single and batch take manuscripts; a capsule is the short proposal an
 // adviser reviews before any manuscript exists, typed in section by section.
@@ -87,6 +88,7 @@ export default function Novelty() {
   const [activeScan, setActiveScan] = useState(null)
   const [scanning, setScanning] = useState(false)
   const [department, setDepartment] = useState('')
+  const [recencyScope, setRecencyScope] = useState('all')
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [confirmClearOpen, setConfirmClearOpen] = useState(false)
@@ -166,8 +168,9 @@ export default function Novelty() {
       setScanning(false)
     }
   }
-  const scanFile = (file) => runScan(() => scanDuplication(file, scanDepartment))
-  const checkCapsule = (capsule) => runScan(() => scanCapsule(capsulePayload(capsule), scanDepartment))
+  const minYear = resolveRecencyMinYear(recencyScope)
+  const scanFile = (file) => runScan(() => scanDuplication(file, scanDepartment, minYear))
+  const checkCapsule = (capsule) => runScan(() => scanCapsule(capsulePayload(capsule), scanDepartment, minYear))
 
   return (
     <PageTransition className="mx-auto max-w-6xl space-y-6">
@@ -184,6 +187,15 @@ export default function Novelty() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={recencyScope}
+            onChange={(e) => setRecencyScope(e.target.value)}
+            aria-label="Novelty archive recency scope"
+            className="h-9 w-auto rounded-full px-3.5 text-xs font-medium"
+          >
+            <option value="all">All theses</option>
+            <option value="recent_5">Last 5 years</option>
+          </Select>
           {isSuperadmin ? (
             <Select
               value={department}
@@ -228,6 +240,7 @@ export default function Novelty() {
             <div hidden={mode !== 'batch'}>
               <BatchScanPanel
                 department={scanDepartment}
+                minYear={minYear}
                 activeScanId={activeScan?.id}
                 onOpen={setActiveScan}
                 onScanned={() => queryClient.invalidateQueries({ queryKey: ['scan-history'] })}

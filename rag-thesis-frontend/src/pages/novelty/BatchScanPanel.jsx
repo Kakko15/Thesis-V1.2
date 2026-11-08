@@ -45,7 +45,7 @@ function StatusLine({ entry }) {
  * Several manuscripts scanned one after another, each row opening onto the
  * same report a single scan produces.
  */
-export function BatchScanPanel({ department, activeScanId, onOpen, onScanned }) {
+export function BatchScanPanel({ department, minYear = null, activeScanId, onOpen, onScanned }) {
   const [entries, setEntries] = useState([])
   const [running, setRunning] = useState(false)
   // The loop reads the queue from here rather than from state, so a file
@@ -85,7 +85,7 @@ export function BatchScanPanel({ department, activeScanId, onOpen, onScanned }) 
   const scanWithRetry = async (entry) => {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await scanDuplication(entry.file, department)
+        return await scanDuplication(entry.file, department, minYear)
       } catch (error) {
         if (!isRetryableScanFailure(error) || attempt >= RATE_LIMIT_RETRIES || stopRef.current) throw error
         const delay = retryDelayMs(error)

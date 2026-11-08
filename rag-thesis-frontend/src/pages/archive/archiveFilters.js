@@ -1,5 +1,13 @@
 export const ARCHIVE_RETENTION_YEARS = 5
 
+export function resolveRecencyMinYear(
+  scope,
+  referenceYear = new Date().getFullYear(),
+  retentionYears = ARCHIVE_RETENTION_YEARS,
+) {
+  return scope === 'recent_5' ? referenceYear - retentionYears : null
+}
+
 export function isWithinRetentionWindow(
   year,
   referenceYear = new Date().getFullYear(),
