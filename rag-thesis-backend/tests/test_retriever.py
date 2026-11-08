@@ -636,3 +636,63 @@ class TestPaperDiversityCap:
         assert [s['id'] for s in sources] == ['p_recent']
         assert 'Recent 2025 Thesis' in context
         assert 'Old 2019 Thesis' not in context
+
+    def test_search_chunks_and_overview_include_adviser_and_panel_in_context(self, monkeypatch):
+        pool = [{
+            'id': 1, 'paper_id': 'p1', 'chunk_index': 1,
+            'content': 'The study achieved 96.4% classification accuracy.',
+            'similarity': 0.91, 'page_start': 42, 'page_end': 42, 'section': 'Results',
+        }]
+        papers = [{
+            'id': 'p1', 'title': 'Smart Rice Disease Classifier',
+            'authors': 'Dela Cruz, J.', 'adviser': 'Joe G. Lagarteja, DIT',
+            'panel_chair': 'Albert A. Vinluan, DIT',
+            'panel_members': 'Benchie L. Maribao, DIT; Christine Charmaine G. San Jose, DIT',
+            'year': 2026, 'track': 'Data Mining', 'department': 'CCSICT',
+        }]
+
+        class _PoolClient(_RetrieverClient):
+            def table(self, name):
+                if name == 'papers':
+                    return _Query(papers)
+                return _Query(pool)
+
+        monkeypatch.setattr(retriever, 'sb', _PoolClient(chunks=pool))
+        context, sources, _ = retriever.search_chunks('who is the adviser and panel', 'CCSICT', [0.1] * 768)
+        assert 'Adviser: Joe G. Lagarteja, DIT' in context
+        assert 'Panel Chair: Albert A. Vinluan, DIT' in context
+        assert 'Panel Members: Benchie L. Maribao, DIT; Christine Charmaine G. San Jose, DIT' in context
+        assert sources[0]['adviser'] == 'Joe G. Lagarteja, DIT'
+        assert sources[0]['panel_chair'] == 'Albert A. Vinluan, DIT'
+        assert sources[0]['panel_members'] == 'Benchie L. Maribao, DIT; Christine Charmaine G. San Jose, DIT'
+
+        overview_ctx, overview_sources, _ = retriever.get_paper_overview_context('p1', 'CCSICT', 'who is the adviser')
+        assert 'Year: 2026' in overview_ctx
+        assert 'Adviser: Joe G. Lagarteja, DIT' in overview_ctx
+        assert 'Panel Chair: Albert A. Vinluan, DIT' in overview_ctx
+        assert overview_sources[0]['adviser'] == 'Joe G. Lagarteja, DIT'
+
+    def test_overview_includes_stored_paper_abstract_and_imrad_section_boosts(self, monkeypatch):
+        papers = [{
+            'id': 'p1', 'title': 'IMRAD Smart Greenhouse Study',
+            'authors': 'Santos, M.', 'year': 2026, 'track': 'BSIT', 'department': 'CCSICT',
+            'abstract': 'This study built a LoRaWAN greenhouse controller achieving 94.8% misting precision.',
+        }]
+        chunks = [
+            {'id': 1, 'paper_id': 'p1', 'chunk_index': 1, 'content': '1. INTRODUCTION\nGreenhouse background.'},
+            {'id': 2, 'paper_id': 'p1', 'chunk_index': 2, 'content': '2. MATERIALS AND METHODS\nSensor calibration protocol.'},
+            {'id': 3, 'paper_id': 'p1', 'chunk_index': 3, 'content': '3. RESULTS AND DISCUSSION\nYield increased by 22%.'},
+        ]
+
+        class _OverviewClient:
+            def table(self, name):
+                return _Query(papers if name == 'papers' else chunks)
+
+        monkeypatch.setattr(retriever, 'sb', _OverviewClient())
+        overview_ctx, _, _ = retriever.get_paper_overview_context('p1', 'CCSICT')
+        assert '94.8% misting precision' in overview_ctx
+
+        ranked_methods = retriever.rank_paper_chunks(chunks, 'What methodology did they use?', papers[0])
+        ranked_results = retriever.rank_paper_chunks(chunks, 'What were the results and findings?', papers[0])
+        assert ranked_methods[0]['chunk_index'] == 2
+        assert ranked_results[0]['chunk_index'] == 3

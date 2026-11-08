@@ -57,6 +57,7 @@ def public_source(paper: dict, similarity: float | None = None, *, chunk: dict |
     if 'thesis_category' in paper:
         source['thesis_category'] = paper.get('thesis_category') or 'student'
     for field in (
+        'adviser', 'panel_chair', 'panel_members',
         'program_code', 'program_name', 'specialization_code', 'specialization_name',
     ):
         if paper.get(field):
@@ -532,7 +533,11 @@ def rank_paper_chunks(chunks: list[dict], question: str, paper: dict) -> list[di
             score += 20
         if 'scope' in query_terms and 'scope and delimitation' in normalized_content:
             score += 20
-        if {'method', 'methodology'} & set(query_terms) and '3.2 methods' in normalized_content:
+        if {'method', 'methodology'} & set(query_terms) and (
+            '3.2 methods' in normalized_content or 'materials and methods' in normalized_content
+        ):
+            score += 20
+        if {'result', 'finding'} & set(query_terms) and 'results and discussion' in normalized_content:
             score += 20
         ranked.append((score, chunk))
     if not any(score for score, _chunk in ranked):
@@ -546,6 +551,45 @@ def rank_paper_chunks(chunks: list[dict], question: str, paper: dict) -> list[di
     ]
 
 
+def _format_chunk_header(paper: dict, chunk: dict, *, default_title: str = '?') -> str:
+    """Build the catalogue header line for one retrieved chunk."""
+    meta_bits = [f"Title: {paper.get('title', default_title)}"]
+    if paper.get('authors'):
+        meta_bits.append(f"Authors: {paper['authors']}")
+    elif default_title != '?':
+        meta_bits.append('Authors: Unknown authors')
+    if paper.get('adviser'):
+        meta_bits.append(f"Adviser: {paper['adviser']}")
+    if paper.get('panel_chair'):
+        meta_bits.append(f"Panel Chair: {paper['panel_chair']}")
+    if paper.get('panel_members'):
+        meta_bits.append(f"Panel Members: {paper['panel_members']}")
+    if paper.get('track'):
+        meta_bits.append(f"Track: {paper['track']}")
+    if paper.get('year'):
+        meta_bits.append(f"Year: {paper['year']}")
+    if paper.get('department'):
+        meta_bits.append(f"Department: {paper['department']}")
+    if paper.get('program_code') or paper.get('program_name'):
+        meta_bits.append(
+            'Program: ' + ' - '.join(filter(None, (paper.get('program_code'), paper.get('program_name'))))
+        )
+    if paper.get('specialization_code') or paper.get('specialization_name'):
+        meta_bits.append(
+            'Specialization: ' + ' - '.join(filter(None, (
+                paper.get('specialization_code'), paper.get('specialization_name'),
+            )))
+        )
+    location = chunk_location(chunk)
+    page_start, page_end = location['page_start'], location['page_end']
+    if page_start:
+        page_label = str(page_start) if not page_end or page_end == page_start else f'{page_start}-{page_end}'
+        meta_bits.append(f'Pages: {page_label}')
+    if location['section']:
+        meta_bits.append(f"Section: {location['section']}")
+    return ' | '.join(meta_bits)
+
+
 def get_paper_overview_context(
     paper_id: str,
     department_filter: str | None = None,
@@ -554,7 +598,8 @@ def get_paper_overview_context(
     """Load overview or question-ranked chunks from one verified paper index."""
     def fetch_paper():
         query = sb.table('papers').select(
-            'id,title,authors,year,track,department,program_id,specialization_id,active_index_version'
+            'id,title,authors,adviser,panel_chair,panel_members,abstract,year,track,'
+            'department,program_id,specialization_id,active_index_version'
         ).eq('id', paper_id).eq('ingestion_status', 'ready')
         if department_filter:
             query = query.eq('department', department_filter)
@@ -633,39 +678,13 @@ def get_paper_overview_context(
 
     context_parts = []
     sources = []
+    stored_abstract = safe_chunk_text((paper.get('abstract') or '').strip()[:1500])
     for citation_id, chunk in enumerate(selected, start=1):
-        location = chunk_location(chunk)
-        meta_bits = [
-            f'Title: {paper.get("title", "Untitled thesis")}',
-            f'Authors: {paper.get("authors", "Unknown authors")}',
-        ]
-        if paper.get('track'):
-            meta_bits.append(f'Track: {paper["track"]}')
-        if paper.get('department'):
-            meta_bits.append(f'Department: {paper["department"]}')
-        if paper.get('program_code') or paper.get('program_name'):
-            meta_bits.append(
-                'Program: '
-                + ' - '.join(filter(None, (paper.get('program_code'), paper.get('program_name'))))
-            )
-        if paper.get('specialization_code') or paper.get('specialization_name'):
-            meta_bits.append(
-                'Specialization: '
-                + ' - '.join(filter(None, (
-                    paper.get('specialization_code'), paper.get('specialization_name'),
-                )))
-            )
-        if location['page_start']:
-            page_label = (
-                str(location['page_start'])
-                if not location['page_end'] or location['page_end'] == location['page_start']
-                else f'{location["page_start"]}-{location["page_end"]}'
-            )
-            meta_bits.append(f'Pages: {page_label}')
-        if location['section']:
-            meta_bits.append(f'Section: {location["section"]}')
+        header = _format_chunk_header(paper, chunk, default_title='Untitled thesis')
         safe_content = safe_chunk_text(chunk.get('content', ''))
-        context_parts.append(f'[{citation_id}] {" | ".join(meta_bits)}\n{safe_content}')
+        if citation_id == 1 and stored_abstract and stored_abstract[:60] not in safe_content:
+            safe_content = f'Abstract: {stored_abstract}\n{safe_content}'
+        context_parts.append(f'[{citation_id}] {header}\n{safe_content}')
         sources.append(public_source(
             paper,
             chunk=chunk,
@@ -839,8 +858,8 @@ def search_chunks(
         papers_res = retry_transient(
             lambda: sb.table('papers')
             .select(
-                'id,title,authors,year,track,department,thesis_category,'
-                'program_id,specialization_id'
+                'id,title,authors,adviser,panel_chair,panel_members,year,track,'
+                'department,thesis_category,program_id,specialization_id'
             )
             .in_('id', paper_ids).execute(),
             label='Supabase citation metadata lookup',
@@ -875,37 +894,9 @@ def search_chunks(
         if not p:
             continue
         n = chunk['citation_id']
-        meta_bits = [f"Title: {p.get('title', '?')}"]
-        if p.get('authors'):
-            meta_bits.append(f"Authors: {p['authors']}")
-        if p.get('track'):
-            meta_bits.append(f"Track: {p['track']}")
-        if p.get('year'):
-            meta_bits.append(f"Year: {p['year']}")
-        if p.get('department'):
-            meta_bits.append(f"Department: {p['department']}")
-        if p.get('program_code') or p.get('program_name'):
-            meta_bits.append(
-                'Program: '
-                + ' - '.join(filter(None, (p.get('program_code'), p.get('program_name'))))
-            )
-        if p.get('specialization_code') or p.get('specialization_name'):
-            meta_bits.append(
-                'Specialization: '
-                + ' - '.join(filter(None, (
-                    p.get('specialization_code'), p.get('specialization_name'),
-                )))
-            )
-        location = chunk_location(chunk)
-        page_start = location['page_start']
-        page_end = location['page_end']
-        if page_start:
-            page_label = str(page_start) if not page_end or page_end == page_start else f'{page_start}-{page_end}'
-            meta_bits.append(f'Pages: {page_label}')
-        if location['section']:
-            meta_bits.append(f"Section: {location['section']}")
+        header = _format_chunk_header(p, chunk)
         safe_content = safe_chunk_text(chunk['content'])
-        context_parts.append(f"[{n}] {' | '.join(meta_bits)}\n{safe_content}")
+        context_parts.append(f'[{n}] {header}\n{safe_content}')
 
     # Sources list indexed by citation number ([1] == sources[0])
     sources = []
