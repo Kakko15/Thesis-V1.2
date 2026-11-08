@@ -56,9 +56,9 @@ const DOT_TONES = Object.freeze({
  * manuscript step's Continue button stays disabled while `parsing` is true.
  */
 export function AbstractField({
-  value = '', onChange, onClear, autofilled, variants, mode = ABSTRACT_MODES.document,
+  value = '', onChange, onClear, autofilled, missingHint, variants, mode = ABSTRACT_MODES.document,
 }) {
-  const [open, setOpen] = useState(Boolean(value))
+  const [open, setOpen] = useState(Boolean(value || missingHint))
   const surfaceRef = useRef(null)
   const id = useId()
   const headingId = `${id}-heading`
@@ -195,9 +195,15 @@ export function AbstractField({
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <p id={noteId} className="flex min-w-0 items-center gap-2 text-[11px] text-ink-faint">
+                <p
+                  id={noteId}
+                  className={cn(
+                    'flex min-w-0 items-center gap-2 text-[11px]',
+                    missingHint && !filled ? 'font-medium text-flame-500' : 'text-ink-faint',
+                  )}
+                >
                   <span aria-hidden="true" className={cn('h-1.5 w-1.5 shrink-0 rounded-full', DOT_TONES[tone])} />
-                  {NOTES[tone]}
+                  {missingHint && !filled ? missingHint : NOTES[tone]}
                 </p>
                 {/* The meter earns its place only near the ceiling. Below that
                     it sat at a permanent few percent and read as a target. */}

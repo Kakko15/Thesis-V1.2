@@ -106,6 +106,16 @@ test('apply-extraction fills blank fields by index and records per-file rejectio
   assert.equal(state.rows[1].year, '2025')
   assert.equal(state.rows[2].extractError, 'Encrypted or password-protected PDFs are not accepted')
   assert.ok(state.rows.every((row) => row.extracted))
+  assert.match(state.rows[1].autofillNotes.authors, /no recognizable author names/)
+  assert.match(state.rows[1].autofillNotes.program_id, /no recognizable academic program/)
+})
+
+test('batch rows explain when extraction is unavailable', () => {
+  let state = stateWithFiles(pdf('a.pdf'))
+  state = batchReducer(state, { type: 'mark-extraction-failed', message: 'Service unavailable' })
+  assert.equal(state.rows[0].autofillError, 'Service unavailable')
+  assert.match(state.rows[0].autofillNotes.title, /document could not be read/)
+  assert.match(state.rows[0].autofillNotes.program_id, /Enter this field manually/)
 })
 
 test('splitMetadataErrors keeps each manuscript’s own program with its row', () => {

@@ -23,6 +23,7 @@ from services.chat_notices import is_capacity_error
 from services.network_retry import is_transient_network_error
 from services import capsule
 from services.capsule_extract import CapsuleFileError, docx_text, split_capsule
+from services.capsule_semantic import analyze_capsule
 from services.chunker import split_document, split_text, validate_chunk_records
 from services.db_errors import is_invalid_identifier, is_missing_column
 from services.index_provenance import retrieval_provenance_params
@@ -230,7 +231,7 @@ async def _embed_for_scan(texts: list[str], noun: str) -> list[list[float]]:
     return embeddings
 
 
-def _reject_unsafe_scan_upload(file_bytes: bytes, suffix: str) -> None:
+def _reject_unsafe_scan_upload(file_bytes: bytes, suffix: str, client=sb) -> None:
     """Apply the ingestion pipeline's structural and malware checks to a scan.
 
     Mirrors `services/ingestion.py::_validate_staged_pdf` and
@@ -242,9 +243,8 @@ def _reject_unsafe_scan_upload(file_bytes: bytes, suffix: str) -> None:
     caller runs it in a worker thread like every other blocking step here.
 
     `scan_pdf` is a plain ClamAV INSTREAM scan despite the name, so a .txt
-    manuscript goes through it too; and it returns immediately when
-    `malware_scan_mode` is `disabled`, which is what keeps development and the
-    test suite unchanged.
+    manuscript goes through it too. It returns immediately when ClamAV is not
+    configured or the global superadmin policy is off.
     """
     if suffix == 'pdf':
         try:
@@ -267,7 +267,7 @@ def _reject_unsafe_scan_upload(file_bytes: bytes, suffix: str) -> None:
                 422, f'PDF exceeds the {settings.max_pdf_pages}-page safety limit',
             )
     try:
-        scan_pdf(file_bytes)
+        scan_pdf(file_bytes, client)
     except MalwareDetected as error:
         raise HTTPException(
             422, 'The uploaded manuscript failed malware scanning',
@@ -327,7 +327,7 @@ async def scan_duplication(
     # this endpoint was ever scanned for malware -- including in production,
     # where `validate_production_services` refuses to start without ClamAV
     # precisely so that no uploaded file goes unscanned.
-    await asyncio.to_thread(_reject_unsafe_scan_upload, file_bytes, suffix)
+    await asyncio.to_thread(_reject_unsafe_scan_upload, file_bytes, suffix, sb)
 
     try:
         document = await asyncio.to_thread(extract_document, file_bytes, file.filename)
@@ -756,8 +756,10 @@ async def extract_capsule(
 ):
     """Read an uploaded capsule into its four sections, for the form to review.
 
-    Nothing is screened, stored, or sent to a model: the reply only fills the
-    capsule form, which the reviewer checks before POST /duplication/capsule.
+    Nothing is screened or stored: the configured Gemini model analyzes the
+    whole extracted text by meaning, and the heading parser remains the fallback.
+    The reply only fills the capsule form, which the reviewer checks before
+    POST /duplication/capsule.
     The file gets the scan endpoint's checks -- size, type, the PDF structure
     checks, and the malware scan -- because it is the same kind of upload.
     """
@@ -774,7 +776,7 @@ async def extract_capsule(
         raise HTTPException(422, 'File content is not a valid PDF')
     if suffix == 'docx' and not file_bytes.startswith(b'PK'):
         raise HTTPException(422, 'File content is not a valid Word document')
-    await asyncio.to_thread(_reject_unsafe_scan_upload, file_bytes, suffix)
+    await asyncio.to_thread(_reject_unsafe_scan_upload, file_bytes, suffix, sb)
     try:
         text = await asyncio.to_thread(_capsule_text, file_bytes, suffix, filename)
     except CapsuleFileError as error:
@@ -784,7 +786,8 @@ async def extract_capsule(
         raise HTTPException(422, 'The capsule could not be read.') from error
     if not text.strip():
         raise HTTPException(422, 'No text could be read from this capsule.')
-    return await asyncio.to_thread(split_capsule, text)
+    local = await asyncio.to_thread(split_capsule, text)
+    return await analyze_capsule(text, local)
 
 
 @router.post('/chat', responses=errors(404, 502))

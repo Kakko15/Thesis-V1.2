@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CAPSULE_FIELDS, EMPTY_CAPSULE, applyExtractedCapsule, capsuleError, capsuleFileError, capsulePayload,
+  CAPSULE_FIELDS, EMPTY_CAPSULE, applyExtractedCapsule, capsuleAutofillHint, capsuleError, capsuleFileError, capsulePayload,
   isCapsuleScan, loadCapsuleDraft, overwrittenFields, saveCapsuleDraft, screenedSections,
 } from './capsule.js'
 
@@ -91,4 +91,13 @@ test('an upload fills what the file supplied and keeps the rest of what was type
   assert.deepEqual(overwrittenFields(EMPTY_CAPSULE, extracted), [])
   // Over-long extracted text is cut to what the form and server accept.
   assert.equal(applyExtractedCapsule({}, { methodology: 'x'.repeat(7000) }).capsule.methodology.length, 6000)
+})
+
+test('empty capsule sections explain why upload did not fill them', () => {
+  const rationale = CAPSULE_FIELDS.find((field) => field.key === 'rationale')
+  const source = { name: 'capsule.pdf', filled: ['title'] }
+  assert.match(capsuleAutofillHint(rationale, '', source), /no recognizable rationale and significance section/)
+  assert.equal(capsuleAutofillHint(rationale, 'Typed by hand', source), '')
+  assert.equal(capsuleAutofillHint(rationale, '', { ...source, filled: ['rationale'] }), '')
+  assert.match(capsuleAutofillHint(rationale, '', { ...source, error: true }), /file could not be read/)
 })

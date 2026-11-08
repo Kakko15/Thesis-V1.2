@@ -292,6 +292,11 @@ function FieldError({ message }) {
   return <span role="alert" className="block pt-1.5 text-xs font-medium text-flame-500">{message}</span>
 }
 
+function AutofillNote({ message }) {
+  if (!message) return null
+  return <span className="block pt-1.5 text-xs font-medium text-flame-500">{message}</span>
+}
+
 function CardLabel({ children, required }) {
   return (
     <span
@@ -355,6 +360,8 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
             <span>PDF · {formatFileSize(row.size)}</span>
             {rejected ? (
               <Badge tone="flame"><XCircle size={11} /> Rejected</Badge>
+            ) : row.autofillError ? (
+              <Badge tone="gold"><AlertTriangle size={11} /> Autofill unavailable</Badge>
             ) : row.extracted ? (
               <Badge tone="forest"><Sparkles size={11} /> Autofilled</Badge>
             ) : (
@@ -386,6 +393,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
               aria-label={`Title for ${row.name}`}
             />
             <FieldError message={row.errors.title} />
+            <AutofillNote message={!row.title ? row.autofillNotes?.title : ''} />
           </div>
           {/* The two names take the room and share a row; year, program and
               specialization are short and sit beside each other under them
@@ -399,6 +407,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
                 placeholder="Dela Cruz, J., Santos, M."
                 aria-label={`Authors for ${row.name}`}
               />
+              <AutofillNote message={!row.authors ? row.autofillNotes?.authors : ''} />
             </div>
             <div className="min-w-0">
               <CardLabel>Adviser</CardLabel>
@@ -409,6 +418,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
                 maxLength={200}
                 aria-label={`Adviser for ${row.name}`}
               />
+              <AutofillNote message={!row.adviser ? row.autofillNotes?.adviser : ''} />
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
@@ -424,6 +434,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
                 aria-label={`Year for ${row.name}`}
               />
               <FieldError message={row.errors.year} />
+              <AutofillNote message={!row.year ? row.autofillNotes?.year : ''} />
             </div>
             <div className="min-w-0">
               <CardLabel required>Program</CardLabel>
@@ -437,6 +448,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
                 <option value="">Select program…</option>
                 {programs.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}
               </Select>
+              <AutofillNote message={!row.program_id ? row.autofillNotes?.program_id : ''} />
             </div>
             {/* Only some programs carry one, so the cell reveals itself rather
                 than reserving an empty slot in every card. */}
@@ -452,6 +464,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onRemove }) {
                   <option value="">Select…</option>
                   {specializations.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}
                 </Select>
+                <AutofillNote message={!row.specialization_id ? row.autofillNotes?.specialization_id : ''} />
               </div>
             )}
           </div>
@@ -938,7 +951,9 @@ export default function UploadBatch() {
         toast.success('Metadata autofilled', { description: 'Review each row before ingesting.' })
       }
     } catch (error) {
-      toast.warning('Metadata extraction unavailable', { description: apiErrorMessage(error, 'Fill in the rows manually.') })
+      const message = apiErrorMessage(error, 'Fill in the rows manually.')
+      dispatch({ type: 'mark-extraction-failed', message })
+      toast.warning('Metadata extraction unavailable', { description: message })
     } finally {
       dispatch({ type: 'set-extracting', value: false })
       setStep(BATCH_STEPS.review)

@@ -11,6 +11,7 @@ MIGRATION = BACKEND_ROOT / 'migrations' / '20260717_rag_items_9_16.sql'
 HARDENING_MIGRATION = BACKEND_ROOT / 'migrations' / '20260719_production_hardening.sql'
 PROVENANCE_MIGRATION = BACKEND_ROOT / 'migrations' / '20260720_index_embedding_provenance.sql'
 ACTIVE_INDEX_COUNT_MIGRATION = BACKEND_ROOT / 'migrations' / '20260829_reindex_updates_chunk_count.sql'
+MALWARE_TOGGLE_MIGRATION = BACKEND_ROOT / 'migrations' / '20261108_malware_scanning_toggle.sql'
 FULL_SCHEMA = BACKEND_ROOT / 'supabase_setup.sql'
 
 
@@ -119,6 +120,12 @@ class TestMigrationContract:
         assert sql.index('select count(*) into v_chunk_count') < sql.index(
             'set active_index_version = p_index_version'
         )
+
+    def test_global_malware_toggle_is_seeded_for_fresh_and_existing_projects(self):
+        for path in (MALWARE_TOGGLE_MIGRATION, FULL_SCHEMA):
+            sql = path.read_text(encoding='utf-8').lower()
+            assert "'malware_scanning_enabled'" in sql
+            assert "'true'::jsonb" in sql
 
 
 class TestReindexDryRun:

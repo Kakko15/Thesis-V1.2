@@ -302,6 +302,32 @@ class TestDepartmentsAndSettings:
         monkeypatch.setattr(settings_router, 'log_activity', lambda *_args, **_kwargs: None)
         assert settings_router.update_features(features, SimpleNamespace(id='root'))['features'] == features
 
+    def test_superadmin_can_disable_global_malware_scanning(self, monkeypatch):
+        client = ScriptedClient({'system_settings': [[{'value': False}], [{'value': False}]]})
+        monkeypatch.setattr(settings_router, 'sb', client)
+        monkeypatch.setattr(settings_router.settings, 'malware_scan_mode', 'clamav')
+        monkeypatch.setattr(settings_router, 'log_activity', lambda *_args, **_kwargs: None)
+        settings_router.invalidate_malware_setting()
+
+        current = settings_router.get_malware_scanning(SimpleNamespace(id='root'))
+        assert current == {'enabled': False, 'configured': True, 'status': 'disabled'}
+
+        updated = settings_router.update_malware_scanning(
+            settings_router.MalwareScanningUpdate(enabled=False),
+            SimpleNamespace(id='root'),
+        )
+        assert updated['enabled'] is False
+        assert updated['status'] == 'disabled'
+
+    def test_malware_scanning_cannot_enable_without_clamav(self, monkeypatch):
+        monkeypatch.setattr(settings_router.settings, 'malware_scan_mode', 'disabled')
+        with pytest.raises(HTTPException) as blocked:
+            settings_router.update_malware_scanning(
+                settings_router.MalwareScanningUpdate(enabled=True),
+                SimpleNamespace(id='root'),
+            )
+        assert blocked.value.status_code == 409
+
 
 class TestPapersAndAnalytics:
     def test_paper_listing_and_delete_cleanup(self, monkeypatch):

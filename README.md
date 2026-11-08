@@ -117,9 +117,13 @@ uv pip compile requirements.txt --generate-hashes \
 ### Running the stack — four processes
 
 Start them in this order. The malware scanner comes first because
-`MALWARE_SCAN_MODE=clamav` makes it a hard dependency of every upload: with the
-container down the scan fails and the manuscript is rejected. `docker start` on
-an already-running container is a harmless no-op.
+`MALWARE_SCAN_MODE=clamav` makes it a hard dependency of every upload while the
+global malware-check policy is on: with the container down the scan fails and
+the manuscript is rejected. A superadmin can temporarily turn that policy off
+under **System Management → Global Upload Security**, in which case all upload
+types proceed without ClamAV and the UI shows a security warning. Turning it on
+again requires ClamAV to be configured. `docker start` on an already-running
+container is a harmless no-op.
 
 ```powershell
 # 1 — malware scanner
@@ -188,6 +192,12 @@ faculty through the server-owned role-feature matrix (`PUT /settings/features`,
 superadmin only). Novelty scanning is granted to faculty by default. Privileged
 roles additionally require MFA (AAL2) when `REQUIRE_PRIVILEGED_MFA` is enabled,
 which production configuration enforces.
+
+The global malware-check switch sits immediately below that role-feature matrix
+and is also superadmin-only (`PUT /settings/malware-scanning`). It applies to
+capsule files, novelty manuscripts, and queued single/batch thesis ingestion.
+The policy is stored in `system_settings`, defaults to on when ClamAV is
+configured, and fails closed to on if the policy row cannot be read.
 
 ## Institutional catalog
 

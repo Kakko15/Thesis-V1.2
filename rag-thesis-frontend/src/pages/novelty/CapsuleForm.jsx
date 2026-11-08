@@ -7,7 +7,7 @@ import { Input, Textarea } from '../../components/ui/Input'
 import { ConfirmDialog } from '../../components/ui/Modal'
 import {
   CAPSULE_FIELDS, CAPSULE_FILE_ACCEPT, EMPTY_CAPSULE, applyExtractedCapsule, capsuleError, capsuleFileError,
-  loadCapsuleDraft, overwrittenFields, saveCapsuleDraft, screenedSections,
+  capsuleAutofillHint, loadCapsuleDraft, overwrittenFields, saveCapsuleDraft, screenedSections,
 } from './capsule'
 
 const LABELS = Object.fromEntries(CAPSULE_FIELDS.map((field) => [field.key, field.label.toLowerCase()]))
@@ -21,7 +21,7 @@ function listOf(keys) {
  * A capsule proposal, typed or uploaded section by section, and screened on submit.
  *
  * An upload fills the form rather than screening straight away: the file is
- * split into sections by its headings, which a template can word differently,
+ * analyzed as a whole by meaning, with heading-based extraction as a fallback,
  * so the reviewer sees what landed where before anything is compared.
  *
  * Timeline and budget are left out on purpose: they belong in a capsule but say
@@ -33,7 +33,7 @@ export function CapsuleForm({ onScan, scanning }) {
   const [capsule, setCapsule] = useState(loadCapsuleDraft)
   const [touched, setTouched] = useState(false)
   const [reading, setReading] = useState(false)
-  const [source, setSource] = useState(null) // { name, filled: [...] } after an upload
+  const [source, setSource] = useState(null) // { name, filled: [...], method } after an upload
   const [pending, setPending] = useState(null) // { name, extracted } awaiting overwrite consent
   const inputRef = useRef(null)
 
@@ -48,10 +48,11 @@ export function CapsuleForm({ onScan, scanning }) {
     const { capsule: next, filled } = applyExtractedCapsule(capsule, extracted)
     setCapsule(next)
     setTouched(false)
-    setSource({ name, filled })
+    const method = extracted.extraction_method
+    setSource({ name, filled, method })
     if (filled.length === 0) {
       toast.warning('No sections found in the file', {
-        description: 'Its headings were not recognised. Paste each section into the form instead.',
+        description: 'No source-supported content could be classified. Paste each section into the form instead.',
       })
     } else if (filled.length < CAPSULE_FIELDS.length) {
       toast.success(`Filled the ${listOf(filled)} from ${name}`, {
@@ -74,7 +75,9 @@ export function CapsuleForm({ onScan, scanning }) {
       if (overwrittenFields(capsule, extracted).length > 0) setPending({ name: file.name, extracted })
       else apply(file.name, extracted)
     } catch (err) {
-      toast.error('The capsule could not be read', { description: apiErrorMessage(err) })
+      const message = apiErrorMessage(err)
+      setSource({ name: file.name, filled: [], error: true })
+      toast.error('The capsule could not be read', { description: message })
     } finally {
       setReading(false)
     }
@@ -96,10 +99,12 @@ export function CapsuleForm({ onScan, scanning }) {
           <div className="font-medium">Have the capsule as a file?</div>
           <div className="text-xs text-ink-muted" aria-live="polite">
             {source
-              ? source.filled.length
-                ? `Filled the ${listOf(source.filled)} from ${source.name}. Review before checking.`
+              ? source.error
+                ? `${source.name} could not be read. Complete the fields manually.`
+                : source.filled.length
+                ? `${source.method === 'semantic' ? 'Analyzed the full document and filled' : 'Filled'} the ${listOf(source.filled)} from ${source.name}. Review before checking.`
                 : `Nothing was recognised in ${source.name}.`
-              : 'PDF, Word (.docx) or text. Its sections fill the form below for you to review.'}
+              : 'PDF, Word (.docx) or text. The full document is analyzed by meaning to fill the form for review.'}
           </div>
         </div>
         <input
@@ -126,7 +131,7 @@ export function CapsuleForm({ onScan, scanning }) {
           onChange: set(field.key),
           maxLength: field.max,
           disabled: busy,
-          hint: field.hint,
+          hint: capsuleAutofillHint(field, value, source) || field.hint,
         }
         return field.rows === 0
           ? <Input key={field.key} {...common} required />

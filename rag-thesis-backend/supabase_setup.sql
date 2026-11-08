@@ -755,7 +755,9 @@ where key in ('duplication_threshold', 'retrieval_threshold', 'retrieval_match_c
 
 insert into public.system_settings (key, value, description) values
   ('role_features', '{"student":{"chat":true,"archive":true,"novelty":false,"upload":false},"faculty":{"chat":true,"archive":true,"novelty":true,"upload":false}}'::jsonb,
-   'Role-based access permissions for system features')
+   'Role-based access permissions for system features'),
+  ('malware_scanning_enabled', 'true'::jsonb,
+   'Global ClamAV malware scanning policy for uploaded files')
 on conflict (key) do nothing;
 
 

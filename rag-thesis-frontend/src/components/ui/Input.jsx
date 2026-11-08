@@ -14,13 +14,16 @@ const baseField =
 
 function FieldErrorHint({ error, hint, id }) {
   if (!error && !hint) return null
+  const isAutofillWarning = !error
+    && typeof hint === 'string'
+    && /^(Not autofilled|Autofill unavailable):/.test(hint)
   return (
     <span
       id={id}
       role={error ? 'alert' : undefined}
       className={cn(
         'block pt-1.5 text-xs',
-        error ? 'font-medium text-flame-500' : 'text-ink-faint',
+        error || isAutofillWarning ? 'font-medium text-flame-500' : 'text-ink-faint',
       )}
     >
       {error || hint}

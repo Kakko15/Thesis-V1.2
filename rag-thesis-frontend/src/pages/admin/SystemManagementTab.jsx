@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, Pencil, Plus, Save, Search, TerminalSquare, Trash2, UserCog, X as CloseIcon,
+  AlertTriangle, Pencil, Plus, Save, Search, ShieldCheck, TerminalSquare, Trash2, UserCog, X as CloseIcon,
 } from 'lucide-react'
 import {
   apiErrorMessage, createDepartment, deleteDepartment, deleteUser, getDepartments,
-  getFeaturePermissions, getSystemLogs, listPapers, listUsers, updateDepartment,
-  updateFeaturePermissions, updateUserDetails, updateUserRole,
+  getFeaturePermissions, getMalwareScanningSetting, getSystemLogs, listPapers, listUsers,
+  updateDepartment, updateFeaturePermissions, updateMalwareScanningSetting,
+  updateUserDetails, updateUserRole,
 } from '../../api'
 import { useAuth } from '../../context/AuthContext'
 import { GlassCard } from '../../components/ui/GlassCard'
@@ -126,6 +127,107 @@ function FeaturePermissionsManagement() {
         </table>
       </TableScroller>
     </GlassCard>
+  )
+}
+
+function MalwareScanningManagement() {
+  const queryClient = useQueryClient()
+  const [saving, setSaving] = useState(false)
+  const [confirmDisable, setConfirmDisable] = useState(false)
+  const {
+    data, isLoading, error, refetch,
+  } = useQuery({
+    queryKey: ['malware-scanning-setting'],
+    queryFn: getMalwareScanningSetting,
+  })
+
+  const applySetting = async (enabled) => {
+    setSaving(true)
+    const previous = data
+    queryClient.setQueryData(['malware-scanning-setting'], (current) => ({
+      ...current,
+      enabled,
+      status: enabled ? current?.status : 'disabled',
+    }))
+    try {
+      const updated = await updateMalwareScanningSetting(enabled)
+      queryClient.setQueryData(['malware-scanning-setting'], updated)
+      toast.success(`Malware scanning ${enabled ? 'enabled' : 'disabled'} for all uploads`)
+    } catch (err) {
+      queryClient.setQueryData(['malware-scanning-setting'], previous)
+      toast.error('Failed to update malware scanning', { description: apiErrorMessage(err) })
+    } finally {
+      setSaving(false)
+      setConfirmDisable(false)
+    }
+  }
+
+  const enabled = Boolean(data?.enabled)
+
+  return (
+    <>
+      <GlassCard className="overflow-hidden mb-6">
+        <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10">
+          <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">Global Upload Security</div>
+        </div>
+        <div className="flex flex-col gap-4 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300">
+              <ShieldCheck size={17} aria-hidden="true" />
+            </span>
+            <div>
+              <div className="font-semibold text-ink">Malware check for all uploads</div>
+              <p className="mt-1 max-w-2xl text-xs text-ink-muted">
+                Scans capsule files, novelty manuscripts, and single or batch thesis uploads with ClamAV before their contents are read.
+              </p>
+              {!isLoading && !error && !data?.configured && (
+                <p className="mt-2 text-xs font-medium text-flame-500">
+                  ClamAV is not configured on this backend, so scanning cannot be enabled here.
+                </p>
+              )}
+              {!enabled && data?.configured && (
+                <p className="mt-2 text-xs font-medium text-flame-500">
+                  Malware scanning is off. Uploaded files will be processed without a malware check.
+                </p>
+              )}
+              {error && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-flame-500">
+                  The malware setting could not be loaded.
+                  <Button variant="ghost" size="sm" onClick={() => refetch()}>Retry</Button>
+                </div>
+              )}
+            </div>
+          </div>
+          <label className="flex shrink-0 items-center gap-3 cursor-pointer">
+            <span className="text-sm font-medium">{isLoading ? 'Loading…' : enabled ? 'On' : 'Off'}</span>
+            <span className="relative inline-flex items-center">
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={enabled}
+                disabled={isLoading || Boolean(error) || saving || !data?.configured}
+                onChange={(event) => {
+                  if (event.target.checked) applySetting(true)
+                  else setConfirmDisable(true)
+                }}
+                aria-label="Malware check for all uploads"
+              />
+              <span className="h-6 w-11 rounded-full bg-forest-900/20 transition-colors peer-checked:bg-forest-500 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 dark:bg-white/10 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-transform peer-checked:after:translate-x-full" />
+            </span>
+          </label>
+        </div>
+      </GlassCard>
+      <ConfirmDialog
+        open={confirmDisable}
+        onClose={() => setConfirmDisable(false)}
+        onConfirm={() => applySetting(false)}
+        title="Turn off malware scanning?"
+        message="This applies to every user and every upload type. Files will be read and processed without a ClamAV malware check until a superadmin turns it back on."
+        confirmLabel="Turn off"
+        danger
+        loading={saving}
+      />
+    </>
   )
 }
 
@@ -703,6 +805,7 @@ export default function SystemManagementTab() {
       {myRole === 'superadmin' && (
         <>
           <FeaturePermissionsManagement />
+          <MalwareScanningManagement />
           <DepartmentsManagement />
         </>
       )}

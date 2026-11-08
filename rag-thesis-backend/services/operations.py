@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from config import settings
+from services.malware import malware_scanning_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -282,7 +283,7 @@ def evaluate_operations(client) -> dict:
         if row.get('state') != 'stopping' and _timestamp(row.get('last_seen_at')) >= stale_before
     ]
     allowed_scanner_states = {'healthy'}
-    if settings.malware_scan_mode == 'disabled':
+    if not malware_scanning_enabled(client):
         allowed_scanner_states.add('disabled')
     healthy_workers = [
         row for row in active_workers if row.get('scanner_status') in allowed_scanner_states

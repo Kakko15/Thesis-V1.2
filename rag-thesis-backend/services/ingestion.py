@@ -137,7 +137,7 @@ def process_ingestion_job(client, job: dict, worker_id: str,
         message='Scanning the private manuscript for malware...',
     )
     try:
-        scan_pdf(file_bytes)
+        scan_pdf(file_bytes, client)
     except MalwareDetected as error:
         raise MalwareDetectedIngestionError('The staged manuscript failed malware scanning') from error
 

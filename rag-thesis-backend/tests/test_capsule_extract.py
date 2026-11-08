@@ -116,6 +116,70 @@ Methods used to gather data were surveys."""
             result = split_capsule(f'Title: A Study of Things\n{heading}\nThe body of the section.')
             assert result['methodology'] == 'The body of the section.', heading
 
+    def test_project_template_headings_fill_the_correct_fields(self):
+        text = """Title of the Proposed Study: Smart Campus Navigation
+Project Rationale
+Students struggle to locate rooms.
+Objectives of the Project
+Build and evaluate a navigation tool.
+Method of Implementation
+Prototype, test, and analyze task completion."""
+        result = split_capsule(text)
+        assert result['title'] == 'Smart Campus Navigation'
+        assert result['rationale'] == 'Students struggle to locate rooms.'
+        assert result['objectives'] == 'Build and evaluate a navigation tool.'
+        assert result['methodology'] == 'Prototype, test, and analyze task completion.'
+        assert result['detected_sections'] == ['title', 'rationale', 'objectives', 'methodology']
+
+    def test_proposed_research_and_problem_opportunity_headings_are_recognised(self):
+        text = """Proposed Research Title
+Smart Irrigation Scheduling
+Problem / Opportunity Statement
+Farmers overwater crops.
+Specific Objectives
+Measure soil moisture and reduce water use.
+Research Methods
+Field experiment and statistical analysis."""
+        result = split_capsule(text)
+        assert result['title'] == 'Smart Irrigation Scheduling'
+        assert result['rationale'] == 'Farmers overwater crops.'
+        assert result['objectives'] == 'Measure soil moisture and reduce water use.'
+        assert result['methodology'] == 'Field experiment and statistical analysis.'
+
+    def test_project_capsule_outcomes_activities_and_reference_table_are_separated(self):
+        # Headings from the uploaded Team A.C.E capsule. Its project template
+        # names outcomes and activities instead of objectives and methodology,
+        # then carries a reference table whose "Research Title / Source" header
+        # used to reopen the title section and append citations to the study title.
+        text = """Working Title: A Centralized AI-Powered Thesis Library
+Rationale and Significance
+The repository has a semantic gap.
+Compelling Solutions
+Use retrieval-augmented generation over verified local theses.
+Scope: Literature review and novelty scanning.
+Benefits and Impact
+For Students: Reduce literature-review search time.
+For Faculty: Automate redundancy checking.
+Major Activities & Expected Output
+Institutional Data Acquisition: Digitize archived theses.
+Semantic Indexing: Convert chunks into vector embeddings.
+System Validation: Compare summaries with ground truth.
+References and Research Links
+Citation
+Research Title / Source
+Direct Link
+Lewis et al. (2020)
+Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks"""
+        result = split_capsule(text)
+        assert result['title'] == 'A Centralized AI-Powered Thesis Library'
+        assert result['rationale'] == 'The repository has a semantic gap.'
+        assert result['objectives'].startswith('For Students:')
+        assert 'For Faculty:' in result['objectives']
+        assert result['methodology'].startswith('Use retrieval-augmented generation')
+        assert 'System Validation:' in result['methodology']
+        joined = ' '.join(result[key] for key in ('title', 'rationale', 'objectives', 'methodology'))
+        assert 'Lewis et al.' not in joined and 'Direct Link' not in joined
+
     def test_fields_are_capped_to_what_screening_accepts(self):
         result = split_capsule('Methodology\n' + 'word ' * 3000)
         assert len(result['methodology']) <= capsule_extract.FIELD_LIMITS['methodology']
@@ -146,7 +210,11 @@ class TestDocx:
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    async def local_semantic_fallback(_text, extracted):
+        return {**extracted, 'extraction_method': 'headings'}
+
+    monkeypatch.setattr(duplication, 'analyze_capsule', local_semantic_fallback)
     app.dependency_overrides[duplication.require_novelty_access] = lambda: SimpleNamespace(id='u1')
     try:
         yield TestClient(app)

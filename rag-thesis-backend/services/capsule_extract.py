@@ -84,24 +84,34 @@ def docx_text(file_bytes: bytes) -> str:
 # marks a capsule part that exists but is not screened (timeline, budget...):
 # its heading ends the section before it, and its text is dropped.
 _HEADINGS: tuple[tuple[str | None, str], ...] = (
-    ('title', r'(?:working|proposed|research|thesis|study|project)?\s*title'
-              r'(?:\s+of\s+the\s+(?:study|research|project))?'),
-    ('rationale', r'rationale(?:\s+and\s+significance)?|significance(?:\s+of\s+the\s+(?:study|research))?'
+    ('title', r'(?:(?:working|proposed|research|thesis|study|project)\s+)*title'
+              r'(?:\s+of\s+(?:the\s+)?(?:(?:proposed|research)\s+)?(?:study|research|project))?'
+              r'|title\s+of\s+(?:the\s+)?(?:(?:proposed|research)\s+)?(?:study|research|project)'),
+    ('rationale', r'(?:(?:project|research|study)\s+)?rationale(?:\s+and\s+significance)?'
+                  r'|significance(?:\s+of\s+the\s+(?:study|research|project))?'
                   r'|background(?:\s+of\s+the\s+(?:study|research))?|introduction|statement\s+of\s+the\s+problem'
-                  r'|problem\s+statement|justification|context(?:\s+of\s+the\s+study)?'),
-    ('objectives', r'(?:general\s+|specific\s+|research\s+)?objectives?(?:\s+of\s+the\s+(?:study|research))?'
-                   r'|research\s+questions?|aims?(?:\s+and\s+objectives)?|purpose\s+of\s+the\s+(?:study|research)'),
+                  r'|problem\s*(?:/|and)\s*opportunity\s+statement|problem\s+statement|needs?\s+statement'
+                  r'|(?:brief\s+)?(?:project|study|research)\s+description'
+                  r'|(?:brief\s+)?description\s+of\s+the\s+(?:project|study|research)'
+                  r'|justification|context(?:\s+of\s+the\s+(?:study|project))?'),
+    ('objectives', r'(?:general\s+|specific\s+|research\s+)?objectives?(?:\s+of\s+the\s+(?:study|research|project))?'
+                   r'|research\s+questions?|aims?(?:\s+and\s+objectives)?'
+                   r'|purpose\s+of\s+the\s+(?:study|research|project)'
+                   r'|benefits?\s+and\s+impacts?|intended\s+outcomes?|project\s+goals?'),
     ('methodology', r'(?:proposed\s+|research\s+|study\s+|system\s+|development\s+)?(?:methodology|methods?)'
                     r'|research\s+(?:design|approach|framework)|materials\s+and\s+methods|procedures?'
+                    r'|methods?\s+of\s+implementation|implementation\s+(?:method|plan|procedure)'
                     r'|data\s+(?:gathering|collection)(?:\s+procedures?)?|system\s+(?:development|architecture|design)'
                     r'|(?:conceptual|technical|theoretical)\s+framework|tools\s+and\s+technolog(?:y|ies)'
-                    r'|technology\s+stack|proposed\s+(?:system|solution|approach)'),
+                    r'|technology\s+stack|proposed\s+(?:system|solution|approach)|compelling\s+solutions?'
+                    r'|major\s+activities(?:\s*(?:&|and)\s*expected\s+outputs?)?'),
     # Scope and limitations sit between the objectives and the methodology in
     # most templates. They describe the study's boundaries, not what it sets out
     # to do, and an uploaded capsule on 2026-09-24 had its "Limitations" list
     # merged into the objectives because nothing ended that section.
     (None, r'timeline|time\s*frame|schedule|gantt\s+chart|budget|cost(?:\s+estimates?)?|expected\s+outputs?'
-           r'|references|bibliography|proponents?|researchers?|advisers?|prepared\s+by|noted\s+by|approved\s+by'
+           r'|references?(?:\s+and\s+(?:research\s+)?links?)?|bibliography|proponents?|researchers?|advisers?'
+           r'|prepared\s+by|noted\s+by|approved\s+by'
            r'|scope(?:\s+and\s+(?:limitations?|delimitations?))?|(?:de)?limitations?(?:\s+of\s+the\s+study)?'
            r'|assumptions?|definition\s+of\s+terms'),
 )
@@ -127,6 +137,10 @@ _INSTITUTIONAL = re.compile(
 def _heading(line: str) -> tuple[str | None, str] | None:
     """(section, inline text) when `line` is a capsule heading, else None."""
     stripped = _NUMBERING.sub('', line.strip()).strip()
+    # Reference tables commonly label one column "Research Title / Source".
+    # It is metadata about cited works, not a second working-title section.
+    if re.fullmatch(r'(?:citation|research\s+title\s*/\s*source|direct\s+link)', stripped, re.IGNORECASE):
+        return None, ''
     for key, pattern in _HEADING_PATTERNS:
         match = pattern.match(stripped)
         if not match:

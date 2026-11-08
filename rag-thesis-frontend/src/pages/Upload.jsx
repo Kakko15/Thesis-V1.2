@@ -187,7 +187,7 @@ export default function Upload() {
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const {
-    step, direction, file, form, errors, autofilled, job, submitting, parsing, pendingFile,
+    step, direction, file, form, errors, autofilled, autofillNotes, job, submitting, parsing, pendingFile,
     pollError, abstractMode, abstractVariants, extendingAbstract,
   } = state
   const setStep = (value) => dispatch({ type: 'set-step', step: value })
@@ -304,13 +304,39 @@ export default function Upload() {
       // The same list decides the toast: a resolved program carries its
       // `program_id`, so every field the old field-by-field test named is in it.
       const filled = autofilledKeys(patch)
-      dispatch({ type: 'set-autofilled', keys: filled })
+      const notes = {
+        ...(!metadata.title ? { title: 'Not autofilled: no recognizable thesis title was found in the document.' } : {}),
+        ...(!metadata.authors ? { authors: 'Not autofilled: no recognizable author names were found in the document.' } : {}),
+        ...(!metadata.adviser ? { adviser: 'Not autofilled: no adviser was identified on the approval or abstract pages.' } : {}),
+        ...(!metadata.year ? { year: 'Not autofilled: no valid completion year was found in the document.' } : {}),
+        ...(!metadata.abstract ? { abstract: 'Not autofilled: no clearly labelled abstract was found in the document.' } : {}),
+        ...(!extractedDepartment ? { department: 'Not autofilled: no recognizable department was found in the document.' } : {}),
+        ...(!selection ? {
+          program_id: metadata.program_code
+            ? 'Not autofilled: the program printed in the document did not match this department’s catalog.'
+            : 'Not autofilled: no recognizable academic program was found in the document.',
+        } : {}),
+        ...(selection?.requires_specialization && !selection.specialization_id ? {
+          specialization_id: metadata.specialization_code
+            ? 'Not autofilled: the printed specialization did not match this program’s catalog.'
+            : 'Not autofilled: no specialization was identified in the document.',
+        } : {}),
+      }
+      dispatch({ type: 'set-autofilled', keys: filled, notes })
       if (filled.length > 0) {
         toast.success('Metadata autofilled', { description: 'Extracted available information from the document.' })
       } else {
         toast.warning('Extraction incomplete', { description: 'Could not confidently identify thesis details.' })
       }
     } catch {
+      const message = 'Autofill unavailable: the document could not be read. Enter this field manually.'
+      dispatch({
+        type: 'set-autofilled',
+        keys: [],
+        notes: Object.fromEntries([
+          'title', 'authors', 'adviser', 'year', 'abstract', 'department', 'program_id', 'specialization_id',
+        ].map((key) => [key, message])),
+      })
       toast.error('Autofill failed', { description: 'Please enter the metadata manually.' })
     } finally {
       setParsing(false)
@@ -615,6 +641,7 @@ export default function Upload() {
                   form={form}
                   errors={errors}
                   autofilled={autofilled}
+                  autofillNotes={autofillNotes}
                   departments={departments}
                   isSuperadmin={isSuperadmin}
                   enforcedDepartment={enforcedDepartment}

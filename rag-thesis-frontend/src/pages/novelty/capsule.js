@@ -144,3 +144,12 @@ export function applyExtractedCapsule(current = {}, extracted = {}) {
   }
   return { capsule, filled }
 }
+
+/** Helper text for an empty capsule field after a file-reading attempt. */
+export function capsuleAutofillHint(field, value, source) {
+  if (!source || trimmed(value) || source.filled?.includes(field.key)) return ''
+  if (source.error) {
+    return 'Autofill unavailable: the uploaded file could not be read. Enter this section manually.'
+  }
+  return `Not autofilled: no recognizable ${field.label.toLowerCase()} section was found in the uploaded document.`
+}
