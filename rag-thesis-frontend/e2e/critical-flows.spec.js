@@ -554,6 +554,8 @@ test('faculty capsule proposal is checked section by section', async ({ page }) 
   await expect(form.getByText(/at least one of the rationale/)).toBeVisible()
   expect(submitted).toBeNull()
 
+  await form.getByLabel('Rationale and significance').fill('Property owners in rural municipalities lack affordable automated intrusion monitoring systems.')
+  await form.getByLabel('Research questions / objectives').fill('To design, train, and evaluate a real-time YOLO-based smart intruder detection and alert system.')
   await form.getByLabel('Methodology').fill('YOLO object detection trained on a locally gathered CCTV dataset, evaluated with mAP.')
   await form.getByRole('button', { name: 'Check capsule' }).click()
 
@@ -648,6 +650,8 @@ test('administrator upload journey resumes a retrying durable job after refresh'
     'POST /upload/extract-metadata': {
       title: 'Deterministic E2E Thesis', authors: 'A. Researcher, C. Researcher', year: 2026,
       adviser: 'Dr. Liza M. Bautista',
+      panel_chair: 'Dr. Ricardo Q. Camungao, DIT',
+      panel_members: 'Renalyn G. Tecson, MSIT; Desiray D. Nayga, DIT',
       abstract: 'The abstract exactly as the manuscript prints it.',
     },
     'POST /upload/extended-abstract': () => {
@@ -758,8 +762,19 @@ test('administrator batch upload journey stages several manuscripts and polls th
     // actually has and the reason the program is read per title page.
     'POST /upload/batch/extract-metadata': {
       files: [
-        { index: 0, filename: 'first.pdf', title: 'First Deterministic Thesis', authors: 'A. Researcher', adviser: 'Dr. Liza M. Bautista', year: '2026', department: 'CCSICT', program_code: 'BSIT', specialization_code: 'WMAD' },
-        { index: 1, filename: 'second.pdf', title: 'Second Deterministic Thesis', authors: 'B. Researcher', year: '2025', department: 'CCSICT' },
+        {
+          index: 0, filename: 'first.pdf', title: 'First Deterministic Thesis', authors: 'A. Researcher',
+          adviser: 'Dr. Liza M. Bautista', panel_chair: 'Dr. Ricardo Q. Camungao, DIT',
+          panel_members: 'Renalyn G. Tecson, MSIT; Desiray D. Nayga, DIT',
+          abstract: 'First manuscript abstract.', year: '2026', department: 'CCSICT',
+          program_code: 'BSIT', specialization_code: 'WMAD',
+        },
+        {
+          index: 1, filename: 'second.pdf', title: 'Second Deterministic Thesis', authors: 'B. Researcher',
+          panel_chair: 'Dr. Ricardo Q. Camungao, DIT',
+          panel_members: 'Renalyn G. Tecson, MSIT; Desiray D. Nayga, DIT',
+          abstract: 'Second manuscript abstract.', year: '2025', department: 'CCSICT',
+        },
       ],
     },
     'POST /upload/batch': (request) => {

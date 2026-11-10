@@ -100,38 +100,82 @@ export const SORT_OPTIONS = Object.freeze([
   { value: 'year_asc', label: 'Sort: Year (Oldest)' },
 ])
 
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function matchesSearchQuery(paper, rawQuery) {
+  const query = String(rawQuery || '').trim().toLowerCase()
+  if (!query) return true
+  const tokens = query.match(/[a-z0-9]+/g)
+  const primaryFields = [
+    paper.title,
+    paper.authors,
+    paper.adviser,
+    paper.panel_chair,
+    paper.panel_members,
+    paper.track,
+    paper.department,
+    paper.year,
+  ].map((value) => String(value || '').toLowerCase())
+  const abstractText = String(paper.abstract || '').toLowerCase()
+
+  if (!tokens || tokens.length === 0) {
+    return [...primaryFields, abstractText].some((field) => field.includes(query))
+  }
+
+  return tokens.every((token) => {
+    const wordStart = new RegExp(`\\b${escapeRegExp(token)}`, 'i')
+    if (primaryFields.some((field) => wordStart.test(field))) return true
+    if (token.length >= 4 && primaryFields.some((field) => field.includes(token))) return true
+    if (token.length === 3) {
+      const wholeWord = new RegExp(`\\b${escapeRegExp(token)}\\b`, 'i')
+      return wholeWord.test(abstractText)
+    }
+    if (token.length >= 4) {
+      return wordStart.test(abstractText)
+    }
+    return false
+  })
+}
+
 function relevanceScore(paper, query) {
   if (!query || !paper) return 0
-  const q = query.toLowerCase()
+  const q = query.trim().toLowerCase()
+  if (!q) return 0
+  const wordStart = new RegExp(`\\b${escapeRegExp(q)}`, 'i')
   const title = String(paper.title || '').toLowerCase()
   const authors = String(paper.authors || '').toLowerCase()
   const adviser = String(paper.adviser || '').toLowerCase()
   const panel = `${paper.panel_chair || ''} ${paper.panel_members || ''}`.toLowerCase()
   const abstract = String(paper.abstract || '').toLowerCase()
   let score = 0
-  if (title.startsWith(q)) score += 50
+  if (title.startsWith(q)) score += 60
+  else if (wordStart.test(title)) score += 45
   else if (title.includes(q)) score += 30
-  if (authors.includes(q)) score += 15
+  if (wordStart.test(authors) || authors.includes(q)) score += 15
   // A named person, so it outranks a passing mention in the abstract, but the
   // thesis's own authors stay the stronger match for a name.
-  if (adviser.includes(q)) score += 10
-  if (panel.includes(q)) score += 8
-  if (abstract.includes(q)) score += 5
+  if (wordStart.test(adviser) || adviser.includes(q)) score += 10
+  if (wordStart.test(panel) || panel.includes(q)) score += 8
+  if (wordStart.test(abstract) || abstract.includes(q)) score += 5
   return score
 }
 
 function compareByNewest(left, right) {
-  const timeDiff = new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime()
-  if (timeDiff !== 0) return timeDiff
   const yDiff = (Number(right.year) || 0) - (Number(left.year) || 0)
   if (yDiff !== 0) return yDiff
+  const timeDiff = new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime()
+  if (timeDiff !== 0) return timeDiff
   return String(left.title || '').localeCompare(String(right.title || ''))
 }
 
 function compareByOldest(left, right) {
+  const yDiff = (Number(left.year) || 0) - (Number(right.year) || 0)
+  if (yDiff !== 0) return yDiff
   const timeDiff = new Date(left.created_at || 0).getTime() - new Date(right.created_at || 0).getTime()
   if (timeDiff !== 0) return timeDiff
-  return (Number(left.year) || 0) - (Number(right.year) || 0)
+  return String(left.title || '').localeCompare(String(right.title || ''))
 }
 
 const COMPARATORS = {
@@ -147,7 +191,7 @@ export function sortArchivePapers(papers = [], sortBy = 'newest', query = '') {
   if (!Array.isArray(papers) || papers.length === 0) return []
   const copy = papers.filter(Boolean)
 
-  if (sortBy === 'relevance' && query) {
+  if ((sortBy === 'relevance' || sortBy === 'newest') && String(query || '').trim()) {
     return copy.sort((left, right) => {
       const diff = relevanceScore(right, query) - relevanceScore(left, query)
       return diff !== 0 ? diff : compareByNewest(left, right)
@@ -204,9 +248,7 @@ export function filterArchivePapers(papers = [], filters = {}, catalogPrograms =
     ? (program?.specializations || []).find((item) => item?.id === filters.specialization_id)
     : null
   return papers.filter(Boolean).filter((paper) => {
-    const matchesQuery = !query || [
-      paper.title, paper.authors, paper.adviser, paper.panel_chair, paper.panel_members, paper.abstract,
-    ].some((value) => String(value || '').toLowerCase().includes(query))
+    const matchesQuery = matchesSearchQuery(paper, query)
     const matchesTrack = !filters.track || paper.track === filters.track
     const matchesProgram = !filters.program_id || paper.program_id === filters.program_id
       || legacyTrackMatches(paper, program, null)

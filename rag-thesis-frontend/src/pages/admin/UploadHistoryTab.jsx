@@ -189,17 +189,17 @@ export default function UploadHistoryTab() {
                         <div className="text-xs text-ink-muted line-clamp-1">Adviser: {p.adviser}</div>
                       )}
                     </td>
-                    <td className="px-6 py-4">
-                      <Badge tone={isFacultyThesis(p) ? 'gold' : 'forest'}>
+                    <td className="whitespace-nowrap px-6 py-4">
+                      <Badge tone={isFacultyThesis(p) ? 'gold' : 'neutral'}>
                         {thesisCategoryLabel(p.thesis_category)}
                       </Badge>
                     </td>
-                    <td className="px-6 py-4"><Badge tone="forest">{p.track}</Badge></td>
-                    <td className="px-6 py-4"><Badge tone="neutral">{p.department}</Badge></td>
-                    <td className="px-6 py-4">{p.year}</td>
-                    <td className="px-6 py-4 text-xs font-semibold text-ink-muted">{p.uploader_name || 'Unknown'}</td>
-                    <td className="px-6 py-4 font-mono text-xs text-ink-muted">{p.chunk_count}</td>
-                    <td className="px-6 py-4 text-xs text-ink-muted">{formatDate(p.created_at)}</td>
+                    <td className="whitespace-nowrap px-6 py-4"><Badge tone="forest">{p.track}</Badge></td>
+                    <td className="whitespace-nowrap px-6 py-4"><Badge tone="neutral">{p.department}</Badge></td>
+                    <td className="whitespace-nowrap px-6 py-4 tabular-nums">{p.year}</td>
+                    <td className="whitespace-nowrap px-6 py-4 text-xs font-semibold text-ink-muted">{p.uploader_name || 'Unknown'}</td>
+                    <td className="whitespace-nowrap px-6 py-4 font-mono text-xs tabular-nums text-ink-muted">{p.chunk_count}</td>
+                    <td className="whitespace-nowrap px-6 py-4 text-xs text-ink-muted">{formatDate(p.created_at)}</td>
                   </tr>
                 ))
               )}

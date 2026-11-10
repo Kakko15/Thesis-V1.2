@@ -16,7 +16,8 @@ import { useAuth } from '../context/AuthContext'
 import { mostSimilarPaper, scanMetrics, verdictLabel } from '../lib/utils'
 import { departmentPrograms, isThesisCategory, programSelection } from '../lib/catalog'
 import {
-  createUploadState, emptyUploadForm, isCurrentPoll, uploadMetadataErrors, uploadReducer, UPLOAD_STEPS,
+  REQUIRED_UPLOAD_KEYS, createUploadState, emptyUploadForm, isCurrentPoll,
+  uploadFieldError, uploadMetadataErrors, uploadReducer, uploadRequiredErrors, UPLOAD_STEPS,
 } from './upload/uploadState'
 import {
   WIZARD_STEPS, autofilledKeys, extractionDepartment, isTerminalJob, mergeExtracted, stageView,
@@ -229,6 +230,7 @@ export default function Upload() {
   const { isSuperadmin, canScan, department: userDepartment } = useAuth()
   const enforcedDepartment = userDepartment || 'CCSICT'
   const [state, dispatch] = useReducer(uploadReducer, enforcedDepartment, createUploadState)
+  const [touched, setTouched] = useState({})
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const {
@@ -237,7 +239,21 @@ export default function Upload() {
   } = state
   const setStep = (value) => dispatch({ type: 'set-step', step: value })
   const setFile = (value) => dispatch({ type: 'set-file', file: value })
-  const setForm = (value) => dispatch({ type: 'set-form', value })
+  const setForm = (value) => {
+    const nextForm = typeof value === 'function' ? value(form) : value
+    dispatch({ type: 'set-form', value: nextForm })
+    if (Object.keys(errors).length > 0) {
+      const nextErrors = { ...errors }
+      for (const key of ['department', 'program_id', 'specialization_id', 'thesis_category']) {
+        if (nextErrors[key]) {
+          const message = uploadFieldError(key, nextForm)
+          if (message) nextErrors[key] = message
+          else delete nextErrors[key]
+        }
+      }
+      setErrors(nextErrors)
+    }
+  }
   const setErrors = (value) => dispatch({ type: 'set-errors', errors: value })
   const setJob = (value) => dispatch({ type: 'set-job', job: value })
   const setSubmitting = (value) => dispatch({ type: 'set-submitting', value })
@@ -284,11 +300,20 @@ export default function Upload() {
   }, [stopPolling])
   useEffect(() => {
     if (!isSuperadmin) {
-      setForm((current) => ({ ...current, department: enforcedDepartment }))
+      dispatch({ type: 'set-form', value: (current) => ({ ...current, department: enforcedDepartment }) })
     }
   }, [enforcedDepartment, isSuperadmin])
 
-  const setField = (key, value) => dispatch({ type: 'set-field', key, value })
+  const setField = (key, value) => {
+    dispatch({ type: 'set-field', key, value })
+    if (touched[key] || errors[key]) {
+      const message = uploadFieldError(key, { ...form, [key]: value })
+      const next = { ...errors }
+      if (message) next[key] = message
+      else delete next[key]
+      setErrors(next)
+    }
+  }
 
   const runAutofill = async (f) => {
     setParsing(true)
@@ -434,15 +459,22 @@ export default function Upload() {
   }
 
   const validateMetadata = () => {
-    const next = uploadMetadataErrors(form)
+    const next = uploadRequiredErrors(form)
+    setTouched(Object.fromEntries(REQUIRED_UPLOAD_KEYS.map((key) => [key, true])))
     setErrors(next)
     return Object.keys(next).length === 0
   }
 
-  // On blur, correct what is already wrong but never introduce a new complaint:
-  // tabbing out of an empty title should not scold you for not having typed in
-  // it yet. Continue still runs the full check.
-  const revalidateTouched = () => {
+  const revalidateTouched = (key) => {
+    if (typeof key === 'string') {
+      setTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
+      const message = uploadFieldError(key, form)
+      const next = { ...errors }
+      if (message) next[key] = message
+      else delete next[key]
+      setErrors(next)
+      return
+    }
     if (Object.keys(errors).length === 0) return
     setErrors(uploadMetadataErrors(form))
   }
@@ -560,6 +592,7 @@ export default function Upload() {
     jobIdRef.current = null
     sessionStorage.removeItem('activeUploadJob')
     idempotencyKeyRef.current = crypto.randomUUID()
+    setTouched({})
     dispatch({ type: 'reset', department: enforcedDepartment })
   }
 

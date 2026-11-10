@@ -55,8 +55,18 @@ const DOT_TONES = Object.freeze({
  * enough: this step renders only after extraction has settled, because the
  * manuscript step's Continue button stays disabled while `parsing` is true.
  */
+function surfaceBorderClass(error, filled) {
+  if (error) {
+    return 'border-[var(--destructive)] focus-within:border-[var(--destructive)] focus-within:shadow-[inset_0_0_0_1px_var(--destructive)]'
+  }
+  return cn(
+    'focus-within:border-[var(--primary)] focus-within:shadow-[inset_0_0_0_1px_var(--primary)]',
+    filled ? 'border-[var(--border)]' : 'border-dashed border-[var(--input)]',
+  )
+}
+
 export function AbstractField({
-  value = '', onChange, onClear, autofilled, missingHint, variants, mode = ABSTRACT_MODES.document,
+  value = '', onChange, onBlur, onClear, error, autofilled, missingHint, variants, mode = ABSTRACT_MODES.document,
 }) {
   const [open, setOpen] = useState(Boolean(value || missingHint))
   const surfaceRef = useRef(null)
@@ -72,16 +82,18 @@ export function AbstractField({
   const { chars, words, ratio, tone } = abstractStats(value, { extended })
   const filled = words > 0
 
+  const isOpen = open || Boolean(error)
+
   // Match the surface to the prose on every edit, and on the first paint after
   // the panel opens — a textarea measures its own scrollHeight as zero while
   // it is inside a collapsed parent.
   useLayoutEffect(() => {
     const node = surfaceRef.current
-    if (!node || !open) return
+    if (!node || !isOpen) return
     const floor = value ? MIN_SURFACE_PX : EMPTY_SURFACE_PX
     node.style.height = 'auto'
     node.style.height = `${Math.max(floor, Math.min(node.scrollHeight, MAX_SURFACE_PX))}px`
-  }, [value, open])
+  }, [value, isOpen])
 
   return (
     <motion.section
@@ -97,7 +109,7 @@ export function AbstractField({
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
-          aria-expanded={open}
+          aria-expanded={isOpen}
           aria-controls={panelId}
           className="group flex w-full items-center gap-3 rounded-2xl px-5 py-4 text-left outline-none transition-colors duration-200 focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]"
         >
@@ -113,9 +125,11 @@ export function AbstractField({
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2">
-              <span className="font-display text-sm font-bold tracking-tight text-ink">Abstract</span>
+              <span className="font-display text-sm font-bold tracking-tight text-ink">
+                Abstract <span className="text-flame-500">*</span>
+              </span>
               <span className="rounded-full border border-[var(--border)] px-1.5 py-px text-[10px] font-medium uppercase tracking-wider text-ink-faint">
-                optional
+                required
               </span>
               <AutofillChip
                 show={Boolean(autofilled)}
@@ -133,14 +147,14 @@ export function AbstractField({
             aria-hidden="true"
             className={cn(
               'shrink-0 text-ink-faint transition-transform duration-300 group-hover:text-ink-muted',
-              open && 'rotate-180',
+              isOpen && 'rotate-180',
             )}
           />
         </button>
       </h2>
 
       <AnimatePresence initial={false}>
-        {open && (
+        {isOpen && (
           <motion.div
             id={panelId}
             initial={{ height: 0, opacity: 0 }}
@@ -154,14 +168,14 @@ export function AbstractField({
                 className={cn(
                   'relative overflow-hidden rounded-2xl border bg-[var(--surface-0)]',
                   'transition-[border-color,box-shadow] duration-300',
-                  'focus-within:border-[var(--primary)] focus-within:shadow-[inset_0_0_0_1px_var(--primary)]',
-                  filled ? 'border-[var(--border)]' : 'border-dashed border-[var(--input)]',
+                  surfaceBorderClass(error, filled),
                 )}
               >
                 <Textarea
                   ref={surfaceRef}
                   value={value}
                   onChange={onChange}
+                  onBlur={onBlur}
                   // Hard-capped at the server's own ceiling: a 422 on submit
                   // after a long paste is a worse answer than a paste that
                   // stops, and the meter below says where the edge is.
@@ -169,6 +183,7 @@ export function AbstractField({
                   placeholder="Paste the thesis abstract…"
                   aria-label="Thesis abstract"
                   aria-describedby={noteId}
+                  aria-invalid={error ? 'true' : undefined}
                   className={cn(
                     // The height itself is owned by the layout effect above;
                     // this is only the floor it starts from on first paint.
@@ -197,13 +212,14 @@ export function AbstractField({
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
                 <p
                   id={noteId}
+                  role={error ? 'alert' : undefined}
                   className={cn(
                     'flex min-w-0 items-center gap-2 text-[11px]',
-                    missingHint && !filled ? 'font-medium text-flame-500' : 'text-ink-faint',
+                    (error || (missingHint && !filled)) ? 'font-medium text-flame-500' : 'text-ink-faint',
                   )}
                 >
-                  <span aria-hidden="true" className={cn('h-1.5 w-1.5 shrink-0 rounded-full', DOT_TONES[tone])} />
-                  {missingHint && !filled ? missingHint : NOTES[tone]}
+                  <span aria-hidden="true" className={cn('h-1.5 w-1.5 shrink-0 rounded-full', error ? 'bg-flame-500' : DOT_TONES[tone])} />
+                  {error || ((missingHint && !filled) ? missingHint : NOTES[tone])}
                 </p>
                 {/* The meter earns its place only near the ceiling. Below that
                     it sat at a permanent few percent and read as a target. */}

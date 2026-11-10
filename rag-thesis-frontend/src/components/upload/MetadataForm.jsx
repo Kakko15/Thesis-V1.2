@@ -128,7 +128,7 @@ export function MetadataForm({
             <Input
               value={form.title}
               onChange={set('title')}
-              onBlur={onBlurValidate}
+              onBlur={() => onBlurValidate?.('title')}
               placeholder="Full official thesis title"
               error={errors.title}
             />
@@ -136,16 +136,26 @@ export function MetadataForm({
           <div className="grid gap-5 sm:grid-cols-2">
             <LabelledField
               label="Authors"
+              required
+              error={errors.authors}
               autofilled={autofilled.authors}
               hint={!form.authors ? autofillNotes.authors : ''}
             >
-              <Input value={form.authors} onChange={set('authors')} placeholder="Dela Cruz, J., Santos, M." />
+              <Input
+                value={form.authors}
+                onChange={set('authors')}
+                onBlur={() => onBlurValidate?.('authors')}
+                placeholder="Dela Cruz, J., Santos, M."
+                required
+                error={errors.authors}
+              />
             </LabelledField>
             {/* 'e.g.' prefixed and derived from the clock: a bare
                 '2024' here reads as an autofilled value in the muted
                 placeholder colour, and was mistaken for one. */}
             <LabelledField
               label="Year completed"
+              required
               error={errors.year}
               autofilled={autofilled.year}
               hint={!form.year ? autofillNotes.year : ''}
@@ -153,10 +163,11 @@ export function MetadataForm({
               <Input
                 value={form.year}
                 onChange={set('year')}
-                onBlur={onBlurValidate}
+                onBlur={() => onBlurValidate?.('year')}
                 placeholder={`e.g. ${new Date().getFullYear()}`}
                 inputMode="numeric"
                 maxLength={4}
+                required
                 error={errors.year}
               />
             </LabelledField>
@@ -173,6 +184,8 @@ export function MetadataForm({
           <div className="grid gap-5 sm:grid-cols-2">
             <LabelledField
               label="Adviser"
+              required
+              error={errors.adviser}
               hint={!form.adviser && autofillNotes.adviser
                 ? autofillNotes.adviser
                 : 'As printed on the approval sheet or the abstract page.'}
@@ -181,11 +194,16 @@ export function MetadataForm({
               <Input
                 value={form.adviser}
                 onChange={set('adviser')}
+                onBlur={() => onBlurValidate?.('adviser')}
                 maxLength={200}
+                required
+                error={errors.adviser}
               />
             </LabelledField>
             <LabelledField
               label="Panel chair"
+              required
+              error={errors.panel_chair}
               hint={!form.panel_chair && autofillNotes.panel_chair
                 ? autofillNotes.panel_chair
                 : "As printed on the approval sheet's panel committee."}
@@ -194,12 +212,17 @@ export function MetadataForm({
               <Input
                 value={form.panel_chair}
                 onChange={set('panel_chair')}
+                onBlur={() => onBlurValidate?.('panel_chair')}
                 maxLength={200}
+                required
+                error={errors.panel_chair}
               />
             </LabelledField>
           </div>
           <LabelledField
             label="Panel members"
+            required
+            error={errors.panel_members}
             hint={!form.panel_members && autofillNotes.panel_members
               ? autofillNotes.panel_members
               : 'Semicolon-separated as printed on the approval sheet.'}
@@ -208,7 +231,10 @@ export function MetadataForm({
             <Input
               value={form.panel_members}
               onChange={set('panel_members')}
+              onBlur={() => onBlurValidate?.('panel_members')}
               maxLength={500}
+              required
+              error={errors.panel_members}
             />
           </LabelledField>
         </div>
@@ -257,6 +283,7 @@ export function MetadataForm({
                     specialization_id: '',
                     requires_specialization: false,
                   }))}
+                  onBlur={() => onBlurValidate?.('department')}
                   error={errors.department}
                   disabled={loadingDepts}
                   aria-label="Select thesis department"
@@ -303,6 +330,7 @@ export function MetadataForm({
                     ...current,
                     ...programSelectionById(programs, event.target.value),
                   }))}
+                  onBlur={() => onBlurValidate?.('program_id')}
                   error={errors.program_id}
                   disabled={programsUnavailable}
                   aria-label="Select academic program"
@@ -340,6 +368,7 @@ export function MetadataForm({
                       ...current,
                       ...specializationSelection(specializations, event.target.value),
                     }))}
+                    onBlur={() => onBlurValidate?.('specialization_id')}
                     error={errors.specialization_id}
                     aria-label="Select academic specialization"
                   >
@@ -359,7 +388,9 @@ export function MetadataForm({
         variants={fieldRise}
         value={form.abstract}
         onChange={set('abstract')}
+        onBlur={() => onBlurValidate?.('abstract')}
         onClear={() => onField('abstract', '')}
+        error={errors.abstract}
         autofilled={autofilled.abstract}
         missingHint={!form.abstract ? autofillNotes.abstract : ''}
         mode={abstractMode}

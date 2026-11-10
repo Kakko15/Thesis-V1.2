@@ -696,3 +696,67 @@ class TestPaperDiversityCap:
         ranked_results = retriever.rank_paper_chunks(chunks, 'What were the results and findings?', papers[0])
         assert ranked_methods[0]['chunk_index'] == 2
         assert ranked_results[0]['chunk_index'] == 3
+
+    def test_topic_query_with_no_matching_theses_and_moderate_cosine_returns_empty(self, monkeypatch):
+        pool = [
+            {'id': 1, 'paper_id': 'p_rag', 'chunk_index': 3,
+             'content': 'To prevent topic redundancy and unintentional topic duplication in thesis documents.',
+             'similarity': 0.6465, 'page_start': 6, 'page_end': 8, 'section': '1.3 Scope and Delimitation'},
+            {'id': 2, 'paper_id': 'p_kmeans', 'chunk_index': 1,
+             'content': 'Enhanced K-Means clustering by addressing outliers using Isolation Forest.',
+             'similarity': 0.6559, 'page_start': 1, 'page_end': 7, 'section': 'Introduction'},
+        ]
+        papers = [
+            {'id': 'p_rag', 'title': 'A Centralized AI-Powered Thesis Library Using RAG',
+             'authors': 'Barlis, A.', 'year': 2026, 'track': 'Data Mining', 'department': 'CCSICT'},
+            {'id': 'p_kmeans', 'title': 'Enhanced K-Means Clustering by Addressing Outliers',
+             'authors': 'Ebersole, J.', 'year': 2025, 'track': 'Data Mining', 'department': 'CCSICT'},
+        ]
+
+        class _PoolClient(_RetrieverClient):
+            def table(self, name):
+                assert name == 'papers'
+                return _Query(papers)
+
+        monkeypatch.setattr(retriever, 'sb', _PoolClient(chunks=pool))
+        context, sources, top = retriever.search_chunks(
+            'what is/are the thesis topic about disease?', 'CCSICT', [0.1] * 768,
+        )
+        assert context == ''
+        assert sources == []
+        assert top == 0.0
+
+    def test_topic_query_among_many_ingested_theses_excludes_off_topic_papers(self, monkeypatch):
+        pool = [
+            {'id': 1, 'paper_id': 'p_rag', 'chunk_index': 3,
+             'content': 'To prevent topic redundancy and unintentional topic duplication in thesis documents.',
+             'similarity': 0.65, 'page_start': 6, 'page_end': 8, 'section': '1.3 Scope and Delimitation'},
+            {'id': 2, 'paper_id': 'p_kmeans', 'chunk_index': 1,
+             'content': 'Enhanced K-Means clustering by addressing outliers using Isolation Forest.',
+             'similarity': 0.66, 'page_start': 1, 'page_end': 7, 'section': 'Introduction'},
+            {'id': 3, 'paper_id': 'p_disease', 'chunk_index': 1,
+             'content': 'This study detects rice leaf disease lesions using convolutional neural networks.',
+             'similarity': 0.68, 'page_start': 1, 'page_end': 4, 'section': 'Introduction'},
+        ]
+        papers = [
+            {'id': 'p_rag', 'title': 'A Centralized AI-Powered Thesis Library Using RAG',
+             'authors': 'Barlis, A.', 'year': 2026, 'track': 'Data Mining', 'department': 'CCSICT'},
+            {'id': 'p_kmeans', 'title': 'Enhanced K-Means Clustering by Addressing Outliers',
+             'authors': 'Ebersole, J.', 'year': 2025, 'track': 'Data Mining', 'department': 'CCSICT'},
+            {'id': 'p_disease', 'title': 'Rice Leaf Disease Detection Using CNN',
+             'authors': 'Santos, R.', 'year': 2026, 'track': 'Data Mining', 'department': 'CCSICT'},
+        ]
+
+        class _PoolClient(_RetrieverClient):
+            def table(self, name):
+                assert name == 'papers'
+                return _Query(papers)
+
+        monkeypatch.setattr(retriever, 'sb', _PoolClient(chunks=pool))
+        context, sources, _ = retriever.search_chunks(
+            'what is/are the thesis topic about disease?', 'CCSICT', [0.1] * 768,
+        )
+        assert [s['id'] for s in sources] == ['p_disease']
+        assert 'Rice Leaf Disease Detection Using CNN' in context
+        assert 'Centralized AI-Powered Thesis Library' not in context
+        assert 'Enhanced K-Means Clustering' not in context

@@ -88,6 +88,14 @@ function activeFilterChips({ filters, setFilter, programs, specializations, trac
     push('year', 'Year', filters.year === 'recent_5' ? 'Last 5 years' : String(filters.year))
   }
   if (filters.adviser) push('adviser', 'Adviser', filters.adviser)
+  if (filters.savedOnly) {
+    chips.push({
+      key: 'savedOnly',
+      dimension: 'List',
+      label: 'Saved reading list',
+      onRemove: () => setFilter('savedOnly', false),
+    })
+  }
 
   return chips
 }

@@ -1,4 +1,4 @@
-import { uploadMetadataErrors } from './uploadState.js'
+import { uploadFieldError, uploadMetadataErrors } from './uploadState.js'
 import { ABSTRACT_MODES, emptyAbstractVariants } from './abstractMode.js'
 import { programSelection } from '../../lib/catalog.js'
 
@@ -315,7 +315,22 @@ export function batchReducer(state, action) {
   switch (action.type) {
     case 'add-rows': return addRows(state, action.files)
     case 'remove-row': return { ...state, rows: state.rows.filter((row) => row.id !== action.id) }
-    case 'set-row-field': return updateRow(state, action.id, { [action.key]: action.value })
+    case 'set-row-field': return updateRow(state, action.id, (row) => {
+      const nextRow = { ...row, [action.key]: action.value }
+      if (!row.errors?.[action.key]) return nextRow
+      const nextErrors = { ...row.errors }
+      const message = uploadFieldError(action.key, { ...state.defaults, ...nextRow })
+      if (message) nextErrors[action.key] = message
+      else delete nextErrors[action.key]
+      return { ...nextRow, errors: nextErrors }
+    })
+    case 'blur-row-field': return updateRow(state, action.id, (row) => {
+      const nextErrors = { ...(row.errors || {}) }
+      const message = uploadFieldError(action.key, { ...state.defaults, ...row })
+      if (message) nextErrors[action.key] = message
+      else delete nextErrors[action.key]
+      return { ...row, errors: nextErrors }
+    })
     case 'set-row-extending': return updateRow(state, action.id, { extendingAbstract: Boolean(action.value) })
     case 'apply-row-abstract': return updateRow(state, action.id, {
       abstractMode: action.mode,
@@ -323,7 +338,20 @@ export function batchReducer(state, action) {
       abstract: action.abstract || '',
       extendingAbstract: false,
     })
-    case 'patch-row': return updateRow(state, action.id, action.patch)
+    case 'patch-row': return updateRow(state, action.id, (row) => {
+      const resolvedPatch = typeof action.patch === 'function' ? action.patch(row) : action.patch
+      const nextRow = { ...row, ...resolvedPatch }
+      if (!row.errors || Object.keys(row.errors).length === 0) return nextRow
+      const nextErrors = { ...row.errors }
+      for (const key of Object.keys(resolvedPatch || {})) {
+        if (nextErrors[key]) {
+          const message = uploadFieldError(key, { ...state.defaults, ...nextRow })
+          if (message) nextErrors[key] = message
+          else delete nextErrors[key]
+        }
+      }
+      return { ...nextRow, errors: nextErrors }
+    })
     case 'apply-extraction': return applyExtraction(state, action.files, action.departments)
     case 'mark-extraction-failed': return markExtractionFailed(state, action.message)
     case 'apply-program': return applyProgramToRows(state, action.selection)

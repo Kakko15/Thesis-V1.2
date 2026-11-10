@@ -11,7 +11,7 @@ export function Badge({ children, tone = DEFAULT_BADGE_TONE, className, title })
     <span
       title={title}
       className={cn(
-        'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide',
+        'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide',
         badgeToneClass(tone),
         className,
       )}

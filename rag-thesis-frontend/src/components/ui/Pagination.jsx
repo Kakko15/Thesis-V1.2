@@ -151,7 +151,7 @@ export function Pagination({
       </nav>
 
       {/* "Go to page [ n ] >" jump container from reference design */}
-      {enableJump && totalPages > 1 && (
+      {enableJump && (totalPages > 1 || !hideOnSinglePage) && (
         <form
           onSubmit={handleJumpSubmit}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-forest-900/10 bg-forest-900/[0.04] px-2.5 py-1 text-xs dark:border-white/10 dark:bg-white/[0.04]"
@@ -164,16 +164,17 @@ export function Pagination({
             type="number"
             min={1}
             max={totalPages}
+            disabled={totalPages <= 1}
             value={jumpInput}
             onChange={(e) => setJumpInput(e.target.value)}
             placeholder={String(currentPage)}
             aria-label="Page number to jump to"
-            className="h-6 w-11 rounded-md border border-forest-900/15 bg-white/80 px-1 text-center font-mono text-xs font-semibold text-ink shadow-2xs outline-none focus:border-forest-600 focus:ring-1 focus:ring-forest-600 dark:border-white/15 dark:bg-forest-950/70 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            className="h-6 w-11 rounded-md border border-forest-900/15 bg-white/80 px-1 text-center font-mono text-xs font-semibold text-ink shadow-2xs outline-none focus:border-forest-600 focus:ring-1 focus:ring-forest-600 disabled:opacity-40 dark:border-white/15 dark:bg-forest-950/70 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
           <button
             type="submit"
             aria-label="Submit page jump"
-            disabled={!jumpInput}
+            disabled={!jumpInput || totalPages <= 1}
             className="flex h-6 w-6 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-forest-900/10 hover:text-ink disabled:opacity-30 dark:hover:bg-white/10"
           >
             <ChevronRight size={14} />

@@ -2,11 +2,11 @@
   "generated_at": "20260913_064053",
   "evaluation_department": "CCSICT",
   "models": {
-    "llm": "gemini-3.6-flash",
+    "llm": "gemini-3.8-flash",
     "embeddings": "models/gemini-embedding-001"
   },
   "evaluator": {
-    "model": "gemini-3.5-flash-lite",
+    "model": "gemini-3.8-flash",
     "framework": "ragas==0.4.3",
     "metrics": [
       "answer_correctness",
@@ -23,8 +23,8 @@
         "python_implementation": "CPython"
       },
       "models": {
-        "chat": "gemini-3.6-flash",
-        "verdict": "gemini-3.5-flash-lite",
+        "chat": "gemini-3.8-flash",
+        "verdict": "gemini-3.8-flash",
         "embedding": "models/gemini-embedding-001"
       },
       "prompt_version": "iskai-prompt-v4",

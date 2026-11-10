@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
@@ -37,6 +37,14 @@ import { cn, normalizePercent, timeAgo } from '../lib/utils'
 import { getChatPrefs } from '../lib/chatPrefs'
 import { THESIS_CATEGORIES } from '../lib/catalog'
 import { resolveRecencyMinYear } from './archive/archiveFilters'
+import {
+  formatApaCitation,
+  getReadingListSnapshot,
+  parseSavedPaperIds,
+  subscribeReadingList,
+  toggleSavedPaperId,
+  writeSavedPaperIds,
+} from './archive/researchTools'
 
 const STARTERS = [
   'What machine learning techniques were used in past CCSICT theses?',
@@ -297,12 +305,39 @@ function groupEvidenceSources(sources = []) {
 }
 
 function SourceCard({ sources, index }) {
+  const { user } = useAuth()
   const source = sources[0]
   const citationIds = sources.map((item, itemIndex) => item.citation_id ?? itemIndex + 1)
   const evidenceSources = sources.filter((item) => item.chunk_id != null)
   const locationPending = evidenceSources.some(
     (item) => !pageLabelFor(item) && !item.section,
   )
+  const [copiedApa, setCopiedApa] = useState(false)
+  const rawSavedSnapshot = useSyncExternalStore(
+    subscribeReadingList,
+    () => getReadingListSnapshot(user?.id),
+    () => '[]',
+  )
+  const savedIds = useMemo(() => parseSavedPaperIds(rawSavedSnapshot), [rawSavedSnapshot])
+  const isSaved = Boolean(source?.id && savedIds.includes(String(source.id)))
+
+  const handleCopyApa = async () => {
+    try {
+      await copyText(formatApaCitation(source))
+      setCopiedApa(true)
+      toast.success('APA 7th citation copied')
+      window.setTimeout(() => setCopiedApa(false), 1600)
+    } catch {
+      toast.error('Could not copy citation')
+    }
+  }
+
+  const handleToggleSave = () => {
+    if (!source?.id) return
+    const { nextIds, saved } = toggleSavedPaperId(savedIds, source.id)
+    writeSavedPaperIds(user?.id, nextIds)
+    toast.success(saved ? 'Saved to your reading list' : 'Removed from reading list')
+  }
 
   return (
     <motion.div
@@ -321,15 +356,45 @@ function SourceCard({ sources, index }) {
           </div>
         ))}
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="break-words text-sm font-semibold leading-snug">{source.title}</div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
           {source.authors && <span>{source.authors}</span>}
           {source.year && <span>· {source.year}</span>}
         </div>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {source.department && <Badge tone="neutral">{source.department}</Badge>}
-          {source.track && <Badge tone="forest">{source.track}</Badge>}
+        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1.5">
+            {source.department && <Badge tone="neutral">{source.department}</Badge>}
+            {source.track && <Badge tone="forest">{source.track}</Badge>}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleCopyApa}
+              aria-label={`Copy APA citation for ${source.title}`}
+              className="inline-flex items-center gap-1 rounded-lg border border-forest-900/12 bg-forest-600/6 px-2 py-0.5 text-[11px] font-semibold text-forest-800 transition hover:bg-forest-600/14 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:border-white/12 dark:bg-white/6 dark:text-forest-200"
+            >
+              {copiedApa ? <Check size={11} aria-hidden="true" /> : <Copy size={11} aria-hidden="true" />}
+              {copiedApa ? 'Copied' : 'Cite APA'}
+            </button>
+            {source.id && (
+              <button
+                type="button"
+                onClick={handleToggleSave}
+                aria-pressed={Boolean(isSaved)}
+                aria-label={isSaved ? `Remove ${source.title} from reading list` : `Save ${source.title} to reading list`}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400',
+                  isSaved
+                    ? 'border-gold-400/45 bg-gold-400/18 text-gold-text dark:text-gold-300'
+                    : 'border-forest-900/12 bg-forest-600/6 text-forest-800 hover:bg-forest-600/14 dark:border-white/12 dark:bg-white/6 dark:text-forest-200',
+                )}
+              >
+                <BookMarked size={11} aria-hidden="true" />
+                {isSaved ? 'Saved' : 'Save'}
+              </button>
+            )}
+          </div>
         </div>
         {evidenceSources.length > 0 && (
           <div className="mt-3 space-y-1.5 border-t border-forest-900/10 pt-2.5 dark:border-white/10">
@@ -878,10 +943,11 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, 
 export default function Chat() {
   const { user, isSuperadmin, department: userDepartment } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
 
   const [messages, setMessages] = useState([]) // {kind:'user'|'ai', ...}
-  const [input, setInput] = useState('')
+  const [input, setInput] = useState(() => searchParams.get('q') || '')
   const [filterDepartment, setFilterDepartment] = useState('')
   // Content scope, not a security boundary: every visitor (guests included)
   // may narrow retrieval to student or faculty theses. Starts from the default
@@ -1074,6 +1140,33 @@ export default function Chat() {
       toast.error('Could not load conversation', { description: apiErrorMessage(err) })
     }
   }
+
+  const requestedPrompt = searchParams.get('q')
+  const requestedSessionId = searchParams.get('session')
+  const autoLoadedSessionRef = useRef(null)
+
+  useEffect(() => {
+    if (!requestedPrompt) return
+    inputRef.current?.focus()
+    const next = new URLSearchParams(searchParams)
+    next.delete('q')
+    setSearchParams(next, { replace: true })
+  }, [requestedPrompt, searchParams, setSearchParams])
+
+  useEffect(() => {
+    if (!requestedSessionId || sessions.length === 0) return
+    if (autoLoadedSessionRef.current === requestedSessionId) return
+    const targetSession = sessions.find((s) => String(s.id) === String(requestedSessionId))
+    if (!targetSession) return
+    autoLoadedSessionRef.current = requestedSessionId
+    Promise.resolve().then(() => {
+      loadSession(targetSession)
+      const next = new URLSearchParams(searchParams)
+      next.delete('session')
+      setSearchParams(next, { replace: true })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedSessionId, sessions])
 
   const newConversation = () => {
     requestControllerRef.current?.abort('conversation-reset')

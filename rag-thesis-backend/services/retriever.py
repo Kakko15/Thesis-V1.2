@@ -484,15 +484,21 @@ def _is_missing_column_error(error: Exception) -> bool:
 
 
 _PAPER_QUERY_STOPWORDS = {
-    'a', 'about', 'all', 'an', 'and', 'are', 'author', 'authors', 'by', 'explain',
-    'for', 'from', 'in', 'is', 'it', 'of', 'paper', 'research', 'study', 'tell',
-    'the', 'their', 'them', 'thesis', 'this', 'what', 'who', 'with',
+    'a', 'about', 'all', 'an', 'and', 'any', 'archive', 'archived', 'are',
+    'author', 'authors', 'available', 'by', 'capstone', 'ccsict', 'department',
+    'does', 'explain', 'focus', 'focused', 'for', 'from', 'give', 'has', 'have',
+    'in', 'is', 'isu', 'it', 'list', 'of', 'paper', 'project', 'research',
+    'show', 'study', 'subject', 'tell', 'the', 'their', 'them', 'there',
+    'these', 'theses', 'thesi', 'thesis', 'this', 'title', 'topic', 'what',
+    'which', 'who', 'with',
 }
 
 
 def _search_terms(text: str) -> list[str]:
     terms = []
     for token in re.findall(r'[a-z0-9]+', (text or '').lower()):
+        if token in _PAPER_QUERY_STOPWORDS or len(token) <= 2:
+            continue
         if token.endswith('ies') and len(token) > 4:
             token = token[:-3] + 'y'
         elif token.endswith('s') and len(token) > 4:
@@ -705,14 +711,9 @@ _RERANK_LEXICAL_WEIGHT = 0.25
 
 
 def _lexical_evidence_score(chunk: dict, query_terms: list[str]) -> int:
-    """The exact-paper path's section-aware signal, generalized cross-paper.
-
-    Same caps as rank_paper_chunks: content hits saturate at 4 per term so one
-    repeated word cannot dominate, and a section-title hit is worth triple
-    because a question that names a section almost always wants that section.
-    """
+    """The exact-paper path's section-aware signal, generalized cross-paper."""
     location = chunk_location(chunk)
-    content_terms = _search_terms(chunk.get('content', ''))
+    content_terms = _search_terms(f"{chunk.get('title', '')} {chunk.get('content', '')}")
     section_terms = _search_terms(location.get('section') or '')
     unique_terms = set(query_terms)
     return (
@@ -795,6 +796,23 @@ def _filter_pool_by_min_year(pool: list[dict], min_year: int | None) -> list[dic
     return [c for c in pool if c.get('paper_id') in allowed]
 
 
+def filter_relevant_candidates(ranked: list[dict], question: str) -> list[dict]:
+    """Prune off-topic candidates when specific subject terms are queried."""
+    query_terms = _search_terms(question)
+    if not query_terms or not ranked:
+        return ranked
+    lexical_by_id = {id(c): _lexical_evidence_score(c, query_terms) for c in ranked}
+    max_lex = max(lexical_by_id.values(), default=0)
+    if max_lex == 0:
+        best_sim = max((c.get('similarity') or 0.0) for c in ranked)
+        return [] if best_sim < 0.70 else ranked
+    matched_papers = {c.get('paper_id') for c in ranked if lexical_by_id[id(c)] > 0}
+    return [
+        c for c in ranked
+        if c.get('paper_id') in matched_papers or (c.get('similarity') or 0.0) >= 0.78
+    ]
+
+
 def search_chunks(
     question: str, department_filter: str | None = None, query_embedding: list[float] | None = None,
     thesis_category: str | None = None, per_paper_cap: int | None = None, min_year: int | None = None,
@@ -832,7 +850,9 @@ def search_chunks(
         # selection stage and reproduces the pure cosine-order pipeline.
         chunks = sorted(pool, key=lambda item: item.get('similarity', 0.0), reverse=True)
     else:
-        ranked_pool = rerank_candidates(pool, question)
+        ranked_pool = filter_relevant_candidates(rerank_candidates(pool, question), question)
+        if not ranked_pool:
+            return '', [], 0.0
         effective_cap = per_paper_cap if per_paper_cap is not None else settings.retrieval_per_paper_cap
         chunks = apply_paper_diversity(ranked_pool, final_count, effective_cap)
 

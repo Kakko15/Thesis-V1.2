@@ -6,8 +6,8 @@ import { Button } from '../../components/ui/Button'
 import { Input, Textarea } from '../../components/ui/Input'
 import { ConfirmDialog } from '../../components/ui/Modal'
 import {
-  CAPSULE_FIELDS, CAPSULE_FILE_ACCEPT, EMPTY_CAPSULE, applyExtractedCapsule, capsuleError, capsuleFileError,
-  capsuleAutofillHint, loadCapsuleDraft, overwrittenFields, saveCapsuleDraft, screenedSections,
+  CAPSULE_FIELDS, CAPSULE_FILE_ACCEPT, EMPTY_CAPSULE, applyExtractedCapsule, capsuleError, capsuleFieldError,
+  capsuleFileError, capsuleAutofillHint, loadCapsuleDraft, overwrittenFields, saveCapsuleDraft, screenedSections,
 } from './capsule'
 
 const LABELS = Object.fromEntries(CAPSULE_FIELDS.map((field) => [field.key, field.label.toLowerCase()]))
@@ -32,6 +32,7 @@ function listOf(keys) {
 export function CapsuleForm({ onScan, scanning }) {
   const [capsule, setCapsule] = useState(loadCapsuleDraft)
   const [touched, setTouched] = useState(false)
+  const [touchedFields, setTouchedFields] = useState({})
   const [reading, setReading] = useState(false)
   const [source, setSource] = useState(null) // { name, filled: [...], method } after an upload
   const [pending, setPending] = useState(null) // { name, extracted } awaiting overwrite consent
@@ -48,6 +49,7 @@ export function CapsuleForm({ onScan, scanning }) {
     const { capsule: next, filled } = applyExtractedCapsule(capsule, extracted)
     setCapsule(next)
     setTouched(false)
+    setTouchedFields({})
     const method = extracted.extraction_method
     setSource({ name, filled, method })
     if (filled.length === 0) {
@@ -83,14 +85,19 @@ export function CapsuleForm({ onScan, scanning }) {
     }
   }
 
+  const hasFieldError = CAPSULE_FIELDS.some((field) => Boolean(capsuleFieldError(field.key, capsule)))
+  const allTouched = CAPSULE_FIELDS.every((field) => touchedFields[field.key])
+
   const submit = (event) => {
     event.preventDefault()
     setTouched(true)
-    if (error || busy) return
+    setTouchedFields({ title: true, rationale: true, objectives: true, methodology: true })
+    if (error || hasFieldError || busy) return
     onScan(capsule)
   }
 
   const set = (key) => (event) => setCapsule((current) => ({ ...current, [key]: event.target.value }))
+  const blur = (key) => () => setTouchedFields((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
 
   return (
     <form onSubmit={submit} className="space-y-4" aria-label="Capsule proposal" noValidate>
@@ -124,11 +131,14 @@ export function CapsuleForm({ onScan, scanning }) {
 
       {CAPSULE_FIELDS.map((field) => {
         const value = capsule[field.key]
+        const fieldErr = touchedFields[field.key] ? capsuleFieldError(field.key, capsule) : ''
         const common = {
           id: `capsule-${field.key}`,
           label: field.label,
           value,
           onChange: set(field.key),
+          onBlur: blur(field.key),
+          error: fieldErr || undefined,
           maxLength: field.max,
           disabled: busy,
           hint: capsuleAutofillHint(field, value, source) || field.hint,
@@ -139,7 +149,7 @@ export function CapsuleForm({ onScan, scanning }) {
           // an uploaded section is several paragraphs, and reviewing one
           // through a four-line window meant scrolling inside every box. The
           // cap keeps four long sections from making the page itself long.
-          : <Textarea key={field.key} {...common} rows={field.rows} className="max-h-72 [field-sizing:content]" />
+          : <Textarea key={field.key} {...common} required rows={field.rows} className="max-h-72 [field-sizing:content]" />
       })}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -157,12 +167,12 @@ export function CapsuleForm({ onScan, scanning }) {
               variant="ghost"
               size="sm"
               disabled={busy}
-              onClick={() => { setCapsule({ ...EMPTY_CAPSULE }); setTouched(false); setSource(null) }}
+              onClick={() => { setCapsule({ ...EMPTY_CAPSULE }); setTouched(false); setTouchedFields({}); setSource(null) }}
             >
               Clear
             </Button>
           )}
-          <Button type="submit" size="sm" disabled={busy || (touched && Boolean(error))}>
+          <Button type="submit" size="sm" disabled={busy || (touched && Boolean(error)) || (allTouched && hasFieldError)}>
             {scanning
               ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" /> Checking…</>
               : <><ScanSearch size={14} aria-hidden="true" /> Check capsule</>}
