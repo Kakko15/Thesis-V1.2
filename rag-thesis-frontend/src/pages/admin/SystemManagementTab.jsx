@@ -5,7 +5,7 @@ import {
   AlertTriangle, Clock3, Pencil, Plus, Save, Search, ShieldCheck, TerminalSquare, Trash2, UserCog, X as CloseIcon,
 } from 'lucide-react'
 import {
-  apiErrorMessage, createDepartment, deleteDepartment, deletePaper, deleteUser, getDepartments,
+  apiErrorMessage, createDepartment, deleteDepartment, deleteUser, getDepartments,
   getFeaturePermissions, getMalwareScanningSetting, getSystemLogs, listPapers, listUsers,
   updateDepartment, updateFeaturePermissions, updateMalwareScanningSetting,
   updateUserDetails, updateUserRole,
@@ -462,112 +462,73 @@ function departmentOptions(departments, current) {
 }
 
 function FiveYearStorageRetentionCard({ papers }) {
-  const queryClient = useQueryClient()
-  const [confirmPurge, setConfirmPurge] = useState(false)
-  const [purging, setPurging] = useState(false)
   const summary = summarizeArchiveRetention(papers)
   const currentMb = (summary.estimatedVectorKb / 1024).toFixed(2)
 
-  const handlePurgeExpired = async () => {
-    setPurging(true)
-    let removed = 0
-    try {
-      for (const paper of summary.expiredPapers) {
-        await deletePaper(paper.id)
-        removed += 1
-      }
-      queryClient.invalidateQueries({ queryKey: ['papers'] })
-      toast.success(`Purged ${removed} expired manuscript${removed === 1 ? '' : 's'} older than ${ARCHIVE_RETENTION_YEARS} years`)
-    } catch (err) {
-      toast.error('Retention purge encountered an error', { description: apiErrorMessage(err) })
-    } finally {
-      setPurging(false)
-      setConfirmPurge(false)
-    }
-  }
-
   return (
-    <>
-      <GlassCard className="overflow-hidden">
-        <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300">
-              <Clock3 size={16} aria-hidden="true" />
-            </span>
-            <div>
-              <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">
-                {ARCHIVE_RETENTION_YEARS}-Year Storage &amp; Archive Retention Policy
-              </div>
-              <p className="text-xs text-ink-muted">
-                Active recency window: <span className="font-semibold text-ink">{summary.cutoffYear}–{summary.referenceYear}</span>.
-                {' '}Staged PDFs are deleted after chunking &amp; vector indexing (~120 KB per thesis).
-              </p>
+    <GlassCard className="overflow-hidden">
+      <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300">
+            <Clock3 size={16} aria-hidden="true" />
+          </span>
+          <div>
+            <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">
+              {ARCHIVE_RETENTION_YEARS}-Year Storage &amp; Archive Retention Policy
             </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={summary.expiredCount === 0 || purging}
-            onClick={() => setConfirmPurge(true)}
-          >
-            <Trash2 size={13} /> Purge &gt; {ARCHIVE_RETENTION_YEARS} yrs ({summary.expiredCount})
-          </Button>
-        </div>
-
-        <div className="grid gap-4 p-6 sm:grid-cols-4">
-          <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
-            <div className="text-xs font-medium text-ink-muted">Active Window (≤ {ARCHIVE_RETENTION_YEARS} yrs)</div>
-            <div className="mt-1 font-display text-2xl font-extrabold text-forest-700 dark:text-forest-300">
-              {summary.activeCount}
-            </div>
-            <div className="mt-0.5 text-[11px] text-ink-faint">
-              Completed {summary.cutoffYear}–{summary.referenceYear}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
-            <div className="text-xs font-medium text-ink-muted">Past {ARCHIVE_RETENTION_YEARS}-Year Window</div>
-            <div className="mt-1 font-display text-2xl font-extrabold text-ink">
-              {summary.expiredCount}
-            </div>
-            <div className="mt-0.5 text-[11px] text-ink-faint">
-              Completed before {summary.cutoffYear}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
-            <div className="text-xs font-medium text-ink-muted">Current Index Footprint</div>
-            <div className="mt-1 font-display text-2xl font-extrabold text-ink">
-              ~{currentMb} MB
-            </div>
-            <div className="mt-0.5 text-[11px] text-ink-faint">
-              0 MB permanent PDF bloat
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
-            <div className="text-xs font-medium text-ink-muted">5-Year Capacity Projection</div>
-            <div className="mt-1 font-display text-2xl font-extrabold text-ink">
-              ~{summary.projectedFiveYearMb} MB
-            </div>
-            <div className="mt-0.5 text-[11px] text-ink-faint">
-              Est. 5-year pgvector + metadata
-            </div>
+            <p className="text-xs text-ink-muted">
+              Active recency window: <span className="font-semibold text-ink">{summary.cutoffYear}–{summary.referenceYear}</span>.
+              {' '}Historical theses (&gt; {ARCHIVE_RETENTION_YEARS} years) remain permanently archived while original PDFs stay protected in the private Supabase bucket.
+            </p>
           </div>
         </div>
-      </GlassCard>
+        <Badge tone="forest">
+          Permanent Archive · {ARCHIVE_RETENTION_YEARS}-Yr Active Scope
+        </Badge>
+      </div>
 
-      <ConfirmDialog
-        open={confirmPurge}
-        onClose={() => !purging && setConfirmPurge(false)}
-        onConfirm={handlePurgeExpired}
-        title={`Purge ${summary.expiredCount} expired thesis record${summary.expiredCount === 1 ? '' : 's'}?`}
-        message={`This permanently removes ${summary.expiredCount} thesis record${summary.expiredCount === 1 ? '' : 's'} completed before ${summary.cutoffYear} (outside the ${ARCHIVE_RETENTION_YEARS}-year retention window) and their vector chunks.`}
-        confirmLabel="Purge expired theses"
-        danger
-        loading={purging}
-      />
-    </>
+      <div className="grid gap-4 p-6 sm:grid-cols-4">
+        <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
+          <div className="text-xs font-medium text-ink-muted">Active Window (≤ {ARCHIVE_RETENTION_YEARS} yrs)</div>
+          <div className="mt-1 font-display text-2xl font-extrabold text-forest-700 dark:text-forest-300">
+            {summary.activeCount}
+          </div>
+          <div className="mt-0.5 text-[11px] text-ink-faint">
+            Completed {summary.cutoffYear}–{summary.referenceYear}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
+          <div className="text-xs font-medium text-ink-muted">Historical Archive (&gt; {ARCHIVE_RETENTION_YEARS} yrs)</div>
+          <div className="mt-1 font-display text-2xl font-extrabold text-ink">
+            {summary.expiredCount}
+          </div>
+          <div className="mt-0.5 text-[11px] text-ink-faint">
+            Retained before {summary.cutoffYear}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
+          <div className="text-xs font-medium text-ink-muted">Current Vector Index</div>
+          <div className="mt-1 font-display text-2xl font-extrabold text-ink">
+            ~{currentMb} MB
+          </div>
+          <div className="mt-0.5 text-[11px] text-ink-faint">
+            Private bucket retains source PDFs (~120 KB vectors/thesis)
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-forest-900/10 bg-[var(--surface-1)] p-4 dark:border-white/10">
+          <div className="text-xs font-medium text-ink-muted">5-Year Capacity Projection</div>
+          <div className="mt-1 font-display text-2xl font-extrabold text-ink">
+            ~{summary.projectedFiveYearMb} MB
+          </div>
+          <div className="mt-0.5 text-[11px] text-ink-faint">
+            Est. 5-year pgvector + metadata
+          </div>
+        </div>
+      </div>
+    </GlassCard>
   )
 }
 

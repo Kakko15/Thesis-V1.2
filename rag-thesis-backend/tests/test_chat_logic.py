@@ -139,6 +139,12 @@ class TestUnsupportedSingleTokenQuery:
 
         assert not _is_unsupported_single_token_query('OCR', 'optical character recognition', [])
 
+    def test_bare_number_or_single_character_query_is_rejected(self):
+        from routers.chat import _is_unsupported_single_token_query
+
+        assert _is_unsupported_single_token_query('67', '[1] chunk on page 67', [{'title': 'Thesis'}])
+        assert _is_unsupported_single_token_query('x', '[1] x value', [{'title': 'Thesis'}])
+
 
 class TestArchiveInventoryFastPath:
     def test_recognizes_direct_inventory_questions(self):

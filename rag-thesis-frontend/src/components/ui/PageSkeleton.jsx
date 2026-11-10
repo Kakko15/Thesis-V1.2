@@ -103,7 +103,7 @@ function ChatSkeleton() {
 
 function ArchiveSkeleton() {
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto flex max-w-6xl flex-col space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-2.5">
           <Skeleton className="h-9 w-64 rounded-xl" />
@@ -111,21 +111,34 @@ function ArchiveSkeleton() {
         </div>
         <Skeleton className="h-9 w-80 rounded-full" />
       </div>
-      {/* Filter bar */}
-      <div className="glass grid items-center gap-3 rounded-3xl p-4 sm:grid-cols-2 xl:grid-cols-12">
-        {FILTER_SLOTS.map((slotId, i) => (
-          <Skeleton
-            key={slotId}
-            className={`h-11 rounded-xl ${i === 0 ? 'sm:col-span-2 xl:col-span-4' : 'xl:col-span-2'}`}
-          />
-        ))}
+      {/* Filter bar matching 2-row ArchiveFiltersBar */}
+      <div className="glass space-y-3 rounded-[1.75rem] border border-forest-900/10 p-4 shadow-xs dark:border-white/10">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <Skeleton className="h-11 flex-1 rounded-full" />
+          <Skeleton className="h-11 w-full rounded-full lg:w-80" />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {FILTER_SLOTS.map((slotId, i) => (
+            <Skeleton
+              key={slotId}
+              className={`h-9 rounded-full ${i === FILTER_SLOTS.length - 1 ? 'w-36 sm:ml-auto' : 'w-28'}`}
+            />
+          ))}
+        </div>
       </div>
-      <Skeleton className="h-4 w-44 rounded-lg" />
+      <div className="flex h-9 items-center">
+        <Skeleton className="h-4 w-44 rounded-lg" />
+      </div>
       {/* Card grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {CARD_SLOTS.map((slotId) => (
-          <Skeleton key={slotId} className="h-44" />
-        ))}
+      <div className="flex flex-col gap-6">
+        <div className="grid min-h-[440px] content-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {CARD_SLOTS.map((slotId) => (
+            <Skeleton key={slotId} className="h-[212px] rounded-2xl" />
+          ))}
+        </div>
+        <div className="-mx-3.5 flex justify-center border-t border-forest-900/10 px-3.5 py-4 sm:-mx-6 sm:px-6 dark:border-white/10">
+          <Skeleton className="h-10 w-72 rounded-full" />
+        </div>
       </div>
     </div>
   )

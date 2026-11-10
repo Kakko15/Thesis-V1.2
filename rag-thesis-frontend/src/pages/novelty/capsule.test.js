@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CAPSULE_FIELDS, EMPTY_CAPSULE, applyExtractedCapsule, capsuleAutofillHint, capsuleError, capsuleFileError, capsulePayload,
-  isCapsuleScan, loadCapsuleDraft, overwrittenFields, saveCapsuleDraft, screenedSections,
+  CAPSULE_FIELDS, EMPTY_CAPSULE, applyExtractedCapsule, capsuleAutofillHint, capsuleError, capsuleFieldError,
+  capsuleFileError, capsulePayload, isCapsuleScan, loadCapsuleDraft, overwrittenFields, saveCapsuleDraft, screenedSections,
 } from './capsule.js'
 
 const METHOD = 'YOLO object detection trained on a locally gathered dataset, evaluated with mAP.'
@@ -100,4 +100,15 @@ test('empty capsule sections explain why upload did not fill them', () => {
   assert.equal(capsuleAutofillHint(rationale, 'Typed by hand', source), '')
   assert.equal(capsuleAutofillHint(rationale, '', { ...source, filled: ['rationale'] }), '')
   assert.match(capsuleAutofillHint(rationale, '', { ...source, error: true }), /file could not be read/)
+})
+
+test('capsuleFieldError validates individual sections when blurred empty or too short', () => {
+  assert.match(capsuleFieldError('title', EMPTY_CAPSULE), /enter the working title/i)
+  assert.match(capsuleFieldError('title', { ...EMPTY_CAPSULE, title: 'abc' }), /at least 5 characters/)
+  assert.equal(capsuleFieldError('title', { ...EMPTY_CAPSULE, title: 'A Smart Intruder Detection System' }), '')
+  assert.match(capsuleFieldError('rationale', EMPTY_CAPSULE), /enter the rationale/i)
+  assert.match(capsuleFieldError('rationale', { ...EMPTY_CAPSULE, rationale: 'too short' }), /at least 40 characters/)
+  assert.equal(capsuleFieldError('methodology', { ...EMPTY_CAPSULE, methodology: METHOD }), '')
+  assert.match(capsuleFieldError('methodology', { ...EMPTY_CAPSULE, methodology: 'x'.repeat(6001) }), /longer than 6,000/)
+  assert.equal(capsuleFieldError('unknown', EMPTY_CAPSULE), '')
 })

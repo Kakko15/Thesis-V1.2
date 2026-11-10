@@ -534,3 +534,17 @@ test('each batch row tracks its own document and AI extended abstract variants',
   assert.equal(state.rows[0].abstractVariants.document, 'Verbatim abstract from PDF.')
   assert.equal(state.rows[0].abstractVariants.extended, 'AI extended abstract.')
 })
+
+test('blur-row-field sets field errors on empty blur and clears them when edited', () => {
+  let state = stateWithFiles(pdf('a.pdf'))
+  const rowId = state.rows[0].id
+  state = batchReducer(state, { type: 'blur-row-field', id: rowId, key: 'adviser' })
+  assert.match(state.rows[0].errors.adviser, /thesis adviser/)
+  state = batchReducer(state, { type: 'set-row-field', id: rowId, key: 'adviser', value: 'Dr. Ana Cruz' })
+  assert.equal(state.rows[0].errors.adviser, undefined)
+
+  state = batchReducer(state, { type: 'blur-row-field', id: rowId, key: 'program_id' })
+  assert.match(state.rows[0].errors.program_id, /academic program/)
+  state = batchReducer(state, { type: 'patch-row', id: rowId, patch: { program_id: 'prog-1' } })
+  assert.equal(state.rows[0].errors.program_id, undefined)
+})

@@ -271,3 +271,46 @@ test('5-year retention policy classifies active and expired papers and filters b
     ['old1', 'old2'],
   )
 })
+
+test('short search prefixes match word boundaries and rank title matches ahead of mid-word noise', () => {
+  const catalog = [
+    {
+      id: 'moto',
+      title: 'Design and Development of a Web-Based Information Management System for Nick Motorcycle Gallery and Trading',
+      authors: 'Jericho A. Dela Cruz',
+      abstract: 'A web-based shop inventory system accessed via mobile phone.',
+      year: 2025,
+      created_at: '2026-11-10T10:00:00Z',
+    },
+    {
+      id: 'honeypot-2026',
+      title: 'HONEYPOT-BASED INTRUSION DETECTION FOR WEB APPLICATIONS USING COWRIE AND DIONAEA',
+      authors: 'Santos, K.',
+      abstract: 'Deploys decoy services to capture intrusion attempts.',
+      year: 2026,
+      created_at: '2026-11-09T10:00:00Z',
+    },
+    {
+      id: 'hospital-2024',
+      title: 'DEVELOPMENT OF AN AUTOMATED HOSPITAL WASTE SEGREGATION BIN USING CNN',
+      authors: 'Reyes, M.',
+      abstract: 'Classifies medical waste using convolutional neural networks.',
+      year: 2024,
+      created_at: '2026-11-08T10:00:00Z',
+    },
+  ]
+
+  // "Hon" must match HONEYPOT, never "phone" in the abstract or "Jericho" in authors.
+  const honMatched = filterArchivePapers(catalog, { query: 'Hon' })
+  assert.deepEqual(honMatched.map((p) => p.id), ['honeypot-2026'])
+
+  // "Ho" matches HONEYPOT and HOSPITAL at word boundaries, excluding "Jericho" / "shop".
+  const hoMatched = sortArchivePapers(filterArchivePapers(catalog, { query: 'Ho' }), 'newest', 'Ho')
+  assert.deepEqual(hoMatched.map((p) => p.id), ['honeypot-2026', 'hospital-2024'])
+
+  // "Newest first" orders 2026 papers ahead of 2025/2024 papers even when older papers were seeded later.
+  assert.deepEqual(
+    sortArchivePapers(catalog, 'newest').map((p) => p.id),
+    ['honeypot-2026', 'moto', 'hospital-2024'],
+  )
+})

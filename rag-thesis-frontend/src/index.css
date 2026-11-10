@@ -300,6 +300,7 @@ html[data-contrast="high"] :where(button, a, input, select, textarea):focus-visi
   }
   html {
     scroll-behavior: smooth;
+    scrollbar-gutter: stable;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;

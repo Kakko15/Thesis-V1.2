@@ -34,6 +34,7 @@ import {
   activeJobIds, allTerminal, batchProgress, batchReducer, batchSummary, createBatchState,
   restoreActiveBatch, serializeActiveBatch, stageLabel, statusLabel, statusTone, validateBatch,
 } from './upload/batchState'
+import { uploadRequiredErrors } from './upload/uploadState'
 import { formatFileSize } from './upload/wizardSteps'
 
 const IngestScene3D = lazy(() => import('../components/three/IngestScene3D'))
@@ -329,7 +330,7 @@ function CardLabel({ children, required }) {
  *
  * A card wraps instead of scrolling, so the fields are visible at any width.
  */
-function RowCommitteeFields({ row, set }) {
+function RowCommitteeFields({ row, set, blur }) {
   const summary = [
     row.adviser ? 'Adviser' : null,
     (row.panel_chair || row.panel_members) ? 'Panel' : null,
@@ -348,41 +349,53 @@ function RowCommitteeFields({ row, set }) {
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="min-w-0">
-          <CardLabel>Adviser</CardLabel>
+          <CardLabel required>Adviser</CardLabel>
           <Input
             value={row.adviser}
             onChange={set('adviser')}
+            onBlur={blur('adviser')}
+            error={row.errors?.adviser}
             maxLength={200}
+            required
             aria-label={`Adviser for ${row.name}`}
           />
-          <AutofillNote message={!row.adviser ? row.autofillNotes?.adviser : ''} />
+          <FieldError message={row.errors?.adviser} />
+          <AutofillNote message={!row.errors?.adviser && !row.adviser ? row.autofillNotes?.adviser : ''} />
         </div>
         <div className="min-w-0">
-          <CardLabel>Panel chair</CardLabel>
+          <CardLabel required>Panel chair</CardLabel>
           <Input
             value={row.panel_chair}
             onChange={set('panel_chair')}
+            onBlur={blur('panel_chair')}
+            error={row.errors?.panel_chair}
             maxLength={200}
+            required
             aria-label={`Panel chair for ${row.name}`}
           />
-          <AutofillNote message={!row.panel_chair ? row.autofillNotes?.panel_chair : ''} />
+          <FieldError message={row.errors?.panel_chair} />
+          <AutofillNote message={!row.errors?.panel_chair && !row.panel_chair ? row.autofillNotes?.panel_chair : ''} />
         </div>
       </div>
       <div className="min-w-0">
-        <CardLabel>Panel members</CardLabel>
+        <CardLabel required>Panel members</CardLabel>
         <Input
           value={row.panel_members}
           onChange={set('panel_members')}
+          onBlur={blur('panel_members')}
+          error={row.errors?.panel_members}
           maxLength={500}
+          required
           aria-label={`Panel members for ${row.name}`}
         />
-        <AutofillNote message={!row.panel_members ? row.autofillNotes?.panel_members : ''} />
+        <FieldError message={row.errors?.panel_members} />
+        <AutofillNote message={!row.errors?.panel_members && !row.panel_members ? row.autofillNotes?.panel_members : ''} />
       </div>
     </div>
   )
 }
 
-function RowAbstractField({ row, set, onAbstractMode }) {
+function RowAbstractField({ row, set, blur, onAbstractMode }) {
   const trimmed = (row.abstract || '').trim()
   const abstractWords = trimmed ? trimmed.split(/\s+/).length : 0
   const currentAbstractMode = row.abstractMode || ABSTRACT_MODES.document
@@ -396,7 +409,7 @@ function RowAbstractField({ row, set, onAbstractMode }) {
             aria-hidden="true"
             className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint"
           >
-            Abstract
+            Abstract<span className="ml-0.5 text-flame-500">*</span>
           </span>
           {abstractWords > 0 && (
             <span className="rounded-full bg-forest-500/10 px-2 py-0.5 text-[10px] font-semibold text-forest-700 dark:text-forest-300">
@@ -448,6 +461,8 @@ function RowAbstractField({ row, set, onAbstractMode }) {
       <AutoGrowTitle
         value={row.abstract}
         onChange={set('abstract')}
+        onBlur={blur('abstract')}
+        error={row.errors?.abstract}
         rows={3}
         minHeightPx={96}
         maxLength={10000}
@@ -455,13 +470,20 @@ function RowAbstractField({ row, set, onAbstractMode }) {
         className="max-h-64 overflow-y-auto resize-y py-3 text-sm leading-relaxed"
         aria-label={`Abstract for ${row.name}`}
       />
-      <AutofillNote message={!row.abstract ? row.autofillNotes?.abstract : ''} />
+      <FieldError message={row.errors?.abstract} />
+      <AutofillNote message={!row.errors?.abstract && !row.abstract ? row.autofillNotes?.abstract : ''} />
     </div>
   )
 }
 
-function ReviewCard({ row, index, programs, onChange, onPatch, onAbstractMode, onRemove }) {
+function rowAutofillHint(row, key) {
+  if (row.errors?.[key] || row[key]) return ''
+  return row.autofillNotes?.[key] || ''
+}
+
+function ReviewCard({ row, index, programs, onChange, onBlurField, onPatch, onAbstractMode, onRemove }) {
   const set = (key) => (event) => onChange(row.id, key, event.target.value)
+  const blur = (key) => () => onBlurField?.(row.id, key)
   const hasErrors = Object.keys(row.errors).length > 0
   const rejected = Boolean(row.extractError)
   const program = programs.find((item) => item.id === row.program_id)
@@ -528,6 +550,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onAbstractMode, o
             <AutoGrowTitle
               value={row.title}
               onChange={set('title')}
+              onBlur={blur('title')}
               placeholder="Full official thesis title"
               rows={1}
               minHeightPx={44}
@@ -536,7 +559,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onAbstractMode, o
               aria-label={`Title for ${row.name}`}
             />
             <FieldError message={row.errors.title} />
-            <AutofillNote message={!row.title ? row.autofillNotes?.title : ''} />
+            <AutofillNote message={rowAutofillHint(row, 'title')} />
           </div>
 
           <div className={cn(
@@ -550,6 +573,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onAbstractMode, o
               <Input
                 value={row.year}
                 onChange={set('year')}
+                onBlur={blur('year')}
                 placeholder={`e.g. ${new Date().getFullYear()}`}
                 inputMode="numeric"
                 maxLength={4}
@@ -557,13 +581,14 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onAbstractMode, o
                 aria-label={`Year for ${row.name}`}
               />
               <FieldError message={row.errors.year} />
-              <AutofillNote message={!row.year ? row.autofillNotes?.year : ''} />
+              <AutofillNote message={rowAutofillHint(row, 'year')} />
             </div>
             <div className="min-w-0">
               <CardLabel required>Program</CardLabel>
               <Select
                 value={row.program_id}
                 onChange={(event) => onPatch(row.id, programSelectionById(programs, event.target.value))}
+                onBlur={blur('program_id')}
                 error={row.errors.program_id}
                 disabled={programs.length === 0}
                 aria-label={`Program for ${row.name}`}
@@ -571,7 +596,7 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onAbstractMode, o
                 <option value="">Select program…</option>
                 {programs.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
               </Select>
-              <AutofillNote message={!row.program_id ? row.autofillNotes?.program_id : ''} />
+              <AutofillNote message={rowAutofillHint(row, 'program_id')} />
             </div>
             {specializations.length > 0 && (
               <div className="min-w-0">
@@ -579,30 +604,35 @@ function ReviewCard({ row, index, programs, onChange, onPatch, onAbstractMode, o
                 <Select
                   value={row.specialization_id}
                   onChange={(event) => onPatch(row.id, specializationSelection(specializations, event.target.value))}
+                  onBlur={blur('specialization_id')}
                   error={row.errors.specialization_id}
                   aria-label={`Specialization for ${row.name}`}
                 >
                   <option value="">Select…</option>
                   {specializations.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}
                 </Select>
-                <AutofillNote message={!row.specialization_id ? row.autofillNotes?.specialization_id : ''} />
+                <AutofillNote message={rowAutofillHint(row, 'specialization_id')} />
               </div>
             )}
           </div>
 
           <div className="min-w-0">
-            <CardLabel>Authors</CardLabel>
+            <CardLabel required>Authors</CardLabel>
             <Input
               value={row.authors}
               onChange={set('authors')}
+              onBlur={blur('authors')}
+              error={row.errors.authors}
+              required
               placeholder="Dela Cruz, J., Santos, M."
               aria-label={`Authors for ${row.name}`}
             />
-            <AutofillNote message={!row.authors ? row.autofillNotes?.authors : ''} />
+            <FieldError message={row.errors.authors} />
+            <AutofillNote message={rowAutofillHint(row, 'authors')} />
           </div>
 
-          <RowCommitteeFields row={row} set={set} />
-          <RowAbstractField row={row} set={set} onAbstractMode={onAbstractMode} />
+          <RowCommitteeFields row={row} set={set} blur={blur} />
+          <RowAbstractField row={row} set={set} blur={blur} onAbstractMode={onAbstractMode} />
         </div>
       )}
     </motion.li>
@@ -647,7 +677,7 @@ function BatchMetadataHeaderActions({
   )
 }
 
-function ReviewList({ rows, programs, onChange, onPatch, onAbstractMode, onRemove }) {
+function ReviewList({ rows, programs, onChange, onBlurField, onPatch, onAbstractMode, onRemove }) {
   return (
     <ul className="space-y-3" aria-label="Batch metadata review">
       <AnimatePresence initial={false}>
@@ -658,6 +688,7 @@ function ReviewList({ rows, programs, onChange, onPatch, onAbstractMode, onRemov
             index={index}
             programs={programs}
             onChange={onChange}
+            onBlurField={onBlurField}
             onPatch={onPatch}
             onAbstractMode={onAbstractMode}
             onRemove={onRemove}
@@ -1076,6 +1107,7 @@ export default function UploadBatch() {
     }
   }
   const changeRow = (id, key, value) => dispatch({ type: 'set-row-field', id, key, value })
+  const blurRowField = (id, key) => dispatch({ type: 'blur-row-field', id, key })
   const patchRow = (id, patch) => dispatch({ type: 'patch-row', id, patch })
   const applyProgramToAll = (selection) => dispatch({ type: 'apply-program', selection })
   const removeRow = (id) => dispatch({ type: 'remove-row', id })
@@ -1176,9 +1208,19 @@ export default function UploadBatch() {
 
   const submitRows = async (targets) => {
     const validation = validateBatch(targets, defaults)
-    dispatch({ type: 'set-row-errors', errorsById: validation.rowErrorsById })
+    const fullRowErrorsById = { ...validation.rowErrorsById }
+    for (const row of targets) {
+      if (row.extractError) continue
+      const reqErrs = uploadRequiredErrors({ ...defaults, ...row })
+      delete reqErrs.department
+      if (Object.keys(reqErrs).length > 0) {
+        fullRowErrorsById[row.id] = { ...(fullRowErrorsById[row.id] || {}), ...reqErrs }
+      }
+    }
+    const allValid = validation.valid && Object.keys(fullRowErrorsById).length === 0
+    dispatch({ type: 'set-row-errors', errorsById: fullRowErrorsById })
     dispatch({ type: 'set-default-errors', errors: validation.defaultErrors })
-    if (!validation.valid) {
+    if (!allValid) {
       toast.error('Check the highlighted fields')
       return
     }
@@ -1372,6 +1414,7 @@ export default function UploadBatch() {
                     rows={rows}
                     programs={programs}
                     onChange={changeRow}
+                    onBlurField={blurRowField}
                     onPatch={patchRow}
                     onAbstractMode={handleRowAbstractMode}
                     onRemove={removeRow}

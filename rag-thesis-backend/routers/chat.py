@@ -747,9 +747,15 @@ def _is_unsupported_single_token_query(
     left to retrieval because compact substring matching is too noisy for them.
     """
     tokens = re.findall(r'[a-z0-9]+', (question or '').lower())
-    if len(tokens) != 1 or len(tokens[0]) < 4:
+    if not tokens:
+        return True
+    if len(tokens) != 1:
         return False
     token = tokens[0]
+    if not any(ch.isalpha() for ch in token) or len(token) == 1:
+        return True
+    if len(token) < 4:
+        return False
     evidence_text = ' '.join([
         context,
         *(
@@ -2833,7 +2839,12 @@ async def _chat_impl_unstamped(
         # two extra generation calls that the guest allowance never charged for,
         # on exactly the queries that produce no answer.
         unique_sources = filter_cited_sources(answer, sources)
-        if not answer.strip() or not unique_sources:
+        if (
+            not sentinel_fired
+            or 'instead cover' in answer.lower()
+            or not answer.strip()
+            or not unique_sources
+        ):
             # Nothing survived worth showing: fall back to the generic notice,
             # which is what this branch always did.
             answer = get_no_relevant_message(effective_department)

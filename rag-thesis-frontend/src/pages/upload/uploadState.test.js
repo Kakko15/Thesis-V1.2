@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  createUploadState, emptyUploadForm, isCurrentPoll, uploadReducer, UPLOAD_STEPS,
+  createUploadState, emptyUploadForm, isCurrentPoll, uploadFieldError, uploadReducer, uploadRequiredErrors, UPLOAD_STEPS,
 } from './uploadState.js'
 import { uploadMetadataErrors } from './uploadState.js'
 
@@ -186,4 +186,51 @@ test('a fresh upload form carries an empty adviser, and editing it drops its aut
   state = uploadReducer(state, { type: 'set-field', key: 'adviser', value: 'Dr. Ana Cruz' })
   assert.deepEqual(state.autofilled, { panel_chair: true, panel_members: true, title: true })
   assert.equal(state.form.adviser, 'Dr. Ana Cruz')
+})
+
+test('uploadFieldError validates empty and invalid single-field values on blur', () => {
+  const empty = emptyUploadForm('CCSICT')
+  assert.match(uploadFieldError('title', empty), /enter the thesis title/i)
+  assert.match(uploadFieldError('title', { ...empty, title: 'abc' }), /at least 5 characters/)
+  assert.equal(uploadFieldError('title', { ...empty, title: 'Valid Thesis Title' }), '')
+  assert.match(uploadFieldError('authors', empty), /author name/)
+  assert.equal(uploadFieldError('authors', { ...empty, authors: 'J. Dela Cruz' }), '')
+  assert.match(uploadFieldError('year', empty), /completion year/)
+  assert.match(uploadFieldError('year', { ...empty, year: '1900' }), /valid 4-digit year/)
+  assert.equal(uploadFieldError('year', { ...empty, year: '2025' }), '')
+  assert.match(uploadFieldError('adviser', empty), /thesis adviser/)
+  assert.equal(uploadFieldError('adviser', { ...empty, adviser: 'Dr. Adviser' }), '')
+  assert.match(uploadFieldError('panel_chair', empty), /panel chair/)
+  assert.equal(uploadFieldError('panel_chair', { ...empty, panel_chair: 'Dr. Chair' }), '')
+  assert.match(uploadFieldError('panel_members', empty), /panel members/)
+  assert.equal(uploadFieldError('panel_members', { ...empty, panel_members: 'Dr. A; Dr. B' }), '')
+  assert.match(uploadFieldError('department', { ...empty, department: '' }), /Select the department/)
+  assert.equal(uploadFieldError('department', empty), '')
+  assert.match(uploadFieldError('program_id', empty), /Select the academic program/)
+  assert.equal(uploadFieldError('program_id', { ...empty, program_id: 'p1' }), '')
+  assert.match(uploadFieldError('specialization_id', { ...empty, program_id: 'p1', requires_specialization: true }), /specialization/)
+  assert.equal(uploadFieldError('specialization_id', { ...empty, program_id: 'p1', requires_specialization: true, specialization_id: 's1' }), '')
+  assert.match(uploadFieldError('abstract', empty), /thesis abstract/)
+  assert.equal(uploadFieldError('abstract', { ...empty, abstract: 'Complete abstract.' }), '')
+  assert.equal(uploadFieldError('unknown', empty), '')
+
+  const allErrs = uploadRequiredErrors(empty)
+  assert.deepEqual(
+    Object.keys(allErrs).sort(),
+    ['abstract', 'adviser', 'authors', 'panel_chair', 'panel_members', 'program_id', 'title', 'year'],
+  )
+  assert.deepEqual(
+    uploadRequiredErrors({
+      ...empty,
+      title: 'Valid Thesis Title',
+      authors: 'J. Dela Cruz',
+      year: '2025',
+      adviser: 'Dr. Adviser',
+      panel_chair: 'Dr. Chair',
+      panel_members: 'Dr. A; Dr. B',
+      program_id: 'p1',
+      abstract: 'Complete abstract.',
+    }),
+    {},
+  )
 })

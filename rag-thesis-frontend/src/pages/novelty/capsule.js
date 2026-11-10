@@ -57,6 +57,29 @@ export function capsuleError(capsule = {}) {
   return ''
 }
 
+/** Per-field blur validation for one capsule section. */
+export function capsuleFieldError(key, capsule = {}) {
+  const field = CAPSULE_FIELDS.find((item) => item.key === key)
+  if (!field) return ''
+  const raw = String(capsule[key] ?? '')
+  const val = trimmed(raw)
+  if (raw.length > field.max) {
+    return `${field.label} is longer than ${field.max.toLocaleString()} characters.`
+  }
+  if (key === 'title') {
+    if (!val) return 'Please enter the working title.'
+    if (val.length < MIN_TITLE_CHARACTERS) {
+      return `Working title must be at least ${MIN_TITLE_CHARACTERS} characters.`
+    }
+    return ''
+  }
+  if (!val) return `Please enter the ${field.label.toLowerCase()}.`
+  if (val.length < MIN_SECTION_CHARACTERS) {
+    return `${field.label} must be at least ${MIN_SECTION_CHARACTERS} characters.`
+  }
+  return ''
+}
+
 /** Which sections will actually be screened: the title and every substantial body section. */
 export function screenedSections(capsule = {}) {
   return CAPSULE_FIELDS.filter((field) => (

@@ -1,11 +1,16 @@
+import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { motion, AnimatePresence } from 'framer-motion'
+import { toast } from 'sonner'
 import {
   BookOpen, ChevronRight, GraduationCap, Trash2, Library, Lock, X, ShieldAlert, AlertTriangle, Users,
+  BookMarked, Copy, Check, Sparkles, Layers, FileDown,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { GlassCard } from '../components/ui/GlassCard'
 import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
+import { PageSkeleton } from '../components/ui/PageSkeleton'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ConfirmDialog, Modal } from '../components/ui/Modal'
 import { PageTransition } from '../components/ui/Motion'
@@ -19,9 +24,18 @@ import {
 } from '../lib/utils'
 import { isFacultyThesis, thesisCategoryLabel } from '../lib/catalog'
 import { slotKeys } from '../lib/keys'
+import { copyText } from './chat/responseActions'
+import { buildPaperChatPrompt } from './dashboard/dashboardState'
 import { useArchiveCatalog } from './archive/useArchiveCatalog'
 import { ArchiveFiltersBar } from './archive/ArchiveFiltersBar'
 import { trackDisplayLabel } from './archive/archiveFilters'
+import {
+  MAX_COMPARE_PAPERS,
+  buildComparisonPrompt,
+  buildReadingListExport,
+  formatApaCitation,
+  formatBibtexCitation,
+} from './archive/researchTools'
 
 const ARCHIVE_SKELETONS = slotKeys(6, 'archive-card')
 
@@ -299,7 +313,17 @@ function ScreeningDetail({ scan, indexedAt }) {
  * Here the classification is a quiet overline and the chips that remain each
  * mean something.
  */
-function PaperCard({ paper, isAdmin, onDelete, onOpen, trackLabels }) {
+function PaperCard({
+  paper,
+  isAdmin,
+  isSaved,
+  isComparing,
+  onToggleSaved,
+  onToggleCompare,
+  onDelete,
+  onOpen,
+  trackLabels,
+}) {
   // The badge must agree with the panel, so both read the current screening.
   const screening = scanMetrics(currentScreening(paper.duplication_scan))
   const faculty = isFacultyThesis(paper)
@@ -311,25 +335,12 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen, trackLabels }) {
   const meta = [paper.year, paper.department].filter(Boolean).join(' · ')
   return (
     <>
-      {/* R9: this card used to be role="button" with tabIndex={0} while
-          containing a real delete <button>. Assistive technology announced a
-          button nested inside a button, and the inner control was hard to reach
-          predictably. The card is now a plain surface; the title button below is
-          the keyboard and AT path, and the delete button is its sibling rather
-          than its descendant. The onClick here survives only as a mouse
-          convenience for the wider hit area — it exposes no role, so nothing is
-          announced twice.
-
-          Material 3 interaction states rather than a lift: the state layer
-          tints the surface on hover and press, elevation rises one level, and
-          keyboard focus inside the card rings the whole card, not just the
-          title text. */}
       <div
         className={cn(
-          'state-layer group flex h-full cursor-pointer flex-col rounded-2xl border p-4 sm:p-5 touch-manipulation',
-          // Lighter than the page in light mode, as an outlined card sits; in
-          // dark mode the page is the darkest tone, so the card steps up one.
-          'border-[var(--border)] bg-[var(--surface-0)] text-ink dark:bg-[var(--surface-1)]',
+          'state-layer group flex h-full min-h-[212px] cursor-pointer flex-col overflow-hidden rounded-2xl border p-4 sm:h-[212px] touch-manipulation',
+          isComparing
+            ? 'border-gold-400/60 bg-[var(--surface-0)] text-ink dark:bg-[var(--surface-1)]'
+            : 'border-[var(--border)] bg-[var(--surface-0)] text-ink dark:bg-[var(--surface-1)]',
           'transition-[box-shadow,border-color] duration-200',
           'hover:border-transparent hover:shadow-[0_1px_2px_rgb(0_0_0/0.3),0_2px_6px_2px_rgb(0_0_0/0.15)]',
           'has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--ring)]',
@@ -349,19 +360,51 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen, trackLabels }) {
             </p>
             {meta && <p className="mt-0.5 text-xs text-ink-muted">{meta}</p>}
           </div>
-          {isAdmin && (
+          <div className="-mr-1.5 -mt-1.5 flex shrink-0 items-center gap-0.5">
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); onDelete(paper) }}
-              aria-label={`Delete ${paper.title}`}
-              className="-mr-1.5 -mt-1.5 flex size-9 shrink-0 items-center justify-center rounded-full text-ink-muted opacity-0 transition hover:bg-flame-500/10 hover:text-flame-600 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none pointer-coarse:opacity-100 dark:hover:text-flame-200"
+              onClick={(e) => { e.stopPropagation(); onToggleSaved(paper.id) }}
+              aria-label={isSaved ? `Remove ${paper.title} from reading list` : `Save ${paper.title} to reading list`}
+              aria-pressed={Boolean(isSaved)}
+              title={isSaved ? 'Saved in reading list' : 'Save to reading list'}
+              className={cn(
+                'flex size-8 items-center justify-center rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400',
+                isSaved
+                  ? 'bg-gold-400/18 text-gold-text dark:text-gold-300'
+                  : 'text-ink-muted opacity-60 hover:bg-forest-900/8 hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 dark:hover:bg-white/10',
+              )}
             >
-              <Trash2 size={16} />
+              <BookMarked size={15} aria-hidden="true" />
             </button>
-          )}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggleCompare(paper.id) }}
+              aria-label={isComparing ? `Remove ${paper.title} from comparison` : `Select ${paper.title} for comparison`}
+              aria-pressed={Boolean(isComparing)}
+              title={isComparing ? 'Selected for comparison' : 'Select to compare (up to 3)'}
+              className={cn(
+                'flex size-8 items-center justify-center rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400',
+                isComparing
+                  ? 'bg-forest-600/18 text-forest-800 dark:bg-forest-400/20 dark:text-forest-200'
+                  : 'text-ink-muted opacity-60 hover:bg-forest-900/8 hover:text-ink group-hover:opacity-100 focus-visible:opacity-100 dark:hover:bg-white/10',
+              )}
+            >
+              <Layers size={15} aria-hidden="true" />
+            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onDelete(paper) }}
+                aria-label={`Delete ${paper.title}`}
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-muted opacity-0 transition hover:bg-flame-500/10 hover:text-flame-600 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none pointer-coarse:opacity-100 dark:hover:text-flame-200"
+              >
+                <Trash2 size={15} />
+              </button>
+            )}
+          </div>
         </div>
         {/* h2: the card titles are the first headings under the page h1. */}
-        <h2 className="font-display mt-3.5 text-[0.95rem] font-semibold leading-snug">
+        <h2 className="font-display mt-2.5 h-[2.5rem] text-[0.925rem] font-semibold leading-[1.25rem]">
           {/* The visible title is contained in the accessible name, so the
               longer label satisfies WCAG 2.5.3 Label in Name. Its focus is
               shown by the card's ring. */}
@@ -374,7 +417,7 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen, trackLabels }) {
             {paper.title}
           </button>
         </h2>
-        <div className="mt-2.5 space-y-1 text-xs text-ink-muted">
+        <div className="mt-2 h-[2.25rem] space-y-1 text-xs text-ink-muted">
           <p className="flex items-start gap-2">
             <Users size={14} aria-hidden="true" className="mt-px shrink-0" />
             <span className="line-clamp-1" title={paper.authors || undefined}>
@@ -396,8 +439,8 @@ function PaperCard({ paper, isAdmin, onDelete, onOpen, trackLabels }) {
             </p>
           )}
         </div>
-        <div className="mt-auto pt-4">
-          <div className="flex items-center gap-2 border-t border-[var(--border)] pt-3">
+        <div className="mt-auto pt-2.5">
+          <div className="flex items-center gap-2 border-t border-[var(--border)] pt-2.5">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
               {facultyChip && <Badge tone="gold">Faculty Research</Badge>}
               {flagged && (
@@ -449,6 +492,10 @@ function ArchiveResults({
   page,
   direction,
   isAdmin,
+  savedSet,
+  compareIds,
+  onToggleSaved,
+  onToggleCompare,
   onDelete,
   onOpen,
   trackLabels,
@@ -456,42 +503,47 @@ function ArchiveResults({
   onRetry,
 }) {
   const { reducedMotion } = usePreferences()
+  const compareSet = new Set((compareIds || []).map(String))
   if (isLoading) {
     return (
-      <div className="grid min-h-[380px] content-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {ARCHIVE_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-52 rounded-2xl" />)}
+      <div className="grid min-h-[440px] content-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {ARCHIVE_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-[212px] rounded-2xl" />)}
       </div>
     )
   }
   if (isError) {
     return (
-      <GlassCard>
-        <EmptyState
-          icon={AlertTriangle}
-          title="Archive unavailable"
-          message="The archive could not be loaded. Check the backend and database configuration, then try again."
-          action={<Button variant="secondary" size="sm" onClick={onRetry}>Retry archive</Button>}
-        />
-      </GlassCard>
+      <div className="flex min-h-[440px] flex-col">
+        <GlassCard className="flex flex-1 items-center justify-center">
+          <EmptyState
+            icon={AlertTriangle}
+            title="Archive unavailable"
+            message="The archive could not be loaded. Check the backend and database configuration, then try again."
+            action={<Button variant="secondary" size="sm" onClick={onRetry}>Retry archive</Button>}
+          />
+        </GlassCard>
+      </div>
     )
   }
   if (filtered.length === 0) {
     const hasPapers = Boolean(papers?.length)
     return (
-      <GlassCard>
-        <EmptyState
-          icon={Library}
-          title={hasPapers ? 'No matches found' : 'The archive is empty'}
-          message={hasPapers
-            ? 'Try different keywords or clear the filters.'
-            : 'Indexed theses will appear here once an administrator uploads them.'}
-          action={hasPapers ? (
-            <Button variant="secondary" size="sm" onClick={onClear}>
-              <X size={14} /> Clear filters
-            </Button>
-          ) : null}
-        />
-      </GlassCard>
+      <div className="flex min-h-[440px] flex-col">
+        <GlassCard className="flex flex-1 items-center justify-center">
+          <EmptyState
+            icon={Library}
+            title={hasPapers ? 'No matches found' : 'The archive is empty'}
+            message={hasPapers
+              ? 'Try different keywords or clear the filters.'
+              : 'Indexed theses will appear here once an administrator uploads them.'}
+            action={hasPapers ? (
+              <Button variant="secondary" size="sm" onClick={onClear}>
+                <X size={14} /> Clear filters
+              </Button>
+            ) : null}
+          />
+        </GlassCard>
+      </div>
     )
   }
   const displayPapers = paginated || filtered
@@ -500,6 +552,10 @@ function ArchiveResults({
       key={paper.id}
       paper={paper}
       isAdmin={isAdmin}
+      isSaved={savedSet?.has(String(paper.id))}
+      isComparing={compareSet.has(String(paper.id))}
+      onToggleSaved={onToggleSaved}
+      onToggleCompare={onToggleCompare}
       onDelete={onDelete}
       onOpen={onOpen}
       trackLabels={trackLabels}
@@ -507,15 +563,10 @@ function ArchiveResults({
   ))
   const grid = 'grid content-start gap-4 sm:grid-cols-2 lg:grid-cols-3'
   if (reducedMotion) {
-    return <div className={cn(grid, 'min-h-[380px]')}>{cards}</div>
+    return <div className={cn(grid, 'min-h-[440px]')}>{cards}</div>
   }
   return (
-    // The window the strip runs through: horizontal overflow is clipped so
-    // incoming and outgoing pages don't bleed into the gutters during the slide.
-    // `overflow-x-clip` avoids creating an artificial backdrop root (unlike
-    // `clip-path`), eliminating tinted backdrop rectangles and cut-off shadow lines
-    // while keeping vertical hover lift unclipped.
-    <div className="relative min-h-[380px] overflow-x-clip">
+    <div className="relative min-h-[440px] overflow-x-clip">
       <AnimatePresence mode="popLayout" initial={false} custom={direction}>
         <motion.div
           key={page}
@@ -525,7 +576,7 @@ function ArchiveResults({
           animate="center"
           exit="exit"
           transition={SLIDE_SPRING}
-          className={grid}
+          className={cn(grid, 'min-h-[440px]')}
         >
           {cards}
         </motion.div>
@@ -534,12 +585,65 @@ function ArchiveResults({
   )
 }
 
-function ArchiveDetailModal({ detail, onClose, trackLabels }) {
+function DetailActionsBar({ detail, isSaved, onToggleSaved, onAskIskai }) {
+  const [copiedFormat, setCopiedFormat] = useState(null)
+
+  const handleCopy = async (format) => {
+    if (!detail) return
+    const text = format === 'bibtex' ? formatBibtexCitation(detail) : formatApaCitation(detail)
+    try {
+      await copyText(text)
+      setCopiedFormat(format)
+      toast.success(format === 'bibtex' ? 'BibTeX citation copied' : 'APA 7th citation copied')
+      window.setTimeout(() => setCopiedFormat(null), 1600)
+    } catch {
+      toast.error('Could not copy citation')
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] pt-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="gold" onClick={() => onAskIskai(detail)}>
+          <Sparkles size={14} aria-hidden="true" /> Ask IskAI about this study
+        </Button>
+        <Button size="sm" variant="secondary" onClick={() => handleCopy('apa')}>
+          {copiedFormat === 'apa' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+          {copiedFormat === 'apa' ? 'Copied APA' : 'Copy APA 7th'}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => handleCopy('bibtex')}>
+          {copiedFormat === 'bibtex' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+          {copiedFormat === 'bibtex' ? 'Copied BibTeX' : 'Copy BibTeX'}
+        </Button>
+      </div>
+      {detail?.id && (
+        <Button
+          size="sm"
+          variant={isSaved ? 'primary' : 'ghost'}
+          aria-pressed={Boolean(isSaved)}
+          onClick={() => onToggleSaved(detail.id)}
+        >
+          <BookMarked size={14} aria-hidden="true" />
+          {isSaved ? 'Saved in reading list' : 'Save to reading list'}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function ArchiveDetailModal({
+  detail,
+  onClose,
+  trackLabels,
+  isSaved,
+  onToggleSaved,
+  onAskIskai,
+}) {
   return (
     <Modal open={Boolean(detail)} onClose={onClose} title={detail?.title} size="lg">
       <div className="space-y-4">
         <div className="flex flex-wrap gap-2">
-          <Badge tone={isFacultyThesis(detail) ? 'gold' : 'forest'}>
+          <Badge tone={isFacultyThesis(detail) ? 'gold' : 'neutral'}>
             {thesisCategoryLabel(detail?.thesis_category)}
           </Badge>
           {detail?.track && <Badge tone="forest">{trackDisplayLabel(trackLabels, detail.track)}</Badge>}
@@ -547,8 +651,6 @@ function ArchiveDetailModal({ detail, onClose, trackLabels }) {
           {detail?.year && <Badge tone="gold">{detail.year}</Badge>}
           <Badge tone="neutral">Indexed {formatDate(detail?.created_at)}</Badge>
         </div>
-        {/* Side by side: each is a line or two, and stacked they spent more
-            height on their labels than on the names. */}
         <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[2fr_1fr]">
           <div>
             <dt className="text-xs font-bold uppercase tracking-wider text-ink-faint">Authors</dt>
@@ -582,6 +684,14 @@ function ArchiveDetailModal({ detail, onClose, trackLabels }) {
           </div>
         )}
         <ScreeningDetail scan={detail?.duplication_scan} indexedAt={detail?.created_at} />
+
+        <DetailActionsBar
+          detail={detail}
+          isSaved={isSaved}
+          onToggleSaved={onToggleSaved}
+          onAskIskai={onAskIskai}
+        />
+
         <p className="flex items-center gap-2 text-xs text-ink-muted">
           <Lock size={13} className="shrink-0 text-gold-400" />
           Full text stays private to protect the authors. Ask about it in Chat.
@@ -592,8 +702,9 @@ function ArchiveDetailModal({ detail, onClose, trackLabels }) {
 }
 
 export default function Archive() {
-  const { isAdmin, isSuperadmin, department: userDepartment } = useAuth()
-  const archive = useArchiveCatalog({ isSuperadmin, userDepartment })
+  const { user, isAdmin, isSuperadmin, department: userDepartment } = useAuth()
+  const navigate = useNavigate()
+  const archive = useArchiveCatalog({ isSuperadmin, userDepartment, userId: user?.id })
   const {
     papers, isLoading, isError: papersError, departments, years, advisers, trackLabels, filtered,
     filters, setFilter, clearFilters, activeTracks, trackLabel,
@@ -601,11 +712,45 @@ export default function Archive() {
     deleteTarget, setDeleteTarget, detail, setDetail, busy, submitDelete,
     page, pageDirection, setPage, paginated, pageSize,
     sortBy, setSortBy, sortOptions,
+    savedSet, savedPapers, toggleSaved,
+    compareIds, comparePapers, toggleCompare, clearCompare,
   } = archive
   const hasFilters = Object.values(filters).some(Boolean)
 
+  const exportReadingList = () => {
+    if (savedPapers.length === 0) return
+    const content = buildReadingListExport(savedPapers)
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'iskai-reading-list-apa.txt'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    toast.success('Reading list exported (APA 7th + BibTeX)')
+  }
+
+  const askIskaiAboutPaper = (paper) => {
+    setDetail(null)
+    navigate(`/chat?q=${encodeURIComponent(buildPaperChatPrompt(paper))}`)
+  }
+
+  const compareSelectedInIskai = () => {
+    if (comparePapers.length < 2) {
+      toast.info('Select at least 2 studies to compare in IskAI')
+      return
+    }
+    navigate(`/chat?q=${encodeURIComponent(buildComparisonPrompt(comparePapers))}`)
+  }
+
+  if (isLoading) {
+    return <PageSkeleton variant="archive" />
+  }
+
   return (
-    <PageTransition className="mx-auto flex min-h-[calc(100vh-12rem)] max-w-6xl flex-col space-y-6 md:min-h-[calc(100vh-3.5rem)]">
+    <PageTransition className="mx-auto flex max-w-6xl flex-col space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
@@ -640,17 +785,42 @@ export default function Archive() {
         sortOptions={sortOptions}
       />
 
-      <div className="flex min-h-8 flex-wrap items-center justify-between gap-2" aria-live="polite">
-        <p className="text-xs font-medium text-ink-muted">
-          Showing {filtered.length} of {papers.length} indexed {papers.length === 1 ? 'thesis' : 'theses'}
-        </p>
+      <div className="flex min-h-9 flex-wrap items-center justify-between gap-2" aria-live="polite">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <p className="text-xs font-medium text-ink-muted">
+            Showing {filtered.length} of {papers.length} indexed {papers.length === 1 ? 'thesis' : 'theses'}
+          </p>
+          <button
+            type="button"
+            aria-pressed={Boolean(filters.savedOnly)}
+            onClick={() => setFilter('savedOnly', !filters.savedOnly)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400',
+              filters.savedOnly
+                ? 'border-gold-400/50 bg-gold-400/18 text-gold-text dark:text-gold-300'
+                : 'border-forest-900/12 bg-forest-600/6 text-forest-800 hover:bg-forest-600/14 dark:border-white/12 dark:bg-white/6 dark:text-forest-200',
+            )}
+          >
+            <BookMarked size={12} aria-hidden="true" />
+            Saved ({savedPapers.length})
+          </button>
+          {savedPapers.length > 0 && (
+            <button
+              type="button"
+              onClick={exportReadingList}
+              className="inline-flex items-center gap-1 rounded-full border border-forest-900/12 bg-white/80 px-3 py-1 text-xs font-semibold text-ink transition hover:bg-forest-600/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400 dark:border-white/12 dark:bg-white/8"
+            >
+              <FileDown size={12} aria-hidden="true" /> Export APA (.txt)
+            </button>
+          )}
+        </div>
         {hasFilters && (
           <Button variant="ghost" size="sm" onClick={clearFilters}><X size={14} /> Clear active filters</Button>
         )}
       </div>
 
       {/* Results and Pagination container: statically anchored */}
-      <div className="flex flex-1 flex-col justify-between gap-6">
+      <div className="flex flex-col gap-6">
         <ArchiveResults
           isLoading={isLoading}
           isError={papersError}
@@ -660,6 +830,10 @@ export default function Archive() {
           page={page}
           direction={pageDirection}
           isAdmin={isAdmin}
+          savedSet={savedSet}
+          compareIds={compareIds}
+          onToggleSaved={toggleSaved}
+          onToggleCompare={toggleCompare}
           onDelete={setDeleteTarget}
           onOpen={setDetail}
           onClear={clearFilters}
@@ -668,17 +842,8 @@ export default function Archive() {
         />
 
         {/* Pagination matching DailyUI Challenge #085 */}
-        {!isLoading && !papersError && filtered.length > 0 && (
-          // Pinned to the bottom of the viewport rather than left at the end
-          // of the results: a full page of cards is taller than the fold, so
-          // the control sat off-screen and every page change meant scrolling
-          // down to reach the next button and back up to read. Sticky keeps it
-          // in reach and in one place without reserving empty rows above it.
-          // It clears the mobile tab bar (fixed at bottom-3, z-40) and sits
-          // below it in the stack so the two can never fight for the same
-          // pixels; `-mx-*` lets its background span the gutters the cards
-          // scroll through.
-          <div className="sticky bottom-28 z-20 mt-auto -mx-3.5 flex justify-center border-t border-forest-900/10 bg-[var(--surface-0)]/80 px-3.5 py-4 backdrop-blur-xl sm:-mx-6 sm:px-6 md:bottom-8 dark:border-white/10">
+        {!isLoading && !papersError && (
+          <div className="-mx-3.5 flex justify-center border-t border-forest-900/10 bg-[var(--surface-0)]/80 px-3.5 py-4 backdrop-blur-xl sm:-mx-6 sm:px-6 dark:border-white/10">
             <GooglePagination
               page={page}
               setPage={setPage}
@@ -691,8 +856,63 @@ export default function Archive() {
         )}
       </div>
 
+      {/* Multi-study RRL Comparison Tray */}
+      {comparePapers.length > 0 && (
+        <GlassCard
+          role="region"
+          aria-label="Selected studies for comparison"
+          className="sticky bottom-4 z-30 flex flex-wrap items-center justify-between gap-3 border border-gold-400/35 p-4 shadow-xl"
+        >
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gold-text dark:text-gold-300">
+              <Layers size={14} aria-hidden="true" />
+              Compare studies ({comparePapers.length}/{MAX_COMPARE_PAPERS})
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {comparePapers.map((p) => (
+                <span
+                  key={p.id}
+                  className="inline-flex max-w-xs items-center gap-1.5 rounded-full border border-forest-900/12 bg-forest-600/10 px-2.5 py-1 text-xs font-medium dark:border-white/12 dark:bg-white/10"
+                >
+                  <span className="truncate">{p.title}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${p.title} from comparison`}
+                    onClick={() => toggleCompare(p.id)}
+                    className="rounded-full p-0.5 hover:bg-forest-900/15 dark:hover:bg-white/15"
+                  >
+                    <X size={11} aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={clearCompare}>
+              Clear
+            </Button>
+            <Button
+              variant="gold"
+              size="sm"
+              disabled={comparePapers.length < 2}
+              onClick={compareSelectedInIskai}
+            >
+              <Sparkles size={14} aria-hidden="true" />
+              Compare in IskAI ({comparePapers.length})
+            </Button>
+          </div>
+        </GlassCard>
+      )}
+
       {/* Detail modal — metadata only (indirect access model) */}
-      <ArchiveDetailModal detail={detail} onClose={() => setDetail(null)} trackLabels={trackLabels} />
+      <ArchiveDetailModal
+        detail={detail}
+        onClose={() => setDetail(null)}
+        trackLabels={trackLabels}
+        isSaved={detail?.id ? savedSet.has(String(detail.id)) : false}
+        onToggleSaved={toggleSaved}
+        onAskIskai={askIskaiAboutPaper}
+      />
 
       <ConfirmDialog
         open={!!deleteTarget}

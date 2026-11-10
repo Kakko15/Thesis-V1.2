@@ -157,3 +157,63 @@ export function uploadMetadataErrors(form) {
   }
   return errors
 }
+
+/**
+ * Per-field blur validation (matching the sign-in / sign-up field behavior):
+ * clicking into any metadata field and leaving it empty or invalid surfaces an
+ * inline error message for that specific field, and clears it as soon as a
+ * valid value is entered.
+ */
+const REQUIRED_FIELD_MESSAGES = Object.freeze({
+  authors: 'Please enter the author name(s)',
+  adviser: 'Please enter the thesis adviser',
+  panel_chair: 'Please enter the panel chair',
+  panel_members: 'Please enter the panel members',
+  abstract: 'Please enter the thesis abstract',
+})
+
+function yearFieldError(rawYear) {
+  const latestYear = new Date().getFullYear() + 1
+  const val = String(rawYear ?? '').trim()
+  if (!val) return 'Please enter the completion year'
+  if (!/^\d{4}$/.test(val) || +val < 1978 || +val > latestYear) {
+    return `Enter a valid 4-digit year (1978–${latestYear})`
+  }
+  return ''
+}
+
+export function uploadFieldError(key, form = {}) {
+  if (key in REQUIRED_FIELD_MESSAGES) {
+    return String(form[key] ?? '').trim() ? '' : REQUIRED_FIELD_MESSAGES[key]
+  }
+  if (key === 'title') {
+    const val = String(form.title ?? '').trim()
+    if (!val) return 'Please enter the thesis title'
+    return val.length < 5 ? 'Enter the full thesis title (at least 5 characters)' : ''
+  }
+  if (key === 'year') return yearFieldError(form.year)
+  if (key === 'department') return form.department ? '' : 'Select the department'
+  if (key === 'program_id') {
+    return form.thesis_category !== 'faculty' && !form.program_id ? 'Select the academic program' : ''
+  }
+  if (key === 'specialization_id') {
+    return form.program_id && form.requires_specialization && !form.specialization_id
+      ? 'Select the program specialization'
+      : ''
+  }
+  return ''
+}
+
+export const REQUIRED_UPLOAD_KEYS = Object.freeze([
+  'title', 'authors', 'year', 'adviser', 'panel_chair', 'panel_members',
+  'department', 'program_id', 'specialization_id', 'abstract',
+])
+
+export function uploadRequiredErrors(form = {}) {
+  const errors = {}
+  for (const key of REQUIRED_UPLOAD_KEYS) {
+    const message = uploadFieldError(key, form)
+    if (message) errors[key] = message
+  }
+  return errors
+}
