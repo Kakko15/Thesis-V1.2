@@ -7,8 +7,10 @@ React and Vite client for the CCSICT thesis archive, grounded RAG chat, novelty 
 - `src/pages`: route-level screens. Routes and all four Admin tabs are lazy-loaded.
 - `src/components`: reusable interface, layout, and optional Three.js scene components.
 - `src/context`: authentication, profile, feature-permission, and appearance state.
-- `src/pages/archive`: archive query/filter hook plus pure filtering helpers.
-- `src/pages/upload`: upload reducer and deterministic polling guards.
+- `src/pages/archive`: archive query/filter hook, pure filtering helpers (`archiveFilters.js`), and RRL research tools (`researchTools.js` for APA 7th/BibTeX citations, Saved Reading List bookmarks, and multi-study comparison prompts).
+- `src/pages/dashboard`: pure Student Research Workspace stats and track-grouping helpers (`dashboardState.js`).
+- `src/pages/upload`: single and batch upload reducers (`uploadState.js`, `batchState.js`), per-field required validation, dual abstract mode helpers, and deterministic polling guards.
+- `src/pages/novelty`: single/batch manuscript queue, 4-section Research Capsule state & validation (`capsule.js`), and client-side Office Open XML `.docx` Novelty Check Report builder (`report.js`).
 - `src/testing` and `e2e`: fail-closed local fixtures and Playwright critical flows.
 - `src/api.js`: the only browser-facing backend transport layer.
 
