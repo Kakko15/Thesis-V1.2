@@ -13,7 +13,7 @@ The system is an **indirect** thesis library: users never view or download full 
 | `rag-thesis-backend/evaluation/` | Objective 2 harness: baseline LLM vs RAG comparison scored with Ragas |
 | `rag-thesis-backend/tests/` | Objective 4 PyTest suite (Functional Suitability) |
 | `rag-thesis-backend/jmeter/` | Objective 4 Apache JMeter load-test plan (Performance Efficiency) |
-| `paper_CORRECTED.docx` / `.pdf` | Final five-chapter thesis manuscript (with Table of Contents, 1.5-inch binding margins, and embedded Figures 1–11) at the repository root |
+| `paper_CORRECTED.docx` / `.pdf` | Final five-chapter thesis manuscript (APA 7th Edition layout, Table of Contents, 1-inch margins, and embedded Figures 1–11) at the repository root |
 | `Objective_2_Evaluation_Results.docx` / `.xlsx` | Panel-ready Objective 2 evaluation summary reports and 40-query side-by-side scorecard |
 | `updated_figures/` | High-resolution PNG renders of Figures 1–11 aligned with the manuscript and system architecture |
 

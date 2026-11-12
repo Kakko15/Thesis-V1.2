@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -134,10 +134,15 @@ const COMPOSER_ACTION_TITLE = {
   stop: 'Stop waiting for this response',
 }
 
-/** Google Fonts (Material Symbols Outlined: arrow_upward_alt, fill 0 / wght 400 / opsz 24)
-    glyph as inline SVG — exact official path without shipping a webfont. */
+/** Google Fonts (Material Symbols Outlined: arrow_upward_alt, expand_content,
+    collapse_content, fill 0 / wght 400 / opsz 24) glyphs as inline SVG —
+    exact official paths without shipping a webfont. */
 const ARROW_UPWARD_ALT_PATH =
   'M440-240v-368L296-464l-56-56 240-240 240 240-56 56-144-144v368h-80Z'
+const EXPAND_CONTENT_PATH =
+  'M200-200v-240h80v160h160v80H200Zm480-320v-160H520v-80h240v240h-80Z'
+const COLLAPSE_CONTENT_PATH =
+  'M440-440v240h-80v-160H200v-80h240Zm160-320v160h160v80H520v-240h80Z'
 
 function ArrowUpwardAltIcon({ size = 20, className = '' }) {
   return (
@@ -150,6 +155,20 @@ function ArrowUpwardAltIcon({ size = 20, className = '' }) {
       className={className}
     >
       <path d={ARROW_UPWARD_ALT_PATH} />
+    </svg>
+  )
+}
+
+function ComposerExpandIcon({ expanded, size = 18 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 -960 960 960"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d={expanded ? COLLAPSE_CONTENT_PATH : EXPAND_CONTENT_PATH} />
     </svg>
   )
 }
@@ -230,45 +249,185 @@ function GuestGate({ gate, awaiting, onStatus }) {
   )
 }
 
+const COMPOSER_MIN_HEIGHT = 44
+const COMPOSER_EXPAND_THRESHOLD = 108 // 4+ lines of text
+const COMPOSER_MAX_HEIGHT = 168 // ~6.5 lines before scrolling
+
 function Composer({
   value, onChange, onSend, onFocus, placeholder, footnote,
   sending, verifying, onStop, textareaRef, sendKey, children,
 }) {
+  const formRef = useRef(null)
+  const innerTextareaRef = useRef(null)
+  const [expanded, setExpanded] = useState(false)
+  const [tallEnoughToExpand, setTallEnoughToExpand] = useState(false)
+  useImperativeHandle(textareaRef, () => innerTextareaRef.current, [])
+
+  const hasText = Boolean(value)
+  const lineBreaks = hasText ? value.split('\n').length : 1
+  const isExpanded = hasText && expanded
+  const showExpandToggle = hasText && (isExpanded || tallEnoughToExpand || lineBreaks >= 4 || value.length > 220)
+
+  useLayoutEffect(() => {
+    const el = innerTextareaRef.current
+    if (!el) return undefined
+    let lastWidth = formRef.current?.clientWidth ?? 0
+    const fit = () => {
+      if (isExpanded) {
+        el.style.minHeight = '0px'
+        el.style.height = '100%'
+        el.style.overflowY = el.scrollHeight > el.clientHeight + 2 ? 'auto' : 'hidden'
+        return
+      }
+      el.style.minHeight = '0px'
+      el.style.height = '0px'
+      const rawHeight = el.scrollHeight
+      const nextHeight = Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, rawHeight))
+      el.style.minHeight = `${COMPOSER_MIN_HEIGHT}px`
+      el.style.height = `${nextHeight}px`
+      el.style.overflowY = rawHeight > COMPOSER_MAX_HEIGHT + 2 ? 'auto' : 'hidden'
+    }
+    fit()
+    let observer = null
+    if (typeof ResizeObserver !== 'undefined' && formRef.current) {
+      observer = new ResizeObserver(([entry]) => {
+        const nextWidth = Math.round(entry?.contentRect?.width ?? 0)
+        if (nextWidth && nextWidth !== lastWidth) {
+          lastWidth = nextWidth
+          fit()
+          if (innerTextareaRef.current && !isExpanded) {
+            setTallEnoughToExpand(innerTextareaRef.current.scrollHeight >= COMPOSER_EXPAND_THRESHOLD)
+          }
+        }
+      })
+      observer.observe(formRef.current)
+    }
+    const onWindowResize = () => {
+      fit()
+      if (innerTextareaRef.current && !isExpanded) {
+        setTallEnoughToExpand(innerTextareaRef.current.scrollHeight >= COMPOSER_EXPAND_THRESHOLD)
+      }
+    }
+    window.addEventListener('resize', onWindowResize)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', onWindowResize)
+    }
+  }, [value, isExpanded])
+
   return (
     <div className="border-t border-forest-900/10 p-3 sm:p-4 dark:border-white/10">
       {children}
       <form
-        onSubmit={(e) => { e.preventDefault(); onSend() }}
-        className="glass flex items-end gap-2 rounded-[1.4rem] p-2 transition-shadow focus-within:ring-2 focus-within:ring-[var(--primary)]/30"
+        ref={formRef}
+        onSubmit={(e) => {
+          e.preventDefault()
+          setExpanded(false)
+          setTallEnoughToExpand(false)
+          onSend()
+        }}
+        className={cn(
+          'relative flex items-end gap-2 rounded-[1.6rem] border border-forest-900/14 bg-white/80 p-2 pl-4 backdrop-blur-2xl',
+          'shadow-[0_8px_32px_rgba(4,42,24,0.08)] transition-[border-color,box-shadow,background-color] duration-200',
+          'hover:border-forest-900/25 focus-within:border-[var(--primary)]',
+          'focus-within:shadow-[0_8px_32px_rgba(4,42,24,0.10),0_0_0_3px_color-mix(in_srgb,var(--primary)_14%,transparent)]',
+          'dark:border-white/12 dark:bg-[var(--surface-2)]/90 dark:shadow-[0_8px_32px_rgba(0,0,0,0.35)]',
+          'dark:hover:border-white/22 dark:focus-within:border-[var(--primary)]',
+          isExpanded && 'h-[min(28rem,54dvh)] min-h-[18rem] items-stretch pt-3 pb-2.5',
+        )}
       >
         <textarea
-          ref={textareaRef}
+          ref={innerTextareaRef}
           rows={1}
           value={value}
           placeholder={placeholder}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            const nextValue = e.target.value
+            onChange(nextValue)
+            if (!nextValue) {
+              setExpanded(false)
+              setTallEnoughToExpand(false)
+            } else {
+              const el = e.target
+              const prevH = el.style.height
+              el.style.minHeight = '0px'
+              el.style.height = '0px'
+              const rawH = el.scrollHeight
+              el.style.height = prevH
+              setTallEnoughToExpand(rawH >= COMPOSER_EXPAND_THRESHOLD)
+            }
+          }}
           onFocus={onFocus}
           onKeyDown={(e) => {
             // Enter commits an IME candidate rather than submitting, so
             // without this a Filipino, Japanese, or Chinese speaker sends
             // half-composed text mid-word.
             if (e.nativeEvent.isComposing) return
+            if (e.key === 'Escape' && isExpanded) {
+              e.preventDefault()
+              setExpanded(false)
+              return
+            }
             // sendKey preference from Settings → Chat & AI: default Enter sends
             // (Shift+Enter newlines); 'ctrlEnter' flips it so Enter newlines and
             // only Ctrl/Cmd+Enter sends.
             const shouldSend = sendKey === 'ctrlEnter'
               ? e.key === 'Enter' && (e.ctrlKey || e.metaKey)
               : e.key === 'Enter' && !e.shiftKey
-            if (shouldSend) { e.preventDefault(); onSend() }
+            if (shouldSend) {
+              e.preventDefault()
+              setExpanded(false)
+              setTallEnoughToExpand(false)
+              onSend()
+            }
           }}
-          className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:opacity-45"
+          className={cn(
+            'min-h-11 flex-1 resize-none overflow-y-hidden bg-transparent py-2.5 pr-1 text-sm leading-6 text-[var(--foreground)] caret-[var(--primary)] outline-none focus:outline-none focus-visible:!outline-none placeholder:text-ink-faint',
+            isExpanded ? 'h-full' : 'max-h-[168px]',
+          )}
         />
-        <ComposerAction
-          sending={sending}
-          verifying={verifying}
-          hasInput={Boolean(value.trim())}
-          onStop={onStop}
-        />
+        <div className="flex shrink-0 flex-col items-end justify-between self-stretch">
+          {showExpandToggle ? (
+            <button
+              type="button"
+              onClick={() => {
+                setExpanded((prev) => !prev)
+                innerTextareaRef.current?.focus()
+              }}
+              aria-label={isExpanded ? 'Collapse input' : 'Expand input'}
+              title={isExpanded ? 'Collapse' : 'Expand'}
+              className="flex size-8 items-center justify-center rounded-full text-ink-muted transition hover:bg-forest-900/8 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] dark:hover:bg-white/10"
+            >
+              <ComposerExpandIcon expanded={isExpanded} size={18} />
+            </button>
+          ) : (
+            <span aria-hidden="true" />
+          )}
+          <div className="mt-auto flex items-center gap-1">
+            {hasText && !sending && (
+              <button
+                type="button"
+                onClick={() => {
+                  setExpanded(false)
+                  setTallEnoughToExpand(false)
+                  onChange('')
+                  innerTextareaRef.current?.focus()
+                }}
+                aria-label="Clear question"
+                title="Clear question"
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-muted transition hover:bg-forest-900/8 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] dark:hover:bg-white/10"
+              >
+                <X size={15} aria-hidden="true" />
+              </button>
+            )}
+            <ComposerAction
+              sending={sending}
+              verifying={verifying}
+              hasInput={Boolean(value.trim())}
+              onStop={onStop}
+            />
+          </div>
+        </div>
       </form>
       <p className="mt-2 text-center text-[11px] sm:text-xs text-ink-faint line-clamp-2 sm:line-clamp-none">{footnote}</p>
     </div>
@@ -937,6 +1096,83 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, 
   )
 }
 
+function ChatTranscript({
+  messages,
+  sending,
+  isAwaitingAnswer,
+  effectiveDepartment,
+  copiedMessageId,
+  onSendStarter,
+  onCopyPrompt,
+  onUpdatePrompt,
+  onRegenerate,
+  onFollowUp,
+  bottomRef,
+}) {
+  const isEmpty = messages.length === 0 && !sending
+  return (
+    <div
+      className={cn(
+        'flex-1 overflow-x-hidden overscroll-contain px-4 sm:px-6',
+        isEmpty
+          ? 'flex flex-col items-center justify-center overflow-y-hidden py-4'
+          : 'space-y-6 overflow-y-auto py-6',
+      )}
+    >
+      {isEmpty ? (
+        <div className="flex w-full flex-col items-center justify-center [&>div:first-child]:py-6 sm:[&>div:first-child]:py-10">
+          <EmptyState
+            icon={Logo}
+            title="Ask IskAI anything"
+            message={`Semantic search across indexed ${effectiveDepartment} theses — methodologies, scopes, findings, and related literature.`}
+          />
+          <div className="grid w-full max-w-xl gap-2 sm:grid-cols-2">
+            {STARTERS.map((s, i) => (
+              <motion.button
+                key={s}
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.25 + i * 0.08 }}
+                onClick={() => onSendStarter(s)}
+                className="glass state-layer rounded-2xl px-4 py-3 text-left text-xs font-medium leading-relaxed opacity-80 transition hover:opacity-100"
+              >
+                {s}
+              </motion.button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <>
+          {messages.map((m) =>
+            m.kind === 'user'
+              ? (
+                <UserBubble
+                  key={m.id}
+                  text={m.text}
+                  copied={copiedMessageId === m.id}
+                  onCopy={() => onCopyPrompt(m)}
+                  onUpdate={(updated) => onUpdatePrompt(m, updated)}
+                />
+              )
+              : (
+                <AiBubble
+                  key={m.id}
+                  message={m}
+                  animate={m.isNew}
+                  disabled={sending}
+                  onRegenerate={() => onRegenerate(m)}
+                  onFollowUp={onFollowUp}
+                />
+              ),
+          )}
+          {isAwaitingAnswer && <TypingIndicator />}
+          <div ref={bottomRef} />
+        </>
+      )}
+    </div>
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /* Main chat page                                                      */
 /* ------------------------------------------------------------------ */
@@ -1014,6 +1250,7 @@ export default function Chat() {
   })
 
   useEffect(() => {
+    if (messages.length === 0 && !sending) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, sending])
 
@@ -1147,7 +1384,11 @@ export default function Chat() {
 
   useEffect(() => {
     if (!requestedPrompt) return
-    inputRef.current?.focus()
+    const el = inputRef.current
+    if (el) {
+      el.focus()
+      el.setSelectionRange(el.value.length, el.value.length)
+    }
     const next = new URLSearchParams(searchParams)
     next.delete('q')
     setSearchParams(next, { replace: true })
@@ -1339,7 +1580,7 @@ export default function Chat() {
   }
 
   return (
-    <PageTransition className="mx-auto flex h-[calc(100dvh-10.5rem)] max-w-6xl gap-4 md:h-[calc(100vh-3rem)]">
+    <PageTransition className="mx-auto flex h-[calc(100dvh-12rem)] max-w-6xl gap-4 md:h-[calc(100dvh-3.5rem)]">
       {/* Session sidebar (desktop) */}
       {user && (
         <GlassCard className="hidden w-64 shrink-0 p-4 xl:block">
@@ -1480,56 +1721,19 @@ export default function Chat() {
         )}
 
         {/* Messages */}
-        <div className="flex-1 space-y-6 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-6 sm:px-6">
-          {messages.length === 0 && !sending ? (
-            <div className="flex h-full flex-col items-center justify-center">
-              <EmptyState
-                icon={Logo}
-                title="Ask IskAI anything"
-                message={`Semantic search across indexed ${effectiveDepartment} theses — methodologies, scopes, findings, and related literature.`}
-              />
-              <div className="grid w-full max-w-xl gap-2 sm:grid-cols-2">
-                {STARTERS.map((s, i) => (
-                  <motion.button
-                    key={s}
-                    initial={{ opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.25 + i * 0.08 }}
-                    onClick={() => send(s)}
-                    className="glass state-layer rounded-2xl px-4 py-3 text-left text-xs font-medium leading-relaxed opacity-80 transition hover:opacity-100"
-                  >
-                    {s}
-                  </motion.button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            messages.map((m) =>
-              m.kind === 'user'
-                ? (
-                  <UserBubble
-                    key={m.id}
-                    text={m.text}
-                    copied={copiedMessageId === m.id}
-                    onCopy={() => copyPrompt(m)}
-                    onUpdate={(updated) => updatePrompt(m, updated)}
-                  />
-                )
-                : (
-                  <AiBubble
-                    key={m.id}
-                    message={m}
-                    animate={m.isNew}
-                    disabled={sending}
-                    onRegenerate={() => regenerateResponse(m)}
-                    onFollowUp={startFollowUp}
-                  />
-                ),
-            )
-          )}
-          {isAwaitingAnswer && <TypingIndicator />}
-          <div ref={bottomRef} />
-        </div>
+        <ChatTranscript
+          messages={messages}
+          sending={sending}
+          isAwaitingAnswer={isAwaitingAnswer}
+          effectiveDepartment={effectiveDepartment}
+          copiedMessageId={copiedMessageId}
+          onSendStarter={send}
+          onCopyPrompt={copyPrompt}
+          onUpdatePrompt={updatePrompt}
+          onRegenerate={regenerateResponse}
+          onFollowUp={startFollowUp}
+          bottomRef={bottomRef}
+        />
 
         {/* Composer */}
         <Composer
