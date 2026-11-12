@@ -361,6 +361,7 @@ test('authenticated archive renders legacy-safe records and filters them', async
         specializations: [{ id: 'specialization-wmad', code: 'WMAD', name: 'Web and Mobile Application Development' }],
       }],
     }],
+    'GET /sessions': [],
   })
 
   await page.goto('/archive')
@@ -395,6 +396,48 @@ test('authenticated archive renders legacy-safe records and filters them', async
   await expect(page.getByText('Adaptive Irrigation Analytics for Isabela Farms')).toBeVisible()
   await expect(page.getByText('A Centralized AI-Powered Thesis Library')).not.toBeVisible()
   await expect(page.getByText('Showing 1 of 2 indexed theses')).toBeVisible()
+
+  // Asking IskAI about a study opens Chat with the composer auto-expanded to
+  // hug the prompt tightly without clipping, scrollbar, or extra empty space.
+  await page.getByRole('button', { name: /View metadata for Adaptive Irrigation Analytics/ }).click()
+  await page.getByRole('button', { name: 'Ask IskAI about this study' }).click()
+  await expect(page).toHaveURL(/\/chat$/)
+  const composer = page.getByPlaceholder(/Ask IskAI about CCSICT thesis research/)
+  await expect(composer).toHaveValue(
+    'Summarize the objectives, methodology, and key findings of "Adaptive Irrigation Analytics for Isabela Farms" (2025).',
+  )
+  const metrics = await composer.evaluate((el) => ({
+    clientHeight: el.clientHeight,
+    scrollHeight: el.scrollHeight,
+    overflowY: getComputedStyle(el).overflowY,
+  }))
+  expect(metrics.clientHeight).toBeGreaterThanOrEqual(metrics.scrollHeight)
+  expect(metrics.overflowY).toBe('hidden')
+
+  // Empty chat state (no conversation yet) stays static and non-scrollable.
+  const emptyThreadOverflow = await page.getByRole('heading', { name: 'Ask IskAI anything' }).evaluate((heading) => {
+    const thread = heading.closest('.flex-1')
+    return getComputedStyle(thread).overflowY
+  })
+  expect(emptyThreadOverflow).toBe('hidden')
+
+  // Expand toggle appears only when the prompt has grown to 4+ lines.
+  const expandBtn = page.getByRole('button', { name: 'Expand input' })
+  await expect(expandBtn).toHaveCount(0)
+  await composer.fill('Line 1\nLine 2\nLine 3\nLine 4\nLine 5')
+  await expect(expandBtn).toBeVisible()
+  const multiLineHeight = await composer.evaluate((el) => el.clientHeight)
+  await expandBtn.click()
+  const collapseBtn = page.getByRole('button', { name: 'Collapse input' })
+  await expect(collapseBtn).toBeVisible()
+  const expandedHeight = await composer.evaluate((el) => el.clientHeight)
+  expect(expandedHeight).toBeGreaterThan(multiLineHeight)
+  await collapseBtn.click()
+  await expect(expandBtn).toBeVisible()
+
+  await page.getByRole('button', { name: 'Clear question' }).click()
+  await expect(composer).toHaveValue('')
+  await expect(expandBtn).toHaveCount(0)
   expect(unexpected).toEqual([])
 })
 
