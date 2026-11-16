@@ -370,3 +370,39 @@ def _raise(error):
     def call(_client):
         raise error
     return call
+
+
+class TestGroqFallback:
+    def test_normalizes_typography_to_ascii(self):
+        text = '\u3010 2 \u3011 Kestrel\u20119 12\u202fV'
+        assert gemini_pool.normalize_groq_text(text) == '[ 2 ] Kestrel-9 12 V'
+
+    def test_groq_is_last_and_never_for_embeddings(self, monkeypatch):
+        gemini_pool.reset()
+        monkeypatch.setattr(gemini_pool.settings, 'groq_api_key', 'gsk_test')
+        chat = [label for label, _k, _c in gemini_pool.attempt_chain('p', gemini_pool.CHAT)]
+        embed = [label for label, _k, _c in gemini_pool.attempt_chain('p', gemini_pool.EMBED)]
+        assert chat[-1] == 'groq'
+        assert 'groq' not in embed
+
+    def test_groq_is_absent_without_a_key(self, monkeypatch):
+        gemini_pool.reset()
+        monkeypatch.setattr(gemini_pool.settings, 'groq_api_key', '')
+        chat = [label for label, _k, _c in gemini_pool.attempt_chain('p', gemini_pool.CHAT)]
+        assert 'groq' not in chat
+
+    def test_groq_pool_lists_every_key_once_in_order(self, monkeypatch):
+        gemini_pool.reset()
+        monkeypatch.setattr(gemini_pool.settings, 'groq_api_key', 'gsk_a')
+        monkeypatch.setattr(gemini_pool.settings, 'groq_api_keys', 'gsk_b, gsk_a ,gsk_c,')
+        assert gemini_pool.settings.groq_key_list == ['gsk_a', 'gsk_b', 'gsk_c']
+        chain = gemini_pool.attempt_chain('p', gemini_pool.CHAT)
+        assert [label for label, _k, _c in chain] == ['primary', 'groq', 'groq', 'groq']
+
+    def test_a_cooling_groq_key_is_demoted_not_dropped(self, monkeypatch):
+        gemini_pool.reset()
+        monkeypatch.setattr(gemini_pool.settings, 'groq_api_key', 'gsk_a')
+        monkeypatch.setattr(gemini_pool.settings, 'groq_api_keys', 'gsk_b')
+        gemini_pool._mark_exhausted(gemini_pool._GROQ_PREFIX + 'gsk_a')
+        keys = [k for label, k, _c in gemini_pool.attempt_chain('p', gemini_pool.CHAT) if label == 'groq']
+        assert keys == [gemini_pool._GROQ_PREFIX + 'gsk_b', gemini_pool._GROQ_PREFIX + 'gsk_a']

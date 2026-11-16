@@ -1,4 +1,4 @@
-"""Test bootstrap with an isolated, non-production environment.
+﻿"""Test bootstrap with an isolated, non-production environment.
 
 Unit tests must never inherit service endpoints or hardening switches from a
 developer's local ``.env`` file.  Live disposable-project tests opt in
@@ -26,6 +26,8 @@ _ISOLATED_TEST_ENV = {
     'GEMINI_API_KEYS': '',
     'LLM_BASE_URL': '',
     'LLM_API_KEY': '',
+    'GROQ_API_KEY': '',
+    'GROQ_API_KEYS': '',
     'SUPABASE_URL': 'https://test-project.supabase.co',
     'SUPABASE_KEY': 'test-service-role-key',
     'APP_ENVIRONMENT': 'test',

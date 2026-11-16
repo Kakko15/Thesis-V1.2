@@ -1,4 +1,4 @@
-"""Reserve Gemini API keys, used only when the primary key reports exhaustion.
+﻿"""Reserve Gemini API keys, used only when the primary key reports exhaustion.
 
 Why this exists
 ---------------
@@ -57,6 +57,79 @@ EMBED = 'embed'
 # credential rather than a Gemini key, so it needs a stable identity in the
 # `(kind, api_key)` cache that can never collide with a real key.
 _GATEWAY_KEY = '\x00gateway'
+# Same idea for the Groq last-resort fallback.
+_GROQ_PREFIX = '\x00groq:'
+
+
+def groq_enabled() -> bool:
+    """Whether a Groq last-resort fallback is configured."""
+    return bool(settings.groq_key_list)
+
+
+_GROQ_STYLE_RULES = (
+    'Output rules: every sentence that states a fact from the context must end with '
+    'its source citation in plain ASCII square brackets, like [1] or [2][3]. '
+    'Never answer without a citation unless the context lacks the answer. '
+    'Use only ASCII characters for brackets and hyphens.'
+)
+_CHAR_FIXES = {
+    '\u3010': '[', '\u3011': ']',  # fullwidth lenticular brackets 【 】
+    '\uff3b': '[', '\uff3d': ']',  # fullwidth square brackets
+    '\u2011': '-', '\u2010': '-',  # non-breaking / plain hyphen variants
+    '\u202f': ' ', '\u00a0': ' ', '\u2009': ' ',  # narrow / non-breaking / thin spaces
+}
+
+
+def normalize_groq_text(text: str) -> str:
+    """Map Groq's typographic variants onto the characters the citation parser reads."""
+    for bad, good in _CHAR_FIXES.items():
+        text = text.replace(bad, good)
+    return text
+
+
+def _normalize_message(message):
+    content = getattr(message, 'content', None)
+    if isinstance(content, str):
+        message.content = normalize_groq_text(content)
+    return message
+
+
+class _GroqChat(ChatOpenAI):
+    """ChatOpenAI that states citation rules and normalizes typography in replies."""
+
+    @staticmethod
+    def _with_rules(prompt):
+        from langchain_core.messages import SystemMessage
+
+        if isinstance(prompt, str):
+            return f'{_GROQ_STYLE_RULES}\n\n{prompt}'
+        if isinstance(prompt, list):
+            return [SystemMessage(content=_GROQ_STYLE_RULES), *prompt]
+        return prompt
+
+    def invoke(self, input, *args, **kwargs):  # noqa: A002  # pylint: disable=redefined-builtin
+        return _normalize_message(super().invoke(self._with_rules(input), *args, **kwargs))
+
+    async def ainvoke(self, input, *args, **kwargs):  # noqa: A002  # pylint: disable=redefined-builtin
+        return _normalize_message(await super().ainvoke(self._with_rules(input), *args, **kwargs))
+
+
+def _groq_client(api_key: str | None = None):
+    """Chat client for the Groq fallback (OpenAI-compatible endpoint)."""
+    options = {
+        'model': settings.groq_model,
+        'api_key': api_key or settings.groq_key_list[0],
+        'base_url': settings.groq_base_url,
+        'timeout': settings.gemini_timeout_seconds,
+        'max_retries': 0,
+        'max_tokens': settings.llm_gateway_max_output_tokens,
+    }
+    # Only gpt-oss models accept reasoning_effort (low/medium/high).
+    if 'gpt-oss' in settings.groq_model:
+        options['reasoning_effort'] = (
+            'low' if settings.gemini_thinking_level == 'minimal' else settings.gemini_thinking_level
+        )
+    return _GroqChat(**options)
 
 # api_key -> monotonic deadline before which the key is treated as exhausted.
 _cooldowns: dict[str, float] = {}
@@ -135,6 +208,8 @@ def _build(kind: str, api_key: str):
     # the same credential — a fallback that could not fall back.
     if api_key == _GATEWAY_KEY:
         return _gateway_client(kind)
+    if api_key.startswith(_GROQ_PREFIX):
+        return _groq_client(api_key[len(_GROQ_PREFIX):])
     if kind in (CHAT, EXTRACT):
         options = {
             'model': settings.gemini_chat_model,
@@ -229,6 +304,12 @@ def attempt_chain(primary, kind: str) -> list[tuple[str, str | None, object]]:
         chain.append(('gateway', _GATEWAY_KEY, _client(kind, _GATEWAY_KEY)))
     chain.append(('primary', None, primary))
     chain.extend(('reserve', key, client) for key, client in reserve_attempts(kind))
+    # Last resort, after every Gemini key. Never for embeddings (vector space).
+    if kind != EMBED and groq_enabled():
+        slots = [_GROQ_PREFIX + key for key in settings.groq_key_list]
+        ready = [slot for slot in slots if not _is_cooling(slot)]
+        cooling = [slot for slot in slots if _is_cooling(slot)]
+        chain.extend(('groq', slot, _client(kind, slot)) for slot in ready + cooling)
     return chain
 
 
@@ -249,6 +330,10 @@ def _should_continue(label: str, error: BaseException) -> bool:
             type(error).__name__,
         )
         return True
+    if label == 'groq':
+        # Last hop: its failure must not replace the Gemini capacity error.
+        logger.warning('Groq fallback failed (%s)', type(error).__name__)
+        return True
     return is_capacity_error(error)
 
 
@@ -263,7 +348,8 @@ async def arun(primary, kind: str, call: Callable[[object], Awaitable[T]]) -> T:
                 raise
             if api_key:
                 _mark_exhausted(api_key)
-            last = error
+            if label != 'groq':
+                last = error
     raise last  # type: ignore[misc]  # the chain always holds at least `primary`
 
 
@@ -278,5 +364,7 @@ def run(primary, kind: str, call: Callable[[object], T]) -> T:
                 raise
             if api_key:
                 _mark_exhausted(api_key)
-            last = error
+            if label != 'groq':
+                last = error
     raise last  # type: ignore[misc]  # the chain always holds at least `primary`
+
