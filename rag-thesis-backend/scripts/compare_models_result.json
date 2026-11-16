@@ -1,0 +1,166 @@
+{
+  "Gemini gemini-3.5-flash-lite": [
+    {
+      "q": "How many zones does the Kestrel-7 support?",
+      "ms": 1629,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The Kestrel-7 supports up to 24 zones [1]."
+    },
+    {
+      "q": "What power supply does the Kestrel-7 use?",
+      "ms": 787,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The Kestrel-7 runs on a 12 V DC supply [1]."
+    },
+    {
+      "q": "How often does the Kestrel-7 log soil moisture?",
+      "ms": 596,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The Kestrel-7 logs soil moisture every 15 minutes [2]."
+    },
+    {
+      "q": "How long is the warranty on the Kestrel-7 moisture sensors?",
+      "ms": 621,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The warranty on the Kestrel-7 moisture sensors is 1 year [3]."
+    },
+    {
+      "q": "How can data be exported from the Kestrel-7?",
+      "ms": 1672,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "Data can be exported from the Kestrel-7 over USB-C only [2]."
+    },
+    {
+      "q": "Which model added Wi-Fi export and how many zones does it support?",
+      "ms": 920,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The Kestrel-9 added Wi-Fi export and it supports up to 48 zones [4]."
+    },
+    {
+      "q": "Is there phone support for Kestrel devices?",
+      "ms": 1180,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "No, there is no phone support for Kestrel devices [5]."
+    },
+    {
+      "q": "What programming language is the Kestrel-7 firmware written in?",
+      "ms": 1299,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The Kestrel-7 firmware is written in Rust [1]."
+    },
+    {
+      "q": "What is the price of the Kestrel-7?",
+      "ms": 932,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The provided documents do not contain this information."
+    },
+    {
+      "q": "Does the Kestrel-7 support Zigbee?",
+      "ms": 879,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The provided documents do not contain this information."
+    }
+  ],
+  "Groq openai/gpt-oss-20b": [
+    {
+      "q": "How many zones does the Kestrel-7 support?",
+      "ms": 642,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The Kestrel-7 irrigation controller supports up to 24 zones. [1]"
+    },
+    {
+      "q": "What power supply does the Kestrel-7 use?",
+      "ms": 536,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "It uses a 12 V DC supply. [1]"
+    },
+    {
+      "q": "How often does the Kestrel-7 log soil moisture?",
+      "ms": 525,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "Kestrel-7 units log soil moisture every 15 minutes. [2]"
+    },
+    {
+      "q": "How long is the warranty on the Kestrel-7 moisture sensors?",
+      "ms": 568,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The warranty on the Kestrel-7 moisture sensors is one year. [3]"
+    },
+    {
+      "q": "How can data be exported from the Kestrel-7?",
+      "ms": 608,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "Export is possible over USB-C only. [2]"
+    },
+    {
+      "q": "Which model added Wi-Fi export and how many zones does it support?",
+      "ms": 563,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The Kestrel-9 added Wi-Fi export and supports 48 zones.[4]"
+    },
+    {
+      "q": "Is there phone support for Kestrel devices?",
+      "ms": 539,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "No, phone support is not available. [5]"
+    },
+    {
+      "q": "What programming language is the Kestrel-7 firmware written in?",
+      "ms": 493,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The Kestrel-7 firmware is written in Rust. [1]"
+    },
+    {
+      "q": "What is the price of the Kestrel-7?",
+      "ms": 490,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The provided documents do not contain this information."
+    },
+    {
+      "q": "Does the Kestrel-7 support Zigbee?",
+      "ms": 556,
+      "ok": true,
+      "cited": true,
+      "err": null,
+      "answer": "The provided documents do not contain this information."
+    }
+  ]
+}

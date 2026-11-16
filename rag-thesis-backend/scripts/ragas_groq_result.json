@@ -1,0 +1,166 @@
+{
+  "Gemini gemini-3.5-flash-lite": [
+    {
+      "q": "How many zones does the Kestrel-7 support?",
+      "ms": 1867,
+      "answer": "The Kestrel-7 supports up to 24 zones [1].",
+      "answer_correctness": 0.9964517139138334,
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999
+    },
+    {
+      "q": "What power supply does the Kestrel-7 use?",
+      "ms": 2314,
+      "answer": "The Kestrel-7 runs on a 12 V DC supply [1].",
+      "answer_correctness": 0.7050642816641001,
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999
+    },
+    {
+      "q": "How often does the Kestrel-7 log soil moisture?",
+      "ms": 2089,
+      "answer": "The Kestrel-7 logs soil moisture every 15 minutes [2].",
+      "answer_correctness": 0.974542736487629,
+      "faithfulness": 1.0,
+      "context_precision": 0.49999999995
+    },
+    {
+      "q": "How long is the warranty on the Kestrel-7 moisture sensors?",
+      "ms": 2282,
+      "answer": "The warranty on the Kestrel-7 moisture sensors is 1 year [3].",
+      "answer_correctness": 0.7136058665182855,
+      "faithfulness": 1.0,
+      "context_precision": 0.3333333333
+    },
+    {
+      "q": "How can data be exported from the Kestrel-7?",
+      "ms": 1183,
+      "answer": "Data can be exported from the Kestrel-7 over USB-C only [2].",
+      "answer_correctness": 0.9602595214424711,
+      "faithfulness": 1.0,
+      "context_precision": 0.49999999995
+    },
+    {
+      "q": "Which model added Wi-Fi export and how many zones does it support?",
+      "ms": 721,
+      "answer": "The Kestrel-9 added Wi-Fi export [4] and supports up to 48 zones [4].",
+      "answer_correctness": 0.9944689401282605,
+      "faithfulness": 1.0,
+      "context_precision": 0.249999999975
+    },
+    {
+      "q": "Is there phone support for Kestrel devices?",
+      "ms": 1091,
+      "answer": "No, there is no phone support for Kestrel devices [5].",
+      "answer_correctness": 0.6838902021074325,
+      "faithfulness": 1.0,
+      "context_precision": 0.19999999998
+    },
+    {
+      "q": "What programming language is the Kestrel-7 firmware written in?",
+      "ms": 904,
+      "answer": "The Kestrel-7 firmware is written in Rust [1].",
+      "answer_correctness": 0.9626394411356476,
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999
+    },
+    {
+      "q": "How long is data stored on the Kestrel-7 before it is overwritten?",
+      "ms": 977,
+      "answer": "Data is stored on the Kestrel-7 for 90 days before it is overwritten [2].",
+      "answer_correctness": 0.9542713759873085,
+      "faithfulness": 1.0,
+      "context_precision": 0.49999999995
+    },
+    {
+      "q": "When was the Kestrel-9 released?",
+      "ms": 1327,
+      "answer": "The Kestrel-9 was released in November 2023 [4].",
+      "answer_correctness": 0.996429056218429,
+      "faithfulness": 1.0,
+      "context_precision": 0.249999999975
+    }
+  ],
+  "Groq openai/gpt-oss-20b": [
+    {
+      "q": "How many zones does the Kestrel-7 support?",
+      "ms": 703,
+      "answer": "The Kestrel-7 supports up to 24 zones. [1]",
+      "answer_correctness": 0.9966724647268445,
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999
+    },
+    {
+      "q": "What power supply does the Kestrel-7 use?",
+      "ms": 839,
+      "answer": "The Kestrel-7 runs on a 12 V DC supply. [1]",
+      "answer_correctness": 0.954114477179516,
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999
+    },
+    {
+      "q": "How often does the Kestrel-7 log soil moisture?",
+      "ms": 515,
+      "answer": "Kestrel-7 units log soil moisture every 15 minutes. [2]",
+      "answer_correctness": 0.9692570202365018,
+      "faithfulness": 1.0,
+      "context_precision": 0.49999999995
+    },
+    {
+      "q": "How long is the warranty on the Kestrel-7 moisture sensors?",
+      "ms": 400,
+      "answer": "The warranty on the Kestrel-7 moisture sensors is 1 year. [3]",
+      "answer_correctness": 0.9627464375843149,
+      "faithfulness": 1.0,
+      "context_precision": 0.3333333333
+    },
+    {
+      "q": "How can data be exported from the Kestrel-7?",
+      "ms": 712,
+      "answer": "Data can be exported from the Kestrel-7 only over USB-C. [2]",
+      "answer_correctness": 0.9592306971390296,
+      "faithfulness": 1.0,
+      "context_precision": 0.49999999995
+    },
+    {
+      "q": "Which model added Wi-Fi export and how many zones does it support?",
+      "ms": 565,
+      "answer": "The model that added Wi-Fi export is the Kestrel-9, and it supports up to 48 zones. [4]",
+      "answer_correctness": 0.9875741969654098,
+      "faithfulness": 1.0,
+      "context_precision": 0.249999999975
+    },
+    {
+      "q": "Is there phone support for Kestrel devices?",
+      "ms": 631,
+      "answer": "No, there is no phone support for Kestrel devices. The support is available only by email during weekdays [5].",
+      "answer_correctness": 0.79141489808251,
+      "faithfulness": 1.0,
+      "context_precision": 0.19999999998
+    },
+    {
+      "q": "What programming language is the Kestrel-7 firmware written in?",
+      "ms": 680,
+      "answer": "The firmware for the Kestrel-7 is written in Rust. [1]",
+      "answer_correctness": 0.9598865815449834,
+      "faithfulness": 1.0,
+      "context_precision": 0.9999999999
+    },
+    {
+      "q": "How long is data stored on the Kestrel-7 before it is overwritten?",
+      "ms": 670,
+      "answer": "Data on a Kestrel-7 is kept for 90 days before being overwritten. [2]",
+      "answer_correctness": 0.9507556505963883,
+      "faithfulness": 1.0,
+      "context_precision": 0.49999999995
+    },
+    {
+      "q": "When was the Kestrel-9 released?",
+      "ms": 771,
+      "answer": "The Kestrel-9 was released in November 2023.[4]",
+      "answer_correctness": 0.9950264605111603,
+      "faithfulness": 1.0,
+      "context_precision": 0.249999999975
+    }
+  ]
+}

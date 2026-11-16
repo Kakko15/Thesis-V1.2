@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     # returns zero results until every paper is reindexed.
     llm_base_url: str = ''
     llm_api_key: str = ''
+    # Optional last-resort chat fallback on Groq (OpenAI-compatible). Tried only
+    # after the primary Gemini key and every reserve key report exhaustion, and
+    # never for embeddings. Empty key = off.
+    groq_api_key: str = ''
+    # Extra Groq keys, comma-separated. Only useful when each belongs to a
+    # separate Groq organization (limits are per organization, not per key) and
+    # is used with its owner's consent.
+    groq_api_keys: str = ''
+    groq_model: str = 'openai/gpt-oss-20b'
+    groq_base_url: str = 'https://api.groq.com/openai/v1'
 
     # --- RAG parameters (thesis paper, Section 3.2.3) ---
     # Fixed thesis contract; measured by the documented local tokenizer proxy.
@@ -224,6 +234,16 @@ class Settings(BaseSettings):
                 seen.add(key)
                 reserve.append(key)
         return reserve
+
+    @property
+    def groq_key_list(self) -> list[str]:
+        """Groq keys in order: the primary first, then extras, duplicates dropped."""
+        keys: list[str] = []
+        for value in [self.groq_api_key, *self.groq_api_keys.split(',')]:
+            key = value.strip()
+            if key and key not in keys:
+                keys.append(key)
+        return keys
 
     @property
     def turnstile_allowed_hostname_list(self) -> list[str]:
