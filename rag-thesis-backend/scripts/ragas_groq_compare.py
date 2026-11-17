@@ -1,4 +1,4 @@
-﻿"""Ragas comparison of Gemini vs Groq as the ANSWERING model.
+"""Ragas comparison of Gemini vs Groq as the ANSWERING model.
 
 The judge is held constant (Gemini verdict model, same setup as
 evaluation/run_comparison.py), so only the answering model differs. Uses
@@ -113,4 +113,3 @@ async def main() -> int:
 
 if __name__ == '__main__':
     raise SystemExit(asyncio.run(main()))
-

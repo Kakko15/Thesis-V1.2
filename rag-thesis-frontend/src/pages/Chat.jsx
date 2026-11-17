@@ -503,7 +503,7 @@ function SourceCard({ sources, index }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.15 + index * 0.08, duration: 0.4 }}
-      className="glass flex w-full min-w-0 items-start gap-3 rounded-2xl p-3.5 text-left"
+      className="glass flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-2xl p-3.5 text-left"
     >
       <div className="flex max-w-16 shrink-0 flex-wrap gap-1">
         {citationIds.map((citationId) => (
@@ -518,13 +518,21 @@ function SourceCard({ sources, index }) {
       <div className="min-w-0 flex-1">
         <div className="break-words text-sm font-semibold leading-snug">{source.title}</div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
-          {source.authors && <span>{source.authors}</span>}
+          {source.authors && <span className="break-words">{source.authors}</span>}
           {source.year && <span>· {source.year}</span>}
         </div>
         <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
             {source.department && <Badge tone="neutral">{source.department}</Badge>}
-            {source.track && <Badge tone="forest">{source.track}</Badge>}
+            {source.track && (
+              <Badge
+                tone="forest"
+                title={source.track}
+                className="whitespace-normal break-words rounded-2xl text-left leading-snug"
+              >
+                {source.track}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <button

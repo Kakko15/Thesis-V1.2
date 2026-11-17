@@ -1,4 +1,4 @@
-﻿"""Reserve Gemini API keys, used only when the primary key reports exhaustion.
+"""Reserve Gemini API keys, used only when the primary key reports exhaustion.
 
 Why this exists
 ---------------
@@ -367,4 +367,3 @@ def run(primary, kind: str, call: Callable[[object], T]) -> T:
             if label != 'groq':
                 last = error
     raise last  # type: ignore[misc]  # the chain always holds at least `primary`
-

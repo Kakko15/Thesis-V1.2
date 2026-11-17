@@ -1,4 +1,4 @@
-﻿"""Build IskAI_User_Manual.docx (task-oriented end-user manual).
+"""Build IskAI_User_Manual.docx (task-oriented end-user manual).
 
 Every UI label is quoted from rag-thesis-frontend/src (see research reports).
 Screenshots are read from docs/manual/screenshots/<name>.png; a missing file

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   archiveSizeLabel,
   atUploadScreening,
+  cn,
   currentScreening,
   extractOwnedAvatarPath,
   formatDate,
@@ -299,4 +300,111 @@ test('concentration is recovered from match counts when no field stores it', () 
   assert.equal(scanMetrics({ top_paper_percentage: 81.48 }).concentration, 81.48)
   assert.equal(scanMetrics({ matched_chunk_count: 3, total_chunks: 24 }).concentration, 0)
   assert.equal(scanMetrics({ top_matches: 'malformed' }).concentration, 0)
+})
+
+test('cn joins conditional classes and lets the later Tailwind utility win', () => {
+  const hidden = false
+  assert.equal(cn('px-2 py-1', hidden && 'hidden', { 'font-bold': true, italic: false }, ['px-4']), 'py-1 font-bold px-4')
+  assert.equal(cn(), '')
+  assert.equal(cn(null, undefined, ''), '')
+})
+
+test('formatDate renders a valid timestamp as a short Philippine date', () => {
+  assert.equal(formatDate('2026-01-05T12:00:00Z'), 'Jan 5, 2026')
+})
+
+test('formatDate returns empty for missing values', () => {
+  assert.equal(formatDate(''), '')
+  assert.equal(formatDate(null), '')
+  assert.equal(formatDate(undefined), '')
+})
+
+test('formatDate hands back the raw value when it cannot even be read as a date', () => {
+  // A value whose primitive conversion throws makes the Date constructor throw.
+  const unreadable = { [Symbol.toPrimitive]() { throw new TypeError('no primitive') } }
+  assert.equal(formatDate(unreadable), unreadable)
+})
+
+test('timeAgo returns empty for missing values', () => {
+  assert.equal(timeAgo(''), '')
+  assert.equal(timeAgo(null), '')
+})
+
+test('timeAgo buckets elapsed time into seconds, minutes, hours, days, then a date', (t) => {
+  const now = Date.parse('2026-03-31T12:00:00Z')
+  t.mock.method(Date, 'now', () => now)
+  const ago = (ms) => new Date(now - ms).toISOString()
+  const second = 1000
+  const minute = 60 * second
+  const hour = 60 * minute
+  const day = 24 * hour
+
+  assert.equal(timeAgo(ago(0)), 'just now')
+  assert.equal(timeAgo(ago(59 * second)), 'just now')
+  // A timestamp slightly in the future (clock skew) never reads as negative.
+  assert.equal(timeAgo(new Date(now + 5 * minute).toISOString()), 'just now')
+  assert.equal(timeAgo(ago(minute)), '1m ago')
+  assert.equal(timeAgo(ago(59 * minute)), '59m ago')
+  assert.equal(timeAgo(ago(hour)), '1h ago')
+  assert.equal(timeAgo(ago(23 * hour)), '23h ago')
+  assert.equal(timeAgo(ago(day)), '1d ago')
+  assert.equal(timeAgo(ago(29 * day)), '29d ago')
+  const old = ago(30 * day)
+  assert.equal(timeAgo(old), formatDate(old))
+  assert.equal(timeAgo(old), 'Mar 1, 2026')
+})
+
+test('every verdict level has its own label and unknown levels read as Clear', () => {
+  assert.equal(verdictLabel('review_suggested'), 'Review suggested')
+  assert.equal(verdictLabel('clear'), 'Clear')
+  assert.equal(verdictLabel(undefined), 'Clear')
+  assert.equal(verdictLabel('something_new'), 'Clear')
+})
+
+test('avatar ownership requires both a URL and a user', () => {
+  assert.equal(extractOwnedAvatarPath('', 'u1'), null)
+  assert.equal(extractOwnedAvatarPath(null, 'u1'), null)
+  assert.equal(extractOwnedAvatarPath('u1/avatar.png', ''), null)
+  assert.equal(extractOwnedAvatarPath('u1/avatar.png', undefined), null)
+})
+
+test('an absolute URL outside the public avatars bucket is never accepted', () => {
+  assert.equal(extractOwnedAvatarPath('https://evil.example/u1/avatar.png', 'u1'), null)
+  assert.equal(
+    extractOwnedAvatarPath('https://example.supabase.co/storage/v1/object/public/papers/u1/avatar.png', 'u1'),
+    null,
+  )
+})
+
+test('an encoded avatar path is decoded before ownership is checked', () => {
+  assert.equal(
+    extractOwnedAvatarPath('https://example.supabase.co/storage/v1/object/public/avatars/u1/my%20photo.png', 'u1'),
+    'u1/my photo.png',
+  )
+})
+
+test('malformed absolute avatar URLs fail closed instead of throwing', () => {
+  // Unparseable by the URL constructor.
+  assert.equal(extractOwnedAvatarPath('http://exa mple.com:99999/x', 'u1'), null)
+  // Parseable, but the percent-encoding cannot be decoded.
+  assert.equal(
+    extractOwnedAvatarPath('https://example.supabase.co/storage/v1/object/public/avatars/u1/%E0%A4%A', 'u1'),
+    null,
+  )
+})
+
+test('malformed match groups count as zero passages when deriving concentration', () => {
+  const metrics = scanMetrics({
+    matched_chunk_count: 3,
+    total_chunks: 10,
+    top_matches: [null, { match_count: 'n/a' }, {}, { match_count: 2 }],
+  })
+  assert.equal(metrics.concentration, 20)
+  // With no well-formed group the stored figure is used instead.
+  assert.equal(scanMetrics({
+    matched_chunk_count: 3,
+    total_chunks: 10,
+    top_paper_percentage: 40,
+    matched_papers: [null, { match_count: undefined }],
+  }).concentration, 40)
 })

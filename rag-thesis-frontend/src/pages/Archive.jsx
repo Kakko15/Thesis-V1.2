@@ -346,6 +346,15 @@ function PaperCard({
           'has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--ring)]',
         )}
         onClick={() => onOpen(paper)}
+        // Keyboard users open the card through its title button; this mirrors
+        // the click handler for keys pressed on the card itself only, so Enter
+        // on an inner button never opens the card by bubbling.
+        onKeyDown={(event) => {
+          if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault()
+            onOpen(paper)
+          }
+        }}
       >
         <div className="flex items-start gap-3">
           <span

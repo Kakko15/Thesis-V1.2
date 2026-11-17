@@ -75,3 +75,24 @@ test('a rate-limited or busy scan waits for Retry-After, capped, or the fallback
   assert.equal(retryDelayMs(limited('soon')), RATE_LIMIT_WINDOW_MS)
   assert.equal(retryDelayMs({ response: { status: 503, headers: {} } }), RATE_LIMIT_FALLBACK_MS)
 })
+
+test('a nameless or missing file is refused with a readable label instead of throwing', () => {
+  // No name means no extension to accept, whatever the MIME type says.
+  assert.match(scanFileError({ size: 10, type: 'application/pdf' }), /PDF or plain-text/)
+  const { entries, rejected } = addScanFiles([], [null, { size: 10, type: 'application/pdf' }, file('ok.pdf')])
+  assert.deepEqual(entries.map((entry) => entry.file.name), ['ok.pdf'])
+  assert.deepEqual(rejected, [
+    { name: 'file', reason: 'No file.' },
+    { name: 'file', reason: 'Only PDF or plain-text manuscripts can be scanned.' },
+  ])
+})
+
+test('adding nothing leaves the queue as it was', () => {
+  const { entries: queued } = addScanFiles([], [file('a.pdf')])
+  for (const files of [null, undefined]) {
+    const { entries, rejected } = addScanFiles(queued, files)
+    assert.deepEqual(entries, queued)
+    assert.notEqual(entries, queued)
+    assert.deepEqual(rejected, [])
+  }
+})

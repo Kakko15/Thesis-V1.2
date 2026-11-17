@@ -126,3 +126,25 @@ test('only the two API categories count as an extracted thesis category', () => 
     assert.equal(isThesisCategory(value), false)
   }
 })
+
+test('the by-id selections tolerate a catalog that has not loaded yet', () => {
+  // Before the departments request resolves the picker hands over no list.
+  for (const missing of [undefined, null]) {
+    assert.deepEqual(programSelectionById(missing, 'p-bscs'), {
+      program_id: 'p-bscs', specialization_id: '', requires_specialization: false, track: '',
+    })
+    assert.deepEqual(specializationSelection(missing, 's-dm'), { specialization_id: 's-dm', track: '' })
+  }
+})
+
+test('a program chosen by id with no code and no specializations tracks as empty', () => {
+  assert.deepEqual(programSelectionById([{ id: 'p-legacy', name: 'Legacy Program' }], 'p-legacy'), {
+    program_id: 'p-legacy', specialization_id: '', requires_specialization: false, track: '',
+  })
+})
+
+test('a specialization picked by id without a name tracks as empty', () => {
+  assert.deepEqual(specializationSelection([{ id: 's-x', code: 'X' }], 's-x'), {
+    specialization_id: 's-x', track: '',
+  })
+})

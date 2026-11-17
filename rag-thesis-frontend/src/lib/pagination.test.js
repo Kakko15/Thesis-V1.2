@@ -79,3 +79,26 @@ test('paginateItems correctly slices arrays with clamping', () => {
   assert.deepEqual(paginateItems(null, 1, 5), [])
   assert.deepEqual(paginateItems([], 1, 5), [])
 })
+
+test('pagination treats a non-numeric page total as a single page', () => {
+  assert.equal(clampPage(3, 'abc'), 1)
+  assert.equal(clampPage(3, undefined), 1)
+  assert.equal(clampPage(3, 0), 1)
+})
+
+test('getPaginationPages falls back to a 7-slot window for an invalid maxVisible', () => {
+  // 'abc' is not a number, so the default window of 7 applies: 7 pages fit whole.
+  assert.deepEqual(getPaginationPages(1, 7, 'abc'), [1, 2, 3, 4, 5, 6, 7])
+  assert.deepEqual(getPaginationPages(1, 8, 'abc'), [1, 2, 3, 4, 5, '...', 8])
+  // A window smaller than 5 is widened to 5.
+  assert.deepEqual(getPaginationPages(1, 6, 2), [1, 2, 3, 4, 5, '...', 6])
+  // A wider window lists more pages in full.
+  assert.deepEqual(getPaginationPages(9, 10, 10), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+})
+
+test('paginateItems uses one item per page for an invalid limit', () => {
+  const items = ['a', 'b', 'c']
+  assert.deepEqual(paginateItems(items, 2, 'abc'), ['b'])
+  assert.deepEqual(paginateItems(items, 1, 0), ['a'])
+  assert.deepEqual(paginateItems(items, 3, undefined), ['c'])
+})

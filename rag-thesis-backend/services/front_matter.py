@@ -599,9 +599,11 @@ _PANEL_COMMITTEE = re.compile(
     r'^(?:panel\s+committee|panel\s+of\s+examiners)\s*:?$', re.IGNORECASE,
 )
 _PANEL_SECTION_END = re.compile(
-    r'^(?:approved\b|accepted\b|advisory\s+committee\b|recommended\b)|partial\s+fulfil+ment',
-    re.IGNORECASE,
+    r'^(?:approved\b|accepted\b|advisory\s+committee\b|recommended\b)', re.IGNORECASE,
 )
+# Kept separate from the anchored keywords above so the two conditions read
+# unambiguously: "partial fulfilment" ends the section wherever it appears.
+_PANEL_SECTION_END_ANYWHERE = re.compile(r'partial\s+fulfil+ment', re.IGNORECASE)
 _PANEL_CHAIR_ROLE = re.compile(
     r'^(?:panel\s+)?chair(?:man|person)?\s*:?$', re.IGNORECASE,
 )
@@ -673,7 +675,7 @@ def _panel_committee_block(lines: Sequence[str]) -> tuple[str, list[str]]:
             if _PANEL_COMMITTEE.match(cleaned):
                 in_block = True
             continue
-        if _PANEL_SECTION_END.search(cleaned):
+        if _PANEL_SECTION_END.search(cleaned) or _PANEL_SECTION_END_ANYWHERE.search(cleaned):
             break
         cells.extend(_split_panel_cells(raw_line))
 

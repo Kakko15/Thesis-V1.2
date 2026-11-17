@@ -9,7 +9,7 @@ function safeText(value) {
 }
 
 function xmlEscape(value) {
-  return String(value ?? '')
+  return String(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -102,7 +102,7 @@ function packZipStore(entries) {
   const encoder = new TextEncoder()
   const files = entries.map(({ name, content }) => {
     const nameBytes = encoder.encode(name)
-    const dataBytes = typeof content === 'string' ? encoder.encode(content) : content
+    const dataBytes = encoder.encode(content)
     return {
       nameBytes,
       dataBytes,
@@ -227,8 +227,8 @@ function wTable(rowsXml, { bordered = true } = {}) {
   return `<w:tbl><w:tblPr><w:tblW w:w="9360" w:type="dxa"/>${borderStyle}</w:tblPr>${rowsXml.join('')}</w:tbl>`
 }
 
+// Always called with the scan date or the (always non-empty) generation time.
 function formatReportDate(isoString) {
-  if (!isoString) return new Date().toISOString().slice(0, 10)
   const parsed = new Date(isoString)
   if (Number.isNaN(parsed.getTime())) return String(isoString)
   return parsed.toISOString().slice(0, 10)
