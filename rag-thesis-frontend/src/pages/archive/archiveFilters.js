@@ -101,7 +101,7 @@ export const SORT_OPTIONS = Object.freeze([
 ])
 
 function escapeRegExp(value) {
-  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function matchesSearchQuery(paper, rawQuery) {
@@ -139,8 +139,9 @@ function matchesSearchQuery(paper, rawQuery) {
   })
 }
 
+// Only called from sortArchivePapers, which passes papers already filtered by
+// Boolean and a query whose String(...).trim() is non-empty.
 function relevanceScore(paper, query) {
-  if (!query || !paper) return 0
   const q = query.trim().toLowerCase()
   if (!q) return 0
   const wordStart = new RegExp(`\\b${escapeRegExp(q)}`, 'i')

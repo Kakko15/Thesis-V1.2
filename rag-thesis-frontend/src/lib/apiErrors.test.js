@@ -48,3 +48,17 @@ test('Retry is offered only where repeating the request could change the answer'
   }
   assert.equal(isRetryableFailure({ message: 'Network Error' }), true)
 })
+
+test('a validation error with no usable location is attributed to "Field"', () => {
+  const invalid = failure(422, {
+    detail: [
+      { msg: 'value is not a valid email' },
+      { loc: [], msg: 'request body is empty' },
+      { loc: ['query', 'page'], msg: 'must be positive' },
+    ],
+  })
+  assert.equal(
+    apiErrorMessage(invalid),
+    'Field: value is not a valid email, Field: request body is empty, query.page: must be positive',
+  )
+})

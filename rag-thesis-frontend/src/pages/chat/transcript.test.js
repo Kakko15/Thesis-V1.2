@@ -60,6 +60,20 @@ test('a missing prompt does not alter the transcript', () => {
   })
 })
 
+test('branching an empty or absent transcript yields an empty branch', () => {
+  for (const messages of [undefined, null, 'not-a-list']) {
+    assert.deepEqual(branchBeforePrompt(messages, 'first'), { messages: [], turn: null })
+  }
+})
+
+test('only a user turn with the edited id starts the branch', () => {
+  const transcript = [user('first'), { ...ai('first answer'), id: 'second' }, user('second')]
+  assert.deepEqual(branchBeforePrompt(transcript, 'second'), {
+    messages: transcript.slice(0, 2),
+    turn: 1,
+  })
+})
+
 test('settled edits send one replacement against the shortened branch', () => {
   const chat = readFileSync(new URL('../Chat.jsx', import.meta.url), 'utf8')
   const start = chat.indexOf('const updatePrompt = ')

@@ -112,3 +112,23 @@ test('capsuleFieldError validates individual sections when blurred empty or too 
   assert.match(capsuleFieldError('methodology', { ...EMPTY_CAPSULE, methodology: 'x'.repeat(6001) }), /longer than 6,000/)
   assert.equal(capsuleFieldError('unknown', EMPTY_CAPSULE), '')
 })
+
+test('capsuleFieldError treats a missing section like an empty one', () => {
+  assert.match(capsuleFieldError('title', {}), /enter the working title/i)
+  assert.match(capsuleFieldError('objectives', {}), /enter the research questions \/ objectives/i)
+  assert.match(capsuleFieldError('methodology'), /enter the methodology/i)
+})
+
+test('a capsule file with no name or no extension is refused as an unsupported type', () => {
+  assert.match(capsuleFileError({ size: 1000 }), /PDF, a Word/)
+  assert.match(capsuleFileError({ name: '', size: 1000 }), /PDF, a Word/)
+  assert.match(capsuleFileError({ name: 'capsule', size: 1000 }), /PDF, a Word/)
+  assert.match(capsuleFileError({ name: 'pdf', size: 1000 }), /PDF, a Word/)
+})
+
+test('overwrittenFields ignores sections missing from either side', () => {
+  // The form has no rationale key at all, the file has no title key at all.
+  assert.deepEqual(overwrittenFields({ title: 'Typed title' }, { rationale: 'File rationale' }), [])
+  assert.deepEqual(overwrittenFields({ objectives: 'Typed' }, { objectives: 'From file' }), ['objectives'])
+  assert.deepEqual(overwrittenFields(), [])
+})

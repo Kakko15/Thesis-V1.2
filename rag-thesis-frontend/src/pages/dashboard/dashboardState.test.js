@@ -82,9 +82,32 @@ describe('groupPapersByTrack', () => {
       { track: 'Web and Mobile Application Development', count: 1 },
     ])
   })
+
+  it('ignores missing, non-string and blank tracks and trims the rest', () => {
+    assert.deepEqual(groupPapersByTrack([
+      null,
+      {},
+      { track: 42 },
+      { track: '   ' },
+      { track: ' BSIT ' },
+      { track: 'BSIT' },
+    ]), [{ track: 'BSIT', count: 2 }])
+  })
 })
 
 describe('buildPaperChatPrompt, mfaNudgeStorageKey & STUDENT_STARTER_PROMPTS', () => {
+  it('omits the year suffix when the thesis has no year and falls back for non-string titles', () => {
+    assert.equal(
+      buildPaperChatPrompt({ title: '  Offline Library Kiosk  ' }),
+      'Summarize the objectives, methodology, and key findings of "Offline Library Kiosk".',
+    )
+    assert.equal(
+      buildPaperChatPrompt({ title: 'Undated Study', year: 0 }),
+      'Summarize the objectives, methodology, and key findings of "Undated Study".',
+    )
+    assert.equal(buildPaperChatPrompt(null), 'Summarize the key findings and methodology of this thesis.')
+    assert.equal(buildPaperChatPrompt({ title: 7 }), 'Summarize the key findings and methodology of this thesis.')
+  })
   it('builds a focused research inquiry prompt for a specific thesis', () => {
     const prompt = buildPaperChatPrompt({
       title: 'MANGO FRUIT QUALITY DETECTION',

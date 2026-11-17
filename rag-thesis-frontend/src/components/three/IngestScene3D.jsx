@@ -314,7 +314,7 @@ function StageExtractClean({ active, isDark }) {
           arr[i * 3] += (arr[i * 3] > 0 ? 1 : -1) * dt * 0.8
           arr[i * 3 + 2] += dt * 0.6
           if (Math.abs(arr[i * 3]) > 1.8) {
-            arr[i * 3] = (Math.random() - 0.5) * 0.4
+            arr[i * 3] = (globalThis.crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296 - 0.5) * 0.4
             arr[i * 3 + 2] = 0.1
           }
         }

@@ -75,7 +75,9 @@ export function programSelection(departments, departmentName, programCode, speci
     program_id: program.id,
     specialization_id: specialization?.id || '',
     requires_specialization: specializations.length > 0,
-    track: specialization ? specialization.name : (specializations.length ? '' : program.code || ''),
+    // `program.code` is always truthy here: it strictly equals `programCode`,
+    // which the guard above already required to be truthy.
+    track: specialization ? specialization.name : (specializations.length ? '' : program.code),
   }
 }
 

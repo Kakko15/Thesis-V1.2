@@ -57,7 +57,7 @@ export function fileValidationError(file) {
 }
 
 function randomId() {
-  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Array.from(globalThis.crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('')}`
 }
 
 export function createBatchRow(file, ids = {}) {

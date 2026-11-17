@@ -1,4 +1,4 @@
-﻿"""Test bootstrap with an isolated, non-production environment.
+"""Test bootstrap with an isolated, non-production environment.
 
 Unit tests must never inherit service endpoints or hardening switches from a
 developer's local ``.env`` file.  Live disposable-project tests opt in
