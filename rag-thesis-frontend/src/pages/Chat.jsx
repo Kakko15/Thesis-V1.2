@@ -50,7 +50,12 @@ const STARTERS = [
   'What machine learning techniques were used in past CCSICT theses?',
   'Are there existing studies about attendance monitoring systems?',
   'Summarize local research on network security for campus networks.',
-  'Has anyone built a recommendation system in the Data Mining track?',
+  // Data Mining is no longer a BSCS specialization in the academic catalog
+  // (migrations/20260923_bscs_without_specialization.sql), so archived BSCS
+  // theses carry track "BSCS" and a "Data Mining track" starter could only
+  // be answered with a false "no". This wording was the most reliable of
+  // three measured live (3/3 named the Mango recommender thesis).
+  'Has any CCSICT thesis developed a recommender system?',
 ]
 
 // Messages need an identity that survives the list being trimmed on error or
