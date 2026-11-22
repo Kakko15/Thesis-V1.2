@@ -111,3 +111,7 @@ rag-thesis-backend/evaluation/corpus/private/
 /updated_figures/
 /docs/manual/
 /build_implementation_letter.py
+
+# Local AI assistant guidance files (keep locally, do not track on GitHub).
+/AGENT.md
+/CLAUDE.md
