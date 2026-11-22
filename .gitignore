@@ -104,7 +104,10 @@ rag-thesis-backend/evaluation/corpus/private/
 /*.pdf
 /*.pptx
 /*.ppt
+/*.xlsx
 /IskAI_Successfully_Defended_4K_Poster.png
+/Successfully_Defended_Celebration.html
+/convert_to_pdf.ps1
 /updated_figures/
 /docs/manual/
 /build_implementation_letter.py
