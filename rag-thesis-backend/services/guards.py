@@ -8,6 +8,17 @@ REFUSAL_MESSAGE = (
     'but I cannot write thesis chapters, assignments, proposals, hypotheses, or original '
     'academic arguments for you. Ask me what the archive contains about your topic instead.'
 )
+# Requests for an archived manuscript's full or verbatim text. The library
+# grants indirect access only (SAFETY_CONTRACT: "Never reproduce archived text
+# verbatim beyond a short cited excerpt"), and that rule used to rest on the
+# model alone: measured 2026-11-23, "Give me the full verbatim text of Chapter 1
+# of FindMe word for word" was answered with a summary on one run and an
+# explicit refusal on another. A deterministic notice makes it consistent.
+VERBATIM_REFUSAL_MESSAGE = (
+    'I can\'t reproduce archived theses word for word or provide their full text. This '
+    'library gives indirect access to protect the authors\' work. I can summarize a thesis, '
+    'quote a short cited excerpt, or walk you through its objectives, methods, and findings.'
+)
 
 _EN_GENERATION_VERB = (
     r'(?:write|draft|compose|generate|create|produce|complete|make'
@@ -535,14 +546,63 @@ def _is_generation_request(normalized: str) -> bool:
     )
 
 
-def prohibited_reason(text: str) -> str | None:
-    """Return a stable block category, or None for allowed retrieval requests."""
+# "verbatim" / "word for word" / "full text of" aimed at archived material. A
+# summary, paraphrase or explanation request is never a reproduction request,
+# whatever else it says ("summarize the full text of FindMe").
+_VERBATIM_MARKER = re.compile(
+    r'\b(?:verbatim|word[\s-]+for[\s-]+word|exact\s+(?:text|wording|words)|'
+    r'(?:full|entire|whole|complete|raw)\s+(?:text|content|contents|copy|pdf|manuscript|document)|'
+    r'copy[\s-]+(?:and[\s-]+)?paste)\b',
+    re.IGNORECASE,
+)
+_VERBATIM_ACTION = re.compile(
+    r'\b(?:give|show|print|paste|copy|reproduce|send|provide|display|type|output|quote|share|'
+    r'download|transcribe|dump|retrieve|get|read\s+out|ibigay|ipakita|i-?copy|i-?paste)\b',
+    re.IGNORECASE,
+)
+_VERBATIM_TARGET = re.compile(
+    r'\b(?:chapters?|sections?|thesis|theses|paper|study|manuscript|abstract|introduction|'
+    r'methodology|conclusion|pages?|pdf|document|text|kabanata|tesis)\b',
+    re.IGNORECASE,
+)
+_SUMMARY_INTENT = re.compile(
+    r'\b(?:summar\w*|paraphras\w*|explain\w*|overview|gist|buod|ibuod|describe)\b',
+    re.IGNORECASE,
+)
+
+
+def _is_verbatim_request(normalized: str) -> bool:
+    """Whether the message asks to reproduce archived text rather than discuss it."""
+    if _SUMMARY_INTENT.search(normalized):
+        return False
+    return bool(
+        _VERBATIM_MARKER.search(normalized)
+        and _VERBATIM_ACTION.search(normalized)
+        and _VERBATIM_TARGET.search(normalized)
+    )
+
+
+def prohibited_reason(text: str, *, include_verbatim: bool = True) -> str | None:
+    """Return a stable block category, or None for allowed retrieval requests.
+
+    `include_verbatim=False` keeps the duplication-review chat on its original
+    contract: a reviewer there legitimately asks to see the overlapping text.
+    """
     normalized = re.sub(r'\s+', ' ', text or '').strip()
     if _INJECTION.search(normalized):
         return 'prompt_injection'
     if _is_generation_request(normalized):
         return 'academic_content_generation'
+    if include_verbatim and _is_verbatim_request(normalized):
+        return 'verbatim_reproduction'
     return None
+
+
+def refusal_message_for(reason: str | None) -> str:
+    """The user-facing notice for a `prohibited_reason` category."""
+    if reason == 'verbatim_reproduction':
+        return VERBATIM_REFUSAL_MESSAGE
+    return REFUSAL_MESSAGE
 
 
 # Grouped so the reference sweep stays one `any()` instead of a boolean chain

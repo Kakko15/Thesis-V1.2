@@ -737,6 +737,8 @@ class TestStep1RoutingHardening:
         ('How many BLIS theses are in the archive?', ('blis', True)),
         ('List all BSCS theses', ('bscs', False)),
         ('What theses are under WMAD?', ('wmad', False)),
+        ('How many theses are in BSIS?', ('bsis', True)),
+        ('How many studies are there under the BLIS program?', ('blis', True)),
     ])
     def test_program_catalog_queries_extract_term_and_mode(self, question, expected):
         from routers.chat import _extract_program_catalog_query
@@ -750,6 +752,7 @@ class TestStep1RoutingHardening:
         'Compare the BSCS alumni tracer study and the BLIS alumni profiling study.',
         'How many respondents were in the BLIS alumni profiling study?',
         'What Data Mining theses exist in the archive?',
+        'How many theses in BSIS used surveys?',
     ])
     def test_topical_or_summary_program_queries_stay_on_retrieval(self, question):
         from routers.chat import _extract_program_catalog_query

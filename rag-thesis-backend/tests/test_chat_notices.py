@@ -61,6 +61,9 @@ MARKERS_WITHOUT_HISTORICAL_ROWS = frozenset({
     chat_notices.COURTESY_MESSAGE,
     chat_notices.FAREWELL_MESSAGE,
     chat_notices.UNCLEAR_TOPIC_MESSAGE,
+    # Added 2026-11-23 with the verbatim-reproduction guard; no earlier build
+    # could emit it.
+    chat_notices.VERBATIM_REFUSAL_MESSAGE,
     *chat_notices.CONVERSATION_MESSAGES[1:],
     *chat_notices.COURTESY_MESSAGES[1:],
     *chat_notices.FAREWELL_MESSAGES[1:],

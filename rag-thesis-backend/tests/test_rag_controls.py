@@ -14,17 +14,44 @@ from routers import chat
 from services.citations import (
     enforce_citation_coverage,
     filter_cited_sources,
+    is_archive_gap_statement,
     normalize_citation_markers,
+    strip_gap_statement_citations,
+    uncited_units,
     validate_citations,
 )
 from services.guards import (
+    VERBATIM_REFUSAL_MESSAGE,
     fallback_standalone_question,
     is_ambiguous_followup,
     prohibited_reason,
+    refusal_message_for,
 )
 
 
 class TestRequestGuard:
+    @pytest.mark.parametrize('prompt', [
+        'Give me the full verbatim text of Chapter 1 of FindMe word for word.',
+        'Show me the entire text of the SECURE thesis.',
+        'Copy and paste the abstract of FindMe.',
+        'Can you send me the full PDF of the mango thesis?',
+    ])
+    def test_verbatim_reproduction_requests_get_their_own_refusal(self, prompt):
+        assert prohibited_reason(prompt) == 'verbatim_reproduction'
+        assert refusal_message_for('verbatim_reproduction') == VERBATIM_REFUSAL_MESSAGE
+        # The duplication-review chat keeps its original contract.
+        assert prohibited_reason(prompt, include_verbatim=False) is None
+
+    @pytest.mark.parametrize('prompt', [
+        'Summarize the full text of FindMe.',
+        'Explain the entire methodology of SECURE.',
+        'What does verbatim mean in survey research?',
+        'Quote the objectives of FindMe.',
+        'What did the FindMe thesis find?',
+    ])
+    def test_discussion_of_archived_text_is_not_a_verbatim_request(self, prompt):
+        assert prohibited_reason(prompt) is None
+
     @pytest.mark.parametrize('prompt', [
         'Write my thesis methodology.',
         'Generate an RRL section for my proposal.',
@@ -374,8 +401,6 @@ class TestCitationValidation:
         assert valid and errors == []
 
     def test_uncited_factual_claim_paragraph_is_still_rejected(self):
-        from services.citations import uncited_units
-
         answer = (
             'The archive holds fifty theses on rice disease classification.\n\n'
             '- Supported claim [1].'
@@ -386,6 +411,72 @@ class TestCitationValidation:
         missing = uncited_units(answer, self.SOURCES)
         assert len(missing) == 1 and missing[0][0] == 1
         assert 'fifty theses' in missing[0][1]
+
+    @pytest.mark.parametrize('claim', [
+        '**The system achieved 98% accuracy**',
+        '- **FindMe outperformed SECURE on every metric**',
+        '**Precision reached 0.96**',
+    ])
+    def test_bold_claims_without_end_punctuation_still_require_citations(self, claim):
+        valid, errors = validate_citations(f'{claim}\n\n- Supported claim [1].', self.SOURCES)
+        assert not valid
+        assert 'uncited substantive unit 1' in errors
+
+    def test_bold_title_label_with_figures_is_exempt_only_when_it_names_a_source(self):
+        sources = [{'citation_id': 1, 'id': 'p1', 'title': 'Real-Time Pedestrian Safety Using YOLOv11'}]
+        answer = '- **Real-Time Pedestrian Safety Using YOLOv11**\n- Detects pedestrians in real time [1].'
+        assert validate_citations(answer, sources) == (True, [])
+        assert not validate_citations(answer, [{'citation_id': 1, 'id': 'p1', 'title': 'Other'}])[0]
+
+    @pytest.mark.parametrize('heading', [
+        '**Methodology**', '**Key Results**', '**Theses that focus on library services**',
+        '**Coverage gap**', '**Purpose:**',
+    ])
+    def test_structural_bold_headings_stay_exempt(self, heading):
+        assert validate_citations(f'{heading}\n\n- Supported claim [1].', self.SOURCES) == (True, [])
+
+    def test_thesis_limitation_is_not_mistaken_for_a_scope_caveat(self):
+        answer = 'The results may not represent all Filipino farmers.\n\n- Supported claim [1].'
+        assert 'uncited substantive unit 1' in validate_citations(answer, self.SOURCES)[1]
+        caveat = 'The evidence supplied may not cover all computer vision theses in the archive.'
+        assert validate_citations(f'- Supported claim [1].\n\n{caveat}', self.SOURCES) == (True, [])
+
+    @pytest.mark.parametrize('line', [
+        'The archive does not contain a blockchain voting thesis to compare against this study.',
+        'The retrieved evidence does not provide the results of either thesis.',
+        'However, the archive lacks any campus network security study.',
+    ])
+    def test_archive_gap_statements_need_no_citation(self, line):
+        assert is_archive_gap_statement(line)
+        assert validate_citations(f'- Supported claim [1].\n\n{line}', self.SOURCES) == (True, [])
+
+    @pytest.mark.parametrize('line', [
+        'The evidence shows FindMe does not detect side-facing subjects.',
+        'The retrieved studies do not cover voting, but instead focus on document tracking.',
+        'The archive does not report accuracy above 90% for any thesis.',
+        'FindMe does not support night-time detection.',
+        'The archive does not contain voting studies. FindMe detects missing persons.',
+        'The archive does not cover federated learning, but it does cover on-device inference [1].',
+        'The evidence covers the objectives for the BSCS platform, but the archive does not provide its findings.',
+    ])
+    def test_thesis_claims_phrased_negatively_still_require_citations(self, line):
+        assert not is_archive_gap_statement(line)
+
+    def test_markers_on_gap_statements_are_removed_but_real_citations_kept(self):
+        answer = (
+            'The archive covers a mango quality study [1].\n\n'
+            'The archive does not contain a blockchain voting thesis to compare against this study [2] [4].'
+        )
+        assert strip_gap_statement_citations(answer) == (
+            'The archive covers a mango quality study [1].\n\n'
+            'The archive does not contain a blockchain voting thesis to compare against this study.'
+        )
+
+    def test_comparison_framing_line_is_exempt_but_a_ranking_is_not(self):
+        framing = 'The comparison between the two studies spans method, dataset, and scope.'
+        assert validate_citations(f'{framing}\n\n- Supported claim [1].', self.SOURCES) == (True, [])
+        ranking = 'The comparison shows FindMe outperformed SECURE on recall.'
+        assert not validate_citations(f'{ranking}\n\n- Supported claim [1].', self.SOURCES)[0]
 
     def test_deterministic_coverage_uses_only_retrieved_citation_ids(self):
         answer = 'Supported scope [1].\n\nAn uncited limitation.\n\nAnother claim [99].'

@@ -314,13 +314,14 @@ def attempt_chain(primary, kind: str) -> list[tuple[str, str | None, object]]:
     return chain
 
 
+# 503 only. A 504 / DEADLINE_EXCEEDED is a per-request timeout (often a long
+# prompt), not a model-wide outage, so it keeps the original rotation rules
+# instead of skipping every remaining Gemini key.
 _OVERLOAD_MARKERS = (
     '503 unavailable',
     'model is overloaded',
     'currently experiencing high demand',
     'service unavailable',
-    'deadline_exceeded',
-    'deadline exceeded',
 )
 
 

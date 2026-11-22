@@ -30,7 +30,7 @@ import re
 import time
 
 from config import settings
-from services.guards import REFUSAL_MESSAGE
+from services.guards import REFUSAL_MESSAGE, VERBATIM_REFUSAL_MESSAGE
 from services.guest_budget import GUEST_BUDGET_MESSAGE
 from services.network_retry import mentions_http_status
 
@@ -179,6 +179,7 @@ GROUNDED_FALLBACK_PREFIX = 'I could not verify a direct answer'
 NOTICE_MARKERS = (
     CAPACITY_MESSAGE,
     REFUSAL_MESSAGE,
+    VERBATIM_REFUSAL_MESSAGE,
     GUEST_BUDGET_MESSAGE,
     NO_RELEVANT_PREFIX,
     *CONVERSATION_MESSAGES,
@@ -257,7 +258,8 @@ def response_kind(response) -> str:
         return KIND_NOTICE
     answer = getattr(response, 'answer', '') or ''
     if answer in (
-        CAPACITY_MESSAGE, REFUSAL_MESSAGE, GUEST_BUDGET_MESSAGE, *CONVERSATION_MESSAGES,
+        CAPACITY_MESSAGE, REFUSAL_MESSAGE, VERBATIM_REFUSAL_MESSAGE, GUEST_BUDGET_MESSAGE,
+        *CONVERSATION_MESSAGES,
         IDENTITY_MESSAGE,
         SYSTEM_ORIGIN_MESSAGE, CAPABILITIES_MESSAGE, *COURTESY_MESSAGES,
         *FAREWELL_MESSAGES,

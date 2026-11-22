@@ -399,7 +399,7 @@ class TestChatImplBranches:
             return 'Write my thesis methodology chapter for me'
         monkeypatch.setattr(chat, '_rewrite_followup', rewrite)
         response = _impl('and then?', monkeypatch, guest_history=['Earlier question'])
-        assert response.answer == chat.REFUSAL_MESSAGE
+        assert response.answer == chat.chat_notices.REFUSAL_MESSAGE
 
     def test_rewritten_followup_can_resolve_to_author_lookup(self, monkeypatch):
         monkeypatch.setattr(chat, 'is_ambiguous_followup', lambda *_: True)

@@ -43,11 +43,25 @@ _BOLD_OBJECTIVE_LABEL = re.compile(
     re.IGNORECASE,
 )
 # Standalone bold headings/title labels (e.g. `- **FindMe: ...**` or
-# `**Key Findings:**`). Matches CITATION_CONTRACT ("Headings, bold labels, and
-# short lines ending in a colon are not units and need no marker") while still
-# rejecting full bolded factual sentences that end in sentence punctuation
-# (`**The study conclusively improves retrieval accuracy.**`).
-_STANDALONE_BOLD_LABEL = re.compile(r'\*\*[^*\n]{1,180}(?<![.!?])\*\*:?')
+# `**Key Findings:**`). CITATION_CONTRACT says headings and bold labels are not
+# units, but a bold line can also BE a claim (`**The system achieved 98%
+# accuracy**`), so the shape alone is not enough: see `_is_bold_label`.
+_STANDALONE_BOLD_LABEL = re.compile(r'\*\*(?P<label>[^*\n]{1,180}?)(?<![.!?])\*\*(?P<colon>:?)')
+# Verbs that turn a bold line into an assertion about what a study did/found.
+# Heading nouns that double as verbs ("Results", "Scores") are deliberately
+# absent: `**Key Results**` organizes an answer, it asserts nothing.
+_CLAIM_VERBS = frozenset({
+    'is', 'are', 'was', 'were', 'has', 'have', 'had', 'achieved', 'achieves', 'achieve',
+    'outperformed', 'outperforms', 'outperform', 'improved', 'improves', 'improve',
+    'increased', 'increases', 'decreased', 'decreases', 'reduced', 'reduces',
+    'showed', 'shows', 'show', 'found', 'finds', 'proved', 'proves', 'demonstrated',
+    'demonstrates', 'reached', 'reaches', 'obtained', 'obtains', 'scored',
+    'yielded', 'yields', 'resulted', 'performed', 'performs', 'surpassed',
+    'surpasses', 'exceeded', 'exceeds', 'used', 'uses', 'utilized', 'utilizes',
+    'employed', 'employs', 'applied', 'applies', 'developed', 'develops', 'reported',
+    'reports', 'concluded', 'concludes', 'confirmed', 'confirms', 'revealed', 'reveals',
+})
+_YEAR_TOKEN = re.compile(r'\b(?:19|20)\d\d\b')
 # Mandatory non-English opener commanded by OUTPUT_CONTRACT. It is a system
 # language disclosure, never a claim drawn from an archived thesis.
 _ENGLISH_LANGUAGE_NOTICE = re.compile(
@@ -58,28 +72,160 @@ _ENGLISH_LANGUAGE_NOTICE = re.compile(
 )
 # Mandatory sample-scope closing line commanded by QUESTION_TYPE_TASKS
 # (aggregate / enumeration) noting that the reply only covers retrieved items.
+# It must also name the archive or the retrieved set (`_ARCHIVE_SCOPE_WORD`):
+# without that, "The results may not represent all Filipino farmers." -- a
+# limitation stated BY a thesis -- would pass uncited.
 _RETRIEVAL_SCOPE_CAVEAT = re.compile(
     r'^(?:note:\s*)?(?:this\s+(?:answer|list|summary|response)|'
     r'the\s+(?:retrieved\s+)?(?:evidence|passages?|studies|results?))\s+'
-    r'(?:presented\s+here\s+)?(?:covers?\s+(?:only\s+)?the\s+retrieved|'
+    r'(?:presented\s+here\s+|supplied\s+|provided\s+|here\s+)?'
+    r'(?:covers?\s+(?:only\s+)?the\s+retrieved|'
     r'may\s+not\s+(?:cover|include|list|represent)\s+(?:every|all)|'
     r'reflects?\s+(?:only\s+)?the\s+retrieved|'
     r'is\s+limited\s+to\s+the\s+retrieved)[^.\n]{0,180}\.?$',
     re.IGNORECASE,
 )
+_ARCHIVE_SCOPE_WORD = re.compile(
+    r'\b(?:archive|archived|retrieved|indexed|supplied|this\s+(?:answer|list|summary|response))\b',
+    re.IGNORECASE,
+)
+# A sentence that only reports what the archive / retrieved evidence LACKS
+# ("The archive does not contain a blockchain voting thesis."). No retrieved
+# passage can support a claim about an absence, so requiring -- or stapling --
+# a marker here attributes a negative archive claim to a thesis that never made
+# it (the defect `routers/chat.py` documents beside its no-evidence branch).
+# Deliberately narrow: one sentence, no figures, the negation must be governed
+# by the archive/evidence itself (so "The evidence shows FindMe does not detect
+# side faces" stays a cited thesis claim), and no contrastive clause that slips
+# a positive finding in ("... but instead focus on document tracking").
+_GAP_SUBJECT = (
+    r'(?:archive|retrieved\s+(?:evidence|passages?|studies|text|documents?)|'
+    r'(?:provided|supplied|available)\s+(?:evidence|text|passages?)|evidence|passages)'
+)
+_GAP_START = re.compile(
+    rf'^(?:however,?\s+|but\s+|note:\s*)?(?:the|this|these)\s+(?:ccsict\s+)?{_GAP_SUBJECT}\b',
+    re.IGNORECASE,
+)
+_GAP_NEGATION = re.compile(
+    rf'\b{_GAP_SUBJECT}\s+(?:itself\s+|also\s+|currently\s+)?'
+    r'(?:does\s+not|do\s+not|doesn\'t|don\'t|did\s+not|contains?\s+no|provides?\s+no|'
+    r'has\s+no|have\s+no|holds?\s+no|lacks?|includes?\s+no|offers?\s+no)\b',
+    re.IGNORECASE,
+)
+_GAP_CONTRAST = re.compile(r'\b(?:instead|rather|whereas|while)\b', re.IGNORECASE)
+# Every clause must itself be negative: "The archive does not cover federated
+# learning, but it does cover on-device inference [1]" carries a real, cited
+# finding in its second clause and must keep its marker.
+_CLAUSE_SPLIT = re.compile(r'\b(?:but|however|though|although|yet)\b|;', re.IGNORECASE)
+_NEGATION_WORD = re.compile(
+    r'\b(?:not|no|none|nothing|neither|nor|without|lacks?|cannot|n\'t)\b|n\'t\b', re.IGNORECASE,
+)
+_MARKER_RUN = re.compile(r'\s*\[\d+\]')
+# A framing sentence that only announces the comparison axis ("The comparison
+# between the two studies spans method, dataset, and scope."). The per-thesis
+# bullets that follow carry the cited claims. A framing line that ranks the
+# studies is a claim and stays substantive.
+_COMPARISON_FRAMING = re.compile(
+    r'^(?:the|this)\s+comparison\b[^.!?\n]{0,220}[.!?]?$',
+    re.IGNORECASE,
+)
+_COMPARATIVE_CLAIM = re.compile(
+    r'\b(?:outperform\w*|better|worse|higher|lower|faster|slower|superior|inferior|'
+    r'more\s+accurate|less\s+accurate|beats?|exceed\w*|surpass\w*)\b',
+    re.IGNORECASE,
+)
 
 
-def _is_substantive(text: str) -> bool:
+def _strip_markers(text: str) -> str:
+    return _MARKER_RUN.sub('', text or '').strip()
+
+
+def _has_figures(text: str) -> bool:
+    return bool(re.search(r'\d', _YEAR_TOKEN.sub(' ', text or '')))
+
+
+def is_archive_gap_statement(text: str) -> bool:
+    """Whether a unit only states what the archive or retrieved evidence lacks."""
+    plain = _strip_markers(_LIST_MARKER.sub('', (text or '').strip()))
+    if not plain or '\n' in plain or re.search(r'[.!?]\s+\S', plain):
+        return False
+    if _has_figures(plain) or _GAP_CONTRAST.search(plain):
+        return False
+    clauses = [clause for clause in _CLAUSE_SPLIT.split(plain) if clause.strip(' ,')]
+    if any(not _NEGATION_WORD.search(clause) for clause in clauses):
+        return False
+    return bool(_GAP_START.search(plain) and _GAP_NEGATION.search(plain))
+
+
+def _is_comparison_framing(plain: str) -> bool:
+    text = _strip_markers(plain)
+    return bool(
+        _COMPARISON_FRAMING.fullmatch(text)
+        and not _has_figures(text)
+        and not _COMPARATIVE_CLAIM.search(text)
+    )
+
+
+def _label_tokens(text: str) -> list[str]:
+    return re.findall(r'[a-z0-9]+', (text or '').lower())
+
+
+def _matches_source_title(label: str, titles: tuple[str, ...]) -> bool:
+    """Whether a bold label names one of the retrieved theses."""
+    label_norm = ' '.join(_label_tokens(_YEAR_TOKEN.sub(' ', label)))
+    if len(label_norm) < 3:
+        return False
+    for title in titles:
+        title_norm = ' '.join(_label_tokens(title))
+        if not title_norm:
+            continue
+        if label_norm == title_norm or title_norm.startswith(label_norm + ' '):
+            return True
+        if label_norm.startswith(title_norm):
+            return True
+    return False
+
+
+def _is_bold_label(plain: str, titles: tuple[str, ...]) -> bool:
+    """A standalone bold heading or thesis-title label, not a bolded claim."""
+    match = _STANDALONE_BOLD_LABEL.fullmatch(plain)
+    if not match:
+        return False
+    label = match.group('label').strip()
+    if match.group('colon') or label.endswith(':'):
+        return True
+    if titles and _matches_source_title(label, titles):
+        return True
+    tokens = _label_tokens(label)
+    if any(token in _CLAIM_VERBS for token in tokens):
+        return False
+    # Figures make a bold line a reported result ("98% accuracy"). Years are
+    # allowed because a title label is often suffixed with one.
+    if re.search(r'\d', _YEAR_TOKEN.sub(' ', label)):
+        return False
+    return len(tokens) <= 14
+
+
+def _is_structural_unit(plain: str, titles: tuple[str, ...]) -> bool:
+    """Units that organize or scope an answer without asserting a thesis finding."""
+    # Standalone bold labels (such as `**General Objective**` or a thesis title
+    # heading a nested bullet block) organize a cited answer without asserting
+    # research findings themselves.
+    if _BOLD_OBJECTIVE_LABEL.fullmatch(plain) or _is_bold_label(plain, titles):
+        return True
+    if _ENGLISH_LANGUAGE_NOTICE.fullmatch(plain):
+        return True
+    if _RETRIEVAL_SCOPE_CAVEAT.fullmatch(plain) and _ARCHIVE_SCOPE_WORD.search(plain):
+        return True
+    return is_archive_gap_statement(plain) or _is_comparison_framing(plain)
+
+
+def _is_substantive(text: str, titles: tuple[str, ...] = ()) -> bool:
     """Whether a segment asserts a research claim that must carry a citation."""
     if not text or text.startswith('#'):
         return False
     plain = _LIST_MARKER.sub('', text).strip()
-    # Standalone bold labels (such as `**General Objective**` or a thesis title
-    # heading a nested bullet block) organize a cited answer without asserting
-    # research findings themselves.
-    if _BOLD_OBJECTIVE_LABEL.fullmatch(plain) or _STANDALONE_BOLD_LABEL.fullmatch(plain):
-        return False
-    if _ENGLISH_LANGUAGE_NOTICE.fullmatch(plain) or _RETRIEVAL_SCOPE_CAVEAT.fullmatch(plain):
+    if _is_structural_unit(plain, titles):
         return False
     # Short colon-ended lines immediately introducing a cited list are
     # headings/lead-ins, not standalone research claims.
@@ -88,7 +234,31 @@ def _is_substantive(text: str) -> bool:
     return len(re.sub(r'\s+', ' ', plain)) >= 10
 
 
-def _substantive_spans(answer: str) -> list[tuple[int, int, str]]:
+def _source_titles(sources: list[dict] | None) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(
+        str(source.get('title')) for source in (sources or []) if source.get('title')
+    ))
+
+
+def _unit_segments(answer: str) -> list[tuple[int, int, str]]:
+    """Every unit (substantive or not) as ``(start, end, stripped_text)``."""
+    text = answer or ''
+    segments: list[tuple[int, int, str]] = []
+    cursor = 0
+    separators = [
+        (match.start(), match.end()) for match in _UNIT_SEPARATOR.finditer(text)
+    ]
+    for segment_end, next_start in [*separators, (len(text), len(text))]:
+        raw = text[cursor:segment_end]
+        stripped = raw.strip()
+        if stripped:
+            lead = len(raw) - len(raw.lstrip())
+            segments.append((cursor + lead, cursor + lead + len(stripped), stripped))
+        cursor = next_start
+    return segments
+
+
+def _substantive_spans(answer: str, titles: tuple[str, ...] = ()) -> list[tuple[int, int, str]]:
     """Locate each substantive unit as ``(start, end, text)`` within ``answer``.
 
     Positions, not just text, because two identical paragraphs or list items
@@ -98,24 +268,32 @@ def _substantive_spans(answer: str) -> list[tuple[int, int, str]]:
     marker and unit two stayed uncited. Validation then failed and an otherwise
     grounded answer was discarded for the generic fallback.
     """
-    text = answer or ''
-    spans: list[tuple[int, int, str]] = []
-    cursor = 0
-    separators = [
-        (match.start(), match.end()) for match in _UNIT_SEPARATOR.finditer(text)
+    return [
+        (start, end, stripped)
+        for start, end, stripped in _unit_segments(answer)
+        if _is_substantive(stripped, titles)
     ]
-    for segment_end, next_start in [*separators, (len(text), len(text))]:
-        raw = text[cursor:segment_end]
-        stripped = raw.strip()
-        if _is_substantive(stripped):
-            lead = len(raw) - len(raw.lstrip())
-            spans.append((cursor + lead, cursor + lead + len(stripped), stripped))
-        cursor = next_start
-    return spans
 
 
-def _substantive_units(answer: str) -> list[str]:
-    return [text for _start, _end, text in _substantive_spans(answer)]
+def _substantive_units(answer: str, titles: tuple[str, ...] = ()) -> list[str]:
+    return [text for _start, _end, text in _substantive_spans(answer, titles)]
+
+
+def strip_gap_statement_citations(answer: str) -> str:
+    """Remove citation markers from units that only state what the archive lacks.
+
+    A model told to cite every line will also cite "The archive does not
+    contain a blockchain voting thesis [2]", presenting thesis 2 as the
+    authority for an absence it never mentions. The marker is removed rather
+    than the sentence, so the reader still sees the honest gap statement.
+    """
+    text = answer or ''
+    for start, end, stripped in reversed(_unit_segments(text)):
+        if _CITATION.search(stripped) and is_archive_gap_statement(stripped):
+            cleaned = _MARKER_RUN.sub('', stripped)
+            cleaned = re.sub(r'\s+([.!?])$', r'\1', cleaned).rstrip()
+            text = f'{text[:start]}{cleaned}{text[end:]}'
+    return text
 
 
 def enforce_citation_coverage(answer: str, sources: list[dict]) -> str:
@@ -165,7 +343,7 @@ def enforce_citation_coverage(answer: str, sources: list[dict]) -> str:
         repaired,
     )
     # Patch back-to-front so each insertion leaves the earlier offsets valid.
-    for _start, end, unit in reversed(_substantive_spans(repaired)):
+    for _start, end, unit in reversed(_substantive_spans(repaired, _source_titles(sources))):
         if not cited_ids(unit):
             repaired = f'{repaired[:end]} [{fallback}]{repaired[end:]}'
     return repaired
@@ -178,7 +356,7 @@ def uncited_units(answer: str, sources: list[dict]) -> list[tuple[int, str]]:
         for position, source in enumerate(sources, start=1)
     }
     missing: list[tuple[int, str]] = []
-    for index, unit in enumerate(_substantive_units(answer), start=1):
+    for index, unit in enumerate(_substantive_units(answer, _source_titles(sources)), start=1):
         unit_ids = cited_ids(unit)
         if not unit_ids or not unit_ids.issubset(allowed):
             missing.append((index, unit))
@@ -198,7 +376,7 @@ def validate_citations(answer: str, sources: list[dict]) -> tuple[bool, list[str
     invalid = sorted(used - allowed)
     if invalid:
         errors.append(f'out-of-range citations: {invalid}')
-    for index, unit in enumerate(_substantive_units(answer), start=1):
+    for index, unit in enumerate(_substantive_units(answer, _source_titles(sources)), start=1):
         unit_ids = cited_ids(unit)
         if not unit_ids or not unit_ids.issubset(allowed):
             errors.append(f'uncited substantive unit {index}')

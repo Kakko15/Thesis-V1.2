@@ -78,7 +78,7 @@ class TestEarlyChatPaths:
             ChatRequest(question='Write my entire thesis methodology chapter'),
             _NoRequest(), BackgroundTasks(), None,
         ))
-        assert blocked.answer == chat.REFUSAL_MESSAGE
+        assert blocked.answer == chat.chat_notices.REFUSAL_MESSAGE
 
     def test_model_identity_does_not_search_the_archive(self, monkeypatch):
         async def should_not_retrieve(*_args, **_kwargs):
@@ -1533,3 +1533,54 @@ class TestStep1EndpointFastPaths:
         assert response.no_relevant_thesis is True
         assert response.sources == []
         assert 'no indexed theses under **Network and Security**' in response.answer
+
+    def test_verbatim_request_is_refused_before_retrieval_as_a_notice(self, monkeypatch):
+        async def fail_retrieve(*_args, **_kwargs):
+            raise AssertionError('a verbatim request must not reach retrieval')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', fail_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='Give me the full verbatim text of Chapter 1 of FindMe word for word.'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.answer == chat.chat_notices.VERBATIM_REFUSAL_MESSAGE
+        assert response.sources == []
+        assert response.kind == 'notice'
+
+    def test_enumeration_questions_sample_one_passage_per_thesis(self, monkeypatch):
+        captured = {}
+
+        async def retrieve(_question, _department, _paper_id, _is_overview, _category=None, per_paper_cap=None):
+            captured['cap'] = per_paper_cap
+            return ('', [], 0.0), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        run(chat._chat_impl(
+            ChatRequest(question='List all theses in the archive about computer vision.'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert captured['cap'] == 1
+
+    def test_gap_statement_markers_are_removed_and_their_sources_dropped(self, monkeypatch):
+        sources = [
+            {'citation_id': 1, 'id': 'p_mango', 'chunk_id': 1, 'title': 'Mango Quality CNN'},
+            {'citation_id': 2, 'id': 'p_canner', 'chunk_id': 2, 'title': 'ISU-CANNER'},
+        ]
+
+        async def retrieve(*_args, **_kwargs):
+            return ('[1] Mango evidence\n\n[2] Canner evidence', sources, 0.8), None
+
+        async def generate(*_args):
+            return SimpleNamespace(content=(
+                'The mango study classified fruit quality with a CNN [1].\n\n'
+                'The archive does not contain a blockchain voting thesis to compare against it [2].'
+            )), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(question='Compare the mango study with a blockchain voting thesis.'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.answer.endswith('to compare against it.')
+        assert [source['id'] for source in response.sources] == ['p_mango']

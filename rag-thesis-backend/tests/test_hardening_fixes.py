@@ -445,7 +445,7 @@ class TestStoredNonAnswersNeverBecomeResearchContext:
 
     def test_the_refusal_message_is_recognized(self):
         from routers import chat
-        assert chat._is_stored_non_answer(chat.REFUSAL_MESSAGE)
+        assert chat._is_stored_non_answer(chat.chat_notices.REFUSAL_MESSAGE)
 
     @pytest.mark.parametrize('answer', [
         'The attendance monitoring study used a quantitative design [1].',

@@ -437,3 +437,19 @@ class TestGroqFallback:
         with pytest.raises(RuntimeError, match='503 UNAVAILABLE'):
             run(gemini_pool.arun('primary', gemini_pool.CHAT, call))
         assert seen == ['primary']
+
+    @pytest.mark.parametrize('message', [
+        '504 DEADLINE_EXCEEDED: request timed out',
+        '429 RESOURCE_EXHAUSTED',
+        'chunk 503 failed to parse',
+    ])
+    def test_non_503_errors_are_not_provider_overload(self, message):
+        assert not gemini_pool._is_provider_overload(RuntimeError(message))
+
+    @pytest.mark.parametrize('message', [
+        '503 UNAVAILABLE high demand',
+        'The model is overloaded. Please try again later.',
+        'Service Unavailable',
+    ])
+    def test_503_shapes_are_provider_overload(self, message):
+        assert gemini_pool._is_provider_overload(RuntimeError(message))

@@ -908,6 +908,54 @@ class TestPaperDiversityCap:
         assert retriever._resolve_comparison_side_paper('a blockchain voting thesis in the archive', catalog) is None
         assert retriever._resolve_comparison_side_paper('computer vision studies', catalog) is None
 
+    @pytest.mark.parametrize('side', [
+        'secure login systems',        # lowercase topic word, not the SECURE thesis
+        'a secure voting system',
+        'object detection',            # topics shared by several theses
+        'K-means clustering',
+        'library services',
+        'mango',
+        'the Left-Off detector',       # no singular work noun -> vector search
+    ])
+    def test_topical_sides_are_never_pinned_to_one_thesis(self, side):
+        catalog = [
+            {'id': 'p_secure', 'title': 'SECURE: A SMART INTRUDER DETECTION SYSTEM FOR PROPERTY SECURITY USING COMPUTER VISION', 'track': 'BSCS'},
+            {'id': 'p_left', 'title': 'Computer Vision-Based Left-Off Object Detection Platform', 'track': 'BSCS'},
+            {'id': 'p_kmeans', 'title': 'ENHANCED K-MEANS CLUSTERING BY ADDRESSING OUTLIERS', 'track': 'BSCS'},
+            {'id': 'p_lib', "title": "STUDENTS' ASSESSMENT OF READER'S SERVICES AT ISU LIBRARY", 'track': 'BLIS'},
+            {'id': 'p_mango', 'title': 'MANGO FRUIT QUALITY DETECTION AND CLASSIFICATION', 'track': 'BSCS'},
+        ]
+        assert retriever._resolve_comparison_side_paper(side, catalog) is None
+
+    def test_named_and_title_scoped_sides_resolve(self):
+        catalog = [
+            {'id': 'p_mango', 'title': 'MANGO FRUIT QUALITY DETECTION AND CLASSIFICATION USING CNN', 'track': 'BSCS'},
+            {'id': 'p_aisa', 'title': 'AN INFORMATION SYSTEM APPROACH (AISA): WEB-BASED INQUIRY SYSTEM', 'track': 'BSIS'},
+            {'id': 'p_canner', 'title': 'ISU-CANNER: A Document Monitoring and Tracking System', 'track': 'WMAD'},
+        ]
+        resolve = retriever._resolve_comparison_side_paper
+        assert resolve('the Mango Fruit Quality CNN study', catalog)['id'] == 'p_mango'
+        assert resolve('AISA', catalog)['id'] == 'p_aisa'
+        assert resolve('ISU-CANNER', catalog)['id'] == 'p_canner'
+        assert resolve('aisa', catalog) is None
+
+    def test_name_resolved_comparison_chunks_report_no_similarity(self, monkeypatch):
+        chunks = [
+            {'id': 5, 'paper_id': 'p_findme', 'chunk_index': 1, 'content': 'FindMe introduction',
+             'page_start': 1, 'page_end': 1, 'section': 'Introduction'},
+        ]
+
+        class _Client(_RetrieverClient):
+            def table(self, name):
+                assert name == 'chunks'
+                return _Query(chunks)
+
+        monkeypatch.setattr(retriever, 'sb', _Client())
+        selected = retriever._fetch_paper_comparison_chunks({'id': 'p_findme', 'title': 'FindMe'}, '')
+        assert selected and selected[0]['similarity'] is None
+        source = retriever.public_source({'id': 'p_findme'}, selected[0].get('similarity', 0.0), chunk=selected[0])
+        assert 'similarity' not in source
+
     def test_select_comparison_paper_chunks_skips_toc_and_spreads_sections(self):
         paper = {'id': 'p1', 'title': 'Alumni Tracer Platform', 'authors': 'A'}
         candidates = [

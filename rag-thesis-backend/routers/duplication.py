@@ -845,7 +845,7 @@ def duplication_chat(
 
     scan = scan_res.data[0]
     chat_log = scan.get('chat_log') or []
-    blocked_reason = prohibited_reason(req.question)
+    blocked_reason = prohibited_reason(req.question, include_verbatim=False)
     if blocked_reason:
         log_activity(user.id, 'duplication_chat_blocked', {
             'reason': blocked_reason,

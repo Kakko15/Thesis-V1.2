@@ -1124,62 +1124,84 @@ def _paper_matches_catalog_code(paper: dict, code: str) -> bool:
 
 
 def _title_lead_identifiers(title: str) -> set[str]:
-    """Short system names or parenthesized acronyms that uniquely name a thesis."""
+    """Short system names or parenthesized acronyms that uniquely name a thesis.
+
+    Kept in their ORIGINAL case and matched case-sensitively: "SECURE" and
+    "FindMe" name theses, but "secure login systems" is a topic, and a
+    lowercase match pinned that topic to the SECURE thesis.
+    """
     identifiers: set[str] = set()
     if ':' in (title or ''):
-        prefix = title.split(':', 1)[0].strip()
-        prefix_tokens = re.findall(r'[a-z0-9]+(?:-[a-z0-9]+)*', prefix.lower())
-        if 1 <= len(prefix_tokens) <= 2:
-            for tok in prefix_tokens:
-                if len(tok) >= 4 and tok not in _PAPER_QUERY_STOPWORDS:
-                    identifiers.add(tok)
+        prefix = re.sub(r'\s+', ' ', title.split(':', 1)[0]).strip()
+        prefix_tokens = re.findall(r'[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*', prefix)
+        if 1 <= len(prefix_tokens) <= 2 and len(prefix) >= 4:
+            if prefix.lower() not in _PAPER_QUERY_STOPWORDS:
+                identifiers.add(prefix)
     for paren in re.findall(r'\(([A-Za-z0-9-]{3,20})\)', title or ''):
-        identifiers.add(paren.lower())
+        identifiers.add(paren)
     return identifiers
 
 
+def _names_identifier(side_text: str, identifier: str) -> bool:
+    return bool(re.search(
+        rf'(?<![A-Za-z0-9-]){re.escape(identifier)}(?![A-Za-z0-9-])', side_text or '',
+    ))
+
+
+# A singular work noun marks a side as naming ONE study ("the BSCS alumni tracer
+# study"); a plural or bare topic ("object detection", "clustering theses") is
+# a topic and is left to vector retrieval, which can return several theses.
+_SINGULAR_WORK_NOUN = re.compile(
+    r'\b(?:study|thesis|paper|project|platform|system|capstone|research|app|application)\b',
+    re.IGNORECASE,
+)
+
+
 def _resolve_comparison_side_paper(side_text: str, catalog: list[dict]) -> dict | None:
-    """Resolve one comparison side to a single ready thesis when unambiguously named."""
+    """Resolve one comparison side to a single ready thesis when unambiguously named.
+
+    Two ways to name a thesis: its system name or acronym in the title's own
+    casing ("FindMe", "SECURE", "AISA"), or a singular reference whose words
+    cover the title ("the BSCS alumni tracer study"). Anything topical returns
+    None so retrieval can still surface every relevant thesis.
+    """
     if not catalog or not side_text:
         return None
+    named = [
+        paper for paper in catalog
+        if any(_names_identifier(side_text, ident)
+               for ident in _title_lead_identifiers(paper.get('title') or ''))
+    ]
+    if named:
+        return named[0] if len(named) == 1 else None
+    if not _SINGULAR_WORK_NOUN.search(side_text):
+        return None
+    return _title_scoped_side_paper(side_text, catalog)
+
+
+def _title_scoped_side_paper(side_text: str, catalog: list[dict]) -> dict | None:
+    """A singular study reference whose words cover exactly one ready title."""
     required_code, stripped = _extract_side_program_code(side_text)
     candidates = [
         paper for paper in catalog
         if not required_code or _paper_matches_catalog_code(paper, required_code)
     ]
-    if not candidates:
-        return None
-    side_terms = [
+    unique_side = {
         term for term in _search_terms(stripped)
         if term not in _COMPARE_SIDE_GENERIC_TERMS
-    ]
-    unique_side = set(side_terms)
-    raw_side_tokens = {
-        tok for tok in re.findall(r'[a-z0-9]+(?:-[a-z0-9]+)*', stripped.lower())
-        if len(tok) >= 3 and tok not in _PAPER_QUERY_STOPWORDS and tok not in _COMPARE_SIDE_GENERIC_TERMS
+        and term not in {'study', 'thesis', 'paper', 'project', 'capstone', 'research'}
     }
-    if not unique_side and not raw_side_tokens:
-        return None
-
-    scored: list[tuple[int, int, float, dict]] = []
-    for paper in candidates:
-        title = paper.get('title') or ''
-        lead_ids = _title_lead_identifiers(title)
-        exact_lead = int(bool(raw_side_tokens & lead_ids))
-        title_terms = set(_search_terms(title))
-        hits = unique_side & title_terms
-        coverage = (len(hits) / len(unique_side)) if unique_side else 0.0
-        first_word = (re.findall(r'[a-z0-9]+', title.lower()) or [''])[0]
-        single_lead = int(
-            len(unique_side) == 1 and len(first_word) >= 5 and first_word in unique_side
-        )
-        if exact_lead or single_lead or (len(hits) >= 2 and coverage >= 0.5):
-            scored.append((exact_lead or single_lead, len(hits), coverage, paper))
-    if not scored:
-        return None
-    scored.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
-    if len(scored) == 1 or scored[0][:2] > scored[1][:2]:
-        return scored[0][3]
+    scored: list[tuple[int, float, dict]] = []
+    for paper in candidates if unique_side else []:
+        hits = unique_side & set(_search_terms(paper.get('title') or ''))
+        coverage = len(hits) / len(unique_side)
+        program_scoped = bool(required_code) and len(hits) >= 2 and coverage >= 0.5
+        title_scoped = len(hits) >= 3 and coverage >= 0.6
+        if program_scoped or title_scoped:
+            scored.append((len(hits), coverage, paper))
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    if len(scored) == 1 or (len(scored) > 1 and scored[0][:2] > scored[1][:2]):
+        return scored[0][2]
     return None
 
 
@@ -1320,7 +1342,10 @@ def _fetch_paper_comparison_chunks(paper: dict, axis: str, limit: int = 3) -> li
         content = chunk.get('content', '')
         if index == 0 and stored_abstract and stored_abstract[:60] not in content:
             content = f'Abstract: {stored_abstract}\n{content}'
-        enriched.append({**chunk, 'content': content, 'similarity': 1.0})
+        # No cosine was computed for a thesis selected by name, so no
+        # similarity is reported: a placeholder 1.0 surfaced in the chat UI as
+        # "100.00% match". The exact-paper path omits it the same way.
+        enriched.append({**chunk, 'content': content, 'similarity': None})
     return enriched
 
 

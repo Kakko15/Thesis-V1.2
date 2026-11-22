@@ -28,6 +28,7 @@ from services.citations import (
     enforce_citation_coverage,
     filter_cited_sources,
     normalize_citation_markers,
+    strip_gap_statement_citations,
     uncited_units,
     validate_citations,
 )
@@ -43,14 +44,14 @@ from services.chat_notices import (
     mark_capacity_limited as _mark_capacity_limited,
 )
 from services.guards import (
-    REFUSAL_MESSAGE,
     fallback_standalone_question,
     is_ambiguous_followup,
     prohibited_reason,
+    refusal_message_for,
 )
 from services.llm_output import TruncatedGeneration, coerce_text, is_truncated
 from services.observability import safe_trace
-from services.question_types import AGGREGATE, COMPARISON, classify_question
+from services.question_types import AGGREGATE, COMPARISON, ENUMERATION, classify_question
 from services.rate_limiting import ip_rate_limit_key, limiter
 from services.retriever import (
     _author_name_matches,
@@ -1398,6 +1399,13 @@ _PROGRAM_COUNT_PATTERN = re.compile(
     rf'have\s+been\s+(?:conducted|completed|done|indexed|published)))?'
     rf'(?:\s+{_PROGRAM_SCOPE_TAIL})*\s*$'
 )
+# "How many theses are in BSIS?" -- the program named after the noun.
+_PROGRAM_COUNT_TRAILING_PATTERN = re.compile(
+    rf'^(?:can\s+you\s+tell\s+me\s+)?(?:how\s+many|(?:what\s+is\s+)?(?:the\s+)?(?:total\s+)?(?:count|number)\s+of)\s+'
+    rf'(?:the\s+)?{_EN_INVENTORY_NOUN}\s+(?:are\s+(?:there\s+)?|exist\s+|do\s+you\s+have\s+)?'
+    rf'(?:in|under|from|for)\s+(?:the\s+)?(?P<term>{_PROGRAM_CATALOG_TERM})'
+    rf'(?:\s+(?:program|track|specialization))?(?:\s+{_PROGRAM_SCOPE_TAIL})*\s*$'
+)
 _PROGRAM_LIST_PATTERNS = (
     re.compile(
         rf'^(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?'
@@ -1431,7 +1439,10 @@ def _extract_program_catalog_query(question: str) -> tuple[str, bool] | None:
     normalized = re.sub(r'\s+', ' ', normalized).strip()
     if not normalized:
         return None
-    count_match = _PROGRAM_COUNT_PATTERN.fullmatch(normalized)
+    count_match = (
+        _PROGRAM_COUNT_PATTERN.fullmatch(normalized)
+        or _PROGRAM_COUNT_TRAILING_PATTERN.fullmatch(normalized)
+    )
     if count_match:
         return count_match.group('term'), True
     for pattern in _PROGRAM_LIST_PATTERNS:
@@ -2221,8 +2232,11 @@ async def _repair_citations(answer: str, context: str, sources: list[dict]) -> s
             snippet = re.sub(r'\s+', ' ', unit_text).strip()[:120]
             details.append(f'unit {index} missing citation: "{snippet}"')
         prompt += (
-            '\n\nValidation errors to fix (attach valid [n] markers from the retrieved '
-            'context to every flagged line below, or remove unsupported lines): '
+            '\n\nValidation errors to fix. For each flagged line, attach a [n] marker only '
+            'if a retrieved passage actually states that claim; if no passage supports it, '
+            'delete the line or rewrite it to what the passages do state. Never cite a '
+            'sentence that only says what the archive or evidence does not contain, and '
+            'never add markers just to satisfy this check: '
             + '; '.join(details)
         )
     async with safe_trace('rag.citation_repair', metadata={
@@ -2623,7 +2637,9 @@ async def _chat_impl_unstamped(
             'reason': blocked_reason,
             'question_length': len(req.question),
         })
-        return ChatResponse(answer=REFUSAL_MESSAGE, sources=[], session_id=req.session_id)
+        return ChatResponse(
+            answer=refusal_message_for(blocked_reason), sources=[], session_id=req.session_id,
+        )
 
     # S2: turn an out-of-allowance guest away before the first paid call rather
     # than after. Everything below this point can reach Gemini — the follow-up
@@ -3052,7 +3068,9 @@ async def _chat_impl_unstamped(
                 'question_length': len(req.question),
                 'after_rewrite': True,
             })
-            return ChatResponse(answer=REFUSAL_MESSAGE, sources=[], session_id=req.session_id)
+            return ChatResponse(
+                answer=refusal_message_for(rewritten_block), sources=[], session_id=req.session_id,
+            )
 
     # A rewritten follow-up may itself resolve to an author identity question.
     if effective_question != req.question:
@@ -3116,7 +3134,11 @@ async def _chat_impl_unstamped(
                 referenced_paper_id,
                 is_overview_followup,
                 req.thesis_category_filter,
-                per_paper_cap=1 if question_type == AGGREGATE else None,
+                # Aggregates and enumerations ("list all theses about X",
+                # "which theses use X") ask for distinct STUDIES, so sample one
+                # passage per thesis; otherwise two chunks of one study can
+                # push a whole matching thesis out of the five-chunk window.
+                per_paper_cap=1 if question_type in (AGGREGATE, ENUMERATION) else None,
                 **extra_kwargs,
             )
         context, sources, _top_similarity = retrieval_result
@@ -3269,7 +3291,10 @@ async def _chat_impl_unstamped(
     generation_truncated = is_truncated(result)
     phrase_reports_no_evidence = _answer_reports_no_evidence(answer)
     reports_no_evidence = sentinel_fired or phrase_reports_no_evidence
-    answer = normalize_citation_markers(answer)
+    # A sentence that only reports what the archive lacks cannot be supported
+    # by any retrieved passage, so a marker on it would name a thesis as the
+    # authority for an absence. Removed here, before every branch below.
+    answer = strip_gap_statement_citations(normalize_citation_markers(answer))
     no_relevant_thesis = False
 
     # Structural citation validity alone does not prove that a plural response
@@ -3292,7 +3317,7 @@ async def _chat_impl_unstamped(
             repaired_plural, _ = prompts.strip_no_evidence_sentinel(
                 await _repair_multi_paper_coverage(answer, req.question, context, sources)
             )
-            answer = normalize_citation_markers(repaired_plural)
+            answer = strip_gap_statement_citations(normalize_citation_markers(repaired_plural))
         except Exception as error:
             logger.warning('Multi-paper coverage repair failed (%s)', type(error).__name__)
 
@@ -3354,9 +3379,9 @@ async def _chat_impl_unstamped(
             try:
                 # Booked for the same reason as the coverage repair above.
                 await _charge_guest_extra(user, answer, context)
-                repaired = normalize_citation_markers(
+                repaired = strip_gap_statement_citations(normalize_citation_markers(
                     await _repair_citations(answer, context, sources)
-                )
+                ))
                 repaired_valid, repaired_errors = validate_citations(repaired, sources)
                 repaired_missing = _missing_referenced_papers(
                     repaired, sources, plural_paper_ids,
