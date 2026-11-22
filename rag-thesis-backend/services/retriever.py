@@ -247,7 +247,119 @@ def find_papers_by_adviser(name: str, department_filter: str | None = None) -> l
         paper for paper in candidates
         if _adviser_name_matches(name, paper.get('adviser', ''))
     ]
-    return [public_source(paper) for paper in matches[:20]]
+    return [
+        public_source(paper, citation_id=index)
+        for index, paper in enumerate(matches[:20], start=1)
+    ]
+
+
+_CATALOG_ALIASES: dict[str, tuple[str, str]] = {
+    'bscs': ('program', 'BSCS'),
+    'bachelor of science in computer science': ('program', 'BSCS'),
+    'bsit': ('program', 'BSIT'),
+    'bachelor of science in information technology': ('program', 'BSIT'),
+    'bsdsa': ('program', 'BSDSA'),
+    'bachelor of science in data science and analytics': ('program', 'BSDSA'),
+    'bsis': ('program', 'BSIS'),
+    'bachelor of science in information systems': ('program', 'BSIS'),
+    'blis': ('program', 'BLIS'),
+    'bachelor of library and information science': ('program', 'BLIS'),
+    'wmad': ('specialization', 'WMAD'),
+    'web and mobile application development': ('specialization', 'WMAD'),
+    'netsec': ('specialization', 'NETSEC'),
+    'network and security': ('specialization', 'NETSEC'),
+}
+
+
+def find_papers_by_program_or_track(
+    catalog_term: str,
+    department_filter: str | None = None,
+    thesis_category: str | None = None,
+    min_year: int | None = None,
+) -> tuple[str | None, list[dict]]:
+    """Authoritative SQL lookup for an active program or specialization."""
+    normalized = re.sub(r'\s+', ' ', (catalog_term or '').lower()).strip()
+    target = _CATALOG_ALIASES.get(normalized)
+    if not target:
+        return None, []
+    kind, code = target
+    table_name = 'programs' if kind == 'program' else 'specializations'
+    column_name = 'program_id' if kind == 'program' else 'specialization_id'
+
+    try:
+        catalog_rows = retry_transient(
+            lambda: sb.table(table_name)
+            .select('id,code,name,active')
+            .eq('code', code)
+            .eq('active', True)
+            .limit(1)
+            .execute(),
+            label=f'Supabase {kind} lookup',
+            logger=logger,
+        ).data or []
+    except Exception as error:
+        if _is_missing_column_error(error):
+            return None, []
+        raise
+    if not catalog_rows:
+        return None, []
+    entry = catalog_rows[0]
+    display_label = (
+        f"{entry['code']} ({entry['name']})"
+        if kind == 'program' and entry.get('name')
+        else str(entry.get('name') or entry.get('code') or code)
+    )
+
+    def fetch_papers():
+        query = sb.table('papers') \
+            .select(
+                'id,title,authors,adviser,year,track,department,'
+                'thesis_category,program_id,specialization_id'
+            ) \
+            .eq('ingestion_status', 'ready') \
+            .eq(column_name, entry['id']) \
+            .order('title')
+        if department_filter:
+            query = query.eq('department', department_filter)
+        if thesis_category:
+            query = query.eq('thesis_category', thesis_category)
+        return query.limit(500).execute()
+
+    try:
+        rows = retry_transient(
+            fetch_papers,
+            label=f'Supabase {kind} papers lookup',
+            logger=logger,
+        ).data or []
+    except Exception as error:
+        if thesis_category or not _is_missing_column_error(error):
+            raise
+
+        def fetch_legacy_papers():
+            query = sb.table('papers') \
+                .select('id,title,authors,adviser,year,track,department') \
+                .eq('ingestion_status', 'ready') \
+                .eq(column_name, entry['id']) \
+                .order('title')
+            if department_filter:
+                query = query.eq('department', department_filter)
+            return query.limit(500).execute()
+
+        rows = retry_transient(
+            fetch_legacy_papers,
+            label=f'Supabase legacy {kind} papers lookup',
+            logger=logger,
+        ).data or []
+    if min_year:
+        rows = [
+            row for row in rows
+            if int(row.get('year') or 0) <= 0 or int(row.get('year') or 0) >= min_year
+        ]
+    _add_academic_labels(rows)
+    return display_label, [
+        public_source(row, citation_id=index)
+        for index, row in enumerate(rows, start=1)
+    ]
 
 
 def find_papers_by_ids(paper_ids: list[str], department_filter: str | None = None) -> list[dict]:
@@ -606,11 +718,24 @@ def rank_paper_chunks(chunks: list[dict], question: str, paper: dict) -> list[di
             score += 20
         if 'scope' in query_terms and 'scope and delimitation' in normalized_content:
             score += 20
-        if {'method', 'methodology'} & set(query_terms) and (
-            '3.2 methods' in normalized_content or 'materials and methods' in normalized_content
+        section_lower = (location.get('section') or '').lower()
+        method_hit = (
+            any(k in normalized_content for k in ('3.2 methods', 'materials and methods'))
+            or any(k in section_lower for k in ('methodology', 'research design', 'system architecture'))
+        )
+        if {'method', 'methodology'} & set(query_terms) and method_hit:
+            score += 20
+        if {'result', 'finding'} & set(query_terms) and (
+            'results and discussion' in normalized_content
+            or 'results' in section_lower
+            or 'findings' in section_lower
         ):
             score += 20
-        if {'result', 'finding'} & set(query_terms) and 'results and discussion' in normalized_content:
+        if 'problem' in query_terms and (
+            'statement of the problem' in normalized_content
+            or 'background of the study' in normalized_content
+            or 'introduction' in section_lower
+        ):
             score += 20
         ranked.append((score, chunk))
     if not any(score for score, _chunk in ranked):
@@ -880,49 +1005,331 @@ def filter_relevant_candidates(ranked: list[dict], question: str) -> list[dict]:
     ]
 
 
-def search_chunks(
-    question: str, department_filter: str | None = None, query_embedding: list[float] | None = None,
-    thesis_category: str | None = None, per_paper_cap: int | None = None, min_year: int | None = None,
-):
-    """Return (context, sources, top_similarity) for a natural-language query."""
-    q_embedding = query_embedding if query_embedding is not None else embed_text(question)
-    final_count = settings.retrieval_match_count
-    pool_size = max(settings.retrieval_candidate_pool, final_count)
-    rpc_params = {
-        'query_embedding': q_embedding,
-        'match_count': pool_size,
-        'match_threshold': settings.retrieval_threshold,
-        'p_department': department_filter,
-        **retrieval_provenance_params(),
-    }
-    # Omit the key entirely when no category scope was requested, so the
-    # unfiltered call stays identical to the evaluated pipeline.
-    if thesis_category:
-        rpc_params['p_thesis_category'] = thesis_category
-    result = retry_transient(
-        lambda: sb.rpc('match_chunks', rpc_params).execute(),
-        label='Supabase chunk retrieval',
-        logger=logger,
+_ASPECT_ONLY_WORDS = frozenset({
+    'the', 'a', 'an', 'their', 'its', 'methodology', 'methodologies', 'method', 'methods',
+    'objective', 'objectives', 'purpose', 'result', 'results', 'finding', 'findings',
+    'metric', 'metrics', 'accuracy', 'scope', 'limitation', 'limitations', 'dataset',
+    'datasets', 'framework', 'architecture', 'performance', 'evaluation',
+    'usability', 'reliability', 'efficiency', 'scalability', 'portability',
+    'maintainability', 'compatibility', 'functionality', 'speed', 'cost', 'security',
+})
+_COMPOUND_MODIFIER_PAIRS = frozenset({
+    ('web', 'mobile'),
+    ('network', 'security'),
+    ('data', 'mining'),
+    ('precision', 'recall'),
+    ('training', 'testing'),
+})
+_COMPARE_AXIS_TAIL = re.compile(
+    r'\s+(?:in\s+terms\s+of|on\s+(?:their|its)|regarding|across|by\s+(?:their|its))\s+(?P<axis>.+)$',
+    re.IGNORECASE,
+)
+_COMPARE_SPLIT_PATTERNS = (
+    re.compile(
+        r'^(?:compare|contrast)\s+(?P<a>.+?)\s+(?:and|with|to|against|versus|vs\.?)\s+(?P<b>.+)$',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'^(?:what\s+(?:are|is)\s+)?(?:the\s+)?'
+        r'(?:differences?|similarit(?:y|ies)|contrast)\s+between\s+'
+        r'(?P<a>.+?)\s+and\s+(?P<b>.+)$',
+        re.IGNORECASE,
+    ),
+    re.compile(r'^(?P<a>.+?)\s+(?:versus|vs\.?)\s+(?P<b>.+)$', re.IGNORECASE),
+)
+_COMPARE_SIDE_GENERIC_TERMS = frozenset({
+    'system', 'platform', 'application', 'app', 'based', 'using', 'local',
+    'program', 'track', 'specialization', 'existing', 'past', 'recent',
+})
+_SIDE_CATALOG_PATTERNS = tuple(
+    (re.compile(rf'\b{re.escape(alias)}\b', re.IGNORECASE), code)
+    for alias, (_kind, code) in sorted(
+        _CATALOG_ALIASES.items(), key=lambda item: len(item[0]), reverse=True,
     )
-    pool = _filter_pool_by_min_year(result.data or [], min_year)
-    if not pool:
+)
+
+
+def _is_usable_comparison_side(side: str) -> bool:
+    tokens = re.findall(r'[a-z0-9]+', (side or '').lower())
+    if not tokens:
+        return False
+    return any(token not in _ASPECT_ONLY_WORDS for token in tokens)
+
+
+def split_comparison_query(question: str) -> tuple[str, str, str] | None:
+    """Split an explicit two-study comparison into `(side_a, side_b, axis)`."""
+    cleaned = re.sub(
+        r'^\s*(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?',
+        '',
+        (question or '').strip(),
+        flags=re.IGNORECASE,
+    ).rstrip('?.! ').strip()
+    if not cleaned:
+        return None
+    axis = ''
+    axis_match = _COMPARE_AXIS_TAIL.search(cleaned)
+    body = cleaned
+    if axis_match:
+        candidate_body = cleaned[:axis_match.start()].strip()
+        if any(p.fullmatch(candidate_body) for p in _COMPARE_SPLIT_PATTERNS):
+            body = candidate_body
+            axis = axis_match.group('axis').strip()
+    for pattern in _COMPARE_SPLIT_PATTERNS:
+        match = pattern.fullmatch(body)
+        if not match:
+            continue
+        side_a = match.group('a').strip(' ,')
+        side_b = match.group('b').strip(' ,')
+        if not _is_usable_comparison_side(side_a) or not _is_usable_comparison_side(side_b):
+            return None
+        toks_a = re.findall(r'[a-z]+', side_a.lower())
+        toks_b = re.findall(r'[a-z]+', side_b.lower())
+        if toks_a and toks_b and (toks_a[-1], toks_b[0]) in _COMPOUND_MODIFIER_PAIRS:
+            return None
+        return side_a, side_b, axis
+    return None
+
+
+def extract_comparison_sides(question: str) -> tuple[str, str] | None:
+    """Split an explicit two-study comparison question into two retrieval queries."""
+    parsed = split_comparison_query(question)
+    if not parsed:
+        return None
+    side_a, side_b, axis = parsed
+    query_a = f'{side_a} {axis}'.strip() if axis else side_a
+    query_b = f'{side_b} {axis}'.strip() if axis else side_b
+    return query_a, query_b
+
+
+def _extract_side_program_code(side_text: str) -> tuple[str | None, str]:
+    """Pull out an explicit program/specialization code from one comparison side."""
+    for pattern, code in _SIDE_CATALOG_PATTERNS:
+        if pattern.search(side_text):
+            stripped = re.sub(r'\s+', ' ', pattern.sub(' ', side_text)).strip()
+            return code, stripped
+    return None, side_text
+
+
+def _paper_matches_catalog_code(paper: dict, code: str) -> bool:
+    upper = code.upper()
+    if str(paper.get('program_code') or '').upper() == upper:
+        return True
+    if str(paper.get('specialization_code') or '').upper() == upper:
+        return True
+    track_norm = re.sub(r'\s+', ' ', str(paper.get('track') or '').lower()).strip()
+    if track_norm.upper() == upper:
+        return True
+    alias_target = _CATALOG_ALIASES.get(track_norm)
+    return bool(alias_target and alias_target[1] == upper)
+
+
+def _title_lead_identifiers(title: str) -> set[str]:
+    """Short system names or parenthesized acronyms that uniquely name a thesis."""
+    identifiers: set[str] = set()
+    if ':' in (title or ''):
+        prefix = title.split(':', 1)[0].strip()
+        prefix_tokens = re.findall(r'[a-z0-9]+(?:-[a-z0-9]+)*', prefix.lower())
+        if 1 <= len(prefix_tokens) <= 2:
+            for tok in prefix_tokens:
+                if len(tok) >= 4 and tok not in _PAPER_QUERY_STOPWORDS:
+                    identifiers.add(tok)
+    for paren in re.findall(r'\(([A-Za-z0-9-]{3,20})\)', title or ''):
+        identifiers.add(paren.lower())
+    return identifiers
+
+
+def _resolve_comparison_side_paper(side_text: str, catalog: list[dict]) -> dict | None:
+    """Resolve one comparison side to a single ready thesis when unambiguously named."""
+    if not catalog or not side_text:
+        return None
+    required_code, stripped = _extract_side_program_code(side_text)
+    candidates = [
+        paper for paper in catalog
+        if not required_code or _paper_matches_catalog_code(paper, required_code)
+    ]
+    if not candidates:
+        return None
+    side_terms = [
+        term for term in _search_terms(stripped)
+        if term not in _COMPARE_SIDE_GENERIC_TERMS
+    ]
+    unique_side = set(side_terms)
+    raw_side_tokens = {
+        tok for tok in re.findall(r'[a-z0-9]+(?:-[a-z0-9]+)*', stripped.lower())
+        if len(tok) >= 3 and tok not in _PAPER_QUERY_STOPWORDS and tok not in _COMPARE_SIDE_GENERIC_TERMS
+    }
+    if not unique_side and not raw_side_tokens:
+        return None
+
+    scored: list[tuple[int, int, float, dict]] = []
+    for paper in candidates:
+        title = paper.get('title') or ''
+        lead_ids = _title_lead_identifiers(title)
+        exact_lead = int(bool(raw_side_tokens & lead_ids))
+        title_terms = set(_search_terms(title))
+        hits = unique_side & title_terms
+        coverage = (len(hits) / len(unique_side)) if unique_side else 0.0
+        first_word = (re.findall(r'[a-z0-9]+', title.lower()) or [''])[0]
+        single_lead = int(
+            len(unique_side) == 1 and len(first_word) >= 5 and first_word in unique_side
+        )
+        if exact_lead or single_lead or (len(hits) >= 2 and coverage >= 0.5):
+            scored.append((exact_lead or single_lead, len(hits), coverage, paper))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+    if len(scored) == 1 or scored[0][:2] > scored[1][:2]:
+        return scored[0][3]
+    return None
+
+
+def _list_comparison_catalog(
+    department_filter: str | None,
+    thesis_category: str | None,
+    min_year: int | None,
+) -> list[dict]:
+    """Fetch ready-paper metadata in the department for comparison side resolution."""
+    def fetch_catalog():
+        query = sb.table('papers') \
+            .select(
+                'id,title,authors,year,track,department,abstract,'
+                'active_index_version,thesis_category,program_id,specialization_id'
+            ) \
+            .eq('ingestion_status', 'ready')
+        if department_filter:
+            query = query.eq('department', department_filter)
+        if thesis_category:
+            query = query.eq('thesis_category', thesis_category)
+        return query.limit(500).execute()
+
+    try:
+        rows = retry_transient(
+            fetch_catalog,
+            label='Supabase comparison catalog lookup',
+            logger=logger,
+        ).data or []
+    except Exception as error:
+        if not _is_missing_column_error(error):
+            logger.warning(
+                'Comparison catalog lookup skipped (%s)', type(error).__name__,
+            )
+            return []
+
+        def fetch_legacy():
+            query = sb.table('papers') \
+                .select('id,title,authors,year,track,department') \
+                .eq('ingestion_status', 'ready')
+            if department_filter:
+                query = query.eq('department', department_filter)
+            return query.limit(500).execute()
+
+        rows = retry_transient(
+            fetch_legacy,
+            label='Supabase legacy comparison catalog lookup',
+            logger=logger,
+        ).data or []
+    if min_year:
+        rows = [
+            row for row in rows
+            if int(row.get('year') or 0) <= 0 or int(row.get('year') or 0) >= min_year
+        ]
+    _add_academic_labels(rows)
+    return rows
+
+
+def _is_toc_chunk(chunk: dict) -> bool:
+    """Detect Table of Contents / front-matter listing chunks with wide leader gaps."""
+    content = chunk.get('content') or ''
+    if 'table of contents' in content[:160].lower():
+        return True
+    return len(re.findall(r' {5,}|\.{4,}', content)) >= 3
+
+
+def _select_comparison_paper_chunks(
+    candidates: list[dict], axis: str, paper: dict, limit: int,
+) -> list[dict]:
+    """Choose axis-focused chunks or an intro/method/results spread for a thesis."""
+    prose = [chunk for chunk in candidates if not _is_toc_chunk(chunk)] or candidates
+    if axis:
+        return rank_paper_chunks(prose, axis, paper)[:limit]
+    picked: list[dict] = []
+    seen: set = set()
+    for query in (
+        'introduction objectives scope',
+        'methodology methods dataset',
+        'results findings conclusion',
+    ):
+        for chunk in rank_paper_chunks(prose, query, paper):
+            key = chunk.get('id', chunk.get('chunk_index'))
+            if key not in seen:
+                seen.add(key)
+                picked.append(chunk)
+                break
+        if len(picked) >= limit:
+            break
+    for chunk in prose:
+        if len(picked) >= limit:
+            break
+        key = chunk.get('id', chunk.get('chunk_index'))
+        if key not in seen:
+            seen.add(key)
+            picked.append(chunk)
+    return picked[:limit]
+
+
+def _fetch_paper_comparison_chunks(paper: dict, axis: str, limit: int = 3) -> list[dict]:
+    """Load the best-matching chunks of one resolved thesis for a comparison."""
+    paper_id = paper.get('id')
+    if not paper_id:
+        return []
+
+    def fetch_chunks():
+        query = sb.table('chunks') \
+            .select('id,paper_id,content,chunk_index,page_start,page_end,section,index_version,metadata') \
+            .eq('paper_id', paper_id)
+        if paper.get('active_index_version'):
+            query = query.eq('index_version', paper['active_index_version'])
+        return query.order('chunk_index').limit(200).execute()
+
+    try:
+        chunk_rows = retry_transient(
+            fetch_chunks,
+            label='Supabase comparison paper chunks',
+            logger=logger,
+        ).data or []
+    except Exception as error:
+        if not _is_missing_column_error(error):
+            raise
+        chunk_rows = retry_transient(
+            lambda: sb.table('chunks')
+            .select('id,paper_id,content,chunk_index,metadata')
+            .eq('paper_id', paper_id)
+            .order('chunk_index')
+            .limit(200).execute(),
+            label='Supabase legacy comparison paper chunks',
+            logger=logger,
+        ).data or []
+    substantive = [chunk for chunk in chunk_rows if (chunk.get('chunk_index') or 0) > 0]
+    candidates = substantive or chunk_rows
+    if not candidates:
+        return []
+    selected = _select_comparison_paper_chunks(candidates, axis, paper, limit)
+    stored_abstract = (paper.get('abstract') or '').strip()[:1500]
+    enriched: list[dict] = []
+    for index, chunk in enumerate(selected):
+        content = chunk.get('content', '')
+        if index == 0 and stored_abstract and stored_abstract[:60] not in content:
+            content = f'Abstract: {stored_abstract}\n{content}'
+        enriched.append({**chunk, 'content': content, 'similarity': 1.0})
+    return enriched
+
+
+def _finalize_retrieved_chunks(
+    chunks: list[dict], top_similarity: float,
+) -> tuple[str, list[dict], float]:
+    """Attach chunk locations and paper metadata, then apply LongContextReorder."""
+    if not chunks:
         return '', [], 0.0
-
-    # The best cosine seen for the query, over the whole pool: the honest
-    # "how close did the archive get" trace value whatever selection keeps.
-    top_similarity = max(c.get('similarity', 0.0) for c in pool)
-
-    if pool_size == final_count:
-        # Rollback lever: a pool no larger than the final context disables the
-        # selection stage and reproduces the pure cosine-order pipeline.
-        chunks = sorted(pool, key=lambda item: item.get('similarity', 0.0), reverse=True)
-    else:
-        ranked_pool = filter_relevant_candidates(rerank_candidates(pool, question), question)
-        if not ranked_pool:
-            return '', [], 0.0
-        effective_cap = per_paper_cap if per_paper_cap is not None else settings.retrieval_per_paper_cap
-        chunks = apply_paper_diversity(ranked_pool, final_count, effective_cap)
-
     # Legacy indexes store page/section locations in JSON metadata because
     # the page-aware columns may not exist yet. Looked up for the final
     # selection only, so the pool does not triple the round-trip size.
@@ -999,6 +1406,167 @@ def search_chunks(
 
     context = '\n\n'.join(context_parts)
     return context, sources, top_similarity
+
+
+def _fetch_ranked_pool(
+    question: str,
+    department_filter: str | None = None,
+    query_embedding: list[float] | None = None,
+    thesis_category: str | None = None,
+    min_year: int | None = None,
+    *,
+    pool_override: int | None = None,
+) -> tuple[list[dict], float]:
+    """Embed and retrieve a filtered, reranked candidate pool for one query."""
+    q_embedding = query_embedding if query_embedding is not None else embed_text(question)
+    final_count = settings.retrieval_match_count
+    pool_size = max(pool_override or settings.retrieval_candidate_pool, final_count)
+    rpc_params = {
+        'query_embedding': q_embedding,
+        'match_count': pool_size,
+        'match_threshold': settings.retrieval_threshold,
+        'p_department': department_filter,
+        **retrieval_provenance_params(),
+    }
+    if thesis_category:
+        rpc_params['p_thesis_category'] = thesis_category
+    result = retry_transient(
+        lambda: sb.rpc('match_chunks', rpc_params).execute(),
+        label='Supabase chunk retrieval',
+        logger=logger,
+    )
+    pool = _filter_pool_by_min_year(result.data or [], min_year)
+    if not pool:
+        return [], 0.0
+    top_similarity = max(c.get('similarity', 0.0) for c in pool)
+    ranked_pool = filter_relevant_candidates(rerank_candidates(pool, question), question)
+    return ranked_pool, top_similarity
+
+
+def _interleave_comparison_pools(
+    picked_a: list[dict], picked_b: list[dict], final_count: int,
+) -> list[dict]:
+    """Interleave chunks `[a1, b1, a2, b2, ...]` without duplicate chunk ids."""
+    selected: list[dict] = []
+    seen_ids: set = set()
+    idx_a = 0
+    idx_b = 0
+    while len(selected) < final_count and (idx_a < len(picked_a) or idx_b < len(picked_b)):
+        while idx_a < len(picked_a):
+            cand = picked_a[idx_a]
+            idx_a += 1
+            if cand.get('id') not in seen_ids:
+                seen_ids.add(cand.get('id'))
+                selected.append(cand)
+                break
+        if len(selected) >= final_count:
+            break
+        while idx_b < len(picked_b):
+            cand = picked_b[idx_b]
+            idx_b += 1
+            if cand.get('id') not in seen_ids:
+                seen_ids.add(cand.get('id'))
+                selected.append(cand)
+                break
+    return selected
+
+
+def search_comparison_chunks(
+    side_a: str,
+    side_b: str,
+    department_filter: str | None = None,
+    thesis_category: str | None = None,
+    min_year: int | None = None,
+    *,
+    axis: str = '',
+) -> tuple[str, list[dict], float]:
+    """Retrieve balanced chunks from both sides of a two-study comparison.
+
+    Resolves each side against the ready catalog first when a thesis is
+    unambiguously named (e.g. FindMe vs SECURE, or BSCS alumni tracer vs BLIS
+    alumni profiling), and falls back to wider independent vector search for
+    topical or absent sides so one verbose study cannot crowd out the other.
+    """
+    final_count = settings.retrieval_match_count
+    catalog = _list_comparison_catalog(department_filter, thesis_category, min_year)
+    paper_a = _resolve_comparison_side_paper(side_a, catalog)
+    paper_b = _resolve_comparison_side_paper(side_b, catalog)
+
+    def resolve_side(side_text: str, paper: dict | None, exclude_id: str | None) -> tuple[list[dict], float]:
+        if paper is not None:
+            chunks = _fetch_paper_comparison_chunks(paper, axis, limit=3)
+            if chunks:
+                return chunks, 1.0
+        query = f'{side_text} {axis}'.strip() if axis else side_text
+        pool, sim = _fetch_ranked_pool(
+            query, department_filter, None, thesis_category, min_year,
+            pool_override=max(settings.retrieval_candidate_pool, 30),
+        )
+        if exclude_id:
+            pool = [chunk for chunk in pool if chunk.get('paper_id') != exclude_id]
+        return pool, sim
+
+    pool_a, sim_a = resolve_side(side_a, paper_a, paper_b.get('id') if paper_b else None)
+    pool_b, sim_b = resolve_side(side_b, paper_b, paper_a.get('id') if paper_a else None)
+    top_similarity = max(sim_a, sim_b)
+    if not pool_a and not pool_b:
+        return '', [], 0.0
+
+    # Order sides by peak similarity and interleave [a1, b1, a2, b2, a3] so
+    # LongContextReorder puts side 1 at the very start and side 2 at the very
+    # end of the prompt window.
+    if sim_b > sim_a:
+        pool_a, pool_b = pool_b, pool_a
+    picked_a = apply_paper_diversity(pool_a, final_count, 3) if pool_a else []
+    picked_b = apply_paper_diversity(pool_b, final_count, 3) if pool_b else []
+    selected = _interleave_comparison_pools(picked_a, picked_b, final_count)
+    return _finalize_retrieved_chunks(selected, top_similarity)
+
+
+def search_chunks(
+    question: str, department_filter: str | None = None, query_embedding: list[float] | None = None,
+    thesis_category: str | None = None, per_paper_cap: int | None = None, min_year: int | None = None,
+):
+    """Return (context, sources, top_similarity) for a natural-language query."""
+    q_embedding = query_embedding if query_embedding is not None else embed_text(question)
+    final_count = settings.retrieval_match_count
+    pool_size = max(settings.retrieval_candidate_pool, final_count)
+    rpc_params = {
+        'query_embedding': q_embedding,
+        'match_count': pool_size,
+        'match_threshold': settings.retrieval_threshold,
+        'p_department': department_filter,
+        **retrieval_provenance_params(),
+    }
+    # Omit the key entirely when no category scope was requested, so the
+    # unfiltered call stays identical to the evaluated pipeline.
+    if thesis_category:
+        rpc_params['p_thesis_category'] = thesis_category
+    result = retry_transient(
+        lambda: sb.rpc('match_chunks', rpc_params).execute(),
+        label='Supabase chunk retrieval',
+        logger=logger,
+    )
+    pool = _filter_pool_by_min_year(result.data or [], min_year)
+    if not pool:
+        return '', [], 0.0
+
+    # The best cosine seen for the query, over the whole pool: the honest
+    # "how close did the archive get" trace value whatever selection keeps.
+    top_similarity = max(c.get('similarity', 0.0) for c in pool)
+
+    if pool_size == final_count:
+        # Rollback lever: a pool no larger than the final context disables the
+        # selection stage and reproduces the pure cosine-order pipeline.
+        chunks = sorted(pool, key=lambda item: item.get('similarity', 0.0), reverse=True)
+    else:
+        ranked_pool = filter_relevant_candidates(rerank_candidates(pool, question), question)
+        if not ranked_pool:
+            return '', [], 0.0
+        effective_cap = per_paper_cap if per_paper_cap is not None else settings.retrieval_per_paper_cap
+        chunks = apply_paper_diversity(ranked_pool, final_count, effective_cap)
+
+    return _finalize_retrieved_chunks(chunks, top_similarity)
 
 
 def check_topic_duplication(

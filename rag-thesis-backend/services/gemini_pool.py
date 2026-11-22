@@ -43,6 +43,7 @@ from langchain_openai import ChatOpenAI
 
 from config import settings
 from services.chat_notices import is_capacity_error
+from services.network_retry import mentions_http_status
 
 logger = logging.getLogger(__name__)
 
@@ -313,6 +314,33 @@ def attempt_chain(primary, kind: str) -> list[tuple[str, str | None, object]]:
     return chain
 
 
+_OVERLOAD_MARKERS = (
+    '503 unavailable',
+    'model is overloaded',
+    'currently experiencing high demand',
+    'service unavailable',
+    'deadline_exceeded',
+    'deadline exceeded',
+)
+
+
+def _is_provider_overload(error: BaseException) -> bool:
+    """Recognize provider-wide 503 overload spikes where Groq can still answer."""
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        code = getattr(current, 'code', None)
+        status = getattr(current, 'status_code', None) or getattr(current, 'status', None)
+        if code == 503 or str(status) == '503':
+            return True
+        message = str(current).lower()
+        if any(marker in message for marker in _OVERLOAD_MARKERS) or mentions_http_status(message, ('503',)):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _should_continue(label: str, error: BaseException) -> bool:
     """Whether a failure on this hop should fall through to the next one.
 
@@ -338,12 +366,25 @@ def _should_continue(label: str, error: BaseException) -> bool:
 
 
 async def arun(primary, kind: str, call: Callable[[object], Awaitable[T]]) -> T:
-    """Await `call` against each client in turn: gateway, primary, reserves."""
+    """Await `call` against each client in turn: gateway, primary, reserves, groq."""
     last: BaseException | None = None
+    skip_gemini_reserves = False
     for label, api_key, client in attempt_chain(primary, kind):
+        if skip_gemini_reserves and label == 'reserve':
+            continue
         try:
             return await call(client)
         except Exception as error:  # pylint: disable=broad-exception-caught
+            if label in ('primary', 'reserve') and _is_provider_overload(error):
+                # Model-wide 503 overload affects every Gemini key alike; jump
+                # straight to Groq (when configured) without cooling keys.
+                last = error
+                skip_gemini_reserves = True
+                logger.warning(
+                    'Gemini %s overloaded (%s); skipping remaining Gemini keys for fallback',
+                    label, type(error).__name__,
+                )
+                continue
             if not _should_continue(label, error):
                 raise
             if api_key:
@@ -356,10 +397,21 @@ async def arun(primary, kind: str, call: Callable[[object], Awaitable[T]]) -> T:
 def run(primary, kind: str, call: Callable[[object], T]) -> T:
     """Synchronous `arun`, for the embedding and duplication-chat call sites."""
     last: BaseException | None = None
+    skip_gemini_reserves = False
     for label, api_key, client in attempt_chain(primary, kind):
+        if skip_gemini_reserves and label == 'reserve':
+            continue
         try:
             return call(client)
         except Exception as error:  # pylint: disable=broad-exception-caught
+            if label in ('primary', 'reserve') and _is_provider_overload(error):
+                last = error
+                skip_gemini_reserves = True
+                logger.warning(
+                    'Gemini %s overloaded (%s); skipping remaining Gemini keys for fallback',
+                    label, type(error).__name__,
+                )
+                continue
             if not _should_continue(label, error):
                 raise
             if api_key:

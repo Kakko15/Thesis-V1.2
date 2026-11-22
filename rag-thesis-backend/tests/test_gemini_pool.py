@@ -406,3 +406,34 @@ class TestGroqFallback:
         gemini_pool._mark_exhausted(gemini_pool._GROQ_PREFIX + 'gsk_a')
         keys = [k for label, k, _c in gemini_pool.attempt_chain('p', gemini_pool.CHAT) if label == 'groq']
         assert keys == [gemini_pool._GROQ_PREFIX + 'gsk_b', gemini_pool._GROQ_PREFIX + 'gsk_a']
+
+    def test_gemini_503_overload_skips_reserves_and_falls_back_to_groq(self, monkeypatch):
+        use_keys(monkeypatch, 'k2', 'k3')
+        monkeypatch.setattr(gemini_pool.settings, 'groq_api_key', 'gsk_a')
+        monkeypatch.setattr(gemini_pool.settings, 'groq_api_keys', '')
+        seen = []
+
+        async def call(client):
+            seen.append(client)
+            if client == 'primary':
+                raise RuntimeError('503 UNAVAILABLE: This model is currently experiencing high demand.')
+            return 'answered by groq'
+
+        assert run(gemini_pool.arun('primary', gemini_pool.CHAT, call)) == 'answered by groq'
+        assert seen == ['primary', f'client:chat:{gemini_pool._GROQ_PREFIX}gsk_a']
+        # Reserve Gemini keys must not be cooled by a model-wide 503.
+        assert not gemini_pool._is_cooling('k2')
+
+    def test_gemini_503_without_groq_propagates_without_burning_reserves(self, monkeypatch):
+        use_keys(monkeypatch, 'k2', 'k3')
+        monkeypatch.setattr(gemini_pool.settings, 'groq_api_key', '')
+        monkeypatch.setattr(gemini_pool.settings, 'groq_api_keys', '')
+        seen = []
+
+        async def call(client):
+            seen.append(client)
+            raise RuntimeError('503 UNAVAILABLE: This model is currently experiencing high demand.')
+
+        with pytest.raises(RuntimeError, match='503 UNAVAILABLE'):
+            run(gemini_pool.arun('primary', gemini_pool.CHAT, call))
+        assert seen == ['primary']

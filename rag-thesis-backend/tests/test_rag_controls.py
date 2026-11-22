@@ -358,6 +358,35 @@ class TestCitationValidation:
         assert not valid
         assert any('uncited substantive unit' in error for error in errors)
 
+    def test_standalone_bold_thesis_labels_and_meta_lines_do_not_require_citations(self):
+        answer = (
+            'The archive and your answers are in English.\n\n'
+            '- **FindMe: A Computer Vision-based Detector for Missing Person**\n'
+            '- Uses MTCNN and FaceNet for real-time surveillance detection [1].\n'
+            '- **SECURE: A SMART INTRUDER DETECTION SYSTEM**\n'
+            '- Detects unauthorized property intrusions [2].\n\n'
+            'The evidence presented here may not cover every computer vision thesis contained within the archive.'
+        )
+        valid, errors = validate_citations(answer, [
+            {'citation_id': 1, 'id': 'p1', 'chunk_id': 11},
+            {'citation_id': 2, 'id': 'p2', 'chunk_id': 21},
+        ])
+        assert valid and errors == []
+
+    def test_uncited_factual_claim_paragraph_is_still_rejected(self):
+        from services.citations import uncited_units
+
+        answer = (
+            'The archive holds fifty theses on rice disease classification.\n\n'
+            '- Supported claim [1].'
+        )
+        valid, errors = validate_citations(answer, self.SOURCES)
+        assert not valid
+        assert any('uncited substantive unit 1' in error for error in errors)
+        missing = uncited_units(answer, self.SOURCES)
+        assert len(missing) == 1 and missing[0][0] == 1
+        assert 'fifty theses' in missing[0][1]
+
     def test_deterministic_coverage_uses_only_retrieved_citation_ids(self):
         answer = 'Supported scope [1].\n\nAn uncited limitation.\n\nAnother claim [99].'
         repaired = enforce_citation_coverage(answer, self.SOURCES)

@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from services import retriever
 from services.retriever import _author_name_matches, long_context_reorder, public_source
 
@@ -785,3 +787,186 @@ class TestPaperDiversityCap:
         # ASCII "Quinones" misses ILIKE on "Quiñones", so first-name fallback finds it.
         quinones = retriever.find_papers_by_adviser('Honeylyn Quinones', 'CCSICT')
         assert [p['id'] for p in quinones] == ['p2']
+
+    @pytest.mark.parametrize('question,expected', [
+        (
+            'Compare FindMe and SECURE in terms of methodology and purpose.',
+            ('FindMe methodology and purpose', 'SECURE methodology and purpose'),
+        ),
+        (
+            'Compare the BSCS alumni tracer study and the BLIS alumni profiling study.',
+            ('the BSCS alumni tracer study', 'the BLIS alumni profiling study'),
+        ),
+        (
+            'Compare the Mango Fruit Quality CNN study with a blockchain voting thesis in the archive.',
+            ('the Mango Fruit Quality CNN study', 'a blockchain voting thesis in the archive'),
+        ),
+        (
+            'What is the difference between FindMe and SECURE?',
+            ('FindMe', 'SECURE'),
+        ),
+        ('FindMe vs. SECURE', ('FindMe', 'SECURE')),
+    ])
+    def test_extract_comparison_sides_splits_two_study_comparisons(self, question, expected):
+        assert retriever.extract_comparison_sides(question) == expected
+
+    @pytest.mark.parametrize('question', [
+        'Compare the findings of the retrieved studies.',
+        'Compare the methodology and findings of FindMe.',
+        'Compare web and mobile application theses.',
+    ])
+    def test_extract_comparison_sides_ignores_non_two_study_queries(self, question):
+        assert retriever.extract_comparison_sides(question) is None
+
+    def test_search_comparison_chunks_interleaves_both_studies(self, monkeypatch):
+        pool_a = [
+            {'id': 1, 'paper_id': 'p_bscs', 'chunk_index': 1, 'content': 'BSCS alumni tracer NLP',
+             'similarity': 0.81, 'page_start': 1, 'page_end': 2, 'section': 'Intro'},
+            {'id': 2, 'paper_id': 'p_bscs', 'chunk_index': 2, 'content': 'BSCS K-means clustering',
+             'similarity': 0.78, 'page_start': 3, 'page_end': 4, 'section': 'Methods'},
+        ]
+        pool_b = [
+            {'id': 10, 'paper_id': 'p_blis', 'chunk_index': 1, 'content': 'BLIS alumni profiling 29 grads',
+             'similarity': 0.85, 'page_start': 1, 'page_end': 2, 'section': 'Intro'},
+            {'id': 11, 'paper_id': 'p_blis', 'chunk_index': 2, 'content': 'BLIS IPO framework',
+             'similarity': 0.82, 'page_start': 3, 'page_end': 4, 'section': 'Methods'},
+        ]
+        pools = {'side a': (pool_a, 0.81), 'side b': (pool_b, 0.85)}
+        monkeypatch.setattr(
+            retriever, '_fetch_ranked_pool',
+            lambda q, *_args, **_kwargs: pools[q],
+        )
+        papers = [
+            {'id': 'p_bscs', 'title': 'Alumni Tracer Platform', 'authors': 'Pagbilao, Mina',
+             'year': 2024, 'track': 'BSCS', 'department': 'CCSICT'},
+            {'id': 'p_blis', 'title': 'BLIS Beyond Graduation', 'authors': 'Ualat, Padre',
+             'year': 2026, 'track': 'BLIS', 'department': 'CCSICT'},
+        ]
+
+        class _Client(_RetrieverClient):
+            def table(self, name):
+                assert name == 'papers'
+                return _Query(papers)
+
+        monkeypatch.setattr(retriever, 'sb', _Client())
+        context, sources, top_sim = retriever.search_comparison_chunks('side a', 'side b', 'CCSICT')
+        assert top_sim == 0.85
+        assert {s['id'] for s in sources} == {'p_bscs', 'p_blis'}
+        assert 'Alumni Tracer Platform' in context and 'BLIS Beyond Graduation' in context
+
+    def test_search_comparison_chunks_handles_absent_second_side(self, monkeypatch):
+        pool_a = [
+            {'id': 1, 'paper_id': 'p_mango', 'chunk_index': 1, 'content': 'Mango CNN recommender',
+             'similarity': 0.84, 'page_start': 1, 'page_end': 2, 'section': 'Intro'},
+        ]
+        monkeypatch.setattr(
+            retriever, '_fetch_ranked_pool',
+            lambda q, *_args, **_kwargs: (pool_a, 0.84) if 'mango' in q else ([], 0.0),
+        )
+        papers = [
+            {'id': 'p_mango', 'title': 'Mango Quality CNN', 'authors': 'Manalili',
+             'year': 2024, 'track': 'BSCS', 'department': 'CCSICT'},
+        ]
+
+        class _Client(_RetrieverClient):
+            def table(self, name):
+                if name == 'chunks':
+                    return _Query(pool_a)
+                assert name == 'papers'
+                return _Query(papers)
+
+        monkeypatch.setattr(retriever, 'sb', _Client())
+        _ctx, sources, _sim = retriever.search_comparison_chunks('mango', 'blockchain', 'CCSICT')
+        assert [s['id'] for s in sources] == ['p_mango']
+
+    def test_split_comparison_query_preserves_side_modifiers_and_rejects_quality_pairs(self):
+        assert retriever.split_comparison_query(
+            'Compare the mango study and the study on cassava'
+        ) == ('the mango study', 'the study on cassava', '')
+        assert retriever.split_comparison_query(
+            'Compare FindMe and the thesis by Enoy'
+        ) == ('FindMe', 'the thesis by Enoy', '')
+        assert retriever.split_comparison_query(
+            'Compare FindMe and SECURE in terms of their target problem.'
+        ) == ('FindMe', 'SECURE', 'their target problem')
+        assert retriever.split_comparison_query(
+            'Compare FindMe on usability and efficiency'
+        ) is None
+
+    def test_resolve_comparison_side_paper_uses_program_and_title_specificity(self):
+        catalog = [
+            {'id': 'p_bscs', 'title': 'ALUMNI TRACER PLATFORM USING WEB CRAWLER AND SCRAPING', 'track': 'BSCS', 'program_code': 'BSCS'},
+            {'id': 'p_blis', 'title': 'BLIS BEYOND GRADUATION: MAPPING CAREER PATHS THROUGH ALUMNI PROFILING', 'track': 'BLIS', 'program_code': 'BLIS'},
+            {'id': 'p_findme', 'title': 'FindMe: A Computer Vision-based Detector for Missing Person', 'track': 'BSCS', 'program_code': 'BSCS'},
+            {'id': 'p_secure', 'title': 'SECURE: A SMART INTRUDER DETECTION SYSTEM FOR PROPERTY SECURITY USING COMPUTER VISION', 'track': 'BSCS', 'program_code': 'BSCS'},
+            {'id': 'p_left', 'title': 'Computer Vision-Based Left-Off Object Detection Platform', 'track': 'BSCS', 'program_code': 'BSCS'},
+        ]
+        assert retriever._resolve_comparison_side_paper('the BSCS alumni tracer study', catalog)['id'] == 'p_bscs'
+        assert retriever._resolve_comparison_side_paper('the BLIS alumni profiling study', catalog)['id'] == 'p_blis'
+        assert retriever._resolve_comparison_side_paper('FindMe', catalog)['id'] == 'p_findme'
+        assert retriever._resolve_comparison_side_paper('SECURE', catalog)['id'] == 'p_secure'
+        assert retriever._resolve_comparison_side_paper('a blockchain voting thesis in the archive', catalog) is None
+        assert retriever._resolve_comparison_side_paper('computer vision studies', catalog) is None
+
+    def test_select_comparison_paper_chunks_skips_toc_and_spreads_sections(self):
+        paper = {'id': 'p1', 'title': 'Alumni Tracer Platform', 'authors': 'A'}
+        candidates = [
+            {'id': 1, 'chunk_index': 1, 'section': '4.2 Data',
+             'content': '4.2 Data     4.3 NLP     4.4 Clustering     5.1 Results'},
+            {'id': 2, 'chunk_index': 2, 'section': 'Introduction',
+             'content': 'Objectives of the study and scope of alumni tracking.'},
+            {'id': 3, 'chunk_index': 3, 'section': 'Methodology',
+             'content': 'Materials and methods using web scraping and NLP dataset.'},
+            {'id': 4, 'chunk_index': 4, 'section': 'Results and Discussion',
+             'content': 'Results and discussion show silhouette score findings and conclusion.'},
+        ]
+        selected = retriever._select_comparison_paper_chunks(candidates, '', paper, limit=3)
+        assert [c['id'] for c in selected] == [2, 3, 4]
+
+    def test_find_papers_by_program_or_track_returns_authoritative_matches(self, monkeypatch):
+        blis_prog = [{'id': 'prog-blis', 'code': 'BLIS', 'name': 'Bachelor of Library and Information Science', 'active': True}]
+        netsec_spec = [{'id': 'spec-netsec', 'code': 'NETSEC', 'name': 'Network and Security', 'active': True}]
+        blis_papers = [
+            {'id': 'p1', 'title': 'BLIS Study 1', 'authors': 'A', 'year': 2026, 'track': 'BLIS', 'department': 'CCSICT'},
+            {'id': 'p2', 'title': 'BLIS Study 2', 'authors': 'B', 'year': 2026, 'track': 'BLIS', 'department': 'CCSICT'},
+        ]
+
+        class _CatalogQuery(_Query):
+            def __init__(self, rows):
+                super().__init__(rows)
+                self._eqs = []
+
+            def eq(self, col, val):
+                self._eqs.append((col, val))
+                return self
+
+            def execute(self):
+                matched = [
+                    r for r in self.rows
+                    if all(r.get(col) == val for col, val in self._eqs if col in r)
+                ]
+                return SimpleNamespace(data=matched)
+
+        class _CatalogClient:
+            def table(self, name):
+                if name == 'programs':
+                    return _CatalogQuery(blis_prog)
+                if name == 'specializations':
+                    return _CatalogQuery(netsec_spec)
+                if name == 'papers':
+                    return _CatalogQuery([
+                        {**p, 'ingestion_status': 'ready', 'program_id': 'prog-blis', 'specialization_id': None}
+                        for p in blis_papers
+                    ])
+                raise AssertionError(name)
+
+        monkeypatch.setattr(retriever, 'sb', _CatalogClient())
+        label, found = retriever.find_papers_by_program_or_track('BLIS', 'CCSICT')
+        assert 'BLIS' in label and len(found) == 2
+        assert [s['citation_id'] for s in found] == [1, 2]
+
+        ns_label, ns_found = retriever.find_papers_by_program_or_track('Network and Security', 'CCSICT')
+        assert ns_label == 'Network and Security' and ns_found == []
+
+        dm_label, dm_found = retriever.find_papers_by_program_or_track('Data Mining', 'CCSICT')
+        assert dm_label is None and dm_found == []

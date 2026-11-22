@@ -363,6 +363,17 @@ class TestGroundingGuards:
         assert not _answer_reports_no_evidence(
             'The study used interviews and usability testing [1].'
         )
+        assert not _answer_reports_no_evidence(
+            'The two studies differ in method and scope [1] [2].\n\n'
+            '- **BSCS Study**: Uses web crawling and K-means clustering [1].\n'
+            '- **BLIS Study**: Uses the IPO framework for alumni profiling [2].\n\n'
+            'The retrieved passages do not provide deployment costs for either study [1] [2].'
+        )
+        assert _answer_reports_no_evidence(
+            '**Search Summary**\n\n'
+            'The archive does not contain attendance monitoring studies.\n\n'
+            'Instead, the retrieved studies cover document tracking [1].'
+        )
 
     def test_fallback_lists_each_paper_once(self):
         answer = _grounded_retrieval_fallback([
@@ -718,3 +729,29 @@ class TestStep1RoutingHardening:
         from routers.chat import _extract_adviser_name
 
         assert _extract_adviser_name('Who is the adviser of FindMe?') is None
+
+    @pytest.mark.parametrize('question,expected', [
+        ('What BLIS studies have been conducted at Isabela State University?', ('blis', False)),
+        ('Which BSIS theses are in the archive and what are their topics?', ('bsis', False)),
+        ('What Network and Security theses exist in the archive?', ('network and security', False)),
+        ('How many BLIS theses are in the archive?', ('blis', True)),
+        ('List all BSCS theses', ('bscs', False)),
+        ('What theses are under WMAD?', ('wmad', False)),
+    ])
+    def test_program_catalog_queries_extract_term_and_mode(self, question, expected):
+        from routers.chat import _extract_program_catalog_query
+
+        assert _extract_program_catalog_query(question) == expected
+
+    @pytest.mark.parametrize('question', [
+        'Summarize BSDSA theses on financial forecasting.',
+        'Summarize recent web and mobile application theses in the archive.',
+        'Which BSCS theses used CNN?',
+        'Compare the BSCS alumni tracer study and the BLIS alumni profiling study.',
+        'How many respondents were in the BLIS alumni profiling study?',
+        'What Data Mining theses exist in the archive?',
+    ])
+    def test_topical_or_summary_program_queries_stay_on_retrieval(self, question):
+        from routers.chat import _extract_program_catalog_query
+
+        assert _extract_program_catalog_query(question) is None

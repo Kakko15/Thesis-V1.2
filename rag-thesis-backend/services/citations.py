@@ -42,16 +42,44 @@ _BOLD_OBJECTIVE_LABEL = re.compile(
     r'\*\*(?:general objective|specific objectives?|objectives? of the study)\*\*:?',
     re.IGNORECASE,
 )
+# Standalone bold headings/title labels (e.g. `- **FindMe: ...**` or
+# `**Key Findings:**`). Matches CITATION_CONTRACT ("Headings, bold labels, and
+# short lines ending in a colon are not units and need no marker") while still
+# rejecting full bolded factual sentences that end in sentence punctuation
+# (`**The study conclusively improves retrieval accuracy.**`).
+_STANDALONE_BOLD_LABEL = re.compile(r'\*\*[^*\n]{1,180}(?<![.!?])\*\*:?')
+# Mandatory non-English opener commanded by OUTPUT_CONTRACT. It is a system
+# language disclosure, never a claim drawn from an archived thesis.
+_ENGLISH_LANGUAGE_NOTICE = re.compile(
+    r'^(?:note:\s*)?(?:the|this)\s+(?:ccsict\s+|thesis\s+)?archive\s+and\s+'
+    r'(?:your|my|the|its|iskai\'?s)\s+(?:answers?|responses?|replies)\s+'
+    r'(?:are|is)\s+(?:in|written\s+in|provided\s+in)\s+english\.?$',
+    re.IGNORECASE,
+)
+# Mandatory sample-scope closing line commanded by QUESTION_TYPE_TASKS
+# (aggregate / enumeration) noting that the reply only covers retrieved items.
+_RETRIEVAL_SCOPE_CAVEAT = re.compile(
+    r'^(?:note:\s*)?(?:this\s+(?:answer|list|summary|response)|'
+    r'the\s+(?:retrieved\s+)?(?:evidence|passages?|studies|results?))\s+'
+    r'(?:presented\s+here\s+)?(?:covers?\s+(?:only\s+)?the\s+retrieved|'
+    r'may\s+not\s+(?:cover|include|list|represent)\s+(?:every|all)|'
+    r'reflects?\s+(?:only\s+)?the\s+retrieved|'
+    r'is\s+limited\s+to\s+the\s+retrieved)[^.\n]{0,180}\.?$',
+    re.IGNORECASE,
+)
 
 
 def _is_substantive(text: str) -> bool:
     """Whether a segment asserts a research claim that must carry a citation."""
     if not text or text.startswith('#'):
         return False
-    plain = _LIST_MARKER.sub('', text)
-    # Standalone bold labels such as ``**General Objective**`` organize a
-    # cited answer but do not assert research facts themselves.
-    if _BOLD_OBJECTIVE_LABEL.fullmatch(plain):
+    plain = _LIST_MARKER.sub('', text).strip()
+    # Standalone bold labels (such as `**General Objective**` or a thesis title
+    # heading a nested bullet block) organize a cited answer without asserting
+    # research findings themselves.
+    if _BOLD_OBJECTIVE_LABEL.fullmatch(plain) or _STANDALONE_BOLD_LABEL.fullmatch(plain):
+        return False
+    if _ENGLISH_LANGUAGE_NOTICE.fullmatch(plain) or _RETRIEVAL_SCOPE_CAVEAT.fullmatch(plain):
         return False
     # Short colon-ended lines immediately introducing a cited list are
     # headings/lead-ins, not standalone research claims.
@@ -141,6 +169,20 @@ def enforce_citation_coverage(answer: str, sources: list[dict]) -> str:
         if not cited_ids(unit):
             repaired = f'{repaired[:end]} [{fallback}]{repaired[end:]}'
     return repaired
+
+
+def uncited_units(answer: str, sources: list[dict]) -> list[tuple[int, str]]:
+    """Return `(unit_index, text)` pairs for substantive units missing valid citations."""
+    allowed = {
+        source_citation_id(source, position)
+        for position, source in enumerate(sources, start=1)
+    }
+    missing: list[tuple[int, str]] = []
+    for index, unit in enumerate(_substantive_units(answer), start=1):
+        unit_ids = cited_ids(unit)
+        if not unit_ids or not unit_ids.issubset(allowed):
+            missing.append((index, unit))
+    return missing
 
 
 def validate_citations(answer: str, sources: list[dict]) -> tuple[bool, list[str]]:

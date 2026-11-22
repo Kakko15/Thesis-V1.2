@@ -1494,3 +1494,42 @@ class TestStep1EndpointFastPaths:
         self._assert_falls_through_to_retrieval(
             monkeypatch, 'Which theses were advised by experts?',
         )
+
+    def test_program_catalog_fast_path_returns_all_program_theses(self, monkeypatch):
+        blis_papers = [
+            {'id': 'p1', 'title': 'BLIS Study 1', 'authors': 'Ualat', 'year': 2026, 'track': 'BLIS', 'department': 'CCSICT'},
+            {'id': 'p2', 'title': 'BLIS Study 2', 'authors': 'Olesco', 'year': 2026, 'track': 'BLIS', 'department': 'CCSICT'},
+        ]
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(
+            chat, 'find_papers_by_program_or_track',
+            lambda term, *_args: ('BLIS (Bachelor of Library and Information Science)', blis_papers),
+        )
+
+        async def fail_retrieve(*_args, **_kwargs):
+            raise AssertionError('program catalog fast path must not invoke retrieval')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', fail_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='What BLIS studies have been conducted at Isabela State University?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.archive_current is True
+        assert response.no_relevant_thesis is False
+        assert len(response.sources) == 2
+        assert '**2 indexed theses**' in response.answer
+
+    def test_empty_active_specialization_reports_explicit_absence(self, monkeypatch):
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(
+            chat, 'find_papers_by_program_or_track',
+            lambda term, *_args: ('Network and Security', []),
+        )
+        response = run(chat._chat_impl(
+            ChatRequest(question='What Network and Security theses exist in the archive?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.archive_current is True
+        assert response.no_relevant_thesis is True
+        assert response.sources == []
+        assert 'no indexed theses under **Network and Security**' in response.answer

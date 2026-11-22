@@ -28,6 +28,7 @@ from services.citations import (
     enforce_citation_coverage,
     filter_cited_sources,
     normalize_citation_markers,
+    uncited_units,
     validate_citations,
 )
 from services.db_errors import identifier_not_found
@@ -49,7 +50,7 @@ from services.guards import (
 )
 from services.llm_output import TruncatedGeneration, coerce_text, is_truncated
 from services.observability import safe_trace
-from services.question_types import AGGREGATE, classify_question
+from services.question_types import AGGREGATE, COMPARISON, classify_question
 from services.rate_limiting import ip_rate_limit_key, limiter
 from services.retriever import (
     _author_name_matches,
@@ -57,12 +58,15 @@ from services.retriever import (
     find_papers_by_adviser,
     find_papers_by_author,
     find_papers_by_ids,
+    find_papers_by_program_or_track,
     find_papers_by_title,
     find_papers_by_title_fragment,
     get_paper_overview_context,
     list_archive_papers,
     search_chunks,
+    search_comparison_chunks,
     split_author_names,
+    split_comparison_query,
 )
 from services.turnstile import ensure_guest_chat_verification
 
@@ -1371,6 +1375,124 @@ def _adviser_lookup_response(name: str, sources: list[dict]) -> str:
     return '\n'.join(lines)
 
 
+_PROGRAM_CATALOG_TERM = (
+    r'bachelor\s+of\s+science\s+in\s+computer\s+science|'
+    r'bachelor\s+of\s+science\s+in\s+information\s+technology|'
+    r'bachelor\s+of\s+science\s+in\s+data\s+science\s+and\s+analytics|'
+    r'bachelor\s+of\s+science\s+in\s+information\s+systems|'
+    r'bachelor\s+of\s+library\s+and\s+information\s+science|'
+    r'web\s+and\s+mobile\s+application\s+development|'
+    r'network\s+and\s+security|'
+    r'bscs|bsit|bsdsa|bsis|blis|wmad|netsec'
+)
+_PROGRAM_SCOPE_TAIL = (
+    r'(?:here|currently|now|so\s+far|available|indexed|archived|'
+    r'(?:in|at|from|for|on)\s+(?:the\s+|this\s+)?'
+    r'(?:ccsict\s+|isu\s+)?(?:isabela\s+state\s+university(?:\s+echague(?:\s+campus)?)?|'
+    r'thesis\s+library(?:\s+system)?|library|archive|system|department|isu|ccsict|iskai))'
+)
+_PROGRAM_COUNT_PATTERN = re.compile(
+    rf'^(?:can\s+you\s+tell\s+me\s+)?(?:how\s+many|(?:what\s+is\s+)?(?:the\s+)?(?:total\s+)?(?:count|number)\s+of)\s+'
+    rf'(?:the\s+)?(?P<term>{_PROGRAM_CATALOG_TERM})\s+(?:program\s+|track\s+|specialization\s+)?'
+    rf'{_EN_INVENTORY_NOUN}(?:\s+(?:are|are\s+there|exist|exists|do\s+you\s+have|'
+    rf'have\s+been\s+(?:conducted|completed|done|indexed|published)))?'
+    rf'(?:\s+{_PROGRAM_SCOPE_TAIL})*\s*$'
+)
+_PROGRAM_LIST_PATTERNS = (
+    re.compile(
+        rf'^(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?'
+        rf'(?:list|show(?:\s+me)?|give(?:\s+me)?|display|name)\s+'
+        rf'(?:(?:a|the)\s+(?:full\s+|complete\s+)?list\s+of\s+)?'
+        rf'(?:all\s+)?(?:the\s+)?(?:available\s+|indexed\s+|archived\s+)?'
+        rf'(?P<term>{_PROGRAM_CATALOG_TERM})\s+(?:program\s+|track\s+|specialization\s+)?'
+        rf'{_EN_INVENTORY_NOUN}(?:\s+{_PROGRAM_SCOPE_TAIL})*'
+        rf'(?:\s+and\s+what\s+are\s+their\s+topics)?\s*$'
+    ),
+    re.compile(
+        rf'^(?:what|which)\s+(?:are\s+)?(?:all\s+)?(?:the\s+)?(?:available\s+|indexed\s+|archived\s+)?'
+        rf'(?P<term>{_PROGRAM_CATALOG_TERM})\s+(?:program\s+|track\s+|specialization\s+)?'
+        rf'{_EN_INVENTORY_NOUN}(?:\s+(?:are|are\s+there|exist|exists|do\s+you\s+have|'
+        rf'have\s+been\s+(?:conducted|completed|done|indexed|published)))?'
+        rf'(?:\s+{_PROGRAM_SCOPE_TAIL})*(?:\s+and\s+what\s+are\s+their\s+topics)?\s*$'
+    ),
+    re.compile(
+        rf'^(?:what|which|list|show(?:\s+me)?)\s+(?:are\s+)?(?:all\s+)?(?:the\s+)?'
+        rf'(?:available\s+|indexed\s+|archived\s+)?{_EN_INVENTORY_NOUN}\s+'
+        rf'(?:are\s+)?(?:in|under|from|for)\s+(?:the\s+)?'
+        rf'(?P<term>{_PROGRAM_CATALOG_TERM})(?:\s+(?:program|track|specialization))?'
+        rf'(?:\s+{_PROGRAM_SCOPE_TAIL})*\s*$'
+    ),
+)
+
+
+def _extract_program_catalog_query(question: str) -> tuple[str, bool] | None:
+    """Match unfiltered program/specialization listing or count questions."""
+    normalized = re.sub(r'[^a-z0-9 ]+', ' ', (question or '').lower())
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    if not normalized:
+        return None
+    count_match = _PROGRAM_COUNT_PATTERN.fullmatch(normalized)
+    if count_match:
+        return count_match.group('term'), True
+    for pattern in _PROGRAM_LIST_PATTERNS:
+        list_match = pattern.fullmatch(normalized)
+        if list_match:
+            return list_match.group('term'), False
+    return None
+
+
+def _program_catalog_response(
+    department: str,
+    label: str,
+    sources: list[dict],
+    *,
+    count_only: bool = False,
+    thesis_category: str | None = None,
+) -> tuple[str, list[dict]]:
+    """Format an authoritative program/specialization listing or count."""
+    total = len(sources)
+    category_label = f'{thesis_category} ' if thesis_category else ''
+    provenance = (
+        '\n\nThis count comes from the live indexed archive, not from claims inside a thesis document.'
+    )
+    if not total:
+        return (
+            f'The {department} archive currently has no indexed {category_label}theses under '
+            f'**{label}**.' + provenance,
+            [],
+        )
+    noun = 'thesis' if total == 1 else 'theses'
+    if count_only:
+        return (
+            f'The {department} archive currently has **{total} indexed {category_label}{noun}** '
+            f'under **{label}**. This count comes from the live indexed archive.',
+            [],
+        )
+    shown = [
+        {**source, 'citation_id': index}
+        for index, source in enumerate(sources[:_ARCHIVE_INVENTORY_LIMIT], start=1)
+    ]
+    lines = [
+        f'The {department} archive currently has **{total} indexed {category_label}{noun}** '
+        f'under **{label}**:'
+    ]
+    for index, source in enumerate(shown, start=1):
+        details = [str(value) for value in (source.get('year'), source.get('track')) if value]
+        detail_text = f" ({' · '.join(details)})" if details else ''
+        lines.append(
+            f'{index}. **{source.get("title", "Untitled thesis")}** by '
+            f'{source.get("authors", "Unknown authors")}{detail_text} [{index}]'
+        )
+    answer = '\n'.join(lines)
+    if total > len(shown):
+        answer += (
+            f'\n\nShowing the first **{len(shown)} of {total}** titles alphabetically. '
+            'Use the archive filters or ask by topic, title, author, or year to narrow the list.'
+        )
+    answer += provenance
+    return answer, shown
+
+
 def _extract_author_name(question: str) -> str | None:
     """Extract a plausible person name from direct and follow-up author questions."""
     match = re.fullmatch(
@@ -1518,8 +1640,41 @@ def _looks_like_misdirected_greeting(answer: str) -> bool:
 
 
 def _answer_reports_no_evidence(answer: str) -> bool:
-    """Recognize a model's explicit statement that current evidence cannot answer."""
-    normalized = re.sub(r'\s+', ' ', answer.lower()).strip()
+    """Recognize a model's explicit statement that current evidence cannot answer.
+
+    A genuine no-evidence reply declares the gap up front (or cites nothing).
+    A multi-block cited answer whose opening directly answers the question and
+    only notes a partial omission in a later caveat (as instructed by
+    SYNTHESIS_CONTRACT) must not be wiped out as "no relevant thesis found".
+    """
+    text = (answer or '').strip()
+    if not text:
+        return False
+    blocks = [
+        block.strip()
+        for block in re.split(r'\n\s*\n|\n(?=\s*[-*]\s+|\s*\d+[.)]\s+)', text)
+        if block.strip()
+    ]
+    lead_block = blocks[0]
+    for block in blocks:
+        lowered = block.lower()
+        is_bold_heading = (
+            block.startswith('**')
+            and block.endswith('**')
+            and '\n' not in block
+            and not block[:-2].endswith(('.', '!', '?'))
+        )
+        if (
+            lowered.startswith('the archive and your answers are in english')
+            or block.startswith('#')
+            or is_bold_heading
+        ):
+            continue
+        lead_block = block
+        break
+    has_citations = bool(re.search(r'\[\d+\]', text))
+    scope = lead_block if (has_citations and len(blocks) >= 2) else text
+    normalized = re.sub(r'\s+', ' ', scope.lower()).strip()
     return any(phrase in normalized for phrase in (
         'could not verify', 'cannot verify', 'could not find', 'cannot find',
         'no relevant thesis', 'no relevant study', 'no direct answer',
@@ -2055,6 +2210,21 @@ async def _translate_for_retrieval(question: str) -> str:
 async def _repair_citations(answer: str, context: str, sources: list[dict]) -> str:
     valid_ids = ', '.join(str(s.get('citation_id', i)) for i, s in enumerate(sources, start=1))
     prompt = prompts.citation_repair_prompt(answer, context, valid_ids)
+    _, validation_errors = validate_citations(answer, sources)
+    missing_units = uncited_units(answer, sources)
+    if validation_errors or missing_units:
+        details = [
+            err for err in validation_errors
+            if not err.startswith('uncited substantive unit ')
+        ]
+        for index, unit_text in missing_units:
+            snippet = re.sub(r'\s+', ' ', unit_text).strip()[:120]
+            details.append(f'unit {index} missing citation: "{snippet}"')
+        prompt += (
+            '\n\nValidation errors to fix (attach valid [n] markers from the retrieved '
+            'context to every flagged line below, or remove unsupported lines): '
+            + '; '.join(details)
+        )
     async with safe_trace('rag.citation_repair', metadata={
         'source_count': len(sources),
         'answer_length': len(answer),
@@ -2201,11 +2371,29 @@ async def _retrieve_evidence(
             )
 
     extra_args = (min_year,) if min_year is not None else ()
-    result, alert = await asyncio.gather(
-        asyncio.to_thread(
+    comparison_parts = (
+        split_comparison_query(question)
+        if classify_question(question) == COMPARISON
+        else None
+    )
+    if comparison_parts:
+        side_a, side_b, axis = comparison_parts
+        search_task = asyncio.to_thread(
+            search_comparison_chunks,
+            side_a,
+            side_b,
+            department,
+            thesis_category,
+            min_year,
+            axis=axis,
+        )
+    else:
+        search_task = asyncio.to_thread(
             search_chunks, question, department, query_embedding, thesis_category,
             per_paper_cap, *extra_args,
-        ),
+        )
+    result, alert = await asyncio.gather(
+        search_task,
         check_duplication(),
     )
     return result, alert
@@ -2644,6 +2832,54 @@ async def _chat_impl_unstamped(
     adviser_response = await try_adviser_fast_path(req.question)
     if adviser_response:
         return adviser_response
+
+    async def try_program_fast_path(question: str) -> ChatResponse | None:
+        """Resolve unfiltered program/specialization listings and counts via SQL."""
+        parsed = _extract_program_catalog_query(question)
+        if not parsed:
+            return None
+        term, count_only = parsed
+        try:
+            label, program_sources = await asyncio.to_thread(
+                find_papers_by_program_or_track,
+                term,
+                effective_department,
+                req.thesis_category_filter,
+                getattr(req, 'min_year', None),
+            )
+        except Exception as e:
+            logger.exception('Program catalog lookup failed')
+            raise HTTPException(
+                status_code=503,
+                detail='The thesis archive is temporarily unavailable. Please try again in a moment.',
+            ) from e
+        if not label:
+            return None
+        answer_text, shown_sources = _program_catalog_response(
+            effective_department,
+            label,
+            program_sources,
+            count_only=count_only,
+            thesis_category=req.thesis_category_filter,
+        )
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': len(shown_sources),
+            'duplication_flagged': False,
+            'fast_path': 'program_catalog',
+            'program_or_track': label,
+        })
+        return ChatResponse(
+            answer=answer_text,
+            sources=shown_sources,
+            session_id=req.session_id,
+            no_relevant_thesis=not program_sources,
+            archive_current=True,
+        )
+
+    program_response = await try_program_fast_path(req.question)
+    if program_response:
+        return program_response
 
     async def try_author_fast_path(question: str) -> ChatResponse | None:
         """Resolve person-name variants locally before any Gemini or embedding call."""
