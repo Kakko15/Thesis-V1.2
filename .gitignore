@@ -106,3 +106,5 @@ rag-thesis-backend/evaluation/corpus/private/
 /*.ppt
 /IskAI_Successfully_Defended_4K_Poster.png
 /updated_figures/
+/docs/manual/
+/build_implementation_letter.py
