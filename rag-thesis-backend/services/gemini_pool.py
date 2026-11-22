@@ -342,6 +342,11 @@ def _is_provider_overload(error: BaseException) -> bool:
     return False
 
 
+# Public name for callers outside the pool (the chat route maps a final,
+# unrecovered overload to a "busy" notice instead of an HTTP 502).
+is_provider_overload = _is_provider_overload
+
+
 def _should_continue(label: str, error: BaseException) -> bool:
     """Whether a failure on this hop should fall through to the next one.
 

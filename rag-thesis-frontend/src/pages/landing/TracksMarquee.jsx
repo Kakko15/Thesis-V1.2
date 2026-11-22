@@ -3,12 +3,15 @@ import { getTracks } from '../../api'
 import { MarqueeRow } from '../../components/ui/Motion'
 import { cn } from '../../lib/utils'
 
+// Shown only if /upload/tracks is unreachable. Mirrors the live CCSICT catalog
+// (active programs and specializations), not the retired pre-catalog tracks.
 const FALLBACK_TRACKS = [
-  'Data Mining',
-  'Web Development',
-  'Network Security',
-  'Intelligent Systems',
-  'Information Management',
+  'BSCS',
+  'BSIS',
+  'BLIS',
+  'BSDSA',
+  'Web and Mobile Application Development',
+  'Network and Security',
 ]
 
 const RETRY_UNAVAILABLE_TRACKS_MS = 5_000

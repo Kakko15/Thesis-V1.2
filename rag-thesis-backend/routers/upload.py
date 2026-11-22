@@ -34,7 +34,7 @@ from pydantic import TypeAdapter, ValidationError
 from config import settings
 from dependencies.auth import require_upload_access, resolve_effective_department, sb
 from models import (
-    CCSICT_TRACKS,
+    CATALOG_OUTAGE_TRACKS,
     BatchExtractResponse,
     BatchExtractedFile,
     BatchFileResult,
@@ -1406,8 +1406,9 @@ def list_tracks(request: Request):
     same explicit public limit — otherwise only the global default applied to an
     endpoint that performs three table reads.
 
-    The constant survives as the fallback for a catalog outage, which keeps the
-    landing page populated rather than blank.
+    The `CATALOG_OUTAGE_TRACKS` snapshot is the fallback for a catalog outage,
+    which keeps the landing page populated (with current, not retired,
+    vocabulary) rather than blank.
     """
     try:
         # Scoped to the evaluation department. Unscoped, this unions every
@@ -1417,11 +1418,11 @@ def list_tracks(request: Request):
         tracks = active_track_names(settings.thesis_evaluation_department)
     except Exception as error:
         logger.warning(
-            'Live track vocabulary unavailable; serving the legacy constant (%s).',
+            'Live track vocabulary unavailable; serving the catalog snapshot (%s).',
             type(error).__name__,
         )
-        return {'tracks': CCSICT_TRACKS}
-    return {'tracks': tracks or CCSICT_TRACKS}
+        return {'tracks': CATALOG_OUTAGE_TRACKS}
+    return {'tracks': tracks or CATALOG_OUTAGE_TRACKS}
 
 
 # ---------------------------------------------------------------------------

@@ -49,7 +49,7 @@ from langchain_core.prompts import ChatPromptTemplate
 # and every contract are byte-identical to v4, so the Objective 2 figures taken
 # under v4 still describe this pipeline; the bump exists because this file's
 # wording changed and the manifest must say so.
-PROMPT_VERSION = 'iskai-prompt-v5'
+PROMPT_VERSION = 'iskai-prompt-v6'
 
 # Emitted by the model, on its own line, when the retrieved evidence cannot
 # answer the question. Replaces a ~25-phrase English heuristic that also had to
@@ -152,6 +152,10 @@ pages, section -- and the passage text follows it. The catalogue line identifies
 is not a finding. Say what a thesis IS from it freely, but any claim about what a study did,
 found, or concluded must come from the passage text. Where only the catalogue line supports a
 point, say so in that sentence rather than presenting it as a finding.
+- A block whose catalogue line says "Literature review" comes from the thesis's review of
+related literature: it describes OTHER researchers' work that the thesis cites. Never present a
+method, tool, dataset or result from such a block as something the thesis itself used or found;
+if you mention it at all, say the thesis reviewed it.
 - If the evidence cannot answer the question, begin your reply with
 {NO_EVIDENCE_SENTINEL} on its own line, then briefly say what the retrieved studies do
 cover that is closest, citing them normally. Do not apologise at length and never guess."""

@@ -14,11 +14,14 @@ import { useIdleReady } from '../../hooks/useIdleReady'
 const HeroScene = lazy(() => import('../../components/three/HeroScene'))
 const PAGE_HIDDEN_REASON = BLOCK_REASONS.PAGE_HIDDEN
 
+// Example questions the live CCSICT archive can actually answer. The previous
+// phrases (crop disease, campus network security, enrollment chatbot, IoT
+// irrigation) all returned "no relevant thesis" against the real archive.
 const ASK_PHRASES = [
-  'What local studies used CNNs for crop disease detection?',
-  'Which theses tackled campus network security?',
-  'Has anyone built an enrollment chatbot before?',
-  'IoT irrigation studies between 2019 and 2024?',
+  'Which CCSICT theses used computer vision?',
+  'Has any CCSICT thesis developed a recommender system?',
+  'What BLIS studies were conducted at ISU?',
+  'Compare the BSCS alumni tracer and BLIS alumni studies.',
 ]
 
 const TRUST_CHIPS = [

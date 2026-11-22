@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from config import settings
 from main import app
-from models import CCSICT_TRACKS, ChatRequest, DuplicationAlert
+from models import CATALOG_OUTAGE_TRACKS, CCSICT_TRACKS, ChatRequest, DuplicationAlert
 
 
 @pytest.fixture(scope='module')
@@ -205,7 +205,11 @@ class TestPublicSurface:
     def test_tracks_endpoint_is_public(self, client):
         res = client.get('/upload/tracks')
         assert res.status_code == 200
-        assert res.json()['tracks'] == CCSICT_TRACKS
+        assert res.json()['tracks'] == CATALOG_OUTAGE_TRACKS
+
+    def test_outage_tracks_carry_no_retired_vocabulary(self):
+        # Data Mining was retired as a BSCS specialization (20260923 migration).
+        assert 'Data Mining' not in CATALOG_OUTAGE_TRACKS
 
     def test_ccsict_tracks_match_paper(self):
         # Section 3.2.1: representation across academic tracks

@@ -11,6 +11,18 @@ CCSICT_TRACKS = [
     'Information Management',
 ]
 
+# Served by /upload/tracks only during a catalog outage. Mirrors the live
+# CCSICT catalog's active programs and specializations; the paper-era
+# CCSICT_TRACKS above is retired vocabulary that no archived paper carries.
+CATALOG_OUTAGE_TRACKS = [
+    'BSCS',
+    'BSIS',
+    'BLIS',
+    'BSDSA',
+    'Web and Mobile Application Development',
+    'Network and Security',
+]
+
 
 class ChatRequest(BaseModel):
     # Old clients may still send match_count/match_threshold. They are

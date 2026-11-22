@@ -739,6 +739,7 @@ class TestStep1RoutingHardening:
         ('What theses are under WMAD?', ('wmad', False)),
         ('How many theses are in BSIS?', ('bsis', True)),
         ('How many studies are there under the BLIS program?', ('blis', True)),
+        ('What BLIS studies were conducted at ISU?', ('blis', False)),
     ])
     def test_program_catalog_queries_extract_term_and_mode(self, question, expected):
         from routers.chat import _extract_program_catalog_query
@@ -758,3 +759,45 @@ class TestStep1RoutingHardening:
         from routers.chat import _extract_program_catalog_query
 
         assert _extract_program_catalog_query(question) is None
+
+    @pytest.mark.parametrize('question,expected', [
+        ('Which programs have the fewest theses in the archive?', 'fewest'),
+        ('Which research areas or methodologies have the fewest studies in the archive?', 'fewest'),
+        ('What track has the most theses?', 'most'),
+        ('How many theses per program?', 'all'),
+        ('Show the breakdown of theses by program', 'all'),
+        ('theses per specialization', 'all'),
+    ])
+    def test_distribution_questions_are_recognized(self, question, expected):
+        from routers.chat import _extract_distribution_query
+
+        assert _extract_distribution_query(question) == expected
+
+    @pytest.mark.parametrize('question', [
+        'Which programs have the fewest theses about AI?',
+        'Which theses have the most citations?',
+        'How many theses used YOLO?',
+        'What areas does FindMe cover?',
+    ])
+    def test_topical_counts_are_not_distribution_questions(self, question):
+        from routers.chat import _extract_distribution_query
+
+        assert _extract_distribution_query(question) is None
+
+    def test_distribution_response_orders_and_summarizes(self):
+        from routers.chat import _program_distribution_response
+
+        entries = [
+            {'label': 'BSCS (Computer Science)', 'count': 7},
+            {'label': 'BSDSA (Data Science)', 'count': 0},
+            {'label': 'BSIT – Network and Security', 'count': 0},
+            {'label': 'BLIS (Library Science)', 'count': 4},
+        ]
+        fewest = _program_distribution_response('CCSICT', 11, entries, 'fewest', mentions_methods=True)
+        assert '**11 indexed theses**' in fewest
+        assert fewest.index('BSDSA') < fewest.index('BSCS')
+        assert '**Fewest:** BSDSA (Data Science), BSIT – Network and Security (0 each)' in fewest
+        assert 'not research methods' in fewest
+        most = _program_distribution_response('CCSICT', 11, entries, 'most')
+        assert most.index('BSCS') < most.index('BSDSA')
+        assert '**Most:** BSCS (Computer Science) (7)' in most and 'Fewest' not in most

@@ -2,28 +2,29 @@ import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Float, Html } from '@react-three/drei'
 
-/* Representative archive entries — mirrors the demo copy used on the page. */
+/* Real archive entries (titles shortened only where the full title would not
+   fit the card). Replaced fictional cards under retired track names. */
 const CARDS = [
   {
-    title: 'CNN-Based Rice Leaf Disease Detection',
-    track: 'Data Mining',
-    year: 2023,
+    title: 'FindMe: A Computer Vision-based Detector for Missing Person',
+    track: 'BSCS',
+    year: 2024,
     incline: 0.42,
     phase: 0,
     speed: 0.11,
   },
   {
-    title: 'Campus Network Intrusion Detection',
-    track: 'Network Security',
-    year: 2022,
+    title: 'ISU-CANNER: A Document Monitoring and Tracking System Using QR Code',
+    track: 'BSIT · WMAD',
+    year: 2025,
     incline: -0.32,
     phase: 2.1,
     speed: 0.09,
   },
   {
-    title: 'Enrollment Chatbot with NLP',
-    track: 'Intelligent Systems',
-    year: 2024,
+    title: 'BLIS Beyond Graduation: Mapping Career Paths Through Alumni Profiling',
+    track: 'BLIS',
+    year: 2026,
     incline: 0.12,
     phase: 4.2,
     speed: 0.13,

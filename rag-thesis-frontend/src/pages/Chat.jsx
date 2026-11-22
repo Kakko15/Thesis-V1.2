@@ -48,8 +48,12 @@ import {
 
 const STARTERS = [
   'What machine learning techniques were used in past CCSICT theses?',
-  'Are there existing studies about attendance monitoring systems?',
-  'Summarize local research on network security for campus networks.',
+  // Starters must be questions the archive can answer. The previous
+  // attendance-monitoring and campus-network-security starters matched no
+  // archived thesis, so a first-time student's first click returned
+  // "no relevant thesis".
+  'Which CCSICT theses used computer vision?',
+  'Compare the BSCS alumni tracer study and the BLIS alumni profiling study.',
   // Data Mining is no longer a BSCS specialization in the academic catalog
   // (migrations/20260923_bscs_without_specialization.sql), so archived BSCS
   // theses carry track "BSCS" and a "Data Mining track" starter could only

@@ -271,6 +271,61 @@ _CATALOG_ALIASES: dict[str, tuple[str, str]] = {
 }
 
 
+def _is_missing_relation_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return (
+        _is_missing_column_error(error)
+        or getattr(error, 'code', None) == '42P01'
+        or "'code': '42p01'" in message
+        or ('relation ' in message and ' does not exist' in message)
+    )
+
+
+def _department_catalog(department_filter: str | None) -> tuple[list[dict], list[dict]]:
+    """Active programs and specializations, scoped to one department by name.
+
+    Program and specialization codes are only unique within a college; once
+    another department is activated, an unscoped `code = 'BSIT'` lookup could
+    resolve to that college's row and report zero CCSICT theses.
+    """
+    try:
+        department_id = None
+        if department_filter:
+            departments = retry_transient(
+                lambda: sb.table('departments').select('id,name')
+                .eq('name', department_filter).limit(1).execute(),
+                label='Supabase department lookup',
+                logger=logger,
+            ).data or []
+            if not departments:
+                return [], []
+            department_id = departments[0]['id']
+
+        def fetch_programs():
+            query = sb.table('programs').select('id,code,name,active,department_id').eq('active', True)
+            if department_id:
+                query = query.eq('department_id', department_id)
+            return query.order('code').execute()
+
+        programs = retry_transient(
+            fetch_programs, label='Supabase program catalog', logger=logger,
+        ).data or []
+        program_ids = [program['id'] for program in programs]
+        specializations: list[dict] = []
+        if program_ids:
+            specializations = retry_transient(
+                lambda: sb.table('specializations').select('id,code,name,active,program_id')
+                .eq('active', True).in_('program_id', program_ids).order('name').execute(),
+                label='Supabase specialization catalog',
+                logger=logger,
+            ).data or []
+    except Exception as error:
+        if _is_missing_relation_error(error):
+            return [], []
+        raise
+    return programs, specializations
+
+
 def find_papers_by_program_or_track(
     catalog_term: str,
     department_filter: str | None = None,
@@ -283,27 +338,15 @@ def find_papers_by_program_or_track(
     if not target:
         return None, []
     kind, code = target
-    table_name = 'programs' if kind == 'program' else 'specializations'
     column_name = 'program_id' if kind == 'program' else 'specialization_id'
 
-    try:
-        catalog_rows = retry_transient(
-            lambda: sb.table(table_name)
-            .select('id,code,name,active')
-            .eq('code', code)
-            .eq('active', True)
-            .limit(1)
-            .execute(),
-            label=f'Supabase {kind} lookup',
-            logger=logger,
-        ).data or []
-    except Exception as error:
-        if _is_missing_column_error(error):
-            return None, []
-        raise
-    if not catalog_rows:
+    programs, specializations = _department_catalog(department_filter)
+    entry = next(
+        (row for row in (programs if kind == 'program' else specializations) if row.get('code') == code),
+        None,
+    )
+    if not entry:
         return None, []
-    entry = catalog_rows[0]
     display_label = (
         f"{entry['code']} ({entry['name']})"
         if kind == 'program' and entry.get('name')
@@ -360,6 +403,69 @@ def find_papers_by_program_or_track(
         public_source(row, citation_id=index)
         for index, row in enumerate(rows, start=1)
     ]
+
+
+def archive_program_distribution(
+    department_filter: str | None = None,
+    thesis_category: str | None = None,
+    min_year: int | None = None,
+) -> tuple[int, list[dict]]:
+    """Ready-thesis counts per active program/specialization, from SQL.
+
+    Returns `(total, entries)` where each entry is `{label, count}`. Programs
+    with active specializations (BSIT) are counted per specialization, with any
+    BSIT paper lacking one reported on its own row. Papers whose program is not
+    in the active catalog are reported as unclassified, never dropped, so the
+    rows always sum to the total.
+    """
+    programs, specializations = _department_catalog(department_filter)
+
+    def fetch_papers():
+        query = sb.table('papers') \
+            .select('id,year,program_id,specialization_id') \
+            .eq('ingestion_status', 'ready')
+        if department_filter:
+            query = query.eq('department', department_filter)
+        if thesis_category:
+            query = query.eq('thesis_category', thesis_category)
+        return query.limit(5000).execute()
+
+    papers = retry_transient(
+        fetch_papers, label='Supabase program distribution', logger=logger,
+    ).data or []
+    if min_year:
+        papers = [
+            row for row in papers
+            if int(row.get('year') or 0) <= 0 or int(row.get('year') or 0) >= min_year
+        ]
+
+    entries: list[dict] = []
+    accounted: set = set()
+    for program in programs:
+        program_specs = [spec for spec in specializations if spec.get('program_id') == program['id']]
+        program_papers = [paper for paper in papers if paper.get('program_id') == program['id']]
+        if not program_specs:
+            entries.append({
+                'label': f"{program['code']} ({program.get('name') or program['code']})",
+                'count': len(program_papers),
+            })
+            accounted.update(paper['id'] for paper in program_papers)
+            continue
+        for spec in program_specs:
+            spec_papers = [p for p in papers if p.get('specialization_id') == spec['id']]
+            entries.append({'label': f"{program['code']} – {spec['name']}", 'count': len(spec_papers)})
+            accounted.update(paper['id'] for paper in spec_papers)
+        unspecified = [paper for paper in program_papers if paper['id'] not in accounted]
+        if unspecified:
+            entries.append({
+                'label': f"{program['code']} (no specialization recorded)",
+                'count': len(unspecified),
+            })
+            accounted.update(paper['id'] for paper in unspecified)
+    unclassified = [paper for paper in papers if paper['id'] not in accounted]
+    if unclassified:
+        entries.append({'label': 'Unclassified (no active program recorded)', 'count': len(unclassified)})
+    return len(papers), entries
 
 
 def find_papers_by_ids(paper_ids: list[str], department_filter: str | None = None) -> list[dict]:
@@ -785,7 +891,64 @@ def _format_chunk_header(paper: dict, chunk: dict, *, default_title: str = '?') 
         meta_bits.append(f'Pages: {page_label}')
     if location['section']:
         meta_bits.append(f"Section: {location['section']}")
+        if is_literature_review_section(location['section']):
+            # Lets the model tell a cited source apart from the thesis's own
+            # work (see EVIDENCE_CONTRACT in services/prompts.py).
+            meta_bits.append('Literature review (describes cited studies, not this thesis)')
     return ' | '.join(meta_bits)
+
+
+# ISU theses put the review of related literature and studies in Chapter 2, as
+# numbered "2.x" subsections named after the TECHNIQUE reviewed ("2.2 YOLO",
+# "2.3 Contour Detection"). Those passages are dense in method names, so they
+# out-rank the thesis's own methodology for "what techniques were used"
+# questions, and the model then credited the thesis with a reviewed method
+# (measured 2026-11-23: Faster R-CNN to the mango thesis, YOLOv5 to a YOLOv8
+# thesis). The conceptual framework, also in Chapter 2, is the thesis's own
+# design and is excluded.
+_LITERATURE_SECTION = re.compile(
+    r'review\s+of\s+(?:related|existing)|related\s+(?:literature|studies|works?|systems?)|'
+    r'literature\s+review|^\s*2\.\d',
+    re.IGNORECASE,
+)
+_OWN_WORK_SECTION = re.compile(r'conceptual\s+framework|research\s+paradigm', re.IGNORECASE)
+_LITERATURE_QUESTION = re.compile(
+    r'\b(?:literature|related\s+(?:studies|works?|systems?)|rrl|reviewed|review\s+of|'
+    r'cited|citations?|define|definition|meaning\s+of)\b',
+    re.IGNORECASE,
+)
+_LITERATURE_RERANK_PENALTY = 0.06
+
+
+def is_literature_review_section(section: str | None) -> bool:
+    """Whether a section heading belongs to the review of related literature."""
+    text = section or ''
+    return bool(_LITERATURE_SECTION.search(text)) and not _OWN_WORK_SECTION.search(text)
+
+
+def prefer_own_work_within_paper(ranked: list[dict], question: str) -> list[dict]:
+    """Within each thesis, move its own-work chunks ahead of its review chunks.
+
+    Distinct-thesis sampling keeps ONE chunk per thesis, so whichever chunk of
+    a thesis ranks first decides what the answer can say about it. When that
+    chunk is a literature review, the honest answer has to leave the thesis
+    out (measured: "Which theses used deep learning?" dropped the mango, FindMe
+    and SECURE theses this way). Each thesis keeps the rank positions its
+    chunks already hold; only the order of its own chunks inside those
+    positions changes, so the paper order the rerank chose is preserved.
+    """
+    if _LITERATURE_QUESTION.search(question or ''):
+        return ranked
+    positions: dict = {}
+    for index, chunk in enumerate(ranked):
+        positions.setdefault(chunk.get('paper_id'), []).append(index)
+    reordered = list(ranked)
+    for paper_positions in positions.values():
+        chunks = [ranked[i] for i in paper_positions]
+        chunks.sort(key=lambda c: is_literature_review_section(chunk_location(c).get('section')))
+        for slot, chunk in zip(paper_positions, chunks):
+            reordered[slot] = chunk
+    return reordered
 
 
 def get_paper_overview_context(
@@ -900,13 +1063,69 @@ def get_paper_overview_context(
 # second term contributes at most 0.25 regardless of question length.
 _RERANK_SIMILARITY_WEIGHT = 0.75
 _RERANK_LEXICAL_WEIGHT = 0.25
+# Candidate pool used when retrieval samples one chunk per thesis.
+_DISTINCT_SAMPLING_POOL = 60
+
+# Archive-scope wording ("CCSICT", "past theses", "in the archive") tells the
+# system WHERE to look, not WHAT about. Embedded with the question it pulls the
+# vector toward any thesis whose own topic is the archive: measured 2026-11-23,
+# 14 of 15 candidates for "Has any CCSICT thesis developed a recommender
+# system?" were chunks of the RAG thesis-library thesis, and the mango
+# recommender thesis contributed only its title page. Without the scope words
+# the same query drew 11 mango chunks. The scope-free query is searched IN
+# ADDITION to the original, never instead, and topical uses ("thesis library",
+# "thesis tracking system") are left intact.
+_SCOPE_PHRASES = (
+    re.compile(
+        r'\b(?:in|from|within|across|among|of)\s+(?:the\s+)?(?:ccsict\s+)?(?:thesis\s+)?'
+        r'(?:archive|archives|collection|repository|database)\b',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'\bisabela\s+state\s+university(?:\s*[-–]?\s*echague(?:\s+campus)?)?\b|\bccsict\b|\bisu\b',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'\b(?:past|previous|prior|existing|archived|local|other)\s+'
+        r'(?=(?:\w+\s+)?(?:theses|thesis|studies|research|capstones?)\b)',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'\b(?:theses|thesis|capstones?)\b(?!\s+(?:library|libraries|management|archive|archives|'
+        r'repository|repositories|tracking|monitoring|writing|advising|submission|system|systems|'
+        r'database|records?|documents?|routing|evaluation|defense|title|titles))',
+        re.IGNORECASE,
+    ),
+)
 
 
-def _lexical_evidence_score(chunk: dict, query_terms: list[str]) -> int:
-    """The exact-paper path's section-aware signal, generalized cross-paper."""
+def scope_free_query(question: str) -> str | None:
+    """The question without archive-scope words, or None when nothing changes."""
+    text = question or ''
+    for pattern in _SCOPE_PHRASES:
+        text = pattern.sub(' ', text)
+    text = re.sub(r'\s+([?.!,])', r'\1', re.sub(r'\s+', ' ', text)).strip()
+    if text == re.sub(r'\s+', ' ', question or '').strip() or not _search_terms(text):
+        return None
+    return text
+
+
+def _lexical_evidence_score(
+    chunk: dict, query_terms: list[str], *, count_review_heading: bool = True,
+) -> int:
+    """The exact-paper path's section-aware signal, generalized cross-paper.
+
+    `count_review_heading=False` drops the heading bonus for review-of-
+    literature sections: their headings name the REVIEWED technique ("2.2
+    YOLO"), so the 3x heading weight made a cited study out-rank the thesis's
+    own use of the same technique.
+    """
     location = chunk_location(chunk)
     content_terms = _search_terms(f"{chunk.get('title', '')} {chunk.get('content', '')}")
-    section_terms = _search_terms(location.get('section') or '')
+    section = location.get('section') or ''
+    if not count_review_heading and is_literature_review_section(section):
+        section = ''
+    section_terms = _search_terms(section)
     unique_terms = set(query_terms)
     return (
         sum(min(content_terms.count(term), 4) for term in unique_terms)
@@ -929,15 +1148,29 @@ def rerank_candidates(chunks: list[dict], question: str) -> list[dict]:
     query_terms = _search_terms(question)
     if not query_terms or len(chunks) <= 1:
         return by_similarity
+    # Review-of-literature passages describe cited studies, so they rank a
+    # little below the thesis's own sections unless the question is about
+    # literature. Small on purpose: a strongly matching review passage still
+    # wins over a weakly matching methodology passage.
+    penalize_reviews = not _LITERATURE_QUESTION.search(question or '')
     lexical = {
-        id(chunk): _lexical_evidence_score(chunk, query_terms) for chunk in by_similarity
+        id(chunk): _lexical_evidence_score(
+            chunk, query_terms, count_review_heading=not penalize_reviews,
+        )
+        for chunk in by_similarity
     }
     max_lexical = max(lexical.values()) or 1
 
     def blended(chunk: dict) -> float:
+        penalty = (
+            _LITERATURE_RERANK_PENALTY
+            if penalize_reviews and is_literature_review_section(chunk_location(chunk).get('section'))
+            else 0.0
+        )
         return (
             _RERANK_SIMILARITY_WEIGHT * (chunk.get('similarity') or 0.0)
             + _RERANK_LEXICAL_WEIGHT * (lexical[id(chunk)] / max_lexical)
+            - penalty
         )
 
     return sorted(by_similarity, key=lambda chunk: -blended(chunk))
@@ -1556,6 +1789,14 @@ def search_chunks(
     q_embedding = query_embedding if query_embedding is not None else embed_text(question)
     final_count = settings.retrieval_match_count
     pool_size = max(settings.retrieval_candidate_pool, final_count)
+    if per_paper_cap == 1 and pool_size > final_count:
+        # Distinct-thesis sampling (aggregate / enumeration) is pointless if
+        # one long thesis fills the whole candidate pool: measured 2026-11-23,
+        # 14 of 15 candidates for "What machine learning techniques were used
+        # in past CCSICT theses?" were chunks of one AI-themed thesis, so even
+        # a cap of one could not surface a second study. A wider pool gives
+        # the cap something to choose from. The rollback lever is unaffected.
+        pool_size = max(pool_size, _DISTINCT_SAMPLING_POOL)
     rpc_params = {
         'query_embedding': q_embedding,
         'match_count': pool_size,
@@ -1572,7 +1813,10 @@ def search_chunks(
         label='Supabase chunk retrieval',
         logger=logger,
     )
-    pool = _filter_pool_by_min_year(result.data or [], min_year)
+    raw_pool = result.data or []
+    if pool_size > final_count:
+        raw_pool = _merge_scope_free_candidates(raw_pool, question, rpc_params)
+    pool = _filter_pool_by_min_year(raw_pool, min_year)
     if not pool:
         return '', [], 0.0
 
@@ -1589,9 +1833,40 @@ def search_chunks(
         if not ranked_pool:
             return '', [], 0.0
         effective_cap = per_paper_cap if per_paper_cap is not None else settings.retrieval_per_paper_cap
+        if effective_cap == 1:
+            ranked_pool = prefer_own_work_within_paper(ranked_pool, question)
         chunks = apply_paper_diversity(ranked_pool, final_count, effective_cap)
 
     return _finalize_retrieved_chunks(chunks, top_similarity)
+
+
+def _merge_scope_free_candidates(pool: list[dict], question: str, rpc_params: dict) -> list[dict]:
+    """Add candidates for the scope-free wording of `question` to `pool`.
+
+    Each chunk keeps its higher similarity across the two searches. Any
+    failure here (an embedding outage, a dropped connection) keeps the
+    original pool, so the extra search can only add evidence, never remove it.
+    """
+    alternative = scope_free_query(question)
+    if not alternative:
+        return pool
+    try:
+        alt_params = {**rpc_params, 'query_embedding': embed_text(alternative)}
+        alt_rows = retry_transient(
+            lambda: sb.rpc('match_chunks', alt_params).execute(),
+            label='Supabase scope-free chunk retrieval',
+            logger=logger,
+        ).data or []
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        logger.warning('Scope-free retrieval skipped (%s)', type(error).__name__)
+        return pool
+    merged: dict = {}
+    for row in [*pool, *alt_rows]:
+        key = row.get('id')
+        current = merged.get(key)
+        if current is None or (row.get('similarity') or 0.0) > (current.get('similarity') or 0.0):
+            merged[key] = row
+    return list(merged.values())
 
 
 def check_topic_duplication(

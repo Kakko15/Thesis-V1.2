@@ -26,7 +26,17 @@ _AGGREGATE = re.compile(
     r'\b(?:most\s+(?:common(?:ly)?(?:\s+used)?|used|frequent(?:ly)?|popular)'
     r'|across\s+(?:all\s+)?(?:the\s+)?(?:theses|papers|studies|archive)'
     r'|majority\s+of|what\s+percentage|how\s+often|dominant|prevailing'
-    r'|overall\s+trend|trends?\s+in)\b',
+    r'|overall\s+trend|trends?\s+in'
+    # "What techniques were used in past CCSICT theses?" asks about the corpus,
+    # not one study. Measured 2026-11-23: unsampled, 14 of the 15 candidates
+    # came from a single thesis whose own topic is AI, and the answer covered
+    # that one thesis only.
+    r'|(?:used|applied|employed|adopted|utili[sz]ed)\s+(?:in|by|across)\s+(?:the\s+)?'
+    r'(?:(?:past|previous|prior|existing|archived|recent|other|all|local)\s+(?:\w+\s+)?'
+    r'(?:theses|studies|papers|capstones?)|archive)'
+    # "How many theses used YOLO?" counts across the archive.
+    r'|how\s+many\s+(?:\w+\s+)?(?:theses|studies|papers)\s+(?:have\s+)?'
+    r'(?:used|use|applied|apply|employed|employ|adopted|adopt|utili[sz]ed|developed|built))\b',
     re.IGNORECASE,
 )
 _COMPARISON = re.compile(
@@ -38,7 +48,10 @@ _COMPARISON = re.compile(
 _ENUMERATION = re.compile(
     r'\b(?:list|enumerate|name\s+(?:all|the|some)'
     r'|what\s+(?:are|were)\s+(?:the|all)\b'
-    r'|which\s+(?:theses|papers|studies))\b',
+    r'|which\s+(?:theses|papers|studies)'
+    # "Summarize recent web and mobile application theses" asks about several
+    # distinct theses (plural noun), not one.
+    r'|summari[sz]e\s+(?:\w+\s+){0,6}?(?:theses|studies|papers|capstones))\b',
     re.IGNORECASE,
 )
 _FACTUAL = re.compile(

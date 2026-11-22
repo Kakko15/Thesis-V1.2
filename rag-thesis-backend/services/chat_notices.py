@@ -50,6 +50,15 @@ CAPACITY_MESSAGE = (
     'be processed right now. Please try again later.'
 )
 
+# Every AI provider was overloaded or refused the request at once (a Gemini 503
+# spike with every Groq fallback also failing). Transient by nature, so unlike
+# CAPACITY_MESSAGE it trips no cooldown: the next question is attempted
+# normally. It used to surface as an HTTP 502 error.
+OVERLOAD_MESSAGE = (
+    'The research AI service is busy right now, so your question could not be answered. '
+    'Please try again in a minute.'
+)
+
 NO_RELEVANT_PREFIX = 'No relevant thesis was found in the'
 
 # The greeting reply. Lives here rather than in routers/chat.py for the
@@ -178,6 +187,7 @@ GROUNDED_FALLBACK_PREFIX = 'I could not verify a direct answer'
 # extend, so they are matched by prefix; the others are exact constants.
 NOTICE_MARKERS = (
     CAPACITY_MESSAGE,
+    OVERLOAD_MESSAGE,
     REFUSAL_MESSAGE,
     VERBATIM_REFUSAL_MESSAGE,
     GUEST_BUDGET_MESSAGE,
@@ -258,7 +268,8 @@ def response_kind(response) -> str:
         return KIND_NOTICE
     answer = getattr(response, 'answer', '') or ''
     if answer in (
-        CAPACITY_MESSAGE, REFUSAL_MESSAGE, VERBATIM_REFUSAL_MESSAGE, GUEST_BUDGET_MESSAGE,
+        CAPACITY_MESSAGE, OVERLOAD_MESSAGE, REFUSAL_MESSAGE, VERBATIM_REFUSAL_MESSAGE,
+        GUEST_BUDGET_MESSAGE,
         *CONVERSATION_MESSAGES,
         IDENTITY_MESSAGE,
         SYSTEM_ORIGIN_MESSAGE, CAPABILITIES_MESSAGE, *COURTESY_MESSAGES,

@@ -13,7 +13,10 @@ export const STUDENT_STARTER_PROMPTS = Object.freeze([
   },
   {
     label: 'Find unexplored topics',
-    prompt: 'Which research areas or methodologies have the fewest studies in the archive?',
+    // Answered from the live catalog (theses per program/specialization).
+    // The old "research areas or methodologies" wording went to vector
+    // search, which sees five passages and miscounted the archive.
+    prompt: 'Which programs have the fewest theses in the archive?',
   },
 ])
 

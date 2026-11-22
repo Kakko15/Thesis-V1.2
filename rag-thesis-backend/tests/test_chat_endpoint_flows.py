@@ -1584,3 +1584,36 @@ class TestStep1EndpointFastPaths:
         ))
         assert response.answer.endswith('to compare against it.')
         assert [source['id'] for source in response.sources] == ['p_mango']
+
+    def test_a_final_provider_overload_is_a_busy_notice_not_a_502(self, monkeypatch):
+        sources = [{'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': 'One'}]
+
+        async def retrieve(*_args, **_kwargs):
+            return ('[1] Evidence', sources, 0.9), None
+
+        async def generate(*_args):
+            raise RuntimeError('503 UNAVAILABLE: This model is currently experiencing high demand.')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        response = run(chat._chat_impl(
+            ChatRequest(question='What method did the study use?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.answer == chat.chat_notices.OVERLOAD_MESSAGE
+        assert response.kind == 'notice'
+        # Transient: no cooldown, so the next question is attempted normally.
+        assert not chat._capacity_limit_is_active()
+
+    def test_a_database_503_during_retrieval_still_reports_the_archive(self, monkeypatch):
+        async def retrieve(*_args, **_kwargs):
+            raise RuntimeError('503 Service Unavailable')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        with pytest.raises(HTTPException) as error:
+            run(chat._chat_impl(
+                ChatRequest(question='What method did the study use?'),
+                _NoRequest(), BackgroundTasks(), None,
+            ))
+        assert error.value.status_code == 503
+        assert 'thesis archive' in error.value.detail

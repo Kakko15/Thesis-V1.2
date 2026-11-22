@@ -16,16 +16,21 @@ import { usePreferences } from '../../context/PreferencesContext'
    UI: the question types into the composer, sends into the thread as an
    avatarless bubble, IskAI thinks with the AnimatedLogo indicator, then the
    answer streams and evidence source cards land. Phases:
-   0 idle · 1 typing in composer · 2 sent + thinking · 3 streaming answer · 4 sources */
+   0 idle · 1 typing in composer · 2 sent + thinking · 3 streaming answer · 4 sources
 
-const QUESTION = 'What local studies used CNNs for crop disease detection?'
+   The question, answer and sources are REAL archive entries, condensed from
+   what the live system answers. A citation library must not advertise
+   invented studies: the previous script showed two fictional crop-disease
+   theses with a fabricated "94% accuracy" under a retired track. */
+
+const QUESTION = 'Which CCSICT theses used computer vision for real-time detection?'
 const ANSWER_WORDS =
-  'Two archived studies applied convolutional neural networks to agricultural imagery [1] [2] — both within the Data Mining track. The 2023 study reached 94% accuracy detecting rice-leaf blight, while the 2021 work classified maize diseases from smartphone photos.'.split(' ')
+  'Archived BSCS theses have applied computer vision to real-time detection [1] [2]. FindMe paired MTCNN face detection with FaceNet recognition to locate missing persons in live CCTV video [1], while the Left-Off Object Detection Platform used YOLOv8 to flag unattended objects in school laboratories [2].'.split(' ')
 // The demo answer repeats common words, so keys carry an occurrence number.
 const ANSWER_WORD_KEYS = contentKeys(ANSWER_WORDS, 'answer-word')
 const SOURCES = [
-  { n: 1, title: 'CNN-Based Rice Leaf Disease Detection', meta: 'Data Mining · 2023', track: 'Data Mining' },
-  { n: 2, title: 'Maize Disease Image Classification', meta: 'Data Mining · 2021', track: 'Data Mining' },
+  { n: 1, title: 'FindMe: A Computer Vision-based Detector for Missing Person', meta: 'BSCS · 2024', track: 'BSCS' },
+  { n: 2, title: 'Computer Vision-Based Left-Off Object Detection Platform', meta: 'BSCS · 2024', track: 'BSCS' },
 ]
 
 /** Google Fonts (Material Symbols Outlined: arrow_upward_alt, fill 0 / wght 400 / opsz 24). */

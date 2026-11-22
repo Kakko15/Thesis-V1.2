@@ -971,46 +971,78 @@ class TestPaperDiversityCap:
         selected = retriever._select_comparison_paper_chunks(candidates, '', paper, limit=3)
         assert [c['id'] for c in selected] == [2, 3, 4]
 
-    def test_find_papers_by_program_or_track_returns_authoritative_matches(self, monkeypatch):
-        blis_prog = [{'id': 'prog-blis', 'code': 'BLIS', 'name': 'Bachelor of Library and Information Science', 'active': True}]
-        netsec_spec = [{'id': 'spec-netsec', 'code': 'NETSEC', 'name': 'Network and Security', 'active': True}]
-        blis_papers = [
-            {'id': 'p1', 'title': 'BLIS Study 1', 'authors': 'A', 'year': 2026, 'track': 'BLIS', 'department': 'CCSICT'},
-            {'id': 'p2', 'title': 'BLIS Study 2', 'authors': 'B', 'year': 2026, 'track': 'BLIS', 'department': 'CCSICT'},
+    @staticmethod
+    def _catalog_client(papers):
+        departments = [
+            {'id': 'dept-ccsict', 'name': 'CCSICT'},
+            {'id': 'dept-other', 'name': 'OTHER'},
+        ]
+        programs = [
+            {'id': 'prog-bscs', 'code': 'BSCS', 'name': 'Bachelor of Science in Computer Science',
+             'active': True, 'department_id': 'dept-ccsict'},
+            {'id': 'prog-bsit', 'code': 'BSIT', 'name': 'Bachelor of Science in Information Technology',
+             'active': True, 'department_id': 'dept-ccsict'},
+            {'id': 'prog-blis', 'code': 'BLIS', 'name': 'Bachelor of Library and Information Science',
+             'active': True, 'department_id': 'dept-ccsict'},
+            {'id': 'prog-bsdsa', 'code': 'BSDSA', 'name': 'Bachelor of Science in Data Science and Analytics',
+             'active': True, 'department_id': 'dept-ccsict'},
+            # Same code in another college: must never be picked for CCSICT.
+            {'id': 'prog-blis-other', 'code': 'BLIS', 'name': 'Other BLIS',
+             'active': True, 'department_id': 'dept-other'},
+        ]
+        specializations = [
+            {'id': 'spec-wmad', 'code': 'WMAD', 'name': 'Web and Mobile Application Development',
+             'active': True, 'program_id': 'prog-bsit'},
+            {'id': 'spec-netsec', 'code': 'NETSEC', 'name': 'Network and Security',
+             'active': True, 'program_id': 'prog-bsit'},
+            {'id': 'spec-dm', 'code': 'DM', 'name': 'Data Mining', 'active': False, 'program_id': 'prog-bscs'},
         ]
 
         class _CatalogQuery(_Query):
             def __init__(self, rows):
                 super().__init__(rows)
                 self._eqs = []
+                self._ins = []
 
             def eq(self, col, val):
                 self._eqs.append((col, val))
+                return self
+
+            def in_(self, col, values):
+                self._ins.append((col, set(values)))
                 return self
 
             def execute(self):
                 matched = [
                     r for r in self.rows
                     if all(r.get(col) == val for col, val in self._eqs if col in r)
+                    and all(r.get(col) in values for col, values in self._ins)
                 ]
                 return SimpleNamespace(data=matched)
 
+        tables = {
+            'departments': departments, 'programs': programs,
+            'specializations': specializations, 'papers': papers,
+        }
+
         class _CatalogClient:
             def table(self, name):
-                if name == 'programs':
-                    return _CatalogQuery(blis_prog)
-                if name == 'specializations':
-                    return _CatalogQuery(netsec_spec)
-                if name == 'papers':
-                    return _CatalogQuery([
-                        {**p, 'ingestion_status': 'ready', 'program_id': 'prog-blis', 'specialization_id': None}
-                        for p in blis_papers
-                    ])
-                raise AssertionError(name)
+                if name not in tables:
+                    raise AssertionError(name)
+                return _CatalogQuery(tables[name])
 
-        monkeypatch.setattr(retriever, 'sb', _CatalogClient())
+        return _CatalogClient()
+
+    def test_find_papers_by_program_or_track_returns_authoritative_matches(self, monkeypatch):
+        papers = [
+            {'id': 'p1', 'title': 'BLIS Study 1', 'authors': 'A', 'year': 2026, 'track': 'BLIS',
+             'department': 'CCSICT', 'ingestion_status': 'ready', 'program_id': 'prog-blis', 'specialization_id': None},
+            {'id': 'p2', 'title': 'BLIS Study 2', 'authors': 'B', 'year': 2026, 'track': 'BLIS',
+             'department': 'CCSICT', 'ingestion_status': 'ready', 'program_id': 'prog-blis', 'specialization_id': None},
+        ]
+        monkeypatch.setattr(retriever, 'sb', self._catalog_client(papers))
         label, found = retriever.find_papers_by_program_or_track('BLIS', 'CCSICT')
-        assert 'BLIS' in label and len(found) == 2
+        assert 'BLIS' in label and 'Other' not in label and len(found) == 2
         assert [s['citation_id'] for s in found] == [1, 2]
 
         ns_label, ns_found = retriever.find_papers_by_program_or_track('Network and Security', 'CCSICT')
@@ -1018,3 +1050,142 @@ class TestPaperDiversityCap:
 
         dm_label, dm_found = retriever.find_papers_by_program_or_track('Data Mining', 'CCSICT')
         assert dm_label is None and dm_found == []
+
+        unknown_label, _ = retriever.find_papers_by_program_or_track('BLIS', 'NO-SUCH-DEPT')
+        assert unknown_label is None
+
+    def test_archive_program_distribution_counts_every_ready_paper(self, monkeypatch):
+        def paper(pid, program, spec=None):
+            return {'id': pid, 'year': 2025, 'department': 'CCSICT', 'ingestion_status': 'ready',
+                    'program_id': program, 'specialization_id': spec}
+
+        papers = [
+            paper('a', 'prog-bscs'), paper('b', 'prog-bscs'), paper('c', 'prog-blis'),
+            paper('d', 'prog-bsit', 'spec-wmad'), paper('e', 'prog-bsit'), paper('f', None),
+        ]
+        monkeypatch.setattr(retriever, 'sb', self._catalog_client(papers))
+        total, entries = retriever.archive_program_distribution('CCSICT')
+        counts = {entry['label']: entry['count'] for entry in entries}
+        assert total == 6 and sum(counts.values()) == 6
+        assert counts['BSCS (Bachelor of Science in Computer Science)'] == 2
+        assert counts['BSDSA (Bachelor of Science in Data Science and Analytics)'] == 0
+        assert counts['BSIT – Web and Mobile Application Development'] == 1
+        assert counts['BSIT – Network and Security'] == 0
+        assert counts['BSIT (no specialization recorded)'] == 1
+        assert counts['Unclassified (no active program recorded)'] == 1
+        assert not any('Other' in label or 'Data Mining' in label for label in counts)
+
+
+class TestLiteratureReviewHandling:
+    @pytest.mark.parametrize('section,expected', [
+        ('Review of Related Literature', True),
+        ('REVIEW OF RELATED LITERATURES AND STUDIES', True),
+        ('2.3 Contour Detection for Fruit Classification', True),
+        ('2.1 RELATED LITERATURE', True),
+        ('2.5 Conceptual Framework', False),
+        ('2.9 Conceptual Framework of the Study', False),
+        ('3.2 Methods', False),
+        ('Results and Discussion', False),
+        ('12.3 Appendix', False),
+        (None, False),
+    ])
+    def test_section_classifier(self, section, expected):
+        assert retriever.is_literature_review_section(section) is expected
+
+    def test_review_chunks_are_labelled_in_the_context_header(self):
+        header = retriever._format_chunk_header(
+            {'title': 'Mango CNN'}, {'section': '2.3 Contour Detection'},
+        )
+        assert 'Literature review (describes cited studies, not this thesis)' in header
+        own = retriever._format_chunk_header({'title': 'Mango CNN'}, {'section': '3.8 Materials'})
+        assert 'Literature review' not in own
+
+    def test_rerank_lowers_review_chunks_unless_the_question_is_about_literature(self):
+        review = {'id': 1, 'paper_id': 'p', 'similarity': 0.70, 'section': '2.2 YOLO', 'content': 'yolo detection'}
+        method = {'id': 2, 'paper_id': 'p', 'similarity': 0.67, 'section': '3.4 Software', 'content': 'yolo detection'}
+        assert [c['id'] for c in retriever.rerank_candidates([review, method], 'Which theses used YOLO detection?')] == [2, 1]
+        assert [c['id'] for c in retriever.rerank_candidates(
+            [review, method], 'What related literature on YOLO detection was reviewed?')] == [1, 2]
+
+    def test_own_work_is_preferred_inside_each_thesis_without_reordering_theses(self):
+        ranked = [
+            {'id': 1, 'paper_id': 'a', 'section': '2.3 Contour Detection'},
+            {'id': 2, 'paper_id': 'b', 'section': '3.1 Methods'},
+            {'id': 3, 'paper_id': 'a', 'section': '3.8 Materials'},
+            {'id': 4, 'paper_id': 'c', 'section': 'Review of Related Literature'},
+        ]
+        reordered = retriever.prefer_own_work_within_paper(ranked, 'Which theses used deep learning?')
+        assert [c['id'] for c in reordered] == [3, 2, 1, 4]
+        assert retriever.prefer_own_work_within_paper(ranked, 'What literature was reviewed?') == ranked
+
+    def test_distinct_sampling_widens_the_candidate_pool(self, monkeypatch):
+        captured = {}
+
+        class _Rpc:
+            def __init__(self, params):
+                captured.update(params)
+
+            def execute(self):
+                return SimpleNamespace(data=[])
+
+        class _Client(_RetrieverClient):
+            def rpc(self, _name, params):
+                return _Rpc(params)
+
+        monkeypatch.setattr(retriever, 'sb', _Client())
+        retriever.search_chunks('q', 'CCSICT', [0.1], None, 1)
+        assert captured['match_count'] == retriever._DISTINCT_SAMPLING_POOL
+        retriever.search_chunks('q', 'CCSICT', [0.1], None, None)
+        assert captured['match_count'] == max(retriever.settings.retrieval_candidate_pool,
+                                              retriever.settings.retrieval_match_count)
+
+
+class TestScopeFreeRetrieval:
+    @pytest.mark.parametrize('question,expected', [
+        ('Has any CCSICT thesis developed a recommender system?', 'Has any developed a recommender system?'),
+        ('List all theses in the archive about computer vision.', 'List all about computer vision.'),
+        ('Is there a thesis library system in the archive?', 'Is there a thesis library system?'),
+        ('Which theses are about a thesis tracking system?', 'Which are about a thesis tracking system?'),
+        ('What are the objectives of FindMe?', None),
+        ('thesis', None),
+    ])
+    def test_scope_words_are_removed_but_topical_uses_kept(self, question, expected):
+        assert retriever.scope_free_query(question) == expected
+
+    def test_scope_free_candidates_are_merged_keeping_the_higher_similarity(self, monkeypatch):
+        original = [
+            {'id': 1, 'paper_id': 'rag', 'similarity': 0.70},
+            {'id': 2, 'paper_id': 'mango', 'similarity': 0.60},
+        ]
+        alternative = [
+            {'id': 2, 'paper_id': 'mango', 'similarity': 0.75},
+            {'id': 3, 'paper_id': 'mango', 'similarity': 0.72},
+        ]
+
+        class _Client(_RetrieverClient):
+            def rpc(self, _name, _params):
+                return _Query(alternative)
+
+        monkeypatch.setattr(retriever, 'sb', _Client())
+        monkeypatch.setattr(retriever, 'embed_text', lambda _text: [0.2])
+        merged = retriever._merge_scope_free_candidates(
+            original, 'Has any CCSICT thesis developed a recommender system?', {'query_embedding': [0.1]},
+        )
+        by_id = {row['id']: row['similarity'] for row in merged}
+        assert by_id == {1: 0.70, 2: 0.75, 3: 0.72}
+
+    def test_scope_free_failure_keeps_the_original_pool(self, monkeypatch):
+        original = [{'id': 1, 'paper_id': 'rag', 'similarity': 0.70}]
+
+        def fail(_text):
+            raise RuntimeError('embedding outage')
+
+        monkeypatch.setattr(retriever, 'embed_text', fail)
+        assert retriever._merge_scope_free_candidates(
+            original, 'Which CCSICT theses used computer vision?', {'query_embedding': [0.1]},
+        ) == original
+
+    def test_no_scope_words_means_no_second_search(self, monkeypatch):
+        monkeypatch.setattr(retriever, 'embed_text', lambda _text: pytest.fail('must not embed again'))
+        pool = [{'id': 1}]
+        assert retriever._merge_scope_free_candidates(pool, 'What are the objectives of FindMe?', {}) is pool

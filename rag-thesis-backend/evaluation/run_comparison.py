@@ -88,6 +88,7 @@ _UNATTEMPTED_BACKOFF_SECONDS = (20, 45, 90)
 # worth reporting rather than an outage.
 _UNATTEMPTED_NOTICES = (
     chat_notices.CAPACITY_MESSAGE,
+    chat_notices.OVERLOAD_MESSAGE,
     chat_notices.GUEST_BUDGET_MESSAGE,
 )
 

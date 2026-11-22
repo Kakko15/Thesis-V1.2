@@ -36,6 +36,11 @@ class TestAggregateQuestions:
         'What are the overall trends in thesis topics?',
         'Across the archive, how often is OCR used?',
         'What is the dominant research design?',
+        'What machine learning techniques were used in past CCSICT theses?',
+        'What NLP methods were used in the archive?',
+        'Which algorithms were applied across existing studies?',
+        'How many theses used YOLO?',
+        'How many CCSICT studies have developed a mobile app?',
     ])
     def test_corpus_wide_wordings_classify_aggregate(self, question):
         assert classify_question(question) == AGGREGATE
@@ -62,6 +67,8 @@ class TestOtherTypes:
         'Name all the studies that used Arduino.',
         'Which theses cover recommendation systems?',
         'What are the objectives of the attendance study?',
+        'Summarize recent web and mobile application theses in the archive.',
+        'Summarize BSDSA theses on financial forecasting.',
     ])
     def test_enumeration(self, question):
         assert classify_question(question) == ENUMERATION

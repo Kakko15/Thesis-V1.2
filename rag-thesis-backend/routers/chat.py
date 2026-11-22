@@ -55,6 +55,7 @@ from services.question_types import AGGREGATE, COMPARISON, ENUMERATION, classify
 from services.rate_limiting import ip_rate_limit_key, limiter
 from services.retriever import (
     _author_name_matches,
+    archive_program_distribution,
     check_topic_duplication,
     find_papers_by_adviser,
     find_papers_by_author,
@@ -1396,7 +1397,7 @@ _PROGRAM_COUNT_PATTERN = re.compile(
     rf'^(?:can\s+you\s+tell\s+me\s+)?(?:how\s+many|(?:what\s+is\s+)?(?:the\s+)?(?:total\s+)?(?:count|number)\s+of)\s+'
     rf'(?:the\s+)?(?P<term>{_PROGRAM_CATALOG_TERM})\s+(?:program\s+|track\s+|specialization\s+)?'
     rf'{_EN_INVENTORY_NOUN}(?:\s+(?:are|are\s+there|exist|exists|do\s+you\s+have|'
-    rf'have\s+been\s+(?:conducted|completed|done|indexed|published)))?'
+    rf'(?:have\s+been|were|was)\s+(?:conducted|completed|done|indexed|published|written|made)))?'
     rf'(?:\s+{_PROGRAM_SCOPE_TAIL})*\s*$'
 )
 # "How many theses are in BSIS?" -- the program named after the noun.
@@ -1420,7 +1421,7 @@ _PROGRAM_LIST_PATTERNS = (
         rf'^(?:what|which)\s+(?:are\s+)?(?:all\s+)?(?:the\s+)?(?:available\s+|indexed\s+|archived\s+)?'
         rf'(?P<term>{_PROGRAM_CATALOG_TERM})\s+(?:program\s+|track\s+|specialization\s+)?'
         rf'{_EN_INVENTORY_NOUN}(?:\s+(?:are|are\s+there|exist|exists|do\s+you\s+have|'
-        rf'have\s+been\s+(?:conducted|completed|done|indexed|published)))?'
+        rf'(?:have\s+been|were|was)\s+(?:conducted|completed|done|indexed|published|written|made)))?'
         rf'(?:\s+{_PROGRAM_SCOPE_TAIL})*(?:\s+and\s+what\s+are\s+their\s+topics)?\s*$'
     ),
     re.compile(
@@ -1502,6 +1503,102 @@ def _program_catalog_response(
         )
     answer += provenance
     return answer, shown
+
+
+# "Which programs have the fewest theses?", "How many theses per program?".
+# Answered from the catalog: vector retrieval sees five passages and cannot
+# count the archive (measured: it reported BSCS and BLIS tied at two theses
+# each when the archive holds seven and four).
+_DISTRIBUTION_UNIT = (
+    r'(?:programs?|tracks?|specializations?|research\s+areas?|areas\s+of\s+research|'
+    r'research\s+fields?|fields?|areas?|courses?)'
+)
+_DISTRIBUTION_DIRECTION_PATTERN = re.compile(
+    rf'^(?:which|what)\s+(?:are\s+)?(?:the\s+)?{_DISTRIBUTION_UNIT}'
+    r'(?:\s+(?:or|and)\s+(?:methodologies|methods|programs?|tracks?|specializations?))?'
+    r'\s+(?:have|has|got)\s+(?:the\s+)?'
+    r'(?P<direction>fewest|least|lowest(?:\s+number\s+of)?|most|highest(?:\s+number\s+of)?|'
+    r'largest(?:\s+number\s+of)?)\s+'
+    rf'(?:number\s+of\s+)?{_EN_INVENTORY_NOUN}(?:\s+{_PROGRAM_SCOPE_TAIL})*\s*$'
+)
+_DISTRIBUTION_ALL_PATTERNS = (
+    re.compile(
+        rf'^how\s+many\s+{_EN_INVENTORY_NOUN}\s+(?:are\s+there\s+|does\s+|do\s+)?'
+        r'(?:per|in\s+each|for\s+each|by|each)\s+(?:program|track|specialization|course)'
+        rf'(?:\s+have)?(?:\s+{_PROGRAM_SCOPE_TAIL})*\s*$'
+    ),
+    re.compile(
+        r'^(?:(?:can\s+you\s+)?(?:show|list|give)(?:\s+me)?\s+)?(?:the\s+)?'
+        r'(?:number|count|counts|distribution|breakdown)\s+of\s+'
+        rf'{_EN_INVENTORY_NOUN}\s+(?:per|by|in\s+each|for\s+each|across)\s+'
+        r'(?:program|track|specialization|course)s?'
+        rf'(?:\s+{_PROGRAM_SCOPE_TAIL})*\s*$'
+    ),
+    re.compile(
+        rf'^{_EN_INVENTORY_NOUN}\s+(?:per|by)\s+(?:program|track|specialization|course)'
+        rf'(?:\s+{_PROGRAM_SCOPE_TAIL})*\s*$'
+    ),
+)
+
+
+def _extract_distribution_query(question: str) -> str | None:
+    """`'fewest'`, `'most'` or `'all'` for archive-distribution questions."""
+    normalized = re.sub(r'[^a-z0-9 ]+', ' ', (question or '').lower())
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    if not normalized:
+        return None
+    match = _DISTRIBUTION_DIRECTION_PATTERN.fullmatch(normalized)
+    if match:
+        direction = match.group('direction')
+        return 'fewest' if direction.startswith(('fewest', 'least', 'lowest')) else 'most'
+    if any(pattern.fullmatch(normalized) for pattern in _DISTRIBUTION_ALL_PATTERNS):
+        return 'all'
+    return None
+
+
+def _program_distribution_response(
+    department: str,
+    total: int,
+    entries: list[dict],
+    direction: str,
+    *,
+    mentions_methods: bool = False,
+    thesis_category: str | None = None,
+) -> str:
+    """Format the per-program thesis counts, ordered for the question asked."""
+    category_label = f'{thesis_category} ' if thesis_category else ''
+    noun = 'thesis' if total == 1 else 'theses'
+    if not entries:
+        return (
+            f'The {department} archive currently has **{total} indexed {category_label}{noun}**, '
+            'but no active programs are configured to group them by.'
+        )
+    descending = direction == 'most'
+    ordered = sorted(entries, key=lambda e: (-e['count'] if descending else e['count'], e['label']))
+    order_text = 'most first' if descending else 'fewest first'
+    lines = [
+        f'The {department} archive currently has **{total} indexed {category_label}{noun}**. '
+        f'Theses per program or specialization ({order_text}):'
+    ]
+    lines.extend(f"- **{entry['label']}**: {entry['count']}" for entry in ordered)
+    low = min(entry['count'] for entry in entries)
+    high = max(entry['count'] for entry in entries)
+    fewest = [entry['label'] for entry in ordered if entry['count'] == low]
+    most = [entry['label'] for entry in ordered if entry['count'] == high]
+    summary = []
+    if direction in ('fewest', 'all'):
+        summary.append(f"**Fewest:** {', '.join(fewest)} ({low} each)" if len(fewest) > 1
+                       else f'**Fewest:** {fewest[0]} ({low})')
+    if direction in ('most', 'all'):
+        summary.append(f"**Most:** {', '.join(most)} ({high} each)" if len(most) > 1
+                       else f'**Most:** {most[0]} ({high})')
+    answer = '\n'.join(lines) + '\n\n' + '. '.join(summary) + '.'
+    if mentions_methods:
+        answer += (
+            '\n\nThe catalog records programs and specializations, not research methods. To '
+            'explore a method, ask about it by name (for example, "Which theses used surveys?").'
+        )
+    return answer + '\n\nThese counts come from the live indexed archive.'
 
 
 def _extract_author_name(question: str) -> str | None:
@@ -1748,6 +1845,30 @@ def _notice_response(message: str, session_id: str | None = None) -> ChatRespons
 
 def _capacity_response(session_id: str | None = None) -> ChatResponse:
     return _notice_response(CAPACITY_MESSAGE, session_id)
+
+
+def _overload_response(session_id: str | None = None) -> ChatResponse:
+    return _notice_response(chat_notices.OVERLOAD_MESSAGE, session_id)
+
+
+_MODEL_PROVIDER_MODULES = ('google', 'langchain_google', 'openai', 'groq', 'langchain_openai')
+
+
+def _is_model_provider_overload(error: BaseException) -> bool:
+    """A 503 overload raised by an AI provider client, never by the database.
+
+    Retrieval failures can come from Supabase or from the query embedding; only
+    the latter means "the AI service is busy". A Supabase 503 must keep saying
+    that the archive is unavailable.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if type(current).__module__.split('.')[0] in _MODEL_PROVIDER_MODULES:
+            return gemini_pool.is_provider_overload(current)
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _guest_budget_response(session_id: str | None = None) -> ChatResponse:
@@ -2897,6 +3018,48 @@ async def _chat_impl_unstamped(
     if program_response:
         return program_response
 
+    async def try_distribution_fast_path(question: str) -> ChatResponse | None:
+        """Answer per-program thesis counts ("fewest theses") from the catalog."""
+        direction = _extract_distribution_query(question)
+        if not direction:
+            return None
+        try:
+            total, entries = await asyncio.to_thread(
+                archive_program_distribution,
+                effective_department,
+                req.thesis_category_filter,
+                getattr(req, 'min_year', None),
+            )
+        except Exception as e:
+            logger.exception('Program distribution lookup failed')
+            raise HTTPException(
+                status_code=503,
+                detail='The thesis archive is temporarily unavailable. Please try again in a moment.',
+            ) from e
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': 0,
+            'duplication_flagged': False,
+            'fast_path': 'program_distribution',
+        })
+        return ChatResponse(
+            answer=_program_distribution_response(
+                effective_department,
+                total,
+                entries,
+                direction,
+                mentions_methods=bool(re.search(r'\bmethod', question, re.IGNORECASE)),
+                thesis_category=req.thesis_category_filter,
+            ),
+            sources=[],
+            session_id=req.session_id,
+            archive_current=True,
+        )
+
+    distribution_response = await try_distribution_fast_path(req.question)
+    if distribution_response:
+        return distribution_response
+
     async def try_author_fast_path(question: str) -> ChatResponse | None:
         """Resolve person-name variants locally before any Gemini or embedding call."""
         author_name = (
@@ -3160,6 +3323,9 @@ async def _chat_impl_unstamped(
         if _is_capacity_error(e):
             _mark_capacity_limited()
             return _capacity_response(req.session_id)
+        if _is_model_provider_overload(e):
+            # The query embedding, not the archive, was unavailable.
+            return _overload_response(req.session_id)
         raise HTTPException(
             status_code=503,
             detail='The thesis archive is temporarily unavailable. Please try again in a moment.',
@@ -3264,6 +3430,8 @@ async def _chat_impl_unstamped(
         if _is_capacity_error(e):
             _mark_capacity_limited()
             return _capacity_response(req.session_id)
+        if gemini_pool.is_provider_overload(e):
+            return _overload_response(req.session_id)
         raise HTTPException(
             status_code=502,
             detail='The research AI service is temporarily unavailable. Please try again later.',
