@@ -8,10 +8,12 @@ numbered context blocks for traceable in-line citations.
 Indirect access model: user-facing sources NEVER include PDF URLs, storage
 paths, or full-text content — metadata only.
 """
+# pylint: disable=too-many-lines
 
 import html
 import logging
 import re
+import unicodedata
 
 from supabase import create_client
 
@@ -119,8 +121,8 @@ def split_author_names(authors: str) -> list[str]:
 
 def _single_author_name_matches(requested_name: str, archived_name: str) -> bool:
     """Allow omitted middle names without matching across two different authors."""
-    requested = re.findall(r"[a-z]+", (requested_name or '').lower())
-    archived = set(re.findall(r"[a-z]+", (archived_name or '').lower()))
+    requested = re.findall(r"[a-z]+", _fold_ascii(requested_name).lower())
+    archived = set(re.findall(r"[a-z]+", _fold_ascii(archived_name).lower()))
     return len(requested) >= 2 and requested[0] in archived and requested[-1] in archived
 
 
@@ -139,8 +141,8 @@ def _author_token_matches(token: str, authors: str) -> bool:
     would "match" a name that merely contains it -- `ai` is inside `Rainier`.
     A single word is only a person when it is a complete name part.
     """
-    return token.lower() in {
-        word.lower() for word in re.findall(r"[A-Za-z]+", authors or '')
+    return _fold_ascii(token).lower() in {
+        word.lower() for word in re.findall(r"[A-Za-z]+", _fold_ascii(authors))
     }
 
 
@@ -181,6 +183,71 @@ def find_papers_by_author(name: str, department_filter: str | None = None) -> li
             if _author_name_matches(name, paper.get('authors', ''))
         ][:5]
     return [public_source(paper) for paper in papers]
+
+
+_ACADEMIC_TITLE_TOKENS = frozenset({
+    'dr', 'prof', 'inst', 'instructor', 'engr', 'atty', 'mr', 'ms', 'mrs', 'sir', 'maam',
+    'dit', 'phd', 'ph', 'd', 'mit', 'mlis', 'rl', 'msit', 'mscs', 'lpt', 'mpa', 'mba',
+    'jr', 'sr', 'ii', 'iii', 'iv',
+})
+
+
+def _fold_ascii(text: str) -> str:
+    """Fold diacritics (e.g. Quiñones -> Quinones) for tolerant name matching."""
+    decomposed = unicodedata.normalize('NFKD', text or '')
+    return ''.join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
+def _person_name_tokens(name: str) -> list[str]:
+    """Normalize a person's name to lowercase ASCII tokens without titles/credentials."""
+    raw_tokens = re.findall(r'[a-z]+', _fold_ascii(name).lower())
+    return [token for token in raw_tokens if token not in _ACADEMIC_TITLE_TOKENS]
+
+
+def _adviser_name_matches(requested_name: str, archived_adviser: str) -> bool:
+    """Match an adviser name ignoring titles, post-nominals, middle initials, and accents."""
+    requested = _person_name_tokens(requested_name)
+    archived = set(_person_name_tokens(archived_adviser))
+    if not requested or not archived:
+        return False
+    if len(requested) == 1:
+        return requested[0] in archived
+    return requested[0] in archived and requested[-1] in archived
+
+
+def _adviser_query(fragment: str, department_filter: str | None, limit: int):
+    def execute_query():
+        query = sb.table('papers') \
+            .select('id,title,authors,year,track,department,adviser') \
+            .eq('ingestion_status', 'ready') \
+            .ilike('adviser', f'%{fragment}%') \
+            .order('title')
+        if department_filter:
+            query = query.eq('department', department_filter)
+        return query.limit(limit).execute()
+
+    return retry_transient(
+        execute_query,
+        label='Supabase adviser lookup',
+        logger=logger,
+    ).data or []
+
+
+def find_papers_by_adviser(name: str, department_filter: str | None = None) -> list[dict]:
+    """Metadata-only adviser lookup tolerating titles, credentials, initials, and accents."""
+    tokens = _person_name_tokens(name)
+    if not tokens:
+        return []
+    # Query by surname first; fall back to first name when the surname contains
+    # a diacritic in the DB (e.g. "Quinones" against "Quiñones").
+    candidates = _adviser_query(tokens[-1], department_filter, 50)
+    if not candidates and len(tokens) >= 2:
+        candidates = _adviser_query(tokens[0], department_filter, 50)
+    matches = [
+        paper for paper in candidates
+        if _adviser_name_matches(name, paper.get('adviser', ''))
+    ]
+    return [public_source(paper) for paper in matches[:20]]
 
 
 def find_papers_by_ids(paper_ids: list[str], department_filter: str | None = None) -> list[dict]:

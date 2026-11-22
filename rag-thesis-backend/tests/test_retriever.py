@@ -760,3 +760,28 @@ class TestPaperDiversityCap:
         assert 'Rice Leaf Disease Detection Using CNN' in context
         assert 'Centralized AI-Powered Thesis Library' not in context
         assert 'Enhanced K-Means Clustering' not in context
+
+    def test_find_papers_by_adviser_matches_titles_credentials_and_diacritics(self, monkeypatch):
+        rows = [
+            {
+                'id': 'p1', 'title': 'SECURE', 'authors': 'Gumpal, Manzano',
+                'year': 2024, 'track': 'BSCS', 'department': 'CCSICT',
+                'adviser': 'Albert A. Vinluan, DIT',
+            },
+            {
+                'id': 'p2', 'title': 'MOBILE BORROWER CARD', 'authors': 'Olesco, Ramos',
+                'year': 2026, 'track': 'BLIS', 'department': 'CCSICT',
+                'adviser': 'Honeylyn G. Quiñones, RL, MLIS',
+            },
+        ]
+
+        def fake_adviser_query(fragment, _dept, _limit):
+            frag = fragment.lower()
+            return [row for row in rows if frag in row['adviser'].lower()]
+
+        monkeypatch.setattr(retriever, '_adviser_query', fake_adviser_query)
+        vinluan = retriever.find_papers_by_adviser('Dr. Albert A. Vinluan', 'CCSICT')
+        assert [p['id'] for p in vinluan] == ['p1']
+        # ASCII "Quinones" misses ILIKE on "Quiñones", so first-name fallback finds it.
+        quinones = retriever.find_papers_by_adviser('Honeylyn Quinones', 'CCSICT')
+        assert [p['id'] for p in quinones] == ['p2']

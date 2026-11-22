@@ -54,6 +54,7 @@ from services.rate_limiting import ip_rate_limit_key, limiter
 from services.retriever import (
     _author_name_matches,
     check_topic_duplication,
+    find_papers_by_adviser,
     find_papers_by_author,
     find_papers_by_ids,
     find_papers_by_title,
@@ -115,6 +116,17 @@ _MODEL_QUESTIONS = {
     'what model are you', 'which model are you', 'what ai model are you',
     'which ai model are you', 'what model do you use', 'which model do you use',
     'what ai model do you use', 'which ai model do you use',
+    'what model are you using', 'which model are you using',
+    'what ai model are you using', 'which ai model are you using',
+    'what llm are you', 'which llm are you', 'what llm do you use',
+    'which llm do you use', 'what llm are you using', 'which llm are you using',
+    # Filipino and Ilocano.
+    'anong model ang gamit mo', 'anong ai model ang gamit mo',
+    'ano ang model na gamit mo', 'ano ang ai model na gamit mo',
+    'anong model gamit mo', 'anong ai model gamit mo',
+    'anong llm ang gamit mo', 'ano ang llm na gamit mo',
+    'ania ti model nga usarem', 'ania ti ai model nga usarem',
+    'ania ti model nga us usarem', 'ania ti ai model nga us usarem',
 }
 # Provenance questions. Kept out of `_IDENTITY_QUESTIONS` because the greeting
 # is not an answer to them, and split in two because the two forms are not
@@ -805,8 +817,7 @@ def _is_farewell_message(question: str) -> bool:
 
 
 def _is_model_question(question: str) -> bool:
-    normalized = re.sub(r'\s+', ' ', _normalize_short_query(question))
-    return normalized in _MODEL_QUESTIONS
+    return any(normalized in _MODEL_QUESTIONS for normalized in _short_query_candidates(question))
 
 
 def _normalized_short_question(question: str) -> str:
@@ -877,25 +888,91 @@ def _conversation_response(question: str = '', prior_replies: list[str] | None =
     )
 
 
+_EN_INVENTORY_NOUN = (
+    r'(?:thesis|theses|paper|papers|study|studies|title|titles|manuscript|manuscripts)'
+)
+_EN_INVENTORY_MOD = (
+    r'(?:all|the|total|indexed|archived|available|uploaded|stored|ready|existing|current|currently)'
+)
+_EN_INVENTORY_SCOPE = (
+    r'(?:here|right\s+now|currently|now|so\s+far|today|at\s+the\s+moment|in\s+total|total|'
+    r'(?:in|on|inside|within|under|for|of|at)\s+'
+    r'(?:the\s+|this\s+|your\s+|our\s+|isu\s+|ccsict\s+)*'
+    r'(?:thesis\s+library(?:\s+system)?|library(?:\s+system)?|'
+    r'archive|system|database|catalog|repository|platform|app|site|iskai))'
+)
+# Closed-vocabulary, anchored English catalog patterns so topical, program,
+# track, method, aggregate, and year-filtered questions (e.g. "How many theses
+# used YOLO?", "Which theses in the archive use computer vision?", "Which
+# research areas have the fewest studies in the archive?") stay on retrieval.
+_EN_INVENTORY_DIRECT_PATTERNS = (
+    re.compile(
+        rf'^(?:can\s+you\s+tell\s+me\s+)?how\s+many\s+(?:{_EN_INVENTORY_MOD}\s+)*{_EN_INVENTORY_NOUN}'
+        rf'(?:\s+(?:are|are\s+there|do\s+you\s+have|exist|exists|have\s+been))?'
+        rf'(?:\s+(?:{_EN_INVENTORY_MOD}|{_EN_INVENTORY_SCOPE}))*\s*$'
+    ),
+    re.compile(
+        rf'^(?:what\s+is\s+)?(?:the\s+)?(?:total\s+)?(?:count|number)\s+of\s+'
+        rf'(?:{_EN_INVENTORY_MOD}\s+)*{_EN_INVENTORY_NOUN}'
+        rf'(?:\s+(?:{_EN_INVENTORY_MOD}|{_EN_INVENTORY_SCOPE}))*\s*$'
+    ),
+    re.compile(
+        rf'^(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?'
+        rf'(?:list|show(?:\s+me)?|give(?:\s+me)?|display|name|tell\s+me)\s+'
+        rf'(?:(?:a|the)\s+(?:full\s+|complete\s+)?list\s+of\s+)?'
+        rf'(?:{_EN_INVENTORY_MOD}\s+)*{_EN_INVENTORY_NOUN}'
+        rf'(?:\s+(?:are|that\s+are))?(?:\s+(?:{_EN_INVENTORY_MOD}|{_EN_INVENTORY_SCOPE}))*\s*$'
+    ),
+    re.compile(
+        rf'^(?:what|which)\s+(?:are\s+)?(?:{_EN_INVENTORY_MOD}\s+)*{_EN_INVENTORY_NOUN}'
+        rf'(?:\s+(?:are|are\s+there|do\s+you\s+have|exist|exists))?'
+        rf'(?:\s+(?:{_EN_INVENTORY_MOD}|{_EN_INVENTORY_SCOPE}))+\s*$'
+    ),
+    re.compile(
+        rf'^(?:what|which)\s+(?:are\s+)?(?:(?:all|the)\s+)*(?:available|indexed|archived)\s+{_EN_INVENTORY_NOUN}'
+        rf'(?:\s+(?:are\s+there|do\s+you\s+have|exist|exists))?'
+        rf'(?:\s+(?:{_EN_INVENTORY_MOD}|{_EN_INVENTORY_SCOPE}))*\s*$'
+    ),
+    re.compile(
+        rf'^(?:what|which)\s+(?:(?:all|the)\s+)*{_EN_INVENTORY_NOUN}\s+'
+        r'(?:do|does)\s+(?:you|iskai|the\s+(?:archive|system|library))\s+'
+        r'(?:have|hold|contain|store|keep)'
+        rf'(?:\s+(?:{_EN_INVENTORY_MOD}|{_EN_INVENTORY_SCOPE}))*\s*$'
+    ),
+)
+_EN_OTHERNESS_TOPIC_GUARD = re.compile(
+    r'\b(?:about|regarding|concerning|on|using|with|involving|covering|for|from|by|'
+    r'advised|authored|written)\b|\b(?:19|20)\d\d\b'
+)
+_EN_OTHERNESS_PATTERNS = (
+    re.compile(
+        r'\b(?:any|are\s+there|is\s+there)\b.*\b(?:thesis|theses|papers|studies)\b'
+        r'.*\b(?:other|others|more|than)\b'
+    ),
+    re.compile(
+        r'\b(?:any|are\s+there|is\s+there)\b.*\b(?:other|others|more)\b'
+        r'.*\b(?:thesis|theses|papers|studies)\b'
+    ),
+    re.compile(r'\b(?:thesis|theses|papers|studies)\b.*\bother\s+than\b'),
+)
+
+
+def _matches_english_inventory(normalized: str) -> bool:
+    """Match unfiltered English whole-archive count/list/otherness questions."""
+    if any(pattern.fullmatch(normalized) for pattern in _EN_INVENTORY_DIRECT_PATTERNS):
+        return True
+    if _EN_OTHERNESS_TOPIC_GUARD.search(normalized):
+        return False
+    return any(pattern.search(normalized) for pattern in _EN_OTHERNESS_PATTERNS)
+
+
 def _is_archive_inventory_question(question: str, prior_questions: list[str] | None = None) -> bool:
     """Identify requests about live archive contents rather than manuscript text."""
     normalized = re.sub(r'[^a-z0-9 ]+', ' ', (question or '').lower())
     normalized = re.sub(r'\s+', ' ', normalized).strip()
     if not normalized:
         return False
-    direct_patterns = (
-        r'\bhow many\b.*\b(?:thesis|theses|papers|studies)\b',
-        r'\b(?:list|show|which|what)\b.*\b(?:thesis|theses|papers|studies)\b.*'
-        r'\b(?:archive|available|here|indexed|system)\b',
-        r'\b(?:list|show|which|what)\b.*\b(?:available|indexed|archive)\b.*\b(?:thesis|theses|papers|studies)\b',
-        r'\b(?:any|are there|is there)\b.*\b(?:thesis|theses|papers|studies)\b.*\b(?:other|others|more|than)\b',
-        r'\b(?:any|are there|is there)\b.*\b(?:other|others|more)\b.*\b(?:thesis|theses|papers|studies)\b',
-        r'\b(?:thesis|theses|papers|studies)\b.*\bother than\b',
-    )
-    if (
-        any(re.search(pattern, normalized) for pattern in direct_patterns)
-        or _matches_local_inventory(normalized)
-    ):
+    if _matches_english_inventory(normalized) or _matches_local_inventory(normalized):
         return True
     recent_inventory_question = any(
         _is_archive_inventory_question(previous)
@@ -1055,6 +1132,7 @@ def _archive_inventory_response(
     *,
     count_only: bool = False,
     offset: int = 0,
+    thesis_category: str | None = None,
 ) -> str:
     """Describe the authoritative ready-paper inventory without an LLM.
 
@@ -1065,7 +1143,8 @@ def _archive_inventory_response(
     of range.
     """
     if not total:
-        return f'The {department} archive currently has no indexed theses.'
+        category_label = f'{thesis_category} ' if thesis_category else ''
+        return f'The {department} archive currently has no indexed {category_label}theses.'
     noun = 'thesis' if total == 1 else 'theses'
     count_text = f'The {department} archive currently has **{total} indexed {noun}**.'
     provenance = (
@@ -1164,6 +1243,134 @@ def _trim_name_stopwords(name: str) -> str | None:
     return ' '.join(parts)
 
 
+_EN_HONORIFIC = r"(?:dr|prof|inst|instructor|engr|atty|mr|ms|mrs|sir|maam|ma'am)\.?"
+_EN_NAME_2_TO_6 = (
+    r"[A-Za-z][A-Za-z'’\u00c0-\u024f-]*"
+    r"(?:\s+(?:[A-Za-z]\.?|[A-Za-z][A-Za-z'’\u00c0-\u024f-]*)){1,5}"
+)
+_EN_NAME_1_TO_6 = (
+    r"[A-Za-z][A-Za-z'’\u00c0-\u024f-]*"
+    r"(?:\s+(?:[A-Za-z]\.?|[A-Za-z][A-Za-z'’\u00c0-\u024f-]*)){0,5}"
+)
+_OPTIONAL_ARCHIVE_TAIL = (
+    r"(?:\s+(?:in|at|from|for)\s+(?:the\s+)?(?:ccsict\s+|isu\s+)?(?:thesis\s+)?"
+    r"(?:archive|library|system|department|isu|ccsict)|\s+here)?"
+)
+_NON_PERSON_LEADERS = frozenset({
+    'the', 'this', 'that', 'these', 'those', 'your', 'our', 'their', 'my', 'a', 'an',
+    'ccsict', 'isu', 'bscs', 'bsis', 'bsit', 'blis', 'bsdsa', 'students', 'student',
+    'researchers', 'graduates', 'faculty', 'authors', 'advisers', 'advisors',
+    'data', 'machine', 'computer', 'web', 'mobile', 'network', 'library', 'alumni',
+    'ai', 'rag', 'cnn', 'yolo', 'iskai', 'findme', 'secure',
+})
+_EN_AUTHOR_WORK_PATTERNS = (
+    re.compile(
+        r"\s*(?:what|which)\s+(?:thesis|theses|paper|papers|study|studies|research|work)\s+did\s+"
+        rf"(?:{_EN_HONORIFIC}\s+)?(?P<name>{_EN_NAME_2_TO_6})\s+"
+        rf"(?:write|author|conduct|develop|publish|create|do|make){_OPTIONAL_ARCHIVE_TAIL}\s*[?.!]*\s*",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*(?:what|which)\s+(?:thesis|theses|paper|papers|study|studies|research)\s+"
+        r"(?:was|were)\s+(?:written|authored|conducted|developed|published|created|done|made)\s+by\s+"
+        rf"(?:{_EN_HONORIFIC}\s+)?(?P<name>{_EN_NAME_2_TO_6}){_OPTIONAL_ARCHIVE_TAIL}\s*[?.!]*\s*",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*(?:list|show(?:\s+me)?|find|get)\s+(?:all\s+)?(?:the\s+)?"
+        r"(?:thesis|theses|paper|papers|study|studies)\s+"
+        r"(?:(?:written|authored|conducted|developed)\s+)?by\s+"
+        rf"(?:{_EN_HONORIFIC}\s+)?(?P<name>{_EN_NAME_2_TO_6}){_OPTIONAL_ARCHIVE_TAIL}\s*[?.!]*\s*",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\s*did\s+(?:{_EN_HONORIFIC}\s+)?(?P<name>{_EN_NAME_2_TO_6})\s+"
+        r"(?:write|author|conduct|develop|publish)\s+(?:a|any)\s+"
+        rf"(?:thesis|theses|paper|papers|study|studies){_OPTIONAL_ARCHIVE_TAIL}\s*[?.!]*\s*",
+        re.IGNORECASE,
+    ),
+)
+_ADVISER_PATTERNS = (
+    re.compile(
+        r"\s*(?:what|which)\s+(?:thesis|theses|paper|papers|study|studies|research)\s+"
+        r"(?:was|were)\s+(?:advised|supervised|mentored|guided)\s+by\s+"
+        rf"(?:{_EN_HONORIFIC}\s+)?(?P<name>{_EN_NAME_1_TO_6}){_OPTIONAL_ARCHIVE_TAIL}\s*[?.!]*\s*",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*(?:what|which)\s+(?:thesis|theses|paper|papers|study|studies|research)\s+did\s+"
+        rf"(?:{_EN_HONORIFIC}\s+)?(?P<name>{_EN_NAME_1_TO_6})\s+"
+        rf"(?:advise|supervise|mentor){_OPTIONAL_ARCHIVE_TAIL}\s*[?.!]*\s*",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*(?:(?:list|show(?:\s+me)?|find|get)\s+)?(?:all\s+)?(?:the\s+)?"
+        r"(?:thesis|theses|paper|papers|study|studies)\s+"
+        r"(?:advised|supervised|mentored|guided)\s+by\s+"
+        rf"(?:{_EN_HONORIFIC}\s+)?(?P<name>{_EN_NAME_1_TO_6}){_OPTIONAL_ARCHIVE_TAIL}\s*[?.!]*\s*",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*(?:(?:what|which|list|show(?:\s+me)?)\s+)?(?:all\s+)?(?:the\s+)?"
+        r"(?:thesis|theses|paper|papers|study|studies)\s+"
+        r"(?:under|with)\s+(?:adviser|advisor)\s+"
+        rf"(?:{_EN_HONORIFIC}\s+)?(?P<name>{_EN_NAME_1_TO_6}){_OPTIONAL_ARCHIVE_TAIL}\s*[?.!]*\s*",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*(?:(?:ano|anong|alin|aling|ilista|ipakita)\s+)?(?:ang\s+)?(?:mga\s+)?"
+        r"(?:tesis|tisis|thesis|theses|pag-?aaral|pananaliksik)\s+(?:na\s+)?"
+        r"(?:pinayuhan|in-?advise|advised)\s+(?:ni|nina)\s+"
+        rf"(?:{_EN_HONORIFIC}\s+)?(?P<name>{_EN_NAME_1_TO_6}){_OPTIONAL_ARCHIVE_TAIL}\s*[?.!]*\s*",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _format_extracted_person_name(raw_name: str) -> str | None:
+    cleaned = re.sub(r'\s+', ' ', (raw_name or '')).strip(' ,.')
+    if not cleaned:
+        return None
+    parts = cleaned.split()
+    if parts[0].lower() in _NON_PERSON_LEADERS:
+        return None
+    return ' '.join(part.capitalize() for part in parts)
+
+
+def _extract_adviser_name(question: str) -> str | None:
+    """Extract a named thesis adviser from adviser-scoped catalog questions."""
+    for pattern in _ADVISER_PATTERNS:
+        match = pattern.fullmatch(question or '')
+        if match:
+            trimmed = _trim_name_stopwords(re.sub(r'\s+', ' ', match.group('name')).strip())
+            if not trimmed:
+                return None
+            return _format_extracted_person_name(trimmed)
+    return None
+
+
+def _adviser_lookup_response(name: str, sources: list[dict]) -> str:
+    adviser_label = sources[0].get('adviser') or name
+    if len(sources) == 1:
+        source = sources[0]
+        details = [str(value) for value in (source.get('year'), source.get('track')) if value]
+        detail_text = f" ({' · '.join(details)})" if details else ''
+        authors = source.get('authors') or 'Unknown authors'
+        return (
+            f'{adviser_label} advised **1 indexed thesis**: '
+            f'“{source.get("title", "Untitled thesis")}” by {authors}{detail_text} [1].'
+        )
+    lines = [f'{adviser_label} advised **{len(sources)} indexed theses**:']
+    for index, source in enumerate(sources, start=1):
+        details = [str(value) for value in (source.get('year'), source.get('track')) if value]
+        detail_text = f" ({' · '.join(details)})" if details else ''
+        authors = source.get('authors') or 'Unknown authors'
+        lines.append(
+            f'{index}. **{source.get("title", "Untitled thesis")}** by {authors}{detail_text} [{index}]'
+        )
+    return '\n'.join(lines)
+
+
 def _extract_author_name(question: str) -> str | None:
     """Extract a plausible person name from direct and follow-up author questions."""
     match = re.fullmatch(
@@ -1179,6 +1386,10 @@ def _extract_author_name(question: str) -> str | None:
         if name.lower().split()[0] in {'the', 'this', 'that', 'your', 'our'}:
             return None
         return ' '.join(part.capitalize() for part in name.split())
+    for pattern in _EN_AUTHOR_WORK_PATTERNS:
+        work_match = pattern.fullmatch(question or '')
+        if work_match:
+            return _format_extracted_person_name(work_match.group('name'))
     local = _FIL_AUTHOR_QUESTION.fullmatch(question or '')
     if not local:
         return None
@@ -1226,7 +1437,13 @@ def _extract_followup_author_token(question: str) -> str | None:
 
 
 def _is_explicit_author_identity_question(question: str) -> bool:
-    """A direct `who is` question should return a deterministic not-found result."""
+    """A direct `who is` question should return a deterministic not-found result.
+
+    The broader author-work forms ("what theses did X write") are deliberately
+    NOT explicit: their name slot also captures "past graduates" or "local
+    researchers", so a metadata miss falls through to retrieval instead of
+    asserting that such a person is not an archived author.
+    """
     if re.match(r'^\s*who\s+is\b', question or '', flags=re.IGNORECASE):
         return True
     # "sino si Juan Dela Cruz" is as explicit as "who is Juan Dela Cruz" and
@@ -2323,6 +2540,7 @@ async def _chat_impl_unstamped(
                 inventory_sources,
                 count_only=count_only,
                 offset=inventory_offset,
+                thesis_category=req.thesis_category_filter,
             ),
             sources=[] if count_only else inventory_sources,
             session_id=req.session_id,
@@ -2385,7 +2603,47 @@ async def _chat_impl_unstamped(
             answer=_origin_response(),
             sources=[],
             session_id=req.session_id,
+            notice_type='conversation',
         )
+
+    async def try_adviser_fast_path(question: str) -> ChatResponse | None:
+        """Resolve adviser-scoped catalog lookups locally before Gemini or embedding."""
+        adviser_name = _extract_adviser_name(question)
+        if not adviser_name:
+            return None
+        try:
+            adviser_sources = await asyncio.to_thread(
+                find_papers_by_adviser,
+                adviser_name,
+                effective_department,
+            )
+        except Exception as e:
+            logger.exception('Adviser metadata lookup failed')
+            raise HTTPException(
+                status_code=503,
+                detail='The thesis archive is temporarily unavailable. Please try again in a moment.',
+            ) from e
+        # A miss falls through to retrieval: the name slot also captures
+        # non-person phrases ("advised by experts"), so an empty lookup must
+        # not be reported as "no thesis advised by Experts".
+        if not adviser_sources:
+            return None
+        background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
+            'question_length': len(req.question),
+            'sources_cited': len(adviser_sources),
+            'duplication_flagged': False,
+            'fast_path': 'adviser_metadata',
+        })
+        return ChatResponse(
+            answer=_adviser_lookup_response(adviser_name, adviser_sources),
+            sources=adviser_sources,
+            session_id=req.session_id,
+            archive_current=True,
+        )
+
+    adviser_response = await try_adviser_fast_path(req.question)
+    if adviser_response:
+        return adviser_response
 
     async def try_author_fast_path(question: str) -> ChatResponse | None:
         """Resolve person-name variants locally before any Gemini or embedding call."""

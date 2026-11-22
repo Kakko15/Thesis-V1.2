@@ -106,7 +106,7 @@ _FIL_FUSED_OWNED_ARTIFACT = (
 _ARTIFACT = (
     rf'(?:{_FIL_FUSED_OWNED_ARTIFACT}|'
     r'thesis|chapters?|rrl|review\s+of\s+related\s+literature|methodolog(?:y|ies)|'
-    r'conclusions?|hypothes(?:is|es)|research\s+proposals?|problem\s+statements?|'
+    r'conclusions?|hypothes(?:is|es)|(?:research|capstone|thesis)\s+proposals?|problem\s+statements?|'
     r'conceptual\s+frameworks?|assignments?|essays?|academic\s+arguments?|'
     # A literal translation of the list above and nothing more. Held out for
     # being this assistant's working vocabulary, exactly as objectives and
@@ -193,6 +193,28 @@ _GENERATE_OWNED_ARTIFACT = re.compile(
     rf'\s+{_FIL_FUSED_OWNED_ARTIFACT}\b',
     re.IGNORECASE,
 )
+# Multi-part drafting requests addressed to the assistant ("Could you compose
+# an original introduction and rationale section for my capstone proposal?").
+# The verb's object must be a drafted SECTION noun -- not "a list", "a
+# summary" or "the APA citation", which are this assistant's own retrieval
+# outputs -- and the whole match is additionally gated on
+# `_DIRECTED_AT_ASSISTANT` in `_is_generation_request`. Measured 2026-11-23:
+# an open eight-word window here refused "Can you make a list of related
+# studies for my thesis?", "Can you produce a summary of FindMe for my RRL?"
+# and "Can you write the APA citation of FindMe for my thesis?".
+_DRAFTED_SECTION = (
+    r'(?:introductions?|rationales?|backgrounds?|sections?|chapters?|paragraphs?|'
+    r'drafts?|abstracts?|discussions?|frameworks?|literature\s+reviews?|'
+    r'significance|scope|delimitations?|definitions?\s+of\s+terms)'
+)
+_DIRECTED_FOR_OWNED_ARTIFACT = re.compile(
+    r'\b(?:write|draft|compose|generate|create|produce|make|rewrite|expand|extend|formulate)\s+'
+    rf'(?:{_MODIFIER}\s+){{0,4}}{_DRAFTED_SECTION}'
+    rf'(?:\s*(?:,|and|or|&)\s*(?:{_MODIFIER}\s+){{0,2}}{_DRAFTED_SECTION})*'
+    r'(?:\s+[^\s.!?]+){0,3}?\s+(?:for|of|in)\s+(?:my|our)\s+'
+    rf'(?:{_MODIFIER}\s+){{0,2}}{_ARTIFACT}\b',
+    re.IGNORECASE,
+)
 # The sentence asks *this assistant* to produce something, rather than asking
 # what the archived studies did.
 #
@@ -235,7 +257,7 @@ _DIRECTED_AT_ASSISTANT = re.compile(
 # question as though it were a jailbreak attempt.
 _INJECTION = re.compile(
     r'\b(ignore|disregard|override) (all |any )?(previous|prior|system) instructions?|'
-    r'\b(reveal|show|print) (me )?(the )?(system )?(prompt|instructions?)|'
+    r'\b(reveal|show|print) (me )?(the |your |its )?(system )?(prompt|instructions?)|'
     r'\bbypass (the )?(rules?|restrictions?|guardrails?)|\bact as (a|an)|'
     r'\bpretend (to be|you are)|\bchange your role|\bdeveloper mode|\bjailbreak\b|'
     r'\b(?:huwag|wag|di|dimo|saanmo)\b[^.!?]{0,40}?'
@@ -502,6 +524,8 @@ def _is_generation_request(normalized: str) -> bool:
     Rule 6 of the grounded prompt still refuses anything this misses.
     """
     if _GENERATE_OWNED_ARTIFACT.search(normalized):
+        return True
+    if _DIRECTED_FOR_OWNED_ARTIFACT.search(normalized) and _DIRECTED_AT_ASSISTANT.search(normalized):
         return True
     if not _VERB_GOVERNS_ARTIFACT.search(normalized):
         return False

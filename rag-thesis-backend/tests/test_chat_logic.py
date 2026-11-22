@@ -618,3 +618,103 @@ class TestGreetingMatchIsDeterministic:
     def test_overlapping_prefixes_resolve_the_same_way_every_time(self):
         for question in ('hi there friend', 'hey there iskai', 'hello there who are you'):
             assert _is_simple_conversation(question) or _is_identity_question(question), question
+
+
+class TestStep1RoutingHardening:
+    @pytest.mark.parametrize('question', [
+        'How many theses used YOLO?',
+        'How many BLIS theses are in the archive?',
+        'List all theses in the archive about computer vision.',
+        'Which theses in the archive use computer vision?',
+        'Which BSIS theses are in the archive and what are their topics?',
+        'Which research areas or methodologies have the fewest studies in the archive?',
+        'What is the most commonly used machine learning method across the theses in the archive?',
+        'What Network and Security theses exist in the archive?',
+        'Are there any other theses about computer vision?',
+    ])
+    def test_topical_and_filtered_questions_are_never_hijacked_by_inventory(self, question):
+        assert not _is_archive_inventory_question(question), question
+
+    @pytest.mark.parametrize('question', [
+        'How many theses are in the archive?',
+        'How many theses are indexed?',
+        'List all available theses in the archive.',
+        'What theses are indexed?',
+        'What are the theses here?',
+        'Show me the available papers in this system',
+        'What are the available theses?',
+        'How many papers are indexed in IskAI?',
+        'What theses do you have?',
+        'Give me a list of all theses',
+    ])
+    def test_unfiltered_archive_inventory_questions_still_match(self, question):
+        assert _is_archive_inventory_question(question), question
+
+    @pytest.mark.parametrize('question', [
+        'What theses do you have about YOLO?',
+        'Give me a list of theses on computer vision',
+    ])
+    def test_inventory_phrasings_with_a_topic_stay_on_retrieval(self, question):
+        assert not _is_archive_inventory_question(question), question
+
+    @pytest.mark.parametrize('question', [
+        'Which papers did past graduates write?',
+        'What studies did previous researchers conduct?',
+        'What theses did Kurt Robin Enoy author?',
+    ])
+    def test_author_work_forms_are_never_explicit_identity_questions(self, question):
+        from routers.chat import _is_explicit_author_identity_question
+
+        assert not _is_explicit_author_identity_question(question), question
+
+    def test_empty_inventory_reports_active_category_filter(self):
+        assert 'no indexed faculty theses' in _archive_inventory_response(
+            'CCSICT', 0, [], thesis_category='faculty',
+        )
+        assert 'no indexed theses.' in _archive_inventory_response('CCSICT', 0, [])
+
+    @pytest.mark.parametrize('question', [
+        'what model are you using?',
+        'which AI model are you using po?',
+        'what llm do you use?',
+        'anong AI model ang gamit mo?',
+        'anong model ang gamit mo po?',
+        'ania ti ai model nga usarem?',
+    ])
+    def test_model_question_variants_hit_fast_path(self, question):
+        assert _is_model_question(question), question
+
+    @pytest.mark.parametrize('question,expected', [
+        ('What theses did Kurt Robin Enoy author?', 'Kurt Robin Enoy'),
+        ('What theses did Ahron John F. Barlis write?', 'Ahron John F. Barlis'),
+        ('Which papers were written by Carl Rainier Manalili?', 'Carl Rainier Manalili'),
+        ('List theses by Jahron Jake Ebersole', 'Jahron Jake Ebersole'),
+        ('Did Kurt Robin Enoy write any thesis?', 'Kurt Robin Enoy'),
+    ])
+    def test_author_work_questions_extract_person_name(self, question, expected):
+        assert _extract_author_name(question) == expected
+
+    @pytest.mark.parametrize('question', [
+        'Who wrote FindMe?',
+        'What theses did BSCS students write?',
+        'List theses by machine learning',
+    ])
+    def test_non_author_questions_do_not_extract_author_name(self, question):
+        assert _extract_author_name(question) is None
+
+    @pytest.mark.parametrize('question,expected', [
+        ('Which theses were advised by Dr. Albert A. Vinluan?', 'Albert A. Vinluan'),
+        ('What studies did Ruby Lumaban advise?', 'Ruby Lumaban'),
+        ('List theses supervised by Prof. Joe G. Lagarteja', 'Joe G. Lagarteja'),
+        ('Theses under adviser Honeylyn Quinones', 'Honeylyn Quinones'),
+        ('Ano ang mga tesis na pinayuhan ni Dr. Albert Vinluan?', 'Albert Vinluan'),
+    ])
+    def test_adviser_questions_extract_adviser_name(self, question, expected):
+        from routers.chat import _extract_adviser_name
+
+        assert _extract_adviser_name(question) == expected
+
+    def test_adviser_of_thesis_question_is_not_treated_as_adviser_catalog_lookup(self):
+        from routers.chat import _extract_adviser_name
+
+        assert _extract_adviser_name('Who is the adviser of FindMe?') is None

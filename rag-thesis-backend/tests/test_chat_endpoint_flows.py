@@ -1404,3 +1404,93 @@ class TestCrossLingualRetrieval:
                 _NoRequest(), BackgroundTasks(), None,
             ))
         assert seen['embedded'] == 'which studies applied YOLO for object detection'
+
+
+class TestStep1EndpointFastPaths:
+    def test_ambiguous_system_origin_sets_conversation_notice_type(self, monkeypatch):
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        response = run(chat._chat_impl(
+            ChatRequest(question='who developed this system?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.notice_type == 'conversation'
+        assert 'Barlis' in response.answer
+
+    def test_adviser_lookup_fast_path_returns_all_advised_theses_without_rag(self, monkeypatch):
+        papers = [
+            {
+                'id': 'p1', 'title': 'SECURE', 'authors': 'Gumpal, Manzano',
+                'year': 2024, 'track': 'BSCS', 'department': 'CCSICT',
+                'adviser': 'Albert A. Vinluan, DIT',
+            },
+            {
+                'id': 'p2', 'title': 'INVENTORY MANAGEMENT SYSTEM', 'authors': 'Valerio et al.',
+                'year': 2025, 'track': 'BSIS', 'department': 'CCSICT',
+                'adviser': 'Albert A. Vinluan, DIT',
+            },
+        ]
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, 'find_papers_by_adviser', lambda name, dept: papers)
+
+        async def fail_retrieve(*_args, **_kwargs):
+            raise AssertionError('adviser fast path must not invoke retrieval')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', fail_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='Which theses were advised by Dr. Albert A. Vinluan?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.archive_current is True
+        assert len(response.sources) == 2
+        assert 'Albert A. Vinluan, DIT' in response.answer
+        assert 'SECURE' in response.answer and '[1]' in response.answer
+        assert 'INVENTORY MANAGEMENT SYSTEM' in response.answer and '[2]' in response.answer
+
+    def test_author_work_question_uses_metadata_lookup_without_rag(self, monkeypatch):
+        papers = [{
+            'id': 'p12',
+            'title': 'ISU-CANNER: A Document Monitoring and Tracking System Using QR Code',
+            'authors': 'Rainier Aquino, Kurt Robin Enoy, Chris Lloyd Fallaria',
+            'year': 2025, 'track': 'Web and Mobile Application Development', 'department': 'CCSICT',
+        }]
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, 'find_papers_by_author', lambda name, dept: papers)
+
+        async def fail_retrieve(*_args, **_kwargs):
+            raise AssertionError('author work fast path must not invoke retrieval')
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', fail_retrieve)
+        response = run(chat._chat_impl(
+            ChatRequest(question='What theses did Kurt Robin Enoy author?'),
+            _NoRequest(), BackgroundTasks(), None,
+        ))
+        assert response.archive_current is True
+        assert len(response.sources) == 1
+        assert 'ISU-CANNER' in response.answer and '[1]' in response.answer
+
+    def _assert_falls_through_to_retrieval(self, monkeypatch, question):
+        reached = {}
+
+        async def stop_at_retrieval(retrieval_question, *_args, **_kwargs):
+            reached['question'] = retrieval_question
+            raise _StopAfterRetrieval
+
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, '_retrieve_evidence', stop_at_retrieval)
+        with pytest.raises(HTTPException):
+            run(chat._chat_impl(
+                ChatRequest(question=question), _NoRequest(), BackgroundTasks(), None,
+            ))
+        assert reached['question'] == question
+
+    def test_author_work_miss_falls_through_to_retrieval(self, monkeypatch):
+        monkeypatch.setattr(chat, 'find_papers_by_author', lambda *_args: [])
+        self._assert_falls_through_to_retrieval(
+            monkeypatch, 'Which papers did past graduates write?',
+        )
+
+    def test_adviser_miss_falls_through_to_retrieval(self, monkeypatch):
+        monkeypatch.setattr(chat, 'find_papers_by_adviser', lambda *_args: [])
+        self._assert_falls_through_to_retrieval(
+            monkeypatch, 'Which theses were advised by experts?',
+        )

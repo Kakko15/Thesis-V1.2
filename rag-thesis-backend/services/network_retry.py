@@ -10,6 +10,25 @@ from typing import TypeVar
 T = TypeVar('T')
 
 _TRANSIENT_ERROR_CODES = {10035, 10053, 10054, 10060, 11001}
+# Transport exception class names from httpx / httpcore / urllib3 whose str()
+# payload does not always repeat the class name — e.g. httpx.RemoteProtocolError
+# stringifies to "<StreamReset stream_id:1, error_code:1, remote_reset:True>".
+# Matched only when the class comes from a network library: a bare name match
+# would also treat unrelated errors such as `tarfile.ReadError` as transient.
+_TRANSIENT_ERROR_TYPE_NAMES = frozenset({
+    'RemoteProtocolError',
+    'ProtocolError',
+    'ReadError',
+    'WriteError',
+    'ConnectError',
+    'PoolTimeout',
+    'ReadTimeout',
+    'ConnectTimeout',
+})
+_NETWORK_ERROR_MODULE_ROOTS = frozenset({
+    'httpx', 'httpcore', 'h2', 'h11', 'urllib3', 'requests', 'aiohttp',
+    'ssl', 'socket', 'grpc', 'google',
+})
 _TRANSIENT_MARKERS = (
     'winerror 10035',
     'would block',
@@ -20,6 +39,8 @@ _TRANSIENT_MARKERS = (
     'connection aborted',
     'server disconnected',
     'remote protocol error',
+    'remoteprotocolerror',
+    'streamreset',
     'bad gateway',
     'service unavailable',
     'gateway timeout',
@@ -69,27 +90,39 @@ def _has_retryable_status(message: str) -> bool:
     return mentions_http_status(message, _RETRYABLE_STATUSES)
 
 
+def _is_network_transport_type(error: BaseException) -> bool:
+    error_type = type(error)
+    module_root = (error_type.__module__ or '').split('.', 1)[0]
+    return (
+        error_type.__name__ in _TRANSIENT_ERROR_TYPE_NAMES
+        and module_root in _NETWORK_ERROR_MODULE_ROOTS
+    )
+
+
+def _is_transient_single_error(error: BaseException) -> bool:
+    if _is_network_transport_type(error):
+        return True
+    errno = getattr(error, 'winerror', None) or getattr(error, 'errno', None)
+    status = getattr(error, 'status_code', None) or getattr(error, 'status', None)
+    code = getattr(error, 'code', None)
+    has_retryable_code = (
+        errno in _TRANSIENT_ERROR_CODES
+        or str(status) in _RETRYABLE_STATUSES
+        or (isinstance(code, int) and not isinstance(code, bool) and str(code) in _RETRYABLE_STATUSES)
+    )
+    if has_retryable_code:
+        return True
+    message = str(error).lower()
+    return any(marker in message for marker in _TRANSIENT_MARKERS) or _has_retryable_status(message)
+
+
 def is_transient_network_error(error: BaseException) -> bool:
     """Recognize retryable transport/provider failures, including WinError 10035."""
     seen: set[int] = set()
     current: BaseException | None = error
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        code = getattr(current, 'winerror', None) or getattr(current, 'errno', None)
-        if code in _TRANSIENT_ERROR_CODES:
-            return True
-        status = getattr(current, 'status_code', None) or getattr(current, 'status', None)
-        if str(status) in _RETRYABLE_STATUSES:
-            return True
-        # google-genai's APIError carries the HTTP status as `code` and the gRPC
-        # name ('UNAVAILABLE') as `status`, so the check above never saw it.
-        code = getattr(current, 'code', None)
-        if isinstance(code, int) and not isinstance(code, bool) and str(code) in _RETRYABLE_STATUSES:
-            return True
-        message = str(current).lower()
-        if any(marker in message for marker in _TRANSIENT_MARKERS):
-            return True
-        if _has_retryable_status(message):
+        if _is_transient_single_error(current):
             return True
         current = current.__cause__ or current.__context__
     return False
