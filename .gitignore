@@ -97,3 +97,12 @@ supabase/
 # hash receipts intended for the release evidence bundle.
 docs/governance/private/
 rag-thesis-backend/evaluation/corpus/private/
+
+# Local thesis manuscripts, presentations, posters, manuals, and exported figures
+# (keep source code only on GitHub; local files remain on disk).
+/*.docx
+/*.pdf
+/*.pptx
+/*.ppt
+/IskAI_Successfully_Defended_4K_Poster.png
+/updated_figures/
