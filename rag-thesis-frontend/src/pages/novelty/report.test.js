@@ -141,17 +141,17 @@ test('buildNoveltyDocxBytes renders capsule section table and custom Dean signat
   }
 
   const bytes = buildNoveltyDocxBytes(capsuleScan, {
-    adviserName: 'Albert A. Vinluan, DIT',
-    deanName: 'CHRISTINE CHARMAINE G. SAN JOSE, DIT',
-    deanTitle: 'Dean, CCSICT',
+    adviserName: 'Ricardo Q. Camungao, DIT',
+    deanName: 'JOE G. LAGARTEJA, DIT',
+    deanTitle: 'OIC Dean, CCSICT',
   })
   const archiveText = new TextDecoder().decode(bytes)
   assert.match(archiveText, /Capsule Concept Proposal/)
   assert.match(archiveText, /II\. PER-SECTION ARCHIVE COMPARISON/)
   assert.match(archiveText, /SECURE: A Smart Intruder Detection System \(2024\)/)
   assert.match(archiveText, /FLAGGED/)
-  assert.match(archiveText, /Albert A\. Vinluan, DIT/)
-  assert.match(archiveText, /CHRISTINE CHARMAINE G\. SAN JOSE, DIT/)
+  assert.match(archiveText, /Ricardo Q\. Camungao, DIT/)
+  assert.match(archiveText, /JOE G\. LAGARTEJA, DIT/)
 })
 
 function documentXml(bytes) {
@@ -254,7 +254,9 @@ test('the screening date prefers the scan date, keeps an unparseable one verbati
 
 test('the signatory block leaves a signature line and default roles when nothing is supplied', () => {
   const xml = documentXml(buildNoveltyDocxBytes({ filename: 'Draft.pdf' }, { generatedAt: '2026-07-25T01:00:00Z' }))
-  assert.match(xml, />____________________________________</)
+  // No adviser named: a blank printed-name line under a signature rule.
+  assert.match(xml, /<w:top w:val="single" w:sz="6" w:space="4" w:color="475569"\/>(?:(?!<\/w:p>).)*>\u00a0</)
+  assert.equal(xml.match(/w:space="4" w:color="475569"/g).length, 2)
   assert.ok(xml.includes(`>${DEFAULT_ADVISER_ROLE}<`))
   assert.ok(xml.includes(`>${DEFAULT_DEAN_NAME}<`))
   assert.ok(xml.includes(`>${DEFAULT_DEAN_TITLE}<`))
@@ -373,4 +375,153 @@ test('downloadNoveltyJsonReport saves the metadata-only JSON report', async () =
   const unnamed = await captureDownload(() => downloadNoveltyJsonReport(undefined))
   // The JSON report names an unnamed scan "Unnamed submission", and the file follows suit.
   assert.equal(unnamed.anchors[0].download, 'novelty-report-unnamed-submission.json')
+})
+
+function archiveEntries(bytes) {
+  // Walk the STORE archive's local headers: name -> raw bytes.
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const entries = {}
+  let offset = 0
+  while (view.getUint32(offset, true) === 0x04034b50) {
+    const size = view.getUint32(offset + 18, true)
+    const nameLength = view.getUint16(offset + 26, true)
+    const name = new TextDecoder().decode(bytes.slice(offset + 30, offset + 30 + nameLength))
+    entries[name] = bytes.slice(offset + 30 + nameLength, offset + 30 + nameLength + size)
+    offset += 30 + nameLength + size
+  }
+  return entries
+}
+
+test('the report carries the ISU seal and IskAI mark in its letterhead and a paged footer', () => {
+  const bytes = buildNoveltyDocxBytes({ filename: 'Draft.pdf' }, { generatedAt: '2026-07-25T01:00:00Z' })
+  const entries = archiveEntries(bytes)
+  const jpeg = entries['word/media/isu-logo.jpeg']
+  const png = entries['word/media/iskai-mark.png']
+  assert.deepEqual([...jpeg.slice(0, 3)], [0xff, 0xd8, 0xff])
+  assert.deepEqual([...png.slice(0, 4)], [0x89, 0x50, 0x4e, 0x47])
+
+  const decode = (name) => new TextDecoder().decode(entries[name])
+  const rels = decode('word/_rels/document.xml.rels')
+  assert.match(rels, /Id="rIdIsuLogo"[^>]+Target="media\/isu-logo\.jpeg"/)
+  assert.match(rels, /Id="rIdAppMark"[^>]+Target="media\/iskai-mark\.png"/)
+  assert.match(rels, /Id="rIdFooter"[^>]+Target="footer1\.xml"/)
+  const types = decode('[Content_Types].xml')
+  assert.match(types, /Extension="jpeg" ContentType="image\/jpeg"/)
+  assert.match(types, /Extension="png" ContentType="image\/png"/)
+  assert.match(types, /PartName="\/word\/footer1\.xml"/)
+
+  const xml = decode('word/document.xml')
+  assert.match(xml, /<a:blip r:embed="rIdIsuLogo"\/>/)
+  assert.match(xml, /<a:blip r:embed="rIdAppMark"\/>/)
+  assert.match(xml, /descr="Isabela State University seal"/)
+  assert.match(xml, /<w:footerReference w:type="default" r:id="rIdFooter"\/>/)
+  assert.match(xml, />Report No\. </)
+  assert.match(xml, />NSR-20260725-[0-9A-F]{6}</)
+
+  const footer = decode('word/footer1.xml')
+  assert.match(footer, /> PAGE </)
+  assert.match(footer, /> NUMPAGES </)
+  assert.match(footer, />IskAI</)
+})
+
+test('the report number is stable for one scan and differs between scans', () => {
+  const number = (scan) => documentXml(buildNoveltyDocxBytes(scan, { generatedAt: '2026-07-25T01:00:00Z' }))
+    .match(/>(NSR-[0-9]{8}-[0-9A-F]{6})</)[1]
+  const scan = { id: 'a1', filename: 'Draft.pdf', created_at: '2026-03-04T00:00:00Z' }
+  assert.equal(number(scan), number({ ...scan }))
+  assert.match(number(scan), /^NSR-20260304-/)
+  assert.notEqual(number(scan), number({ ...scan, id: 'b2' }))
+  // An unparseable scan date has no digits to stamp.
+  assert.match(number({ created_at: 'sometime' }), /^NSR-00000000-/)
+})
+
+test('the verdict callout is toned by the advisory level and lists the key figures', () => {
+  const callout = (scan) => {
+    const xml = documentXml(buildNoveltyDocxBytes(scan, { generatedAt: '2026-07-25T01:00:00Z' }))
+    return xml.slice(xml.indexOf('>ADVISORY VERDICT<'), xml.indexOf('I. SUBMISSION'))
+  }
+  const base = { filename: 'Draft.pdf', highest_similarity: 88.4, matched_chunk_count: 2, total_chunks: 10, threshold: 85 }
+
+  const review = callout({ ...base, verdict_level: 'review_suggested' })
+  assert.match(review, />REVIEW SUGGESTED</)
+  assert.match(review, /Highest passage similarity 88\.40%/)
+  assert.match(review, /Coverage 20\.00%/)
+  assert.match(review, /Threshold 85%/)
+
+  const high = documentXml(buildNoveltyDocxBytes({ ...base, verdict_level: 'high_overlap' }))
+  assert.match(high, /w:fill="FDECEC"/)
+  assert.match(callout({ ...base, verdict_level: 'exact_duplicate' }), />EXACT DUPLICATE—NOT INDEXED</)
+
+  // Unknown levels fall back to the clear styling.
+  const odd = documentXml(buildNoveltyDocxBytes({ ...base, verdict_level: 'mystery' }))
+  assert.match(odd, />CLEAR</)
+  assert.match(odd, /w:fill="EEF7F0"/)
+
+  const capsule = callout({ filename: 'Capsule', total_chunks: 4, matched_chunk_count: 1, capsule_sections: [] })
+  assert.match(capsule, /Sections flagged 1 of 4/)
+  assert.doesNotMatch(capsule, /Coverage/)
+})
+
+test('matches at or above the threshold are highlighted and alternate rows are banded', () => {
+  const xml = documentXml(buildNoveltyDocxBytes({
+    filename: 'Draft.pdf',
+    threshold: 85,
+    top_matches: [
+      { title: 'Close Study', similarity: 90 },
+      { title: 'Distant Study', similarity: 40 },
+    ],
+  }, { generatedAt: '2026-07-25T01:00:00Z' }))
+  assert.match(xml, /<w:color w:val="B45309"\/>(?:(?!<\/w:p>).)*>90\.00%</)
+  assert.doesNotMatch(xml, /<w:color w:val="B45309"\/>(?:(?!<\/w:p>).)*>40\.00%</)
+  assert.match(xml, /w:fill="F8FAFC"(?:(?!<\/w:tc>).)*>Distant Study</)
+  assert.match(xml, /<w:tblHeader\/>/)
+})
+
+test('the advisory explanation renders Markdown headings, lists and emphasis as Word formatting', () => {
+  const summary = [
+    '### Review Report',
+    '**Institution:** Isabela State University',
+    '---',
+    '**1. Breakdown**',
+    'Plain *italic* and `code` and ***both*** text.',
+    '*   **Overlap:** Chapter III only.',
+    '    *   Nested detail.',
+    '*   ',
+    '1.  **Paraphrase:** Rewrite it.',
+    '2) Cite sources.',
+    '###   ',
+    '*',
+    '***',
+    '_Note_ with __strong__ words.',
+  ].join('\r\n')
+  const xml = documentXml(buildNoveltyDocxBytes({ filename: 'Draft.pdf', verdict_summary: summary }, {
+    generatedAt: '2026-07-25T01:00:00Z',
+  }))
+  const advisory = xml.slice(xml.indexOf('III. ADVISORY EXPLANATION'), xml.indexOf('IV. CERTIFICATION'))
+
+  // Headings: "###" lines and whole-line bold labels.
+  assert.match(advisory, /<w:keepNext\/>(?:(?!<\/w:p>).)*<w:b\/>(?:(?!<\/w:p>).)*>Review Report</)
+  assert.match(advisory, /<w:keepNext\/>(?:(?!<\/w:p>).)*>1\. Breakdown</)
+  // Inline emphasis becomes bold / italic runs with the markers removed.
+  assert.match(advisory, /<w:b\/>(?:(?!<\/w:r>).)*>Institution:</)
+  assert.match(advisory, /<w:i\/>(?:(?!<\/w:r>).)*>italic</)
+  assert.match(advisory, />code</)
+  assert.match(advisory, /<w:b\/><w:i\/>(?:(?!<\/w:r>).)*>both</)
+  assert.match(advisory, /<w:b\/>(?:(?!<\/w:r>).)*>strong</)
+  assert.match(advisory, />_Note_ with </)
+  // Bullets, a nested bullet and both numbered styles hang from a marker and a tab.
+  assert.match(advisory, />•<\/w:t><\/w:r><w:r><w:tab\/>/)
+  assert.match(advisory, /w:ind w:left="720"(?:(?!<\/w:p>).)*>◦</)
+  assert.match(advisory, />1\.<\/w:t><\/w:r><w:r><w:tab\/>/)
+  assert.match(advisory, />2\.<\/w:t><\/w:r><w:r><w:tab\/>/)
+  // Rules, empty bullets, empty headings and stray asterisks leave nothing behind.
+  assert.doesNotMatch(advisory, /---|\*/)
+  assert.equal(advisory.match(/>•</g).length, 1)
+})
+
+test('a summary with nothing printable drops the advisory section entirely', () => {
+  const xml = documentXml(buildNoveltyDocxBytes({ filename: 'Draft.pdf', verdict_summary: '---\n*\n' }, {
+    generatedAt: '2026-07-25T01:00:00Z',
+  }))
+  assert.doesNotMatch(xml, /III\. ADVISORY EXPLANATION/)
 })

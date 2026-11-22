@@ -1,9 +1,10 @@
 import { Suspense, lazy } from 'react'
 import { Routes, Route, useLocation } from 'react-router'
-import { AppShell } from './components/AppShell'
 import { IdleSessionGuard } from './components/IdleSessionGuard'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { RouteSkeleton } from './components/ui/PageSkeleton'
+
+const AppShell = lazy(() => import('./components/AppShell').then((m) => ({ default: m.AppShell })))
 
 const Landing = lazy(() => import('./pages/Landing'))
 const Login = lazy(() => import('./pages/Login'))

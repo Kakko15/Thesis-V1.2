@@ -44,7 +44,7 @@ Key paper parameters enforced in code:
 - **Data cleaning pipeline** — page numbers, headers/footers, TOC and bibliography stripped; chunks with >15% non-alphanumeric characters discarded; `FIGURE REDACTED FOR SEMANTIC INDEXING` placeholders injected.
 - **Indirect access model** — private storage bucket; API responses expose citation metadata only.
 - **Knowledge isolation** — the LLM answers exclusively from retrieved CCSICT context.
-- **Current stable model defaults** — `gemini-3.8-flash` (`Gemini 3.8 Flash`) for grounded chat, novelty-scan verdicts, front-matter metadata extraction, and Ragas evaluation judging, paired with `gemini-embedding-001` at 768 dimensions. Deployment overrides must be captured in the release fingerprint.
+- **Current stable model defaults** — `gemini-3.5-flash-lite` (`Gemini 3.5 Flash-Lite`) for grounded chat, novelty-scan verdicts, front-matter metadata extraction, and Ragas evaluation judging (with optional Groq `openai/gpt-oss-20b` last-resort fallback), paired with `gemini-embedding-001` at 768 dimensions. Deployment overrides must be captured in the release fingerprint.
 
 ## Setup
 

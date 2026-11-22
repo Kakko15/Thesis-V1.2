@@ -6,6 +6,22 @@
 
 This file reports only observed command results. Pending external measurements are never represented as successful results.
 
+## Chat and verdict generation moved to `gemini-3.5-flash-lite` + live revalidation - 2026-11-22
+
+`gemini_chat_model` and `gemini_verdict_model` both moved back to `gemini-3.5-flash-lite` (`config.py:16-17`) to avoid rapid RPM throttling on free-tier quotas, with Groq `openai/gpt-oss-20b` retained as the last-resort fallback (`services/gemini_pool.py`). Embeddings remain unchanged at `models/gemini-embedding-001` (768 dimensions). The Objective 2 formal run (`5e8fb7f21db6`, 2026-09-13, `gemini-3.6-flash` answer / `gemini-3.5-flash-lite` judge) was **not** re-run and remains the frozen comparative benchmark.
+
+Frontend updates aligned `DEFAULT_DEAN_NAME` in `src/pages/novelty/report.js` with the current CCSICT Dean (`ALBERT A. VINLUAN, DIT`), restored 100.00% branch coverage on the report generator, aligned `docker-compose.prod.yml` to `redis:8.6.4-alpine3.23`, and lazy-loaded `AppShell` in `src/App.jsx` to restore 32.7 kB of eager bundle headroom below the 330 kB cap.
+
+| Check | Result |
+|---|---|
+| `pytest -p no:cacheprovider --cov=routers --cov=services --cov=dependencies --cov=workers --cov=main --cov=config --cov=models --cov-report=term` | 2,348 passed, 3 skipped in 36.69s; 91.85% statement coverage (6,121 / 6,664 stmts) |
+| `pylint --rcfile=.pylintrc routers services dependencies workers main.py config.py models.py` | 10.00/10, no messages emitted |
+| `npm run test:coverage` (Node.js v24.18.0) | 396 passed, 0 failed (22 suites); 100.00% lines, 100.00% branches, 100.00% functions |
+| `npx eslint . --max-warnings 0` | 0 errors, 0 warnings (`ESLINT_EXIT=0`) |
+| `npm run build && npm run bundle:budget` | 297.3 kB gzipped across 9 files (budget 330 kB) — `Bundle budget OK.` |
+| `npm run test:e2e` (Playwright v1.61.1 + axe-core v4.12.1) | 34 passed (0 WCAG 2.2 AA violations across 90 surface-theme-viewport scans) |
+| Composite active automated tests | 2,778 / 2,778 passed (100.00%; 0 failed) |
+
 ## `PROMPT_VERSION` bumped to `iskai-prompt-v5` for the extended-abstract control - 2026-09-23, on top of `3857cb8`
 
 The upload wizard's first step gained a two-way control over the abstract it autofills.

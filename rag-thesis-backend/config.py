@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     supabase_key: str  # SERVICE_ROLE key (backend bypasses RLS)
 
     # --- Model configuration (current Gemini models; paper architecture unchanged) ---
-    gemini_chat_model: str = 'gemini-3.8-flash'
-    gemini_verdict_model: str = 'gemini-3.8-flash'
+    gemini_chat_model: str = 'gemini-3.5-flash-lite'
+    gemini_verdict_model: str = 'gemini-3.5-flash-lite'
     gemini_embed_model: str = 'models/gemini-embedding-001'
     # The current pgvector schema is vector(768). A dimension change requires
     # an explicit database migration rather than an environment-only switch.
@@ -28,10 +28,11 @@ class Settings(BaseSettings):
     # truncated answer also scores near-zero on Ragas Answer Correctness, so this
     # silently penalised the RAG arm of the Objective 2 comparison.
     gemini_max_output_tokens: int = 2000
-    # 'minimal' stays in the Literal for models that accept it, but
-    # gemini-3.8-flash is not one: it answers 400 INVALID_ARGUMENT with
-    # "Thinking level MINIMAL is not supported for this model" (measured
-    # 2026-09-22). The value validates at startup and fails on the first call.
+    # 'minimal' stays in the Literal for models that accept it (such as the lite
+    # tier), while non-lite Gemini 3 Flash tiers reject it with 400
+    # INVALID_ARGUMENT ("Thinking level MINIMAL is not supported for this
+    # model"). Keeping the default at 'low' avoids runtime failures if an
+    # operator switches tiers via environment variables.
     gemini_thinking_level: Literal['minimal', 'low', 'medium', 'high'] = 'low'
     # The gateway's own ceiling, because `thinking_level` is Gemini-native and an
     # OpenAI-compatible route cannot carry it; `reasoning_effort` is sent there
@@ -63,7 +64,7 @@ class Settings(BaseSettings):
     # Optional OpenAI-compatible gateway for the CHAT models only. When set,
     # chat / extract / verdict calls are routed here instead of to Google
     # directly; the model names above are sent unchanged, so pointing at a
-    # gateway that serves `gemini-3.8-flash` keeps the deployed model
+    # gateway that serves `gemini-3.5-flash-lite` keeps the deployed model
     # identical and only changes the route.
     #
     # Embeddings are deliberately never routed. The pgvector column is

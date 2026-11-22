@@ -271,7 +271,7 @@ def build_implementation_doc():
     r_b3h.font.color.rgb = RGBColor(0x1B, 0x36, 0x5D)
 
     bullets = [
-        ("Closed-Domain RAG Pipeline: ", "LangChain + Supabase pgvector + Gemini 3.8 Flash with 800/100-token chunking and hybrid reranking for citation-stamped research assistance."),
+        ("Closed-Domain RAG Pipeline: ", "LangChain + Supabase pgvector + Gemini 3.5 Flash-Lite with 800/100-token chunking and hybrid reranking for citation-stamped research assistance."),
         ("Proposal Novelty & Duplication Guard: ", "Screens Working Title, Rationale, Objectives, and Methodology against an 85% cosine similarity threshold to prevent duplicate research."),
         ("Academic Front-Matter Extraction: ", "Automatically parses Title, Authors, Year, Adviser, Panel, and Dual Abstracts (verbatim & AI-extended) upon ingestion."),
         ("Student Research Workspace: ", "Delivers interactive starter chips, multi-thesis comparative synthesis trays, and one-click APA 7th Edition / BibTeX citation copy."),
@@ -532,7 +532,7 @@ def build_implementation_doc():
         r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
 
     m_data = [
-        ("1", "Closed-Domain RAG Retrieval Engine", "LangChain + Supabase pgvector + Gemini 3.8 Flash; 800/100-token overlap chunking, deterministic reranking, citation-backed answers.", "OPERATIONAL\n& ACCEPTED"),
+        ("1", "Closed-Domain RAG Retrieval Engine", "LangChain + Supabase pgvector + Gemini 3.5 Flash-Lite; 800/100-token overlap chunking, deterministic reranking, citation-backed answers.", "OPERATIONAL\n& ACCEPTED"),
         ("2", "4-Section Research Capsule Scanner", "Analyzes Title, Rationale, Objectives, Methodology; automated cosine similarity screening with 85% safety threshold.", "OPERATIONAL\n& ACCEPTED"),
         ("3", "Front-Matter Ingestion & Dual Abstract", "Automated extraction of Title, Authors, Advisers, Panelists; dual abstract mode (verbatim and AI-synthesized).", "OPERATIONAL\n& ACCEPTED"),
         ("4", "Student Workspace & Citation Tools", "Interactive query starter chips, 3-thesis comparative synthesis tray, APA 7th Edition and BibTeX bibliographic generation.", "OPERATIONAL\n& ACCEPTED"),
