@@ -88,3 +88,23 @@ def _warn_unless_pinned_interpreter() -> None:
 
 
 _warn_unless_pinned_interpreter()
+
+
+import pytest  # noqa: E402  (after the environment bootstrap above, on purpose)
+
+
+@pytest.fixture(autouse=True)
+def _no_network_embedded_title_lookup(monkeypatch):
+    """Keep the unquoted-title lookup off the network in unit tests.
+
+    `routers.chat` calls `find_paper_by_title_in_question` for every grounded
+    question. Against the fake SUPABASE_URL above each call failed through the
+    full retry budget, adding ~3.5 s to every chat-flow test. Tests that need
+    the lookup monkeypatch it explicitly; its own logic is tested directly in
+    tests/test_retriever.py.
+    """
+    try:
+        from routers import chat  # pylint: disable=import-outside-toplevel
+    except Exception:  # pylint: disable=broad-exception-caught
+        return
+    monkeypatch.setattr(chat, 'find_paper_by_title_in_question', lambda *_args, **_kwargs: None)

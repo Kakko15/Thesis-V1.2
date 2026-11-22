@@ -574,6 +574,46 @@ def _normalize_title(value: str) -> str:
     return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9]+', ' ', (value or '').lower())).strip()
 
 
+# A question that relates the thesis to OTHER work ("similar to", "compared
+# with") is about the archive, not about that one thesis.
+_RELATIONAL_QUESTION = re.compile(
+    r'\b(?:similar|like|related\s+to|resembl\w*|compare\w*|comparison|versus|vs|other\s+than|'
+    r'besides|apart\s+from|differ\w*|instead\s+of)\b',
+    re.IGNORECASE,
+)
+
+
+def find_paper_by_title_in_question(question: str, department_filter: str | None = None) -> dict | None:
+    """The one ready thesis whose full title appears, unquoted, in `question`.
+
+    Exact-title routing used to need quotes or "titled": "What were the
+    conclusions of A Centralized AI-Powered Thesis Library Using Retrieval-
+    Augmented Generation?" therefore went to cross-archive search, which never
+    ranked that thesis's Conclusions chunk, and the answer said the thesis
+    reported no conclusions. A title of at least four words, matched as a
+    whole-word substring, is specific enough to pin retrieval to that thesis.
+    """
+    normalized_question = f' {_normalize_title(question)} '
+    # A four-word title plus any question words needs at least six words; a
+    # shorter question cannot contain one, so it costs no database call.
+    if len(normalized_question.split()) < 6 or _RELATIONAL_QUESTION.search(question or ''):
+        return None
+
+    def fetch_titles():
+        query = sb.table('papers').select('id,title').eq('ingestion_status', 'ready')
+        if department_filter:
+            query = query.eq('department', department_filter)
+        return query.limit(2000).execute()
+
+    rows = retry_transient(fetch_titles, label='Supabase embedded title lookup', logger=logger).data or []
+    matches = []
+    for row in rows:
+        title = _normalize_title(row.get('title') or '')
+        if len(title.split()) >= 4 and f' {title} ' in normalized_question:
+            matches.append(row)
+    return matches[0] if len(matches) == 1 else None
+
+
 # A reader's article and the title's own article are two different words:
 # "what about *the* A Centralized AI-Powered ..." carries both, and leaving the
 # leading "the" in place makes the fragment match nothing. Trailing filler
@@ -776,6 +816,13 @@ _PAPER_QUERY_STOPWORDS = {
     'show', 'study', 'subject', 'tell', 'the', 'their', 'them', 'there',
     'these', 'theses', 'thesi', 'thesis', 'this', 'title', 'topic', 'what',
     'which', 'who', 'with',
+    # Function words that carry no topic. "were" scored like a content term,
+    # so "What were the conclusions of <title>?" ranked Methods chunks (which
+    # say "were" repeatedly) above the thesis's own Conclusions section, while
+    # "What are the conclusions..." found it. Measured 2026-11-23.
+    'was', 'were', 'did', 'done', 'been', 'being', 'had', 'how', 'why', 'when',
+    'where', 'can', 'could', 'would', 'should', 'will', 'that', 'those', 'they',
+    'its', 'into', 'also', 'such', 'than', 'then', 'very', 'some', 'other',
 }
 
 
@@ -842,6 +889,12 @@ def rank_paper_chunks(chunks: list[dict], question: str, paper: dict) -> list[di
             or 'background of the study' in normalized_content
             or 'introduction' in section_lower
         ):
+            score += 20
+        if 'conclusion' in query_terms and (
+            'conclusion' in section_lower or 'summary of findings' in normalized_content
+        ):
+            score += 20
+        if 'recommendation' in query_terms and 'recommendation' in section_lower:
             score += 20
         ranked.append((score, chunk))
     if not any(score for score, _chunk in ranked):

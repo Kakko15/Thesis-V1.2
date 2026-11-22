@@ -1189,3 +1189,55 @@ class TestScopeFreeRetrieval:
         monkeypatch.setattr(retriever, 'embed_text', lambda _text: pytest.fail('must not embed again'))
         pool = [{'id': 1}]
         assert retriever._merge_scope_free_candidates(pool, 'What are the objectives of FindMe?', {}) is pool
+
+
+class TestFunctionWordsDoNotDriveRanking:
+    def test_past_tense_question_still_finds_the_conclusions_section(self):
+        paper = {'title': 'A Centralized AI-Powered Thesis Library', 'authors': 'Barlis, Gallardo'}
+        chunks = [
+            {'id': 1, 'chunk_index': 5, 'section': 'Methods',
+             'content': 'Responses were coded and were checked; values were scaled and were stored.'},
+            {'id': 2, 'chunk_index': 9, 'section': 'Conclusions',
+             'content': 'The RAG model reduced hallucination on unanswerable questions.'},
+        ]
+        ranked = retriever.rank_paper_chunks(chunks, 'What were the conclusions of the study?', paper)
+        assert ranked[0]['id'] == 2
+
+    def test_function_words_are_not_search_terms(self):
+        assert retriever._search_terms('What were the conclusions and how did they work?') == ['conclusion', 'work']
+
+
+class TestEmbeddedTitleLookup:
+    ROWS = [
+        {'id': 'p_rag', 'title': 'A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation'},
+        {'id': 'p_findme', 'title': 'FindMe: A Computer Vision-based Detector for Missing Person'},
+        {'id': 'p_short', 'title': 'SECURE System'},
+    ]
+
+    def _client(self, monkeypatch):
+        rows = self.ROWS
+
+        class _Client(_RetrieverClient):
+            def table(self, name):
+                assert name == 'papers'
+                return _Query(rows)
+
+        monkeypatch.setattr(retriever, 'sb', _Client())
+
+    def test_unquoted_full_title_resolves_to_that_thesis(self, monkeypatch):
+        self._client(monkeypatch)
+        found = retriever.find_paper_by_title_in_question(
+            'What were the conclusions of A Centralized AI-Powered Thesis Library Using '
+            'Retrieval-Augmented Generation?', 'CCSICT',
+        )
+        assert found['id'] == 'p_rag'
+
+    @pytest.mark.parametrize('question', [
+        'Which theses are similar to A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation?',
+        'Compare FindMe: A Computer Vision-based Detector for Missing Person with other studies.',
+        'What did the SECURE System thesis find?',       # titles under four words never pin
+        'What were the conclusions of the thesis library study?',
+    ])
+    def test_relational_short_or_partial_titles_do_not_pin(self, monkeypatch, question):
+        self._client(monkeypatch)
+        assert retriever.find_paper_by_title_in_question(question, 'CCSICT') is None

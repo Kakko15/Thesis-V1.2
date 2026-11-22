@@ -132,7 +132,7 @@ def retry_transient(
     operation: Callable[[], T],
     *,
     label: str,
-    attempts: int = 3,
+    attempts: int = 4,
     base_delay_seconds: float = 0.25,
     logger: logging.Logger | None = None,
 ) -> T:

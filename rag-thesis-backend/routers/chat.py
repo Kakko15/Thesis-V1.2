@@ -61,6 +61,7 @@ from services.retriever import (
     find_papers_by_author,
     find_papers_by_ids,
     find_papers_by_program_or_track,
+    find_paper_by_title_in_question,
     find_papers_by_title,
     find_papers_by_title_fragment,
     get_paper_overview_context,
@@ -3127,6 +3128,21 @@ async def _chat_impl_unstamped(
             ) from error
         if len(title_matches) == 1:
             referenced_paper_id = title_matches[0].get('id')
+
+    # A full title typed without quotes ("What were the conclusions of A
+    # Centralized AI-Powered Thesis Library Using ...?"). The question itself
+    # is kept, so the answer is about that thesis's conclusions rather than an
+    # overview of it. A lookup failure only skips this narrowing.
+    if not referenced_paper_id and not explicit_title:
+        try:
+            embedded_title = await asyncio.to_thread(
+                find_paper_by_title_in_question, req.question, effective_department,
+            )
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            logger.warning('Embedded title lookup failed; continuing (%s)', type(error).__name__)
+            embedded_title = None
+        if embedded_title:
+            referenced_paper_id = embedded_title.get('id')
 
     # A thesis named by its opening words. Resolved only on a unique archive
     # match, so an ordinary follow-up ("what about their methodology") finds

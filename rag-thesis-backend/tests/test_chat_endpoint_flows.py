@@ -1617,3 +1617,17 @@ class TestStep1EndpointFastPaths:
             ))
         assert error.value.status_code == 503
         assert 'thesis archive' in error.value.detail
+
+    def test_an_unquoted_full_title_pins_retrieval_and_keeps_the_question(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(chat, 'find_paper_by_title_in_question', lambda *_a: {'id': 'p_rag'})
+
+        async def retrieve(question, _department, paper_id, is_overview, _category=None, per_paper_cap=None):
+            captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
+            return ('', [], 0.0), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        question = ('What were the conclusions of A Centralized AI-Powered Thesis Library Using '
+                    'Retrieval-Augmented Generation?')
+        run(chat._chat_impl(ChatRequest(question=question), _NoRequest(), BackgroundTasks(), None))
+        assert captured == {'question': question, 'paper_id': 'p_rag', 'is_overview': False}
