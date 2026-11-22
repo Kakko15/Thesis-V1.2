@@ -3,7 +3,15 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
 
-const BACKEND = 'http://localhost:8000'
+// 127.0.0.1, not localhost: `uvicorn main:app --port 8000` binds IPv4 only, and
+// on Windows `localhost` is tried as IPv6 (::1) first, which measured ~0.38 s
+// per request before falling back versus ~0.004 s straight to 127.0.0.1.
+const BACKEND = 'http://127.0.0.1:8000'
+// A cold FastAPI `/health` opens the Supabase connection and runs the schema
+// contract check (measured 1–7 s on first contact). Aborting at 1 s made every
+// cold probe fail and restart from scratch, so the readiness wait never ended
+// until the backend happened to be warm.
+const BACKEND_READY_PROBE_TIMEOUT_MS = 4500
 const FRONTEND_DIR = fileURLToPath(new URL('.', import.meta.url))
 const ROOT_DIR = fileURLToPath(new URL('..', import.meta.url))
 
@@ -18,7 +26,7 @@ function backendReadiness() {
         let ready = false
         try {
           const response = await fetch(`${BACKEND}/health`, {
-            signal: AbortSignal.timeout(1000),
+            signal: AbortSignal.timeout(BACKEND_READY_PROBE_TIMEOUT_MS),
           })
           ready = response.ok
         } catch {

@@ -47,3 +47,29 @@ test('the default policy is frozen against accidental mutation', () => {
   assert.throws(() => { DEFAULT_ROLE_FEATURES.student.upload = true }, TypeError)
   assert.equal(canUseFeature('student', null, 'upload'), false)
 })
+
+test('only admin and superadmin bypass the feature policy wait', async () => {
+  const { bypassesFeaturePolicy } = await import('./permissions.js')
+  assert.equal(bypassesFeaturePolicy('admin'), true)
+  assert.equal(bypassesFeaturePolicy('superadmin'), true)
+  for (const role of ['student', 'faculty', null, undefined, 'guest']) {
+    assert.equal(bypassesFeaturePolicy(role), false)
+  }
+})
+
+test('settleWithin reports a policy that arrived in time', async () => {
+  const { settleWithin } = await import('./permissions.js')
+  assert.equal(await settleWithin(Promise.resolve({}), 1000), true)
+  // A failed fetch has also settled: the null-policy fallback then applies.
+  assert.equal(await settleWithin(Promise.reject(new Error('down')), 1000), true)
+})
+
+test('settleWithin stops waiting at the bound instead of hanging the route', async () => {
+  const { settleWithin, FEATURE_POLICY_WAIT_MS } = await import('./permissions.js')
+  let fire
+  const fakeSetTimer = (callback) => { fire = callback; return 1 }
+  const pending = settleWithin(new Promise(() => {}), FEATURE_POLICY_WAIT_MS, fakeSetTimer, () => {})
+  fire()
+  assert.equal(await pending, false)
+  assert.ok(FEATURE_POLICY_WAIT_MS <= 5000)
+})

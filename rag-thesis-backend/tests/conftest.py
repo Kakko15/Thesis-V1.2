@@ -35,6 +35,9 @@ _ISOLATED_TEST_ENV = {
     'REQUIRE_PRIVILEGED_MFA': 'false',
     'MALWARE_SCAN_MODE': 'disabled',
     'OPERATIONS_MONITOR_ENABLED': 'false',
+    # A startup pre-warm thread would call `_verify_database_contract` while a
+    # test monkeypatches it and counts calls; tests exercise the cache directly.
+    'HEALTH_PREWARM_ENABLED': 'false',
     'RETENTION_ENFORCEMENT_ENABLED': 'false',
     'LANGSMITH_TRACING': 'false',
     'LANGCHAIN_TRACING_V2': 'false',

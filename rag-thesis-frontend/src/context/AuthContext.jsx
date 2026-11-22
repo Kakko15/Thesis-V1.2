@@ -3,7 +3,12 @@ import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabaseClient'
 import { getFeaturePermissions } from '../api'
 import { avatarPublicUrl } from '../lib/avatar'
-import { canUseFeature } from '../lib/permissions'
+import {
+  FEATURE_POLICY_WAIT_MS,
+  bypassesFeaturePolicy,
+  canUseFeature,
+  settleWithin,
+} from '../lib/permissions'
 import { onPrivilegedMfaRequired } from '../lib/privilegedMfa.js'
 import {
   clearE2EAuthFixture,
@@ -117,14 +122,15 @@ export const AuthProvider = ({ children }) => {
       if (!error && data) {
         setProfile(data)
         setProfileError(false)
-      } else {
-        setProfile(null)
-        setProfileError(true)
+        return data
       }
+      setProfile(null)
+      setProfileError(true)
     } catch {
       setProfile(null)
       setProfileError(true)
     }
+    return null
   }, [])
 
   const loadFeatures = useCallback(async () => {
@@ -149,7 +155,19 @@ export const AuthProvider = ({ children }) => {
       // features === null and every can* flag was false — long enough for
       // ProtectedRoute to bounce a student or faculty member off /chat,
       // /archive, /novelty, or /upload to /dashboard on any hard refresh.
-      await Promise.all([fetchProfile(currentUser.id), loadFeatures()])
+      //
+      // Both requests start together. Admin and superadmin sessions are never
+      // gated by the policy (canUseFeature allows them unconditionally), so
+      // they stop waiting once the profile names their role. Everyone else
+      // waits for the policy, but at most FEATURE_POLICY_WAIT_MS: past that
+      // the documented DEFAULT_ROLE_FEATURES fallback applies (features stays
+      // null), and the still-running fetch publishes the real policy when it
+      // lands. A slow or cold backend can no longer hold the route skeleton.
+      const featuresRequest = loadFeatures()
+      const loadedProfile = await fetchProfile(currentUser.id)
+      if (!bypassesFeaturePolicy(loadedProfile?.role)) {
+        await settleWithin(featuresRequest, FEATURE_POLICY_WAIT_MS)
+      }
     } else {
       setProfile(null)
       setProfileError(false)

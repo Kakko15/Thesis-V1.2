@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { supabase } from './supabaseClient'
 import { normalizeDepartments } from './lib/catalog'
+import { isPublicUnauthenticatedRequest, waitUntilReady } from './lib/backendReadiness'
 import { loginPathWithNext } from './lib/idleSession'
 import { isPrivilegedMfaRefusal, reportPrivilegedMfaRequired } from './lib/privilegedMfa.js'
 import { isE2ETestMode, readE2EAuthFixture } from './testing/e2eSession'
@@ -16,7 +17,6 @@ const api = axios.create({
 // Keep automatic GET retries only for genuinely transient gateway failures.
 const TRANSIENT_GATEWAY_STATUSES = new Set([502, 504])
 const MAX_TRANSIENT_GET_RETRIES = 2
-const DEV_BACKEND_READY_ATTEMPTS = 40
 const SHOULD_WAIT_FOR_DEV_BACKEND = import.meta.env.DEV && !import.meta.env.VITE_API_URL
 
 let backendReady = !SHOULD_WAIT_FOR_DEV_BACKEND
@@ -46,22 +46,17 @@ function retryDelay(attempt) {
 async function waitForBackend() {
   if (backendReady) return
   if (!backendReadyPromise) {
-    backendReadyPromise = (async () => {
-      for (let attempt = 1; attempt <= DEV_BACKEND_READY_ATTEMPTS; attempt += 1) {
-        try {
-          const response = await fetch('/__backend-ready', { cache: 'no-store' })
-          const status = await response.json()
-          if (status.ready) {
-            backendReady = true
-            return
-          }
-        } catch {
-          // Vite may itself be finishing a config reload; retry quietly.
-        }
-        await retryDelay(1)
-      }
-      throw new Error('The backend did not become ready within 14 seconds.')
-    })().finally(() => {
+    // Shared by every request that arrives while the backend is starting, so
+    // one bounded wait gates them all instead of each polling on its own.
+    backendReadyPromise = waitUntilReady({
+      probe: async () => {
+        const response = await fetch('/__backend-ready', { cache: 'no-store' })
+        const status = await response.json()
+        return Boolean(status.ready)
+      },
+    }).then(() => {
+      backendReady = true
+    }).finally(() => {
       backendReadyPromise = null
     })
   }
@@ -71,6 +66,9 @@ async function waitForBackend() {
 // Attach the Supabase JWT to every request
 api.interceptors.request.use(async (config) => {
   if (SHOULD_WAIT_FOR_DEV_BACKEND) await waitForBackend()
+  // `/health` is unauthenticated: reading the Supabase session for it only
+  // delayed the status badge behind supabase-js's startup session restore.
+  if (isPublicUnauthenticatedRequest(config)) return config
   if (isE2ETestMode) {
     const fixture = readE2EAuthFixture()
     if (fixture?.user) {

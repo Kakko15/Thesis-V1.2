@@ -7,6 +7,13 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { healthCheck } from '../api'
+import {
+  HEALTH_QUERY_REFETCH_MS,
+  HEALTH_QUERY_RETRY,
+  HEALTH_QUERY_RETRY_DELAY_MS,
+  HEALTH_STATES,
+  deriveHealthStatus,
+} from '../lib/healthStatus'
 import { prefetchRoute } from '../lib/routePrefetch'
 import { BrandMark, Logo } from './ui/Logo'
 import { RoleBadge } from './ui/Badge'
@@ -31,18 +38,25 @@ function useNavItems() {
 }
 
 function HealthStatus({ compact = false }) {
-  const { data, isError } = useQuery({
+  const { data, isError, isPending } = useQuery({
     queryKey: ['health'],
     queryFn: healthCheck,
-    refetchInterval: 30_000,
-    retry: false,
+    refetchInterval: HEALTH_QUERY_REFETCH_MS,
+    retry: HEALTH_QUERY_RETRY,
+    retryDelay: HEALTH_QUERY_RETRY_DELAY_MS,
   })
-  const online = !isError && Boolean(data?.status)
-  const healthy = online && data.status === 'ok'
-  const label = healthy ? 'Online' : online ? 'Degraded' : 'Offline'
+  const { state, label, ariaLabel } = deriveHealthStatus({ data, isError, isPending })
   return (
-    <div className="flex items-center gap-2 text-xs text-ink-muted" aria-label={`System ${label.toLowerCase()}`}>
-      <span className={cn('h-2 w-2 rounded-full', healthy ? 'bg-emerald-500' : online ? 'bg-amber-400' : 'bg-red-500')} />
+    <div className="flex items-center gap-2 text-xs text-ink-muted" aria-label={ariaLabel}>
+      <span
+        className={cn(
+          'h-2 w-2 rounded-full',
+          state === HEALTH_STATES.ONLINE && 'bg-emerald-500',
+          state === HEALTH_STATES.DEGRADED && 'bg-amber-400',
+          state === HEALTH_STATES.OFFLINE && 'bg-red-500',
+          state === HEALTH_STATES.CHECKING && 'bg-[var(--muted-foreground)] opacity-60 motion-safe:animate-pulse',
+        )}
+      />
       {!compact && <span>{label}</span>}
     </div>
   )

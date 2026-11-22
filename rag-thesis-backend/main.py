@@ -8,6 +8,7 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 from warning_filters import silence_known_third_party_warnings
@@ -133,6 +134,9 @@ async def lifespan(_app: FastAPI):
     runs even if startup work later raises.
     """
     start_operations_monitor()
+    # Non-blocking: the port binds immediately and the first `/health` poll
+    # finds the schema contract already checked.
+    start_contract_prewarm()
     try:
         yield
     finally:
@@ -218,6 +222,15 @@ app.include_router(maintenance.router)
 
 _CONTRACT_CACHE_TTL_SECONDS = 15.0
 _CONTRACT_CACHE: dict[str, float | bool] = {'checked_at': 0.0, 'ok': False}
+# One lock covers both the cache and the refresh. Holding it across the check
+# means concurrent `/health` calls during a cold check (or during the startup
+# pre-warm below) wait for that one result instead of each issuing their own
+# four reads — the amplification the cache exists to remove.
+_CONTRACT_LOCK = threading.Lock()
+# How long a `/health` call waits for an in-flight check before answering from
+# the last known state. Longer than a measured cold check (~7 s), short enough
+# that a hung database cannot pin request threads indefinitely.
+_CONTRACT_LOCK_WAIT_SECONDS = 10.0
 
 
 def _cached_database_contract() -> bool:
@@ -239,43 +252,105 @@ def _cached_database_contract() -> bool:
     `/ready` deliberately does NOT use this. It gates whether traffic should
     reach this instance, so a stale `ready` could route requests to a broken
     process; it keeps paying for the exact answer.
+
+    Thread-safe: `/health` runs in Starlette's threadpool and the cache is also
+    filled by the startup pre-warm thread.
     """
-    now = time.monotonic()
-    if now - float(_CONTRACT_CACHE['checked_at']) < _CONTRACT_CACHE_TTL_SECONDS:
+    # `with lock:` cannot time out; the matching release is in `finally` below.
+    if not _CONTRACT_LOCK.acquire(timeout=_CONTRACT_LOCK_WAIT_SECONDS):  # pylint: disable=consider-using-with
+        # Another thread has been checking for longer than a cold check takes.
         return bool(_CONTRACT_CACHE['ok'])
     try:
-        _verify_database_contract()
-        healthy = True
-    except Exception as error:
-        logger.warning(
-            'Health check: database unavailable or incompatible (%s)',
-            type(error).__name__,
-        )
-        healthy = False
-    _CONTRACT_CACHE['checked_at'] = now
-    _CONTRACT_CACHE['ok'] = healthy
-    return healthy
+        now = time.monotonic()
+        if now - float(_CONTRACT_CACHE['checked_at']) < _CONTRACT_CACHE_TTL_SECONDS:
+            return bool(_CONTRACT_CACHE['ok'])
+        try:
+            _verify_database_contract()
+            healthy = True
+        except Exception as error:
+            logger.warning(
+                'Health check: database unavailable or incompatible (%s)',
+                type(error).__name__,
+            )
+            healthy = False
+        _CONTRACT_CACHE['checked_at'] = time.monotonic()
+        _CONTRACT_CACHE['ok'] = healthy
+        return healthy
+    finally:
+        _CONTRACT_LOCK.release()
 
 
 def reset_contract_cache() -> None:
     """Test hook: force the next `/health` call to re-check the schema."""
-    _CONTRACT_CACHE['checked_at'] = 0.0
-    _CONTRACT_CACHE['ok'] = False
+    with _CONTRACT_LOCK:
+        _CONTRACT_CACHE['checked_at'] = 0.0
+        _CONTRACT_CACHE['ok'] = False
+
+
+def _prewarm_contract_cache() -> None:
+    """Fill the `/health` cache so the first browser poll is answered instantly.
+
+    A cold first check opens the Supabase connection (TLS plus HTTP/2) before
+    its four reads, measured at 1–7 s. Without this, the first `/health` of a
+    fresh process paid that inside the request, past the dev readiness probe's
+    timeout, so the frontend's readiness wait restarted until it happened to
+    land on a warm process.
+    """
+    try:
+        _cached_database_contract()
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        logger.warning('Health contract pre-warm failed (%s)', type(error).__name__)
+
+
+def start_contract_prewarm() -> None:
+    """Pre-warm in a daemon thread so it never delays Uvicorn binding its port."""
+    if not settings.health_prewarm_enabled:
+        return
+    threading.Thread(
+        target=_prewarm_contract_cache, name='health-contract-prewarm', daemon=True,
+    ).start()
+
+
+# Each probe selects the columns the application depends on, so a reachable
+# project with a missing migration fails here rather than mid-request.
+_CONTRACT_PROBES = (
+    ('profiles', 'id,status,role,department'),
+    ('departments', 'id,name'),
+    ('papers', 'id,department,ingestion_status,active_index_version'),
+    (
+        'paper_index_versions',
+        'paper_id,index_version,embedding_model,embedding_dimensions,'
+        'preprocessing_version,chunking_version,provenance_status',
+    ),
+)
 
 
 def _verify_database_contract() -> None:
-    """Fail when the configured project is reachable but lacks required schema."""
-    from dependencies.auth import sb
+    """Fail when the configured project is reachable but lacks required schema.
 
-    sb.table('profiles').select('id,status,role,department').limit(1).execute()
-    sb.table('departments').select('id,name').limit(1).execute()
-    sb.table('papers').select(
-        'id,department,ingestion_status,active_index_version',
-    ).limit(1).execute()
-    sb.table('paper_index_versions').select(
-        'paper_id,index_version,embedding_model,embedding_dimensions,'
-        'preprocessing_version,chunking_version,provenance_status',
-    ).limit(1).execute()
+    The four independent reads run concurrently: measured on a warm connection
+    they took 0.09–0.25 s together against 0.36–0.96 s back to back. The shared
+    Supabase client is already used concurrently by Starlette's request
+    threadpool, and each probe builds its own query. Every probe also retries a
+    transient connection reset (`WinError 10054`, HTTP/2 `StreamReset`), which
+    previously turned one dropped connection into 15 s of "degraded".
+    """
+    from dependencies.auth import sb
+    from services.network_retry import retry_transient
+
+    def probe(table: str, columns: str) -> None:
+        retry_transient(
+            lambda: sb.table(table).select(columns).limit(1).execute(),
+            label=f'Supabase schema contract ({table})',
+            logger=logger,
+        )
+
+    with ThreadPoolExecutor(
+        max_workers=len(_CONTRACT_PROBES), thread_name_prefix='health-contract',
+    ) as pool:
+        futures = [pool.submit(probe, table, columns) for table, columns in _CONTRACT_PROBES]
+        for future in futures:
+            future.result()
 
 
 @app.get('/health')

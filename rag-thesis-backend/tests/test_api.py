@@ -137,6 +137,114 @@ class TestHealth:
         assert res.status_code == 503
         assert res.json()['checks']['database'] == 'unavailable_or_incompatible'
 
+    def test_concurrent_health_polls_share_one_cold_check(self, monkeypatch):
+        """Several tabs (or the pre-warm plus the first poll) arriving during a
+        slow cold check must wait for that one result, not each issue their own
+        four reads."""
+        import threading
+        import time
+
+        import main
+
+        calls = []
+
+        def slow_check():
+            calls.append(1)
+            time.sleep(0.3)
+
+        monkeypatch.setattr(main, '_verify_database_contract', slow_check)
+        main.reset_contract_cache()
+        results = []
+        threads = [
+            threading.Thread(target=lambda: results.append(main._cached_database_contract()))
+            for _ in range(5)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+        assert len(calls) == 1
+        assert results == [True] * 5
+
+    def test_prewarm_is_a_no_op_when_disabled(self, monkeypatch):
+        import main
+
+        calls = []
+        monkeypatch.setattr(main, '_verify_database_contract', lambda: calls.append(1))
+        monkeypatch.setattr(main.settings, 'health_prewarm_enabled', False)
+        main.reset_contract_cache()
+        main.start_contract_prewarm()
+        assert not calls
+
+    def test_prewarm_fills_the_cache_from_a_daemon_thread(self, monkeypatch):
+        """The pre-warm must not delay port binding (daemon thread) and must
+        leave the cache warm so the first browser poll does no database work."""
+        import threading
+
+        import main
+
+        started = []
+        real_thread = threading.Thread
+
+        class RecordingThread(real_thread):
+            def start(self):
+                started.append(self)
+                super().start()
+
+        calls = []
+        monkeypatch.setattr(main, '_verify_database_contract', lambda: calls.append(1))
+        monkeypatch.setattr(main.settings, 'health_prewarm_enabled', True)
+        monkeypatch.setattr(main.threading, 'Thread', RecordingThread)
+        main.reset_contract_cache()
+        main.start_contract_prewarm()
+        assert len(started) == 1
+        assert started[0].daemon
+        started[0].join(timeout=5)
+        assert calls == [1]
+        assert main._cached_database_contract() is True
+        assert calls == [1], 'the first poll after the pre-warm must hit the cache'
+
+    def test_contract_check_reads_every_required_table(self, monkeypatch):
+        import main
+
+        seen = []
+
+        class Query:
+            def __init__(self, name): self.name = name
+            def select(self, *_args): return self
+            def limit(self, *_args): return self
+            def execute(self):
+                seen.append(self.name)
+                return SimpleNamespace(data=[])
+
+        class Client:
+            def table(self, name): return Query(name)
+
+        monkeypatch.setattr('dependencies.auth.sb', Client())
+        main._verify_database_contract()
+        assert sorted(seen) == sorted(
+            ['profiles', 'departments', 'papers', 'paper_index_versions'],
+        )
+
+    def test_contract_check_raises_when_any_table_is_missing(self, monkeypatch):
+        import main
+
+        class Query:
+            def __init__(self, name): self.name = name
+            def select(self, *_args): return self
+            def limit(self, *_args): return self
+            def execute(self):
+                if self.name == 'paper_index_versions':
+                    raise RuntimeError('relation does not exist')
+                return SimpleNamespace(data=[])
+
+        class Client:
+            def table(self, name): return Query(name)
+
+        monkeypatch.setattr('dependencies.auth.sb', Client())
+        with pytest.raises(RuntimeError, match='relation does not exist'):
+            main._verify_database_contract()
+
 
 class TestValidation:
     def test_chat_rejects_empty_question(self, client):

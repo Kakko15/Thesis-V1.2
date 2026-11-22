@@ -154,6 +154,10 @@ class Settings(BaseSettings):
     # duration rather than resident memory.
     max_batch_files: int = Field(default=20, ge=1, le=50)
     operations_monitor_enabled: bool = False
+    # Check the `/health` schema contract in a background thread at startup so
+    # the first status poll is not the one paying for the cold Supabase
+    # connection. Disabled in the unit-test environment (tests/conftest.py).
+    health_prewarm_enabled: bool = True
     operations_monitor_seconds: int = Field(default=60, ge=15, le=3600)
     operations_worker_stale_seconds: int = Field(default=90, ge=30, le=900)
     operations_queue_age_seconds: int = Field(default=300, ge=60, le=86400)

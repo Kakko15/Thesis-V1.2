@@ -13,6 +13,24 @@ export const DEFAULT_ROLE_FEATURES = Object.freeze({
 })
 
 /**
+ * Roles the client never gates by feature policy. The server-owned policy only
+ * covers student and faculty, so waiting for it before rendering a privileged
+ * session's route bought nothing but a longer loading skeleton.
+ */
+export function bypassesFeaturePolicy(role) {
+  return role === 'admin' || role === 'superadmin'
+}
+
+/**
+ * How long a hard refresh waits for the feature policy before falling back to
+ * DEFAULT_ROLE_FEATURES (see canUseFeature). The fetch keeps running and its
+ * result replaces the defaults when it lands; the server enforces the novelty
+ * and upload gates independently, so the fallback can never grant more than
+ * the server allows.
+ */
+export const FEATURE_POLICY_WAIT_MS = 4000
+
+/**
  * Whether `role` may use `feature`.
  *
  * `features` is the server-owned policy. A null policy means the fetch has not
@@ -22,7 +40,23 @@ export const DEFAULT_ROLE_FEATURES = Object.freeze({
  * a real policy that grants nothing, not a missing one.
  */
 export function canUseFeature(role, features, feature) {
-  if (role === 'admin' || role === 'superadmin') return true
+  if (bypassesFeaturePolicy(role)) return true
   const policy = features ?? DEFAULT_ROLE_FEATURES
   return Boolean(policy?.[role]?.[feature])
+}
+
+/**
+ * Resolve when `promise` settles or after `ms`, whichever is first. Never
+ * rejects: the caller only needs to know whether the work finished in time.
+ *
+ * @returns {Promise<boolean>} true when `promise` settled within the window.
+ */
+export function settleWithin(promise, ms, setTimer = setTimeout, clearTimer = clearTimeout) {
+  return new Promise((resolve) => {
+    const timer = setTimer(() => resolve(false), ms)
+    Promise.resolve(promise).then(
+      () => { clearTimer(timer); resolve(true) },
+      () => { clearTimer(timer); resolve(true) },
+    )
+  })
 }
