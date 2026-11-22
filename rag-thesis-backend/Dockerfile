@@ -14,9 +14,9 @@
 # OpenSSL's QUIC server. Nothing here serves QUIC, so exposure was nil, but the
 # CI container scan is fix-available-only and failed on it for eight
 # consecutive runs. Re-pinning to a build carrying 3.6.3-r5 clears it.
-FROM cgr.dev/chainguard/python:latest@sha256:f487e51ca6ee4b20e07e1b4c9c44d3108ab305d2318b0f233f5b72529f52a6aa AS runtime-base
+FROM cgr.dev/chainguard/python:latest@sha256:f33049a06b10d6bd729e08a181094774ca5e9c7b0cf1bbe674aa977cd5258daa AS runtime-base
 
-FROM cgr.dev/chainguard/python:latest-dev@sha256:f0f3f01288b7ae009d90828d2dbd2f3c949aa3b6e820081cb278880d758ffb44 AS build
+FROM cgr.dev/chainguard/python:latest-dev@sha256:e2736acdf97f2b1cb59545f4f26317b18a953e90e59fa4c212a782315b248111 AS build
 
 USER root
 COPY --from=runtime-base / /runtime-rootfs
