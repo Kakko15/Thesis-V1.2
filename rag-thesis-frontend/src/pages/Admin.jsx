@@ -137,7 +137,10 @@ export default function Admin() {
 
   return (
     <PageTransition className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      {/* Tabs sit under the heading until 2xl: side by side, the tabs clipped
+          behind a hidden scrollbar at 1024-1280px, and at 1280px they wrapped
+          into a ragged two-line bar beside the heading (2026-11-26). */}
+      <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
         <div>
           <p className="text-sm font-semibold text-gold-text dark:text-gold-300">
             {displayName} • <span className="capitalize">{role === 'superadmin' ? 'Super Admin at System' : <>{role === 'admin' ? 'Administrator' : role} at {department || 'Unassigned'}</>}</span>
@@ -147,7 +150,7 @@ export default function Admin() {
           </h1>
           <p className="mt-1 text-sm text-ink-muted">Evidence readiness, archive operations, academic catalog, and access governance.</p>
         </div>
-        <div className="glass flex max-w-full items-center overflow-x-auto rounded-2xl p-1" role="tablist" aria-label="Administration sections">
+        <div className="glass flex max-w-full flex-wrap items-center gap-1 self-start rounded-2xl p-1" role="tablist" aria-label="Administration sections">
           {tabs.map((tab) => (
             <button
               key={tab.id}

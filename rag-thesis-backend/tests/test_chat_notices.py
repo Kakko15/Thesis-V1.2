@@ -67,6 +67,9 @@ MARKERS_WITHOUT_HISTORICAL_ROWS = frozenset({
     # Added 2026-11-23: a final provider overload used to be an HTTP 502 and
     # was never persisted as a message.
     chat_notices.OVERLOAD_MESSAGE,
+    # Added 2026-11-25 with the per-turn ceiling; a turn that ran long used to
+    # keep the browser waiting rather than produce any message.
+    chat_notices.TIMEOUT_MESSAGE,
     *chat_notices.CONVERSATION_MESSAGES[1:],
     *chat_notices.COURTESY_MESSAGES[1:],
     *chat_notices.FAREWELL_MESSAGES[1:],

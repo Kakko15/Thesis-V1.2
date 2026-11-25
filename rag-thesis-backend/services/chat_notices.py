@@ -59,6 +59,14 @@ OVERLOAD_MESSAGE = (
     'Please try again in a minute.'
 )
 
+# The whole turn ran past `chat_turn_timeout_seconds` and was stopped, so the
+# reader gets an answer instead of a spinner that never resolves. Trips no
+# cooldown: one slow turn says nothing about the next.
+TIMEOUT_MESSAGE = (
+    'Preparing this answer took too long, so it was stopped. Please try again, or '
+    'ask a shorter or more specific question.'
+)
+
 NO_RELEVANT_PREFIX = 'No relevant thesis was found in the'
 
 # The greeting reply. Lives here rather than in routers/chat.py for the
@@ -188,6 +196,7 @@ GROUNDED_FALLBACK_PREFIX = 'I could not verify a direct answer'
 NOTICE_MARKERS = (
     CAPACITY_MESSAGE,
     OVERLOAD_MESSAGE,
+    TIMEOUT_MESSAGE,
     REFUSAL_MESSAGE,
     VERBATIM_REFUSAL_MESSAGE,
     GUEST_BUDGET_MESSAGE,
@@ -268,7 +277,7 @@ def response_kind(response) -> str:
         return KIND_NOTICE
     answer = getattr(response, 'answer', '') or ''
     if answer in (
-        CAPACITY_MESSAGE, OVERLOAD_MESSAGE, REFUSAL_MESSAGE, VERBATIM_REFUSAL_MESSAGE,
+        CAPACITY_MESSAGE, OVERLOAD_MESSAGE, TIMEOUT_MESSAGE, REFUSAL_MESSAGE, VERBATIM_REFUSAL_MESSAGE,
         GUEST_BUDGET_MESSAGE,
         *CONVERSATION_MESSAGES,
         IDENTITY_MESSAGE,

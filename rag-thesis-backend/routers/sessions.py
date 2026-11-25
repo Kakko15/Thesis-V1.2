@@ -83,18 +83,30 @@ def delete_session(session_id: str, user: CurrentUser):
 
 @router.get('/{session_id}/messages', responses=errors(404))
 def get_session_messages(session_id: str, user: CurrentUser):
-    _owned_session_or_404(session_id, user.id)
-    res = (
-        sb.table('chat_messages')
-        .select(_MESSAGE_FIELDS)
-        .eq('session_id', session_id)
-        .order('created_at', desc=False)
-        .execute()
-    )
+    # Ownership rides on the same request as the read: the inner join keeps
+    # only rows whose session belongs to the caller, so another account's
+    # session id yields nothing. A separate ownership probe followed by the read
+    # cost one extra Supabase round trip (~80 ms measured 2026-11-24) on every
+    # conversation opened from the sidebar. The probe now runs only when the
+    # join returns nothing, to keep 404 for a missing or foreign session apart
+    # from a real session that simply has no saved turns yet.
+    with identifier_not_found('Session not found'):
+        res = (
+            sb.table('chat_messages')
+            .select(f'{_MESSAGE_FIELDS},chat_sessions!inner(user_id)')
+            .eq('session_id', session_id)
+            .eq('chat_sessions.user_id', user.id)
+            .order('created_at', desc=False)
+            .execute()
+        )
     messages = res.data or []
+    if not messages:
+        _owned_session_or_404(session_id, user.id)
     # `notice_type` is a presentation hint derived from canonical backend text;
     # it needs no database column and old conversations render consistently.
     from services.chat_notices import notice_type
     for message in messages:
+        # The embedded owner exists only to filter; it is not part of the payload.
+        message.pop('chat_sessions', None)
         message['notice_type'] = notice_type(message.get('answer', ''))
     return messages

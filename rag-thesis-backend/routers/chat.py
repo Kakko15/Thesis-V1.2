@@ -28,6 +28,7 @@ from services.citations import (
     enforce_citation_coverage,
     filter_cited_sources,
     normalize_citation_markers,
+    prune_uncited_units,
     strip_gap_statement_citations,
     uncited_units,
     validate_citations,
@@ -423,6 +424,17 @@ _FIL_FILLER = (
     r'|kategoryang|natatanging|archive|arkibo|index|indexed)'
 )
 _ILO_FILLER = r'(?:dagiti|ti|iti|dagitoy|nga|a|adda|ada|amin|maysa|available|listaan|lista)'
+# The Filipino and Ilocano filler sets share "nga" and "available", and a run
+# written `(?:(?:FIL|ILO)\s+)*` can split each shared word two ways, so a failed
+# match backtracked 2^n ways -- measured 2026-11-25: "ilan" + "nga " * 22 + "zz"
+# took 1.9 s and every two more words multiplied it by about 4. Runs that accept
+# either language use this union, which names every word exactly once.
+_LOCAL_FILLER = (
+    r'(?:ang|ba|po|yung|ung|yong|iyong|mga|nga|lahat|ng|na|pa|available'
+    r'|naka|nasa|sa|dito|rito|klase|klaseng|uri|uring|tipo|kategorya'
+    r'|kategoryang|natatanging|archive|arkibo|index|indexed'
+    r'|dagiti|ti|iti|dagitoy|a|adda|ada|amin|maysa|listaan|lista)'
+)
 _FIL_CAT = r'(?:t(?:e|i)sis(?:es)?|thes(?:is|es|ises)|titulo|titulos|pamagat)'
 # Pluralized only: unpluralized "pananaliksik" names a single manuscript, and
 # English "research"/"study" are absent from the live catalog nouns too.
@@ -444,7 +456,7 @@ _FIL_INVENTORY_PATTERNS = (
     rf'|alin|aling|nasaan|nasan|saan)\s+'
     rf'(?:{_FIL_FILLER}\s+)*{_FIL_CAT_ANY}\b',
     rf'\b(?:ilan|ilang|gaano ka(?:rami|dami)|mano|manu|pila|piga)\s+'
-    rf'(?:(?:{_FIL_FILLER}|{_ILO_FILLER})\s+)*{_FIL_CAT_ANY}\b',
+    rf'(?:{_LOCAL_FILLER}\s+)*{_FIL_CAT_ANY}\b',
     rf'\b(?:bilang|kabuuan|kabuuang bilang|total)\s+(?:ng|nang|dagiti|ti)\s+'
     rf'(?:{_FIL_FILLER}\s+)*{_FIL_CAT_ANY}\b',
 )
@@ -462,7 +474,7 @@ _ILO_INVENTORY_PATTERN = (
 _FIL_ENUMERATE_PATTERN = (
     r'\b(?:ilista|listahin|listahan|ipalista|ipakita|pakita|banggitin|itala|ilatag'
     r'|p(?:w|uw)ede(?:\s+(?:ko|po|ba|bang|kong))*\s+(?:makita|mabasa|matingnan|ma access))\s+'
-    rf'(?:(?:mo|nyo|niyo|ninyo|po)\s+)*(?:(?:{_FIL_FILLER}|{_ILO_FILLER})\s+)*{_FIL_CAT}'
+    rf'(?:(?:mo|nyo|niyo|ninyo|po)\s+)*(?:{_LOCAL_FILLER}\s+)*{_FIL_CAT}'
     r'(?:\s+(?:dito|rito|sa archive|sa arkibo|nasa archive|na available'
     r'|na naka index|lahat))?\s*$'
 )
@@ -901,8 +913,15 @@ _EN_INVENTORY_NOUN = (
 _EN_INVENTORY_MOD = (
     r'(?:all|the|total|indexed|archived|available|uploaded|stored|ready|existing|current|currently)'
 )
+# Never repeat a word that _EN_INVENTORY_MOD already matches: every pattern
+# below runs `(?:\s+(?:MOD|SCOPE))*\s*$`, and a word both alternatives accept
+# can be split two ways per occurrence. "currently" and "total" used to be in
+# both, so a failed match backtracked 2^n ways -- measured 2026-11-25:
+# "how many theses " + "currently " * 20 + "zz" took 0.31 s and every two more
+# words multiplied it by about 3.5, so one ~300-character guest question froze
+# the event loop for minutes. Both words are still accepted, through MOD.
 _EN_INVENTORY_SCOPE = (
-    r'(?:here|right\s+now|currently|now|so\s+far|today|at\s+the\s+moment|in\s+total|total|'
+    r'(?:here|right\s+now|now|so\s+far|today|at\s+the\s+moment|in\s+total|'
     r'(?:in|on|inside|within|under|for|of|at)\s+'
     r'(?:the\s+|this\s+|your\s+|our\s+|isu\s+|ccsict\s+)*'
     r'(?:thesis\s+library(?:\s+system)?|library(?:\s+system)?|'
@@ -973,10 +992,26 @@ def _matches_english_inventory(normalized: str) -> bool:
     return any(pattern.search(normalized) for pattern in _EN_OTHERNESS_PATTERNS)
 
 
-def _is_archive_inventory_question(question: str, prior_questions: list[str] | None = None) -> bool:
-    """Identify requests about live archive contents rather than manuscript text."""
+# Archive count, listing and "any others?" questions are short: the longest the
+# routing tests use is under 100 characters. The catalog matchers below include
+# `.*`-joined patterns whose cost grows with the cube of the input, and they run
+# on the question plus up to five replayed guest questions, synchronously on the
+# event loop -- measured 2026-11-25, five 4,000-character guest history entries
+# cost ~13 s of CPU per request. Anything longer than this is a research
+# question and goes to retrieval without being pattern-matched as a catalog one.
+_CATALOG_QUESTION_MAX_CHARS = 200
+
+
+def _normalized_catalog_question(question: str) -> str:
+    """Lowercased alphanumeric form for the catalog matchers, or '' when too long."""
     normalized = re.sub(r'[^a-z0-9 ]+', ' ', (question or '').lower())
     normalized = re.sub(r'\s+', ' ', normalized).strip()
+    return '' if len(normalized) > _CATALOG_QUESTION_MAX_CHARS else normalized
+
+
+def _is_archive_inventory_question(question: str, prior_questions: list[str] | None = None) -> bool:
+    """Identify requests about live archive contents rather than manuscript text."""
+    normalized = _normalized_catalog_question(question)
     if not normalized:
         return False
     if _matches_english_inventory(normalized) or _matches_local_inventory(normalized):
@@ -1014,17 +1049,47 @@ def _matches_local_inventory(normalized: str) -> bool:
     in_scope = named_container or bool(re.search(_FIL_SCOPE, normalized))
     in_scope_ilo = bool(re.search(_ILO_SCOPE, normalized))
     if (in_scope or in_scope_ilo) and any(
-        re.search(pattern, normalized) for pattern in _FIL_INVENTORY_PATTERNS
+        _local_catalog_match(pattern, normalized) for pattern in _FIL_INVENTORY_PATTERNS
     ):
         return True
-    if in_scope_ilo and re.search(_ILO_INVENTORY_PATTERN, normalized):
+    if in_scope_ilo and _local_catalog_match(_ILO_INVENTORY_PATTERN, normalized):
         return True
     # These two carry their own anchor -- a right edge and a mandatory
     # otherness word -- so neither needs a scope word.
     return bool(
         re.search(_FIL_ENUMERATE_PATTERN, normalized)
-        or re.search(_FIL_OTHERNESS_PATTERN, normalized)
+        or _local_catalog_match(_FIL_OTHERNESS_PATTERN, normalized)
     )
+
+
+# What may follow the catalog noun in a whole-archive question: function words,
+# scope and container words, politeness and the catalog nouns themselves. The
+# adjacency patterns stop matching at the noun and used to accept anything after
+# it, so a topic narrowed AFTER the noun was thrown away -- measured 2026-11-25:
+# "Anong mga pag-aaral sa archive ang gumagamit ng QR code o mobile app?" was
+# answered with the alphabetical first page of the archive in 0.1 s instead of
+# with the QR-code studies. `_FIL_ENUMERATE_PATTERN` was anchored on the right
+# for the same reason; this applies that anchor to the rest. A set lookup, not a
+# regex, so it adds no backtracking.
+_LOCAL_CATALOG_TAIL_WORDS = frozenset((
+    'ang ba po yung ung yong iyong mga nga lahat ng na pa available naka nasa sa dito rito '
+    'klase klaseng uri uring tipo kategorya kategoryang natatanging archive arkibo index indexed '
+    'dagiti ti iti dagitoy a adda ada amin maysa listaan lista '
+    'nandito narito nanandito nanarito andito nadito meron mayroon merong ditoy dtoy '
+    'tesis tisis thesis theses thesises tesises titulo titulos pamagat pag aaral pananaliksik '
+    'panagsukisok study studies system sistema ito iyan iyon yan yun library aklatan database '
+    'isu ccsict iskai ngayon ngayong kasalukuyan kasalukuyang lang lamang ho pala kaya '
+    'ninyo niyo nyo inyo inyong ninyong mo ko natin namin total kabuuan kabuuang bilang '
+    'iba ibang pang pay sabali dadduma duduma kadi bang'
+).split())
+
+
+def _local_catalog_match(pattern: str, normalized: str) -> bool:
+    """`pattern` matches and nothing after the catalog noun narrows the request."""
+    match = re.search(pattern, normalized)
+    if not match:
+        return False
+    return all(word in _LOCAL_CATALOG_TAIL_WORDS for word in normalized[match.end():].split())
 
 
 def _matches_local_count(normalized: str) -> bool:
@@ -1045,8 +1110,9 @@ def _is_archive_count_confirmation(normalized_question: str) -> bool:
 
 
 def _is_archive_count_question(question: str, prior_questions: list[str] | None = None) -> bool:
-    normalized = re.sub(r'[^a-z0-9 ]+', ' ', (question or '').lower())
-    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    normalized = _normalized_catalog_question(question)
+    if not normalized:
+        return False
     direct_count_question = bool(
         re.search(r'\bhow many\b', normalized)
         or re.search(r'\b(?:count|number) of\b.*\b(?:thesis|theses|papers|studies)\b', normalized)
@@ -1076,8 +1142,7 @@ def _is_archive_continuation_question(question: str, directly_after_listing: boo
     non-zero listing cursor, because "any others?" asks for the next page of
     the archive only once a page of the archive has actually been shown.
     """
-    normalized = re.sub(r'[^a-z0-9 ]+', ' ', (question or '').lower())
-    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    normalized = _normalized_catalog_question(question)
     if not normalized or _references_a_listed_item(question, normalized):
         return False
     # The same manuscript guard the catalog patterns use: "may ibang
@@ -2278,6 +2343,38 @@ def _extract_explicit_thesis_title(question: str) -> str | None:
     return unquoted.group(1).strip() if unquoted else None
 
 
+_PLURAL_THESIS_TERMS = re.compile(
+    r'\b(?:thesis|theses|paper|papers|study|studies|compare|contrast)\b', re.IGNORECASE,
+)
+# Each quoted title costs one archive lookup, and this runs for guests before
+# any token budget is charged. Uncapped, one 4,000-character question holding
+# ~400 short quoted strings meant ~400 database reads (2026-11-25 review). The
+# Library compare tray sends at most 3 titles, so 5 leaves headroom for a typed
+# comparison while bounding the cost per request.
+_MAX_QUOTED_TITLES = 5
+
+
+def _extract_quoted_thesis_titles(question: str) -> list[str]:
+    """Every double-quoted title in a multi-thesis question, in order, deduplicated.
+
+    The Library tab's compare button sends `Compare the following 2 archived
+    theses side by side — 1. "Title A" (...); 2. "Title B" (...)`. The
+    single-title extractor keeps only the first quote, which pinned the whole
+    answer to Title A and told the reader Title B was not archived. Returns
+    titles only when two or more are quoted; single-title routing is unchanged.
+    """
+    if not _PLURAL_THESIS_TERMS.search(question or ''):
+        return []
+    titles: list[str] = []
+    for title in re.findall(r'["“]([^"”]{8,300})["”]', question or ''):
+        cleaned = title.strip()
+        if cleaned and cleaned not in titles:
+            titles.append(cleaned)
+            if len(titles) == _MAX_QUOTED_TITLES:
+                break
+    return titles if len(titles) >= 2 else []
+
+
 def _extract_thesis_title_fragment(question: str) -> str | None:
     """Capture what a bare `what about <X>` reference names, without judging it.
 
@@ -2378,6 +2475,95 @@ async def _repair_citations(answer: str, context: str, sources: list[dict]) -> s
         return _coerce_answer(result).strip()
 
 
+# "I want to propose a thesis about X" and its variants. Measured 2026-11-25:
+# such questions never raised the duplication alert (a short question rarely
+# reaches 0.85 cosine against any one passage), and one answer offered the
+# archived thesis "ISU-CANNER: ..." itself as the student's "Possible thesis
+# title". The prompt is frozen with the evaluated pipeline, so the safeguard is
+# a deterministic note appended after generation. Every alternative is a fixed
+# phrase with bounded gaps, so the scan is linear in the question length.
+_TOPIC_PROPOSAL = re.compile(
+    r"\b(?:i|we)(?:\s+(?:am|are|'m|'re))?\s+(?:want(?:ing)?|plan(?:ning)?|would\s+like|intend(?:ing)?|"
+    r"thinking\s+of|hoping)\s+to\s+(?:propose|make|do|write|develop|build|create|conduct|pursue)\b"
+    r"[^.?!\n]{0,80}\b(?:thesis|study|research|capstone|project|system|app|application|topic)\b"
+    r"|\bpropos(?:e|ing)\s+(?:a|an|my|our)\s+(?:thesis|study|research|capstone|project|system)\b"
+    r"|\b(?:my|our)\s+(?:thesis|research|capstone|study)\s+(?:topic|title|idea|proposal)\b"
+    r"|\bthesis\s+(?:idea|topic|proposal)\s+(?:about|on)\b"
+    r"|\bgusto\s+(?:ko|kong|namin|naming)\s+(?:gumawa|mag\s*propose|magpropose)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_topic_proposal(question: str) -> bool:
+    return bool(_TOPIC_PROPOSAL.search(question or ''))
+
+
+def _with_proposal_advisory(answer: str, question: str, sources: list[dict]) -> str:
+    """Append a novelty note when the reader is proposing a topic of their own.
+
+    Names the closest archived study, warns when the answer echoes that study's
+    title in a line about a title, and points to the Novelty Check, which screens
+    a whole proposal passage by passage at the duplication threshold.
+    """
+    if not _is_topic_proposal(question):
+        return answer
+    titled = [source for source in sources if (source.get('title') or '').strip()]
+    if not titled:
+        return answer
+    closest = max(titled, key=lambda source: source.get('similarity') or 0)
+    title = re.sub(r'\s+', ' ', closest['title']).strip()
+    year = f" ({closest['year']})" if closest.get('year') else ''
+    title_reused = any(
+        title.lower() in line.lower() and 'title' in line.lower()
+        for line in (answer or '').splitlines()
+    )
+    threshold = round(settings.duplication_threshold * 100)
+    note = [f'**Before you propose this topic:** the closest archived study is “{title}”{year}.']
+    if title_reused:
+        note.append('That is an existing archived thesis, so do not present its title as a new one.')
+    note.append(
+        'Have your full proposal screened with the Novelty Check (available to faculty advisers), '
+        f'which compares it passage by passage against the archive at the {threshold}% duplication '
+        'threshold, before your title defense.'
+    )
+    return f"{(answer or '').rstrip()}\n\n---\n\n{' '.join(note)}"
+
+
+def _last_resort_answer(
+    candidates: tuple[str, ...],
+    sources: list[dict],
+    referenced_paper_ids: list[str],
+    department: str | None,
+    failure: str,
+) -> tuple[str, bool]:
+    """The cited units of a draft, else the grounded fallback; and whether it was repaired."""
+    pruned = _pruned_cited_answer(candidates, sources, referenced_paper_ids)
+    if pruned:
+        logger.warning('Citation repair %s; served the cited units of the draft', failure)
+        return pruned, True
+    logger.warning('Citation repair %s; serving the grounded fallback', failure)
+    return _grounded_retrieval_fallback(sources, department), False
+
+
+def _pruned_cited_answer(
+    candidates: tuple[str, ...], sources: list[dict], referenced_paper_ids: list[str],
+) -> str:
+    """The first draft whose cited units alone form a valid answer, or ''.
+
+    Last rung before the grounded fallback (see `prune_uncited_units`): every
+    uncited unit is dropped rather than attributed, so nothing unsupported is
+    served, and a plural question must still cover every referenced thesis.
+    """
+    for candidate in candidates:
+        pruned = prune_uncited_units(candidate, sources)
+        if not pruned or _answer_reports_no_evidence(pruned):
+            continue
+        valid, _errors = validate_citations(pruned, sources)
+        if valid and not _missing_referenced_papers(pruned, sources, referenced_paper_ids):
+            return pruned
+    return ''
+
+
 def _missing_referenced_papers(
     answer: str,
     sources: list[dict],
@@ -2432,7 +2618,10 @@ async def _summarize_duplication(alert: dict) -> str:
             await gemini_pool.arun(llm, gemini_pool.CHAT, lambda client: client.ainvoke(prompt))
         ).strip()
     except Exception as e:
-        logger.exception('Duplication summary generation failed (%s)', type(e).__name__)
+        if _is_capacity_error(e) or gemini_pool.is_provider_overload(e):
+            logger.warning('Duplication summary skipped: provider busy (%s)', type(e).__name__)
+        else:
+            logger.exception('Duplication summary generation failed (%s)', type(e).__name__)
         return ''
 
 
@@ -2585,7 +2774,7 @@ async def chat(
             raise HTTPException(
                 status_code=400, detail='A prompt edit requires a saved session.',
             )
-        response = await _chat_impl(
+        response = await _bounded_chat_impl(
             req, request, background_tasks, user, resolved_department=department,
         )
         if user and not await _client_gone(request):
@@ -2619,6 +2808,35 @@ async def chat(
                 'history_saved': response.history_saved,
                 'status': 'completed',
             })
+        return response
+
+
+async def _bounded_chat_impl(
+    req: ChatRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user,
+    resolved_department: str | None = None,
+) -> ChatResponse:
+    """`_chat_impl` under the per-turn ceiling `chat_turn_timeout_seconds`.
+
+    Only the route wrapper uses this; the evaluation harness calls `_chat_impl`
+    directly, so the evaluated pipeline is unchanged. A turn that runs over is
+    cancelled and answered with TIMEOUT_MESSAGE, a notice like the capacity and
+    overload ones, rather than leaving the browser waiting up to 180 s. Any
+    HTTPException raised inside still propagates unchanged.
+    """
+    try:
+        return await asyncio.wait_for(
+            _chat_impl(req, request, background_tasks, user, resolved_department=resolved_department),
+            timeout=settings.chat_turn_timeout_seconds,
+        )
+    except TimeoutError:
+        logger.warning(
+            'Chat turn exceeded %.0f s; serving timeout notice', settings.chat_turn_timeout_seconds,
+        )
+        response = _notice_response(chat_notices.TIMEOUT_MESSAGE, req.session_id)
+        response.kind = chat_notices.response_kind(response)
         return response
 
 
@@ -3113,7 +3331,29 @@ async def _chat_impl_unstamped(
     referenced_paper_id = None
     is_overview_followup = False
     explicit_title = _extract_explicit_thesis_title(req.question)
-    if explicit_title:
+    quoted_titles = _extract_quoted_thesis_titles(req.question)
+    if quoted_titles:
+        # Several quoted titles (the Library compare prompt): resolve each one
+        # exactly, and scope retrieval to every thesis that resolves uniquely.
+        try:
+            title_match_sets = await asyncio.gather(*(
+                asyncio.to_thread(find_papers_by_title, title, effective_department)
+                for title in quoted_titles
+            ))
+        except Exception as error:
+            logger.exception('Exact thesis title lookup failed')
+            raise HTTPException(
+                status_code=503,
+                detail='The thesis archive is temporarily unavailable. Please try again in a moment.',
+            ) from error
+        resolved_ids: list[str] = []
+        for matches in title_match_sets:
+            paper_id = matches[0].get('id') if len(matches) == 1 else None
+            if paper_id and paper_id not in resolved_ids:
+                resolved_ids.append(paper_id)
+        if len(resolved_ids) >= 2:
+            referenced_paper_id = resolved_ids
+    if explicit_title and not referenced_paper_id:
         try:
             title_matches = await asyncio.to_thread(
                 find_papers_by_title,
@@ -3335,13 +3575,15 @@ async def _chat_impl_unstamped(
                 'top_similarity': round(_top_similarity, 6),
             })
     except Exception as e:
-        logger.exception('Retrieval failed')
         if _is_capacity_error(e):
+            logger.warning('Retrieval hit provider capacity (%s); serving capacity notice', type(e).__name__)
             _mark_capacity_limited()
             return _capacity_response(req.session_id)
         if _is_model_provider_overload(e):
             # The query embedding, not the archive, was unavailable.
+            logger.warning('Embedding provider overloaded (%s); serving overload notice', type(e).__name__)
             return _overload_response(req.session_id)
+        logger.exception('Retrieval failed')
         raise HTTPException(
             status_code=503,
             detail='The thesis archive is temporarily unavailable. Please try again in a moment.',
@@ -3442,12 +3684,18 @@ async def _chat_impl_unstamped(
         if generation_run:
             generation_run.add_metadata({'status': 'completed'})
     except Exception as e:
-        logger.exception('LLM generation failed')
         if _is_capacity_error(e):
+            # Expected provider conditions get one readable line, not a full
+            # traceback: a Gemini 503 "high demand" spike printed ~60 lines per
+            # question (2026-11-24) and buried everything else in the log,
+            # although the reader is answered normally with a notice.
+            logger.warning('LLM generation hit provider capacity (%s); serving capacity notice', type(e).__name__)
             _mark_capacity_limited()
             return _capacity_response(req.session_id)
         if gemini_pool.is_provider_overload(e):
+            logger.warning('LLM provider overloaded (%s); serving overload notice', type(e).__name__)
             return _overload_response(req.session_id)
+        logger.exception('LLM generation failed')
         raise HTTPException(
             status_code=502,
             detail='The research AI service is temporarily unavailable. Please try again later.',
@@ -3594,19 +3842,15 @@ async def _chat_impl_unstamped(
                         answer = structurally_repaired
                         citation_repaired = True
                     else:
-                        logger.warning(
-                            'Citation repair remained invalid: ai=%s deterministic=%s',
-                            repaired_errors,
-                            structural_errors,
+                        answer, citation_repaired = _last_resort_answer(
+                            (repaired, answer), sources, plural_paper_ids, effective_department,
+                            f'remained invalid: ai={repaired_errors} deterministic={structural_errors}',
                         )
-                        answer = _grounded_retrieval_fallback(sources, effective_department)
             except Exception as e:
-                logger.warning(
-                    'Citation repair failed (%s); original errors=%s',
-                    type(e).__name__,
-                    citation_errors,
+                answer, citation_repaired = _last_resort_answer(
+                    (answer,), sources, plural_paper_ids, effective_department,
+                    f'failed ({type(e).__name__}); original errors={citation_errors}',
                 )
-                answer = _grounded_retrieval_fallback(sources, effective_department)
         unique_sources = filter_cited_sources(answer, sources)
 
     background_tasks.add_task(log_activity, user.id if user else None, 'chat_query', {
@@ -3619,7 +3863,8 @@ async def _chat_impl_unstamped(
     })
 
     return ChatResponse(
-        answer=answer,
+        answer=_with_proposal_advisory(answer, req.question, unique_sources or sources)
+        if not no_relevant_thesis else answer,
         sources=unique_sources,
         duplication_alert=duplication_alert,
         session_id=req.session_id,

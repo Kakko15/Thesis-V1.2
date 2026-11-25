@@ -26,9 +26,10 @@ describe('toSentenceCaseTitle edge cases', () => {
     assert.equal(toSentenceCaseTitle('   '), 'Untitled study')
   })
 
-  it('leaves letterless and mixed-case titles untouched apart from whitespace', () => {
+  it('leaves letterless titles untouched and sentence-cases mixed-case ones', () => {
     assert.equal(toSentenceCaseTitle('  2024   ---  '), '2024 ---')
-    assert.equal(toSentenceCaseTitle('Mostly Mixed Case Title'), 'Mostly Mixed Case Title')
+    assert.equal(toSentenceCaseTitle('Mostly Mixed Case Title'), 'Mostly mixed case title')
+    assert.equal(toSentenceCaseTitle('Intro: — Part Two'), 'Intro: — Part two')
   })
 
   it('handles hyphenated acronyms, colons after acronyms and punctuation-only tokens', () => {
@@ -82,11 +83,12 @@ describe('citation formatting fallbacks', () => {
   it('builds a BibTeX entry with fallback key parts and no track note', () => {
     assert.equal(
       formatBibtexCitation(undefined),
-      '@mastersthesis{anonymousndstudy,\n'
+      '@thesis{anonymousndstudy,\n'
         + '  title = {Untitled study},\n'
         + '  author = {Anonymous},\n'
         + '  year = {n.d.},\n'
-        + '  school = {Isabela State University -- Echague Campus (CCSICT)}\n'
+        + '  type = {Undergraduate thesis},\n'
+        + '  institution = {Isabela State University -- Echague Campus (CCSICT)}\n'
         + '}',
     )
     const bib = formatBibtexCitation({
@@ -95,15 +97,15 @@ describe('citation formatting fallbacks', () => {
       department: '  CAS  ',
       year: 2021,
     })
-    assert.match(bib, /^@mastersthesis\{anonymous2021study,/)
+    assert.match(bib, /^@thesis\{anonymous2021study,/)
     assert.match(bib, /author = \{Anonymous\}/)
-    assert.match(bib, /school = \{Isabela State University -- Echague Campus \(CAS\)\}\n\}$/)
+    assert.match(bib, /institution = \{Isabela State University -- Echague Campus \(CAS\)\}\n\}$/)
     assert.doesNotMatch(bib, /note = /)
   })
 
   it('falls back to "thesis" when the first surname has no ASCII letters or digits', () => {
     const bib = formatBibtexCitation({ authors: '李 王 & Ana Reyes', title: 'Robotics study', year: 2022 })
-    assert.match(bib, /^@mastersthesis\{thesis2022robotics,/)
+    assert.match(bib, /^@thesis\{thesis2022robotics,/)
     assert.match(bib, /author = \{李 王 and Ana Reyes\}/)
     assert.equal(formatBibtexCitation({ authors: '   ', title: 42 }).split('\n')[2], '  author = {Anonymous},')
   })
@@ -245,11 +247,11 @@ describe('comparison prompt and export fallbacks', () => {
     const single = buildReadingListExport([null, { title: 'ONLY STUDY', authors: 'Plato', year: 2020 }])
     assert.match(single, /SAVED RRL READING LIST \(1 STUDY\)/)
     assert.match(single, /1\. Plato \(2020\)\. Only study/)
-    assert.match(single, /@mastersthesis\{plato2020only,/)
+    assert.match(single, /@thesis\{plato2020only,/)
     assert.ok(single.endsWith('}\n'))
 
     const empty = buildReadingListExport('nope')
     assert.match(empty, /SAVED RRL READING LIST \(0 STUDIES\)/)
-    assert.doesNotMatch(empty, /@mastersthesis/)
+    assert.doesNotMatch(empty, /@thesis/)
   })
 })

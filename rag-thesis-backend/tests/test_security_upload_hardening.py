@@ -72,6 +72,43 @@ class TestPdfValidation:
         with pytest.raises(HTTPException, match='page safety limit'):
             upload._validate_pdf_upload(_pdf_bytes(2), 'paper.pdf', 'application/pdf')
 
+    def test_malware_scan_runs_before_the_parser_sees_the_bytes(self, monkeypatch):
+        # 2026-11-25 review: the metadata-autofill endpoints opened raw uploads
+        # with PyMuPDF in the API process and nothing scanned them first.
+        pdf = _pdf_bytes()
+        order = []
+        monkeypatch.setattr(upload, 'scan_pdf', lambda *_args: order.append('scan'))
+        real_open = fitz.open
+
+        def recording_open(*args, **kwargs):
+            order.append('parse')
+            return real_open(*args, **kwargs)
+
+        monkeypatch.setattr(upload.fitz, 'open', recording_open)
+        upload._validate_pdf_upload(pdf, 'paper.pdf', 'application/pdf')
+        assert order == ['scan', 'parse']
+
+    def test_infected_upload_is_refused_before_parsing(self, monkeypatch):
+        pdf = _pdf_bytes()
+
+        def infected(*_args):
+            raise upload.MalwareDetected('found')
+
+        monkeypatch.setattr(upload, 'scan_pdf', infected)
+        monkeypatch.setattr(upload.fitz, 'open', lambda *_a, **_k: pytest.fail('parsed an infected file'))
+        with pytest.raises(HTTPException) as caught:
+            upload._validate_pdf_upload(pdf, 'paper.pdf', 'application/pdf')
+        assert caught.value.status_code == 422
+
+    def test_unreachable_scanner_fails_closed(self, monkeypatch):
+        def unavailable(*_args):
+            raise upload.MalwareScannerUnavailable('down')
+
+        monkeypatch.setattr(upload, 'scan_pdf', unavailable)
+        with pytest.raises(HTTPException) as caught:
+            upload._validate_pdf_upload(_pdf_bytes(), 'paper.pdf', 'application/pdf')
+        assert caught.value.status_code == 503
+
 
 class TestPiiCleaning:
     def test_redacts_supported_pii_without_removing_research_text(self):
@@ -247,14 +284,23 @@ class TestSqlSecurityContracts:
         assert "new.raw_user_meta_data ->> 'department'" not in sql
         assert "'ccsict', -- public registration" in sql
 
-    def test_signup_allows_any_email_but_holds_faculty_for_approval(self):
-        # Sign-up goes browser -> Supabase Auth and never reaches FastAPI. Any
-        # valid email may create a student account, but public metadata cannot
-        # request a privileged role or choose a department.
-        sql = open('supabase_setup.sql', encoding='utf-8').read().lower()
-        assert 'is_institutional' not in sql
-        assert 'app.institutional_email_domain' not in sql
-        assert "case when requested_role = 'faculty' then 'pending' else 'approved' end" in sql
+    @pytest.mark.parametrize('source', [
+        'supabase_setup.sql', 'migrations/20261126_institutional_signup_domain_gate.sql',
+    ])
+    def test_signup_off_the_institutional_domain_waits_for_approval(self, source):
+        # Sign-up goes browser -> Supabase Auth and never reaches FastAPI, so the
+        # trigger is the policy. 20260828 let any address become an approved
+        # student; restored 2026-11-26: off-domain accounts and every faculty
+        # request are held at 'pending', and the role and department stay fixed.
+        sql = open(source, encoding='utf-8').read().lower()
+        assert 'is_institutional' in sql
+        assert "current_setting('app.institutional_email_domain', true)" in sql
+        assert "'isu.edu.ph'" in sql
+        assert "when not is_institutional then 'pending'" in sql
+        assert "when requested_role = 'faculty' then 'pending'" in sql
+        assert "else 'approved'" in sql
+        assert 'grant execute on function public.handle_new_user() to supabase_auth_admin' in sql
+        assert "new.raw_user_meta_data ->> 'department'" not in sql
 
     def test_upload_job_owner_survives_account_deletion(self):
         # ON DELETE RESTRICT on a NOT NULL owner made deleting any uploader fail

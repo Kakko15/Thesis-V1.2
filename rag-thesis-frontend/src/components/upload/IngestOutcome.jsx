@@ -5,10 +5,12 @@ import {
 import { Button } from '../ui/Button'
 import { staggerContainer, staggerItem } from '../ui/Motion'
 import { cn, mostSimilarPaper, normalizePercent, scanMetrics, verdictLabel } from '../../lib/utils'
+import { scanAssurance } from '../../lib/malwareScan'
+import { useMalwareScanEnabled } from '../../hooks/useMalwareScanEnabled'
 import { motionTokens } from '../../design/motion'
 
+// The malware row comes from the live policy (scanAssurance), never from here.
 const ASSURANCES = [
-  [ShieldCheck, 'Malware screening', 'Completed before document processing'],
   [ScanText, 'Text preparation', 'OCR fallback, cleanup, and structure extraction applied'],
   [Scissors, 'Privacy processing', 'Supported PII redaction rules applied before indexing'],
   [Archive, 'Source protection', 'Original manuscript retained in private storage only'],
@@ -152,6 +154,10 @@ function UploadScreening({ scan, onReviewNovelty }) {
  * The three ways an ingestion job ends.
  */
 export function IngestOutcome({ job, title, onReset, onViewArchive, onReviewNovelty }) {
+  const malware = scanAssurance(useMalwareScanEnabled())
+  const assurances = malware
+    ? [[malware.tone === 'warn' ? ShieldAlert : ShieldCheck, malware.label, malware.description, malware.tone], ...ASSURANCES]
+    : ASSURANCES
   if (job?.status === 'failed') {
     // The worker refuses a verbatim re-upload (services/ingestion.py,
     // DuplicateManuscriptIngestionError) and its public error names the
@@ -214,13 +220,20 @@ export function IngestOutcome({ job, title, onReset, onViewArchive, onReviewNove
         animate="show"
         className="mt-6 grid w-full max-w-xl gap-2.5 text-left sm:grid-cols-2"
       >
-        {ASSURANCES.map(([Icon, label, description]) => (
+        {assurances.map(([Icon, label, description, tone]) => (
           <motion.div
             key={label}
             variants={staggerItem}
             className="flex items-start gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/80 p-3.5 shadow-xs transition-all hover:bg-[var(--surface-2)]"
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300 ring-1 ring-forest-500/20">
+            <span
+              className={cn(
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ring-1',
+                tone === 'warn'
+                  ? 'bg-flame-500/10 text-flame-700 ring-flame-500/25 dark:text-flame-200'
+                  : 'bg-forest-600/10 text-forest-700 dark:bg-gold-400/15 dark:text-gold-300 ring-forest-500/20',
+              )}
+            >
               <Icon size={16} aria-hidden="true" />
             </span>
             <div>

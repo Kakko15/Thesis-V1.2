@@ -34,9 +34,24 @@ describe('toSentenceCaseTitle', () => {
     )
     assert.equal(
       toSentenceCaseTitle('Students’ Assessment of Reader’s Services at Isabela State University – Echague Campus: Basis for Designing a Mobile-Based Library Management System'),
-      'Students’ Assessment of Reader’s Services at Isabela State University – Echague Campus: Basis for Designing a Mobile-Based Library Management System',
+      'Students’ assessment of reader’s services at Isabela State University – Echague Campus: Basis for designing a mobile-based library management system',
     )
     assert.equal(toSentenceCaseTitle(''), 'Untitled study')
+    assert.equal(
+      toSentenceCaseTitle('STUDENTS’ ASSESSMENT OF READER’S SERVICES AT ISABELA STATE UNIVERSITY – ECHAGUE CAMPUS: BASIS FOR DESIGNING A LIBRARY MANAGEMENT SYSTEM'),
+      'Students’ assessment of reader’s services at Isabela State University – Echague Campus: Basis for designing a library management system',
+    )
+    assert.equal(toSentenceCaseTitle('THE STATE OF ISU CAMPUS LIFE'), 'The state of ISU campus life')
+  })
+
+  it('sentence-cases Title Case titles but keeps acronyms, names and inner capitals', () => {
+    assert.equal(
+      toSentenceCaseTitle('A Real-Time YOLOv8 Model for Rice Pest Detection in Isabela Using LinkedIn Data and the QR Code'),
+      'A real-time YOLOv8 model for rice pest detection in Isabela using LinkedIn data and the QR code',
+    )
+    // "State" only stays capitalized while it continues a proper name.
+    assert.equal(toSentenceCaseTitle('The State of Agile Practice'), 'The state of Agile practice')
+    assert.equal(toSentenceCaseTitle('Part I of A Study'), 'Part I of a study')
   })
 })
 
@@ -90,14 +105,21 @@ describe('formatApaCitation & formatBibtexCitation', () => {
     }
     assert.equal(
       formatApaCitation(facultyPaper),
-      'Lagarteja, J. G. (n.d.). A Centralized AI-Powered Thesis Library [Faculty research, Isabela State University – Echague Campus]. CCSICT Thesis Archive.',
+      'Lagarteja, J. G. (n.d.). A centralized AI-powered thesis library [Faculty research, Isabela State University – Echague Campus]. CCSICT Thesis Archive.',
     )
 
     const bib = formatBibtexCitation(studentPaper)
-    assert.match(bib, /^@mastersthesis\{manalili2024mango,/)
+    assert.match(bib, /^@thesis\{manalili2024mango,/)
+    assert.match(bib, /type = \{Undergraduate thesis\}/)
+    assert.match(bib, /institution = \{Isabela State University -- Echague Campus \(CCSICT\)\}/)
+    assert.doesNotMatch(bib, /mastersthesis|school = /)
     assert.match(bib, /author = \{Carl Rainier M\. Manalili and Angelyn B\. Dela Cruz\}/)
     assert.match(bib, /year = \{2024\}/)
     assert.match(bib, /note = \{Track: BSCS\}/)
+
+    const facultyBib = formatBibtexCitation(facultyPaper)
+    assert.match(facultyBib, /^@techreport\{lagarteja/)
+    assert.match(facultyBib, /type = \{Faculty research\}/)
   })
 })
 

@@ -134,6 +134,36 @@ class TestSessions:
         # research answer carries no conversational notice type.
         assert sessions.get_session_messages('s1', user) == [{'id': 'm1', 'notice_type': None}]
 
+    def test_messages_read_filters_on_owner_in_one_request(self, monkeypatch):
+        """The transcript read carries the owner filter itself, so an owned,
+        populated session costs one query and never a separate ownership probe."""
+        client = ScriptedClient({
+            'chat_sessions': [],
+            'chat_messages': [[{'id': 'm1', 'answer': 'x', 'chat_sessions': {'user_id': 'u1'}}]],
+        })
+        monkeypatch.setattr(sessions, 'sb', client)
+        rows = sessions.get_session_messages('s1', SimpleNamespace(id='u1'))
+        assert rows == [{'id': 'm1', 'answer': 'x', 'notice_type': None}]
+        assert [name for name, _query in client.queries] == ['chat_messages']
+        operations = client.queries[0][1].operations
+        assert ('eq', ('chat_sessions.user_id', 'u1')) in operations
+        assert ('eq', ('session_id', 's1')) in operations
+        assert 'chat_sessions!inner(user_id)' in operations[0][1][0]
+
+    def test_foreign_session_messages_are_404(self, monkeypatch):
+        """Another account's session id joins to nothing, and the fallback
+        ownership probe turns that into the documented 404."""
+        client = ScriptedClient({'chat_messages': [[]], 'chat_sessions': [[]]})
+        monkeypatch.setattr(sessions, 'sb', client)
+        with pytest.raises(HTTPException) as caught:
+            sessions.get_session_messages('s-foreign', SimpleNamespace(id='u1'))
+        assert caught.value.status_code == 404
+
+    def test_owned_session_without_turns_is_an_empty_transcript(self, monkeypatch):
+        client = ScriptedClient({'chat_messages': [[]], 'chat_sessions': [[{'id': 's1'}]]})
+        monkeypatch.setattr(sessions, 'sb', client)
+        assert sessions.get_session_messages('s1', SimpleNamespace(id='u1')) == []
+
     def test_missing_session_is_404(self, monkeypatch):
         monkeypatch.setattr(sessions, 'sb', ScriptedClient({'chat_sessions': [[]]}))
         with pytest.raises(HTTPException) as caught:
@@ -328,6 +358,21 @@ class TestDepartmentsAndSettings:
             )
         assert blocked.value.status_code == 409
 
+    def test_uploaders_can_read_but_only_superadmins_can_change_malware_scanning(self):
+        # The upload pages state whether files will be scanned, so everyone who
+        # may upload reads the policy; changing it stays superadmin-only.
+        from dependencies.auth import require_superadmin, require_upload_access
+
+        guards = {}
+        for route in settings_router.router.routes:
+            if getattr(route, 'path', None) == '/settings/malware-scanning':
+                for method in route.methods:
+                    guards[method] = {dep.call for dep in route.dependant.dependencies}
+        assert require_upload_access in guards['GET']
+        assert require_superadmin not in guards['GET']
+        assert require_superadmin in guards['PUT']
+        assert require_upload_access not in guards['PUT']
+
 
 class TestPapersAndAnalytics:
     def test_paper_listing_and_delete_cleanup(self, monkeypatch):
@@ -492,6 +537,10 @@ class TestPapersAndAnalytics:
         overview = analytics.overview(SimpleNamespace(id='admin'))
         assert overview['papers']['total_chunks'] == 3
         assert overview['usage']['flagged_scans'] == 1
+        # A department admin's user count must match their directory, which
+        # hides superadmins.
+        profile_count_query = [query for table, query in client.queries if table == 'profiles'][1]
+        assert ('neq', ('role', 'superadmin')) in profile_count_query.operations
         assert analytics.my_profile(SimpleNamespace(id='u1', email='u@x'))['id'] == 'u1'
         updated = analytics.update_my_profile(ProfileUpdate(full_name='Updated'), SimpleNamespace(id='u1'))
         assert updated['full_name'] == 'Updated'
@@ -620,7 +669,8 @@ class TestAnalyticsAdministration:
         assert analytics.recent_activity(limit=500, user=admin)[0]['id'] == 'event-1'
         activity_query = next(query for table, query in activity_client.queries if table == 'activity_log')
         assert ('eq', ('department', 'CCSICT')) in activity_query.operations
-        assert ('limit', (100,)) in activity_query.operations
+        # 100 requested (the cap) plus headroom for removed superadmin rows.
+        assert ('limit', (200,)) in activity_query.operations
 
         users_client = ScriptedClient({'profiles': [
             [{'id': 'student', 'department': 'CCSICT'}],
@@ -639,6 +689,49 @@ class TestAnalyticsAdministration:
         monkeypatch.setattr(analytics, 'sb', root_client)
         assert len(analytics.list_users(SimpleNamespace(id='root'))) == 2
         assert not any(name in {'eq', 'neq'} for name, _args in root_client.queries[0][1].operations)
+
+    def test_department_admins_do_not_see_superadmin_activity(self, monkeypatch):
+        # Superadmins carry a department too, so a department filter alone
+        # showed a department admin every superadmin action and email address.
+        admin = SimpleNamespace(id='admin')
+        events = [
+            {'id': 'e1', 'user_id': 'root', 'department': 'CCSICT', 'action': 'settings_update'},
+            {'id': 'e2', 'user_id': 'student', 'department': 'CCSICT', 'action': 'chat_query'},
+            {'id': 'e3', 'user_id': None, 'department': 'CCSICT', 'action': 'chat_query'},
+        ]
+        roles = [{'id': 'root', 'role': 'superadmin'}, {'id': 'student', 'role': 'student'}]
+
+        activity_client = ScriptedClient({
+            'profiles': [[{'role': 'admin', 'department': 'CCSICT'}], roles],
+            'activity_log': [[dict(event) for event in events]],
+        })
+        monkeypatch.setattr(analytics, 'sb', activity_client)
+        assert [row['id'] for row in analytics.recent_activity(user=admin)] == ['e2', 'e3']
+
+        logs_client = ScriptedClient({
+            'profiles': [
+                [{'role': 'admin', 'department': 'CCSICT'}],
+                [
+                    {'id': 'root', 'email': 'root@isu.edu.ph', 'full_name': 'Root', 'role': 'superadmin'},
+                    {'id': 'student', 'email': 's@isu.edu.ph', 'full_name': 'S', 'role': 'student'},
+                ],
+            ],
+            'activity_log': [[dict(event) for event in events]],
+        })
+        monkeypatch.setattr(analytics, 'sb', logs_client)
+        logs = analytics.get_system_logs(user=admin)
+        assert [row['id'] for row in logs] == ['e2', 'e3']
+        assert 'root@isu.edu.ph' not in repr(logs)
+        assert 'role' not in logs[0]['user']
+
+    def test_superadmins_still_see_their_own_activity(self, monkeypatch):
+        root = SimpleNamespace(id='root')
+        client = ScriptedClient({
+            'profiles': [[{'role': 'superadmin', 'department': 'CCSICT'}]],
+            'activity_log': [[{'id': 'e1', 'user_id': 'root', 'department': 'CCSICT'}]],
+        })
+        monkeypatch.setattr(analytics, 'sb', client)
+        assert [row['id'] for row in analytics.recent_activity(user=root)] == ['e1']
 
     def test_role_changes_enforce_scope_and_write_audit(self, monkeypatch):
         admin = SimpleNamespace(id='admin')

@@ -1,0 +1,32 @@
+-- Roll back 20261126_institutional_signup_domain_gate.sql: restore the
+-- 20260828 policy, under which any email address becomes an approved student
+-- and only faculty requests wait for review.
+
+begin;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  requested_role text := new.raw_user_meta_data ->> 'requested_role';
+begin
+  insert into public.profiles (id, email, full_name, role, department, status)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
+    case when requested_role = 'faculty' then 'faculty' else 'student' end,
+    'CCSICT',
+    case when requested_role = 'faculty' then 'pending' else 'approved' end
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+revoke all on function public.handle_new_user() from public, anon, authenticated;
+grant execute on function public.handle_new_user() to supabase_auth_admin;
+
+commit;

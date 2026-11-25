@@ -247,7 +247,10 @@ test('guest RAG answer stays grounded and survives a hard route refresh', async 
   await composer.fill('What methodology does the archived thesis use?')
   await page.getByRole('button', { name: 'Send' }).click()
 
-  await expect(page.getByText(/retrieval-augmented generation architecture/)).toBeVisible()
+  // The rendered answer is a paragraph; the screen-reader summary of the same
+  // answer lives in a visually hidden status region (2026-11-26).
+  await expect(page.locator('p', { hasText: /retrieval-augmented generation architecture/ })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: /^IskAI answered: The archived study uses a retrieval-augmented/ })).toBeAttached()
   await expect(page.getByText('A Centralized AI-Powered Thesis Library')).toBeVisible()
   expect(chatPayload.department_filter).toBeNull()
   // The default chat request carries no category scope, keeping the frozen
@@ -290,7 +293,7 @@ test('guest chat restores the question after an API failure and can retry', asyn
   await expect(page.locator('#main-content').getByText('IskAI could not answer')).toBeVisible()
   await expect(composer).toHaveValue(question)
   await page.getByRole('button', { name: 'Send' }).click()
-  await expect(page.getByText(/retry succeeded/i)).toBeVisible()
+  await expect(page.locator('p', { hasText: /retry succeeded/i })).toBeVisible()
   expect(attempts).toBe(2)
   expect(unexpected).toEqual([])
 })
@@ -323,6 +326,73 @@ test('guest chat can stop waiting without losing the research question', async (
   expect(unexpected).toEqual([])
 })
 
+test('editing an earlier question warns before the later turns are deleted', async ({ page }) => {
+  const asked = []
+  const unexpected = await mockApi(page, {
+    'POST /chat': (request) => {
+      const { question } = request.postDataJSON()
+      asked.push(question)
+      return {
+        answer: `Answer to: ${question} [1].`,
+        sources: [{ citation_id: 1, id: 'paper-1', title: 'Evidence Thesis', department: 'CCSICT' }],
+        no_relevant_thesis: false,
+        history_saved: false,
+      }
+    },
+  })
+
+  await page.goto('/chat')
+  const composer = page.getByPlaceholder(/Ask IskAI about CCSICT thesis research/)
+  for (const question of ['First research question?', 'Second research question?']) {
+    await composer.fill(question)
+    await page.getByRole('button', { name: 'Send' }).click()
+    await expect(page.locator('p', { hasText: `Answer to: ${question}` })).toBeVisible()
+  }
+
+  const editFirst = async () => {
+    await page.getByText('First research question?', { exact: true }).hover()
+    await page.getByRole('button', { name: 'Edit prompt' }).first().click()
+    await page.getByLabel('Edit prompt text').fill('First question, reworded?')
+    await page.getByRole('button', { name: 'Update' }).click()
+  }
+
+  // Cancel keeps the whole conversation.
+  await editFirst()
+  const dialog = page.getByRole('alertdialog', { name: 'Edit this question?' })
+  await expect(dialog).toContainText('the question that follows it and its answer will be removed')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.locator('p', { hasText: 'Answer to: Second research question?' })).toBeVisible()
+  expect(asked).toHaveLength(2)
+
+  // Confirming resends the edit and drops the later turn.
+  await editFirst()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Edit and resend' }).click()
+  await expect(page.locator('p', { hasText: 'Answer to: First question, reworded?' })).toBeVisible()
+  await expect(page.getByText('Answer to: Second research question?')).toHaveCount(0)
+  expect(asked).toEqual(['First research question?', 'Second research question?', 'First question, reworded?'])
+  expect(unexpected).toEqual([])
+})
+
+test('quick access takes focus and the keyboard runs the highlighted command', async ({ page }) => {
+  const unexpected = await mockApi(page)
+  await page.goto('/chat')
+  await page.getByPlaceholder(/Ask IskAI about CCSICT thesis research/).click()
+
+  await page.keyboard.press('Control+k')
+  const search = page.getByRole('combobox', { name: 'Search commands' })
+  await expect(search).toBeFocused()
+  const options = page.getByRole('listbox', { name: 'Commands' }).getByRole('option')
+  await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+
+  await search.fill('appearance')
+  await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowUp')
+  await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('heading', { name: 'Appearance and energy' })).toBeVisible()
+  expect(unexpected).toEqual([])
+})
 test('authenticated archive renders legacy-safe records and filters them', async ({ page }) => {
   await useAuthenticatedSession(page)
   const unexpected = await mockApi(page, {
@@ -461,9 +531,15 @@ test('faculty novelty scan renders deterministic advisory metrics', async ({ pag
       matched_chunk_count: 2,
       total_chunks: 8,
       verdict_level: 'review_suggested',
-      verdict_summary: 'Two passages should be reviewed by faculty.',
+      // A table and a raw enum, as stored scans from before 2026-11-26 carry.
+      verdict_summary: 'Two passages should be reviewed by faculty (not high_overlap) [1].\n\n| Section | Similarity |\n|---|---|\n| Methodology | 91% |',
       top_matches: [],
-      matched_chunks: [],
+      matched_passages: [{
+        paper_id: 'p1', title: 'ISU-CANNER', year: 2025, similarity: 91.25,
+        excerpt: 'Our attendance system scans a QR code at the classroom door.',
+        uploaded_page_start: 2, uploaded_page_end: 2, archived_section: 'Methodology',
+        archived_page_start: 7, archived_page_end: 7,
+      }],
       chat_log: [],
     },
   })
@@ -479,6 +555,17 @@ test('faculty novelty scan renders deterministic advisory metrics', async ({ pag
   await expect(page.getByText('25.00%')).toBeVisible()
   await expect(page.getByText('2 / 8')).toBeVisible()
   await expect(page.getByText('Review suggested')).toBeVisible()
+  // Matches lists the reviewer's own matched passage with citation metadata.
+  const passages = page.getByRole('list', { name: 'Matched passages' })
+  await expect(passages.getByText('1. p. 2 ↔ ISU-CANNER (2025)')).toBeVisible()
+  await expect(passages.getByText('Methodology, p. 7')).toBeVisible()
+  await passages.getByText('1. p. 2 ↔ ISU-CANNER (2025)').click()
+  await expect(passages.getByText('Our attendance system scans a QR code at the classroom door.')).toBeVisible()
+  // Explanation renders the table as a table and never shows the raw enum.
+  await page.getByRole('tab', { name: 'Explanation' }).click()
+  await expect(page.getByRole('columnheader', { name: 'Similarity' })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Methodology' })).toBeVisible()
+  await expect(page.getByText(/high_overlap|\[1\]/)).toHaveCount(0)
   const reportDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: /Download report/i }).click()
   await expect((await reportDownload).suggestedFilename()).toMatch(/^novelty-report-.*\.(?:docx|json)$/)
@@ -682,6 +769,8 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   let extendedCalls = 0
   page.on('load', () => { pageLoads += 1 })
   const unexpected = await mockApi(page, {
+    // The upload screens state the live malware policy instead of a fixed claim.
+    'GET /settings/malware-scanning': { enabled: true, configured: true, status: 'enabled' },
     'GET /catalog/departments/legacy': [{
       id: 'dept-1', name: 'CCSICT', track_label: 'Program / specialization',
       tracks: ['Web and Mobile Application Development'],
@@ -739,6 +828,7 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   })
 
   await page.goto('/upload')
+  await expect(page.getByText('ClamAV Scanned')).toBeVisible()
   await page.locator('input[type="file"]').setInputFiles({
     name: 'thesis.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%e2e fixture\n%%EOF'),
   })
@@ -777,6 +867,7 @@ test('administrator upload journey resumes a retrying durable job after refresh'
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Thesis indexed!' })).toBeVisible({ timeout: 5_000 })
   await expect(page.getByText(/22 embedded chunks/)).toBeVisible()
+  await expect(page.getByText('Completed before document processing')).toBeVisible()
   expect(statusChecks).toBeGreaterThanOrEqual(2)
   expect(unexpected).toEqual([])
 })
@@ -787,6 +878,8 @@ test('administrator batch upload journey stages several manuscripts and polls th
   let submittedRows = null
   let jobPolls = 0
   const unexpected = await mockApi(page, {
+    // Scanning switched off: the dropzone must say so, never "ClamAV Scanned".
+    'GET /settings/malware-scanning': { enabled: false, configured: true, status: 'disabled' },
     'GET /catalog/departments/legacy': [{
       id: 'dept-1', name: 'CCSICT', track_label: 'Program / specialization',
       tracks: ['Web and Mobile Application Development'],
@@ -852,6 +945,8 @@ test('administrator batch upload journey stages several manuscripts and polls th
   })
 
   await page.goto('/upload/batch')
+  await expect(page.getByText('Malware scan off')).toBeVisible()
+  await expect(page.getByText('ClamAV Scanned')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: /Batch/, level: 1 })).toBeVisible()
   await page.locator('input[type="file"]').setInputFiles([
     { name: 'first.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%e2e first\n%%EOF') },

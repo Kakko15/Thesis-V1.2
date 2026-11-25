@@ -45,6 +45,9 @@ function ClearConversations({ sessions }) {
     try {
       const results = await Promise.allSettled(sessions.map((session) => deleteSession(session.id)))
       const failed = results.filter((result) => result.status === 'rejected').length
+      // Chat keeps opened transcripts cached for instant switching; none of
+      // them may outlive the conversations just deleted.
+      queryClient.removeQueries({ queryKey: ['session-messages'] })
       await queryClient.invalidateQueries({ queryKey: ['sessions'] })
       if (failed > 0) {
         toast.warning(`Cleared ${sessions.length - failed} of ${sessions.length} conversations`, {
@@ -90,14 +93,14 @@ function ClearConversations({ sessions }) {
 
 export function ChatSection() {
   const { user } = useAuth()
-  const [prefs, setPrefs] = useState(getChatPrefs)
+  const [prefs, setPrefs] = useState(() => getChatPrefs(user?.id))
   const { data: sessions = [] } = useQuery({
     queryKey: ['sessions'],
     queryFn: getSessions,
     enabled: !!user,
   })
 
-  const update = (key, value) => setPrefs(setChatPref(key, value))
+  const update = (key, value) => setPrefs(setChatPref(user?.id, key, value))
 
   return (
     <div className="space-y-5">

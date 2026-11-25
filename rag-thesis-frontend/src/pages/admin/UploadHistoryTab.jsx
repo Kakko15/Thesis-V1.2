@@ -182,7 +182,8 @@ export default function UploadHistoryTab() {
               {!isLoading && !error && (
                 filteredPapers.map(p => (
                   <tr key={p.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
-                    <td className="px-6 py-4 max-w-md">
+                    {/* min width keeps long track badges from squeezing titles to ~15 chars (2026-11-26). */}
+                    <td className="min-w-[16rem] max-w-md px-6 py-4">
                       <div className="font-bold line-clamp-1">{p.title}</div>
                       <div className="text-xs text-ink-muted line-clamp-1 mt-0.5">{p.authors || 'Unknown'}</div>
                       {p.adviser && (
@@ -194,7 +195,9 @@ export default function UploadHistoryTab() {
                         {thesisCategoryLabel(p.thesis_category)}
                       </Badge>
                     </td>
-                    <td className="whitespace-nowrap px-6 py-4"><Badge tone="forest">{p.track}</Badge></td>
+                    <td className="whitespace-nowrap px-6 py-4">
+                      <Badge tone="forest" className="max-w-[12rem]" title={p.track}><span className="truncate">{p.track}</span></Badge>
+                    </td>
                     <td className="whitespace-nowrap px-6 py-4"><Badge tone="neutral">{p.department}</Badge></td>
                     <td className="whitespace-nowrap px-6 py-4 tabular-nums">{p.year}</td>
                     <td className="whitespace-nowrap px-6 py-4 text-xs font-semibold text-ink-muted">{p.uploader_name || 'Unknown'}</td>

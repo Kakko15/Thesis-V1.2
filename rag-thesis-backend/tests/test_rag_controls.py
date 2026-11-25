@@ -16,6 +16,7 @@ from services.citations import (
     filter_cited_sources,
     is_archive_gap_statement,
     normalize_citation_markers,
+    prune_uncited_units,
     strip_gap_statement_citations,
     uncited_units,
     validate_citations,
@@ -287,6 +288,38 @@ class TestFollowups:
         ) == title
         assert chat._extract_explicit_thesis_title('What methodology did the thesis use?') is None
 
+    def test_library_compare_prompt_extracts_every_quoted_title(self):
+        question = (
+            'Compare the following 2 archived theses side by side — 1. "A Centralized '
+            'AI-Powered Thesis Library Using Retrieval-Augmented Generation" (2026, BSCS); '
+            '2. "FindMe: A Computer Vision-based Detector for Missing Person" (2024, BSCS) — '
+            'focusing on their research objectives, methodologies, key findings, and '
+            'unexplored research gaps.'
+        )
+        assert chat._extract_quoted_thesis_titles(question) == [
+            'A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation',
+            'FindMe: A Computer Vision-based Detector for Missing Person',
+        ]
+
+    def test_quoted_titles_need_two_titles_and_a_thesis_reference(self):
+        assert chat._extract_quoted_thesis_titles(
+            'what about the other thesis "Real-Time Pedestrian Safety Using YOLOv11"?'
+        ) == []
+        assert chat._extract_quoted_thesis_titles(
+            'is "machine learning models" better than "rule based systems"?'
+        ) == []
+        assert chat._extract_quoted_thesis_titles(
+            'compare "Smart Irrigation Monitor" and "Smart Irrigation Monitor"'
+        ) == []
+
+    def test_quoted_titles_are_capped_so_one_question_cannot_fan_out(self):
+        # Each title is one archive lookup, run for guests before any budget
+        # charge; ~400 quoted strings once meant ~400 database reads.
+        question = 'compare these theses: ' + ' '.join(f'"Thesis title number {n:03d}"' for n in range(400))
+        titles = chat._extract_quoted_thesis_titles(question)
+        assert len(titles) == chat._MAX_QUOTED_TITLES
+        assert titles[0] == 'Thesis title number 000'
+
     def test_specific_paper_followup_resolves_without_generation(self):
         rewritten = chat._resolve_specific_paper_followup(
             'what is/are their objectives?',
@@ -477,6 +510,40 @@ class TestCitationValidation:
         assert validate_citations(f'{framing}\n\n- Supported claim [1].', self.SOURCES) == (True, [])
         ranking = 'The comparison shows FindMe outperformed SECURE on recall.'
         assert not validate_citations(f'{ranking}\n\n- Supported claim [1].', self.SOURCES)[0]
+
+    @pytest.mark.parametrize('framing', [
+        # Real openers from the alumni-comparison starter (2026-11-25).
+        '**The comparison concerns the studies’ methods, datasets, scope, and results.**',
+        'The question compares the **methodology** of the two alumni studies.',
+        'The two studies differ primarily in their **method** and **scope** for conducting alumni research.',
+    ])
+    def test_real_comparison_openers_are_framing_not_claims(self, framing):
+        assert validate_citations(f'{framing}\n\n- Supported claim [1].', self.SOURCES) == (True, [])
+
+    @pytest.mark.parametrize('claim', [
+        'The two studies differ: FindMe is better than SECURE at night.',
+        'The question compares two systems; the first reached 98% accuracy.',
+    ])
+    def test_framing_openers_that_rank_or_report_figures_still_need_citations(self, claim):
+        assert not validate_citations(f'{claim}\n\n- Supported claim [1].', self.SOURCES)[0]
+
+    def test_pruning_drops_uncited_units_and_keeps_every_cited_one(self):
+        answer = (
+            'Overall, both projects modernise alumni tracking.\n\n'
+            '- The BSCS platform scrapes LinkedIn profiles [1].\n'
+            '- The BLIS study surveys graduates directly [1].\n\n'
+            'Thus the archive shows two very different approaches.'
+        )
+        pruned = prune_uncited_units(answer, self.SOURCES)
+        assert pruned == (
+            '- The BSCS platform scrapes LinkedIn profiles [1].\n'
+            '- The BLIS study surveys graduates directly [1].'
+        )
+        assert validate_citations(pruned, self.SOURCES) == (True, [])
+
+    def test_pruning_never_returns_an_answer_with_nothing_cited(self):
+        assert prune_uncited_units('An uncited claim.\n\nAnother one.', self.SOURCES) == ''
+        assert prune_uncited_units('A claim [99].', self.SOURCES) == ''
 
     def test_deterministic_coverage_uses_only_retrieved_citation_ids(self):
         answer = 'Supported scope [1].\n\nAn uncited limitation.\n\nAnother claim [99].'

@@ -173,6 +173,35 @@ class TestScanUploadIsHardenedLikeIngestion:
         # Fails closed, as ingestion does: unscanned is not a substitute for clean.
         assert offline.value.status_code == 503
 
+    def test_the_scanner_sees_the_file_before_pymupdf_does(self, monkeypatch):
+        pdf = _pdf_bytes()
+        order = []
+        monkeypatch.setattr(duplication, 'scan_pdf', lambda *_args: order.append('scan'))
+        real_open = duplication.fitz.open
+
+        def recording_open(*args, **kwargs):
+            order.append('parse')
+            return real_open(*args, **kwargs)
+
+        monkeypatch.setattr(duplication.fitz, 'open', recording_open)
+        duplication._reject_unsafe_scan_upload(pdf, 'pdf')
+        assert order == ['scan', 'parse']
+
+    def test_a_manuscript_with_too_many_passages_is_refused_before_embedding(self, monkeypatch):
+        # One passage = one embedding + one archive lookup; a 25 MB .txt once
+        # meant ~8,000 of each in a single request (2026-11-25 review).
+        prepare(monkeypatch)
+        monkeypatch.setattr(duplication.settings, 'max_novelty_scan_chunks', 3)
+        monkeypatch.setattr(duplication, 'split_document', lambda *_: [{
+            'content': f'Clean passage {n}', 'chunk_index': n,
+            'page_start': 1, 'page_end': 1, 'section': 'Introduction',
+        } for n in range(4)])
+        monkeypatch.setattr(duplication, 'embed_texts', lambda *_: pytest.fail('embedded an over-long file'))
+        with pytest.raises(HTTPException) as refused:
+            asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
+        assert refused.value.status_code == 413
+        assert '4 passages' in refused.value.detail
+
 
 class TestNoveltyScan:
     def test_clear_scan_has_deterministic_metrics(self, monkeypatch):
@@ -202,6 +231,56 @@ class TestNoveltyScan:
         assert response['verdict_level'] == 'high_overlap'
         assert response['verdict_summary'] == 'Faculty review advised.'
         assert 'matched_chunks' not in response
+
+    def test_matched_passages_show_only_the_reviewers_own_text(self, monkeypatch):
+        # 2026-11-25 user testing: the Matches tab had no passages at all. They
+        # are now served, but the archived side is citation metadata only.
+        prepare(monkeypatch)
+        match = {
+            'paper_id': 'p1', 'content': 'SECRET ARCHIVED WORDING', 'similarity': 0.9,
+            'page_start': 7, 'page_end': 8, 'section': 'Methodology',
+        }
+        prompts_seen = []
+
+        async def ainvoke(prompt):
+            prompts_seen.append(prompt)
+            return SimpleNamespace(content='Explained.')
+
+        client = Client([[match]], {
+            'papers': [[{'id': 'p1', 'title': 'ISU-CANNER', 'authors': 'A', 'year': 2025, 'track': 'AI', 'department': 'CCSICT'}]],
+            'scan_history': [[{'id': 'scan-1'}]],
+        })
+        monkeypatch.setattr(duplication, 'sb', client)
+        monkeypatch.setattr(duplication, 'llm', SimpleNamespace(ainvoke=ainvoke))
+        response = asyncio.run(run_scan(upload_file(), None, SimpleNamespace(id='u1')))
+
+        [passage] = response['matched_passages']
+        assert passage['title'] == 'ISU-CANNER'
+        assert passage['year'] == 2025
+        assert passage['excerpt'] == 'Clean proposed research content'
+        assert passage['archived_section'] == 'Methodology'
+        assert (passage['archived_page_start'], passage['archived_page_end']) == (7, 8)
+        assert 'SECRET ARCHIVED WORDING' not in str(response)
+        # The model is handed the label the report shows, never the raw enum.
+        assert 'High overlap (faculty review required)' in prompts_seen[0]
+        assert 'high_overlap' not in prompts_seen[0]
+        assert 'Do not use tables' in prompts_seen[0]
+
+    def test_public_passages_cap_the_excerpt_and_tolerate_missing_metadata(self):
+        scan = {
+            'top_matches': [{'id': 'p1', 'title': 'Known', 'year': 2024}, 'junk'],
+            'matched_chunks': [
+                {'paper_id': 'p1', 'uploaded_text': 'word ' * 200, 'database_text': 'hidden', 'similarity': 88.0},
+                {'paper_id': 'gone', 'uploaded_text': 'mine', 'database_text': 'hidden', 'section': 'Objectives'},
+                'junk',
+            ],
+        }
+        first, second = duplication._public_passages(scan)  # pylint: disable=protected-access
+        assert len(first['excerpt']) <= 281 and first['excerpt'].endswith('…')
+        assert second['title'] == 'Archived thesis' and second['year'] is None
+        assert second['section'] == 'Objectives'
+        assert 'hidden' not in str([first, second])
+        assert duplication._advisory_label('mystery_level') == 'Mystery level'  # pylint: disable=protected-access
 
     def test_scan_survives_every_matched_paper_being_deleted(self, monkeypatch):
         # The vector search returns a paper id, then the papers fetch comes back
@@ -338,6 +417,50 @@ class TestDuplicationChat:
         )
         assert response['answer'] == 'Grounded answer.'
         assert response['chat_log'][-1]['role'] == 'ai'
+
+    def test_followup_names_the_matched_study_instead_of_a_placeholder(self, monkeypatch):
+        # 2026-11-25 user testing: with excerpts but no titles, the reviewer
+        # wrote "Isabela State University – Main Campus study (20xx)".
+        scan = {
+            'chat_log': [],
+            'verdict_summary': 'Review overlap.',
+            'top_matches': [{'id': 'p1', 'title': 'ISU-CANNER', 'authors': 'Dela Cruz, J.', 'year': 2025,
+                             'match_count': 3, 'similarity': 91.2}],
+            'matched_chunks': [
+                {'paper_id': 'p1', 'uploaded_text': 'draft', 'database_text': 'archive', 'archived_section': 'Methodology'},
+                {'paper_id': 'gone', 'uploaded_text': 'draft 2', 'database_text': 'archive 2'},
+            ],
+        }
+        seen = []
+        monkeypatch.setattr(duplication, 'sb', Client([], {'scan_history': [[scan], []]}))
+        monkeypatch.setattr(duplication, 'llm', SimpleNamespace(
+            invoke=lambda prompt: seen.append(prompt) or SimpleNamespace(content='ok')))
+        run_chat(duplication.DuplicationChatReq(scan_id='x', question='Which study?'), SimpleNamespace(id='u1'))
+        prompt = seen[0]
+        assert '"ISU-CANNER" (Dela Cruz, J., 2025): 3 matched passage(s), highest similarity 91.2%' in prompt
+        assert 'EXCERPT 1 (from "ISU-CANNER" (Dela Cruz, J., 2025), Methodology)' in prompt
+        assert 'EXCERPT 2 (from an archived thesis)' in prompt
+        assert 'Never invent' in prompt
+
+    def test_followup_without_matches_says_so(self, monkeypatch):
+        scan = {'chat_log': [], 'verdict_summary': 'Clear.', 'matched_chunks': []}
+        seen = []
+        monkeypatch.setattr(duplication, 'sb', Client([], {'scan_history': [[scan], []]}))
+        monkeypatch.setattr(duplication, 'llm', SimpleNamespace(
+            invoke=lambda prompt: seen.append(prompt) or SimpleNamespace(content='ok')))
+        run_chat(duplication.DuplicationChatReq(scan_id='x', question='Any overlap?'), SimpleNamespace(id='u1'))
+        assert '(no archived study reached the threshold)' in seen[0]
+
+    def test_history_serves_passages_but_never_archived_text(self, monkeypatch):
+        row = {
+            'id': 's1', 'top_matches': [{'id': 'p1', 'title': 'Known'}],
+            'matched_chunks': [{'paper_id': 'p1', 'uploaded_text': 'mine', 'database_text': 'ARCHIVED'}],
+        }
+        monkeypatch.setattr(duplication, 'sb', Client([], {'scan_history': [[row]]}))
+        [served] = duplication.get_history(SimpleNamespace(id='u1'))
+        assert 'matched_chunks' not in served
+        assert served['matched_passages'][0]['excerpt'] == 'mine'
+        assert 'ARCHIVED' not in str(served)
 
     def test_history_is_owner_scoped(self, monkeypatch):
         monkeypatch.setattr(duplication, 'sb', Client([], {'scan_history': [[{'id': 's1'}]]}))

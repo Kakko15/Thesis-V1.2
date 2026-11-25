@@ -2,7 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 import { useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import ReactMarkdown from 'react-markdown'
+import { SafeMarkdown } from '../components/ui/SafeMarkdown'
 import { toast } from 'sonner'
 import {
   Plus, MessageSquareText, Trash2, PencilLine,
@@ -16,7 +16,10 @@ import {
 import { SecurityCheck } from '../components/security/SecurityCheck'
 import { useGuestChatGate } from './chat/useGuestChatGate'
 import { messageNoticeLabel } from './chat/messageNotice'
-import { branchBeforePrompt, dropPendingPrompt } from './chat/transcript'
+import {
+  answerAnnouncement, branchBeforePrompt, dropPendingPrompt, editWarningMessage, laterTurnCount,
+  matchesSavedRows, settledTranscript,
+} from './chat/transcript'
 import {
   copyText, downloadResearchNote, plainResponseText, responseDetails,
   responseWithSources,
@@ -33,6 +36,7 @@ import { Logo } from '../components/ui/Logo'
 import { AnimatedLogo } from '../components/ui/AnimatedLogo'
 import { LogoActivityDots } from '../components/ui/LogoActivityDots'
 import { Sheet } from '../components/ui/Sheet'
+import { Skeleton } from '../components/ui/Skeleton'
 import { cn, normalizePercent, timeAgo } from '../lib/utils'
 import { getChatPrefs } from '../lib/chatPrefs'
 import { THESIS_CATEGORIES } from '../lib/catalog'
@@ -69,6 +73,44 @@ let messageSequence = 0
 const nextMessageId = () => {
   messageSequence += 1
   return `msg-${messageSequence}`
+}
+
+// Saved conversations are kept in the React Query cache as ready-to-render
+// transcripts, so reopening one paints in the same frame as the click instead
+// of waiting on `GET /sessions/{id}/messages` (measured 2026-11-24: four
+// sequential Supabase round trips behind it, roughly half a second). The cache
+// is written by this page whenever a turn settles, so it is the transcript the
+// reader last saw; older entries are still shown at once and then revalidated
+// in the background.
+const SESSION_TRANSCRIPT_FRESH_MS = 5 * 60 * 1000
+// The most recent conversations are warmed once the page is idle, so the
+// first click on any of them is already instant.
+const SESSION_IDLE_PREFETCH_COUNT = 3
+const sessionMessagesKey = (sessionId) => ['session-messages', String(sessionId)]
+
+// Rebuilds the on-screen transcript from saved `chat_messages` rows.
+function rebuildTranscript(rows) {
+  const rebuilt = []
+  ;(Array.isArray(rows) ? rows : []).forEach((m) => {
+    rebuilt.push({ id: nextMessageId(), kind: 'user', text: m.question })
+    rebuilt.push({
+      id: nextMessageId(),
+      kind: 'ai',
+      answer: m.answer,
+      sources: m.sources || [],
+      duplication_alert: m.duplication_alert,
+      // The server exposes chat_messages.kind specifically so a restored
+      // transcript can tell a system notice from a research answer, and
+      // this used to discard it — so reloading a conversation made a
+      // capacity apology or a refusal visually identical to a grounded
+      // answer. Carried under its own name because the local `kind` above
+      // is the message's 'user' | 'ai' role, a different thing entirely.
+      messageKind: m.kind,
+      notice_type: m.notice_type,
+      createdAt: m.created_at,
+    })
+  })
+  return rebuilt
 }
 
 function isCancelledRequest(error) {
@@ -472,7 +514,7 @@ function groupEvidenceSources(sources = []) {
   return [...groups.values()]
 }
 
-function SourceCard({ sources, index }) {
+function SourceCard({ sources, index, animate = true }) {
   const { user } = useAuth()
   const source = sources[0]
   const citationIds = sources.map((item, itemIndex) => item.citation_id ?? itemIndex + 1)
@@ -509,7 +551,7 @@ function SourceCard({ sources, index }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={animate ? { opacity: 0, y: 10 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.15 + index * 0.08, duration: 0.4 }}
       className="glass flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-2xl p-3.5 text-left"
@@ -604,11 +646,11 @@ function SourceCard({ sources, index }) {
 /* ------------------------------------------------------------------ */
 /* 85% duplication alert banner                                        */
 /* ------------------------------------------------------------------ */
-function DuplicationBanner({ alert }) {
+function DuplicationBanner({ alert, animate = true }) {
   if (!alert?.flagged) return null
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.97 }}
+      initial={animate ? { opacity: 0, scale: 0.97 } : false}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.45, ease: [0.2, 0, 0, 1] }}
       className="mt-3 overflow-hidden rounded-2xl border border-flame-500/30 bg-flame-500/8 dark:bg-flame-500/10"
@@ -688,7 +730,7 @@ function PromptAction({ label, onClick, children, disabled = false, hideTooltip 
   )
 }
 
-function UserBubble({ text, onCopy, onUpdate, copied }) {
+function UserBubble({ text, onCopy, onUpdate, copied, animate = true }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(text)
   const editRef = useRef(null)
@@ -729,7 +771,7 @@ function UserBubble({ text, onCopy, onUpdate, copied }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12, scale: 0.98 }}
+      initial={animate ? { opacity: 0, y: 12, scale: 0.98 } : false}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.35, ease: [0.2, 0, 0, 1] }}
       className="flex justify-end"
@@ -979,7 +1021,7 @@ function AiBubble({ message, animate, onRegenerate, onFollowUp, disabled }) {
       >
         <div className="glass rounded-3xl rounded-tl-lg px-5 py-4">
           <div className="prose-chat">
-            <ReactMarkdown>{message.answer}</ReactMarkdown>
+            <SafeMarkdown>{message.answer}</SafeMarkdown>
           </div>
           {message.archive_current && (
             <div className="mt-3 flex items-center gap-1.5 text-xs font-medium text-forest-700 dark:text-forest-300">
@@ -1000,12 +1042,12 @@ function AiBubble({ message, animate, onRegenerate, onFollowUp, disabled }) {
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               {groupedSources.map((group, i) => (
-                <SourceCard key={group[0].id || i} sources={group} index={i} />
+                <SourceCard key={group[0].id || i} sources={group} index={i} animate={animate} />
               ))}
             </div>
           </div>
         )}
-        <DuplicationBanner alert={message.duplication_alert} />
+        <DuplicationBanner alert={message.duplication_alert} animate={animate} />
         <AiResponseActions
           message={message}
           onRegenerate={onRegenerate}
@@ -1037,7 +1079,7 @@ function TypingIndicator() {
 /* ------------------------------------------------------------------ */
 /* Session sidebar                                                     */
 /* ------------------------------------------------------------------ */
-function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, error, onRetry }) {
+function SessionList({ sessions, activeId, onSelect, onPrefetch, onRename, onDelete, onNew, error, onRetry }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between px-1 pb-3">
@@ -1058,7 +1100,7 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, 
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -12 }}
               className={cn(
-                'group flex items-center gap-1 rounded-2xl px-2 py-1.5 transition-colors duration-200',
+                'group flex items-center gap-1 rounded-2xl px-2 py-1.5 transition-colors duration-100',
                 activeId === s.id
                   ? 'bg-forest-600/12 dark:bg-forest-400/12'
                   : 'hover:bg-forest-900/6 dark:hover:bg-white/6',
@@ -1067,6 +1109,14 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, 
               <button
                 type="button"
                 onClick={() => onSelect(s)}
+                // Intent prefetch: pointer hover, keyboard focus and the press
+                // itself (pointerdown lands ~100 ms before click on touch) all
+                // start the transcript fetch, so the click usually finds it
+                // already cached.
+                onPointerEnter={() => onPrefetch?.(s)}
+                onFocus={() => onPrefetch?.(s)}
+                onPointerDown={() => onPrefetch?.(s)}
+                aria-current={activeId === s.id ? 'true' : undefined}
                 className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1 py-1 text-left"
               >
                 <MessageSquareText size={14} className="shrink-0 opacity-50" />
@@ -1113,9 +1163,36 @@ function SessionList({ sessions, activeId, onSelect, onRename, onDelete, onNew, 
   )
 }
 
+function TranscriptSkeleton() {
+  // Shown only for a conversation that is not cached yet, in place of the
+  // previous transcript, so the switch is visible in the same frame as the
+  // click rather than after the network round trip.
+  return (
+    <div role="status" aria-live="polite" className="space-y-6 py-6">
+      <span className="sr-only">Loading conversation…</span>
+      {[0, 1].map((row) => (
+        <div key={row} className="space-y-6" aria-hidden="true">
+          <div className="flex justify-end">
+            <Skeleton className="h-11 w-2/5 rounded-[1.4rem]" />
+          </div>
+          <div className="flex gap-3">
+            <Skeleton className="size-8 shrink-0 rounded-full" />
+            <div className="flex-1 space-y-2 sm:max-w-[85%]">
+              <Skeleton className="h-4 w-11/12" />
+              <Skeleton className="h-4 w-4/5" />
+              <Skeleton className="h-4 w-3/5" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function ChatTranscript({
   messages,
   sending,
+  loading,
   isAwaitingAnswer,
   effectiveDepartment,
   copiedMessageId,
@@ -1126,9 +1203,12 @@ function ChatTranscript({
   onFollowUp,
   bottomRef,
 }) {
-  const isEmpty = messages.length === 0 && !sending
+  const showSkeleton = loading && messages.length === 0
+  const isEmpty = messages.length === 0 && !sending && !showSkeleton
   return (
     <div
+      role="region"
+      aria-label="Conversation transcript"
       className={cn(
         'flex-1 overflow-x-hidden overscroll-contain px-4 sm:px-6',
         isEmpty
@@ -1136,7 +1216,9 @@ function ChatTranscript({
           : 'space-y-6 overflow-y-auto py-6',
       )}
     >
-      {isEmpty ? (
+      {showSkeleton ? (
+        <TranscriptSkeleton />
+      ) : isEmpty ? (
         <div className="flex w-full flex-col items-center justify-center [&>div:first-child]:py-6 sm:[&>div:first-child]:py-10">
           <EmptyState
             icon={Logo}
@@ -1166,6 +1248,7 @@ function ChatTranscript({
                 <UserBubble
                   key={m.id}
                   text={m.text}
+                  animate={Boolean(m.isNew)}
                   copied={copiedMessageId === m.id}
                   onCopy={() => onCopyPrompt(m)}
                   onUpdate={(updated) => onUpdatePrompt(m, updated)}
@@ -1186,6 +1269,13 @@ function ChatTranscript({
           <div ref={bottomRef} />
         </>
       )}
+      {/* Mounted before any answer so assistive tech is already watching it.
+          One plain-prose summary per answer rather than role="log" on the
+          transcript, which would also read out every bubble's action buttons.
+          Last child, so space-y does not shift the first message down. */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {answerAnnouncement(messages)}
+      </div>
     </div>
   )
 }
@@ -1205,16 +1295,20 @@ export default function Chat() {
   // Content scope, not a security boundary: every visitor (guests included)
   // may narrow retrieval to student or faculty theses. Starts from the default
   // chosen in Settings → Chat & AI.
-  const [filterCategory, setFilterCategory] = useState(() => getChatPrefs().defaultCategory)
+  const [filterCategory, setFilterCategory] = useState(() => getChatPrefs(user?.id).defaultCategory)
   const [recencyScope, setRecencyScope] = useState('all')
-  const [sendKey] = useState(() => getChatPrefs().sendKey)
+  const [sendKey] = useState(() => getChatPrefs(user?.id).sendKey)
   const [sending, setSending] = useState(false)
   const [chatError, setChatError] = useState(null)
   const [sessionId, setSessionId] = useState(null)
+  // The conversation whose transcript is still on its way (not cached yet).
+  const [loadingSessionId, setLoadingSessionId] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState(null)
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
+  // An edit of an earlier question waiting for the delete-later-turns confirm.
+  const [pendingEdit, setPendingEdit] = useState(null)
   const [busy, setBusy] = useState(false)
   const [awaitingCheck, setAwaitingCheck] = useState(false)
   const [gateStatus, setGateStatus] = useState('pending')
@@ -1230,6 +1324,10 @@ export default function Chat() {
   // resolves after a later click cannot paint the wrong transcript. Same
   // generation guard the upload poller uses.
   const sessionLoadRef = useRef(0)
+  // Set when a saved conversation is opened: its transcript lands at the
+  // latest turn immediately instead of smooth-scrolling through every
+  // earlier message, which read as lag on long conversations.
+  const instantScrollRef = useRef(false)
   // Runs from Turnstile's own callback, so it fires the parked question the
   // instant the token exists rather than a render later.
   const releaseParkedSend = useCallback(() => {
@@ -1266,10 +1364,59 @@ export default function Chat() {
     enabled: isSuperadmin,
   })
 
-  useEffect(() => {
+  // Layout effect, so an opened conversation is already at its latest turn on
+  // the first painted frame rather than painting at the top and then jumping.
+  useLayoutEffect(() => {
     if (messages.length === 0 && !sending) return
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const instant = instantScrollRef.current
+    instantScrollRef.current = false
+    bottomRef.current?.scrollIntoView({ behavior: instant ? 'auto' : 'smooth' })
   }, [messages, sending])
+
+  const transcriptQuery = useCallback((id) => ({
+    queryKey: sessionMessagesKey(id),
+    queryFn: async () => rebuildTranscript(await getSessionMessages(id)),
+    staleTime: SESSION_TRANSCRIPT_FRESH_MS,
+  }), [])
+
+  const prefetchSession = useCallback((session) => {
+    if (!user || !session?.id) return
+    // prefetchQuery never throws and skips work when a fresh copy is cached
+    // or already in flight, so repeated hovers cost nothing.
+    queryClient.prefetchQuery(transcriptQuery(session.id))
+  }, [queryClient, transcriptQuery, user])
+
+  // A turn whose outcome the browser never saw (stopped, superseded, or left
+  // mid-flight) may still be saved by the server, so the cached transcript can
+  // no longer be trusted; the next open fetches it fresh.
+  const forgetTranscript = useCallback((id) => {
+    if (id) queryClient.removeQueries({ queryKey: sessionMessagesKey(id), exact: true })
+  }, [queryClient])
+
+  const rememberSettledTurn = (response, transcript) => {
+    const savedSessionId = response.session_id || sessionId
+    if (!user || !savedSessionId) return
+    if (response.history_saved === false) {
+      // The server kept nothing for this turn, so a cached copy would show an
+      // exchange the saved conversation does not contain.
+      forgetTranscript(savedSessionId)
+      return
+    }
+    // Keep the cache equal to what is on screen, so coming back to this
+    // conversation later is instant and already current.
+    queryClient.setQueryData(sessionMessagesKey(savedSessionId), settledTranscript(transcript))
+  }
+
+  useEffect(() => {
+    if (!user || sessions.length === 0) return undefined
+    const warm = () => sessions.slice(0, SESSION_IDLE_PREFETCH_COUNT).forEach(prefetchSession)
+    if (typeof window.requestIdleCallback === 'function') {
+      const handle = window.requestIdleCallback(warm, { timeout: 2500 })
+      return () => window.cancelIdleCallback?.(handle)
+    }
+    const timer = window.setTimeout(warm, 1200)
+    return () => window.clearTimeout(timer)
+  }, [user, sessions, prefetchSession])
 
   useEffect(() => () => {
     requestControllerRef.current?.abort('unmount')
@@ -1301,6 +1448,7 @@ export default function Chat() {
       controller.abort('edit-prompt')
       requestControllerRef.current = null
       pendingQuestionRef.current = ''
+      forgetTranscript(sessionId)
       setSending(false)
       setChatError(null)
       // `send` appends the edited question as a new bubble, so without this
@@ -1311,6 +1459,18 @@ export default function Chat() {
       return
     }
     if (updated === original.text && !wasPending) return
+    // Editing resends the question and the server deletes every later turn.
+    // Its own answer being replaced is expected; later questions vanishing is
+    // not, so that case asks first (2026-11-25 user testing found no warning).
+    const later = laterTurnCount(messages, original.id)
+    if (later > 0) {
+      setPendingEdit({ original, updated, later })
+      return
+    }
+    applyPromptEdit(original, updated)
+  }
+
+  const applyPromptEdit = (original, updated) => {
     const branch = branchBeforePrompt(messages, original.id)
     if (branch.turn === null) return
     setMessages(branch.messages)
@@ -1348,11 +1508,21 @@ export default function Chat() {
   }
 
   const loadSession = async (session) => {
+    if (
+      session.id === sessionId && messages.length > 0
+      && !loadingSessionId && !requestControllerRef.current
+    ) {
+      // Already on screen: re-clicking the open conversation is a no-op
+      // instead of a refetch and a full transcript rebuild.
+      setSidebarOpen(false)
+      return
+    }
     // An answer still in flight belongs to the conversation being left. Without
     // this it arrived after the switch and was appended to the transcript now
     // on screen, and a request that had created a new session would then set
     // that session as active while another one's messages were displayed.
     // `newConversation` has always done this; opening a session did not.
+    if (requestControllerRef.current) forgetTranscript(sessionId)
     requestControllerRef.current?.abort('session-switch')
     requestControllerRef.current = null
     pendingQuestionRef.current = ''
@@ -1365,33 +1535,49 @@ export default function Chat() {
     setSessionId(session.id)
     if (isSuperadmin && session.department) setFilterDepartment(session.department)
     setSidebarOpen(false)
+    instantScrollRef.current = true
+
+    const query = transcriptQuery(session.id)
+    const cached = queryClient.getQueryData(query.queryKey)
+    if (cached) {
+      // Same frame as the click: the transcript the reader last saw.
+      setLoadingSessionId(null)
+      setMessages(cached)
+      const cachedAt = queryClient.getQueryState(query.queryKey)?.dataUpdatedAt ?? 0
+      if (Date.now() - cachedAt < SESSION_TRANSCRIPT_FRESH_MS) return
+      // Older copy: revalidate quietly, and swap it only if the saved turns
+      // changed elsewhere (another tab or device), never mid-answer.
+      try {
+        const rows = await getSessionMessages(session.id)
+        if (sessionLoadRef.current !== generation) return
+        if (requestControllerRef.current || queryClient.getQueryData(query.queryKey) !== cached) return
+        if (matchesSavedRows(cached, rows)) {
+          queryClient.setQueryData(query.queryKey, cached)
+          return
+        }
+        const rebuilt = rebuildTranscript(rows)
+        queryClient.setQueryData(query.queryKey, rebuilt)
+        setMessages(rebuilt)
+      } catch {
+        // The cached transcript stays on screen; nothing to tell the reader.
+      }
+      return
+    }
+
+    // Not cached yet: swap the old transcript out right away for a skeleton,
+    // then paint as soon as the (possibly already in-flight) fetch resolves.
+    setMessages([])
+    setLoadingSessionId(session.id)
     try {
-      const msgs = await getSessionMessages(session.id)
+      const rebuilt = await queryClient.fetchQuery(query)
       if (sessionLoadRef.current !== generation) return
-      const rebuilt = []
-      msgs.forEach((m) => {
-        rebuilt.push({ id: nextMessageId(), kind: 'user', text: m.question })
-        rebuilt.push({
-          id: nextMessageId(),
-          kind: 'ai',
-          answer: m.answer,
-          sources: m.sources || [],
-          duplication_alert: m.duplication_alert,
-          // The server exposes chat_messages.kind specifically so a restored
-          // transcript can tell a system notice from a research answer, and
-          // this used to discard it — so reloading a conversation made a
-          // capacity apology or a refusal visually identical to a grounded
-          // answer. Carried under its own name because the local `kind` above
-          // is the message's 'user' | 'ai' role, a different thing entirely.
-          messageKind: m.kind,
-          notice_type: m.notice_type,
-          createdAt: m.created_at,
-        })
-      })
+      instantScrollRef.current = true
       setMessages(rebuilt)
     } catch (err) {
       if (sessionLoadRef.current !== generation) return
       toast.error('Could not load conversation', { description: apiErrorMessage(err) })
+    } finally {
+      if (sessionLoadRef.current === generation) setLoadingSessionId(null)
     }
   }
 
@@ -1427,6 +1613,7 @@ export default function Chat() {
   }, [requestedSessionId, sessions])
 
   const newConversation = () => {
+    if (requestControllerRef.current) forgetTranscript(sessionId)
     requestControllerRef.current?.abort('conversation-reset')
     clearTimeout(copiedMessageTimeoutRef.current)
     setCopiedMessageId(null)
@@ -1439,9 +1626,10 @@ export default function Chat() {
     setAwaitingCheck(false)
     setSending(false)
     setSessionId(null)
+    setLoadingSessionId(null)
     setMessages([])
     setChatError(null)
-    setFilterCategory(getChatPrefs().defaultCategory)
+    setFilterCategory(getChatPrefs(user?.id).defaultCategory)
     setSidebarOpen(false)
     inputRef.current?.focus()
   }
@@ -1465,7 +1653,8 @@ export default function Chat() {
     setInput('')
     setChatError(null)
     const baseMessages = options.baseMessages ?? messages
-    setMessages([...baseMessages, { id: nextMessageId(), kind: 'user', text: question }])
+    const userMessage = { id: nextMessageId(), kind: 'user', text: question, isNew: true }
+    setMessages([...baseMessages, userMessage])
     setSending(true)
     const controller = new AbortController()
     requestControllerRef.current = controller
@@ -1512,10 +1701,12 @@ export default function Chat() {
       // carried under `messageKind` instead — the same name the loadSession
       // path uses — so a live capacity apology or refusal gets the system
       // notice chip immediately, not only after a reload.
-      setMessages((m) => [...m, {
+      const aiMessage = {
         id: nextMessageId(), ...res, kind: 'ai', messageKind: res.kind,
         createdAt: new Date().toISOString(), isNew: true,
-      }])
+      }
+      setMessages((m) => [...m, aiMessage])
+      rememberSettledTurn(res, [...baseMessages, userMessage, aiMessage])
       if (user && res.history_saved === false) {
         toast.warning('Answer received, but chat history was not saved', {
           description: 'Copy anything important and try again after the archive connection recovers.',
@@ -1556,6 +1747,7 @@ export default function Chat() {
     controller.abort('user-stop')
     requestControllerRef.current = null
     pendingQuestionRef.current = ''
+    forgetTranscript(sessionId)
     setMessages(dropPendingPrompt)
     setChatError({
       title: 'Response stopped',
@@ -1585,6 +1777,7 @@ export default function Chat() {
     setBusy(true)
     try {
       await deleteSession(deleteTarget.id)
+      forgetTranscript(deleteTarget.id)
       queryClient.invalidateQueries({ queryKey: ['sessions'] })
       if (deleteTarget.id === sessionId) newConversation()
       toast.success('Conversation deleted')
@@ -1605,6 +1798,7 @@ export default function Chat() {
             sessions={sessions}
             activeId={sessionId}
             onSelect={loadSession}
+            onPrefetch={prefetchSession}
             onRename={(s) => { setRenameTarget(s); setRenameValue(s.title) }}
             onDelete={setDeleteTarget}
             onNew={newConversation}
@@ -1626,6 +1820,7 @@ export default function Chat() {
           sessions={sessions}
           activeId={sessionId}
           onSelect={loadSession}
+          onPrefetch={prefetchSession}
           onRename={(s) => { setRenameTarget(s); setRenameValue(s.title) }}
           onDelete={setDeleteTarget}
           onNew={newConversation}
@@ -1636,9 +1831,12 @@ export default function Chat() {
 
       {/* Chat column */}
       <GlassCard className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex flex-col gap-3 border-b border-forest-900/10 px-4 py-3 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-3.5">
-          <div className="flex min-w-0 items-center gap-3">
+        {/* Header. It wraps instead of switching to a row at a fixed breakpoint:
+            the chat card's width depends on the sidebar, so at 1280px and 800px
+            the department pill and sign-in button were clipped, and at 390px the
+            filters shrank to ovals (2026-11-26). */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-forest-900/10 px-4 py-3 dark:border-white/10 sm:px-5 sm:py-3.5">
+          <div className="flex min-w-0 flex-[1_1_14rem] items-center gap-3">
             <Logo size={32} />
             <div className="min-w-0">
               <h1 className="font-display text-sm font-extrabold">IskAI</h1>
@@ -1647,11 +1845,11 @@ export default function Chat() {
               </div>
             </div>
           </div>
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Select
               value={recencyScope}
               onChange={(e) => setRecencyScope(e.target.value)}
-              className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none"
+              className="h-9 min-w-[8.5rem] flex-1 sm:w-auto sm:flex-none"
               aria-label="Filter research by publication recency"
             >
               <option value="all">All theses</option>
@@ -1660,7 +1858,7 @@ export default function Chat() {
             <Select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
-              className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none"
+              className="h-9 min-w-[8.5rem] flex-1 sm:w-auto sm:flex-none"
               aria-label="Filter research by thesis category"
             >
               <option value="">All categories</option>
@@ -1675,7 +1873,7 @@ export default function Chat() {
                   setFilterDepartment(e.target.value)
                   newConversation()
                 }}
-                className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none"
+                className="h-9 min-w-[8.5rem] flex-1 sm:w-auto sm:flex-none"
                 aria-label="Filter research by department"
               >
                 <option value="">Default ({userDepartment || evaluationDepartment})</option>
@@ -1684,10 +1882,10 @@ export default function Chat() {
                 ))}
               </Select>
             ) : (
-              <Badge tone="neutral">{effectiveDepartment}</Badge>
+              <Badge tone="neutral" className="shrink-0">{effectiveDepartment}</Badge>
             )}
             {user ? (
-              <Button variant="ghost" size="icon-sm" className="xl:hidden" onClick={() => setSidebarOpen(true)} aria-label="Conversations">
+              <Button variant="ghost" size="icon-sm" className="shrink-0 xl:hidden" onClick={() => setSidebarOpen(true)} aria-label="Conversations">
                 <History size={16} />
               </Button>
             ) : (
@@ -1741,6 +1939,7 @@ export default function Chat() {
         <ChatTranscript
           messages={messages}
           sending={sending}
+          loading={Boolean(loadingSessionId)}
           isAwaitingAnswer={isAwaitingAnswer}
           effectiveDepartment={effectiveDepartment}
           copiedMessageId={copiedMessageId}
@@ -1756,7 +1955,10 @@ export default function Chat() {
         <Composer
           value={input}
           onChange={setInput}
-          onSend={send}
+          // Held while an opened conversation is still loading: the reply
+          // would be built on an empty transcript and then painted over by
+          // the saved one. The question stays in the composer meanwhile.
+          onSend={(...args) => { if (!loadingSessionId) send(...args) }}
           // Warm the check up front so the token is ready before they finish typing.
           onFocus={guestGate.arm}
           textareaRef={inputRef}
@@ -1797,6 +1999,21 @@ export default function Chat() {
         confirmLabel="Delete"
         danger
         loading={busy}
+      />
+
+      {/* Edit-an-earlier-question confirm */}
+      <ConfirmDialog
+        open={!!pendingEdit}
+        onClose={() => setPendingEdit(null)}
+        onConfirm={() => {
+          const edit = pendingEdit
+          setPendingEdit(null)
+          if (edit) applyPromptEdit(edit.original, edit.updated)
+        }}
+        title="Edit this question?"
+        message={pendingEdit ? editWarningMessage(pendingEdit.later, Boolean(user && sessionId)) : ''}
+        confirmLabel="Edit and resend"
+        danger
       />
     </PageTransition>
   )

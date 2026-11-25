@@ -167,7 +167,7 @@ function BatchDefaultsForm({ defaults, errors, departments, isSuperadmin, enforc
             disabled={loadingDepts}
             aria-label="Select thesis department"
           >
-            <option value="">Select a Department…</option>
+            <option value="" hidden>Select a Department…</option>
             {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
           </Select>
         </Field>
@@ -218,7 +218,7 @@ function ProgramBulkBar({ programs, disabled, onApply }) {
           disabled={disabled || programs.length === 0}
           aria-label="Select a program for every manuscript"
         >
-          <option value="">Select program…</option>
+          <option value="" hidden>Select program…</option>
           {programs.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
         </Select>
       </div>
@@ -231,7 +231,7 @@ function ProgramBulkBar({ programs, disabled, onApply }) {
             }))}
             aria-label="Select a specialization for every manuscript"
           >
-            <option value="">Select specialization…</option>
+            <option value="" hidden>Select specialization…</option>
             {specializations.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
           </Select>
         </div>
@@ -593,7 +593,7 @@ function ReviewCard({ row, index, programs, onChange, onBlurField, onPatch, onAb
                 disabled={programs.length === 0}
                 aria-label={`Program for ${row.name}`}
               >
-                <option value="">Select program…</option>
+                <option value="" hidden>Select program…</option>
                 {programs.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
               </Select>
               <AutofillNote message={rowAutofillHint(row, 'program_id')} />
@@ -608,7 +608,7 @@ function ReviewCard({ row, index, programs, onChange, onBlurField, onPatch, onAb
                   error={row.errors.specialization_id}
                   aria-label={`Specialization for ${row.name}`}
                 >
-                  <option value="">Select…</option>
+                  <option value="" hidden>Select…</option>
                   {specializations.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}
                 </Select>
                 <AutofillNote message={rowAutofillHint(row, 'specialization_id')} />

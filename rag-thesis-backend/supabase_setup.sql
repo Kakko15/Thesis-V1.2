@@ -41,16 +41,26 @@ create table if not exists public.profiles (
 );
 
 -- Sign-up goes straight from the browser to Supabase Auth and never traverses the
--- API. Any valid email address may create a student account; public registration
--- remains limited to CCSICT and cannot request a privileged role. Faculty accounts
--- require administrator approval.
+-- API, so this trigger is the account-default policy. Students on the
+-- institutional email domain are approved on creation; any other address, and
+-- every faculty request, waits for administrator approval
+-- (migrations/20261126_institutional_signup_domain_gate.sql). Public registration
+-- remains limited to CCSICT and cannot request a privileged role.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
 declare
+  institutional_domain text := lower(coalesce(
+    nullif(current_setting('app.institutional_email_domain', true), ''),
+    'isu.edu.ph'
+  ));
   requested_role text := new.raw_user_meta_data ->> 'requested_role';
+  email_domain text := split_part(lower(coalesce(new.email, '')), '@', 2);
+  -- The domain itself or any subdomain of it (e.g. a student mail subdomain).
+  is_institutional boolean := email_domain = institutional_domain
+    or email_domain like ('%.' || institutional_domain);
 begin
   insert into public.profiles (id, email, full_name, role, department, status)
   values (
@@ -59,7 +69,12 @@ begin
     coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
     case when requested_role = 'faculty' then 'faculty' else 'student' end,
     'CCSICT', -- Public registration cannot self-assign another department.
-    case when requested_role = 'faculty' then 'pending' else 'approved' end
+    -- Faculty always needs review; so does anyone off the institutional domain.
+    case
+      when requested_role = 'faculty' then 'pending'
+      when not is_institutional then 'pending'
+      else 'approved'
+    end
   )
   on conflict (id) do nothing;
   return new;

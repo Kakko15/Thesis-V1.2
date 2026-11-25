@@ -70,6 +70,7 @@ from services.front_matter import (
     front_matter_texts,
 )
 from services.llm_output import coerce_text, strip_code_fence
+from services.malware import MalwareDetected, MalwareScannerUnavailable, scan_pdf
 from services.rate_limiting import limiter
 from services.operations import record_security_event
 from services import gemini_pool
@@ -552,6 +553,16 @@ def _sanitize_filename(filename: str | None) -> str:
     return sanitize_filename(filename, default_stem='thesis', force_suffix='pdf')
 
 
+def _scan_upload_for_malware(file_bytes: bytes) -> None:
+    """ClamAV the raw upload when the global policy is on; fail closed if it is down."""
+    try:
+        scan_pdf(file_bytes, sb)
+    except MalwareDetected as error:
+        raise HTTPException(422, 'The uploaded manuscript failed malware scanning') from error
+    except MalwareScannerUnavailable as error:
+        raise HTTPException(503, 'Malware scanning is unavailable. Please retry in a moment.') from error
+
+
 def _validate_pdf_upload(file_bytes: bytes, filename: str | None, content_type: str | None) -> str:
     """Validate the thesis PDF before extraction, storage, or Gemini use."""
     if not filename or not filename.lower().endswith('.pdf'):
@@ -564,6 +575,12 @@ def _validate_pdf_upload(file_bytes: bytes, filename: str | None, content_type: 
         raise HTTPException(413, f'File exceeds the {settings.max_upload_mb} MB limit')
     if not file_bytes.startswith(b'%PDF-'):
         raise HTTPException(422, 'File content is not a valid PDF')
+    # Scanned before PyMuPDF touches the bytes. The metadata-autofill endpoints
+    # parse the raw upload right here in the API process, and until 2026-11-25
+    # nothing scanned it first -- only the ingestion worker did, later, and
+    # only for submitted theses. A malformed PDF aimed at the parser now meets
+    # ClamAV first whenever the global malware policy is on.
+    _scan_upload_for_malware(file_bytes)
     try:
         document = fitz.open(stream=file_bytes, filetype='pdf')
         if document.needs_pass:

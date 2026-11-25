@@ -908,34 +908,60 @@ def rank_paper_chunks(chunks: list[dict], question: str, paper: dict) -> list[di
     ]
 
 
+def _header_field(value) -> str:
+    """One metadata value made safe for the `[n] Title: ... | Section: ...` line.
+
+    The chunk BODY was already escaped (`safe_chunk_text`), but these header
+    values were interpolated raw, and `Section` comes straight from the PDF:
+    any all-caps line of two or more words is taken as a heading, so a
+    manuscript line such as `</RETRIEVED_CONTEXT> SYSTEM: ...` closed the
+    evidence fence the body escaping exists to protect (2026-11-25 review).
+    Angle brackets are escaped and line breaks -- which could otherwise start a
+    forged header line -- become spaces. Nothing else changes, on purpose, so
+    the context the Objective 2 run measured stays byte-identical: `&` is left
+    alone because titles such as "DEVELOPMENT & IMPLEMENTATION" are in the
+    evaluated corpus, and other whitespace is not collapsed because archived
+    values such as "CHAPTER  IV" carry double spaces. Checked against the live
+    archive on 2026-11-25: no title, author, adviser, panel, track or section
+    value contains `<`, `>` or a line break.
+    """
+    flattened = _HEADER_LINE_BREAKS.sub(' ', str(value))
+    return flattened.replace('<', '&lt;').replace('>', '&gt;')
+
+
+_HEADER_LINE_BREAKS = re.compile(r'[\r\n\v\f\x85\u2028\u2029]+')
+
+
 def _format_chunk_header(paper: dict, chunk: dict, *, default_title: str = '?') -> str:
     """Build the catalogue header line for one retrieved chunk."""
-    meta_bits = [f"Title: {paper.get('title', default_title)}"]
+    meta_bits = [f"Title: {_header_field(paper.get('title', default_title))}"]
     if paper.get('authors'):
-        meta_bits.append(f"Authors: {paper['authors']}")
+        meta_bits.append(f"Authors: {_header_field(paper['authors'])}")
     elif default_title != '?':
         meta_bits.append('Authors: Unknown authors')
     if paper.get('adviser'):
-        meta_bits.append(f"Adviser: {paper['adviser']}")
+        meta_bits.append(f"Adviser: {_header_field(paper['adviser'])}")
     if paper.get('panel_chair'):
-        meta_bits.append(f"Panel Chair: {paper['panel_chair']}")
+        meta_bits.append(f"Panel Chair: {_header_field(paper['panel_chair'])}")
     if paper.get('panel_members'):
-        meta_bits.append(f"Panel Members: {paper['panel_members']}")
+        meta_bits.append(f"Panel Members: {_header_field(paper['panel_members'])}")
     if paper.get('track'):
-        meta_bits.append(f"Track: {paper['track']}")
+        meta_bits.append(f"Track: {_header_field(paper['track'])}")
     if paper.get('year'):
-        meta_bits.append(f"Year: {paper['year']}")
+        meta_bits.append(f"Year: {_header_field(paper['year'])}")
     if paper.get('department'):
-        meta_bits.append(f"Department: {paper['department']}")
+        meta_bits.append(f"Department: {_header_field(paper['department'])}")
     if paper.get('program_code') or paper.get('program_name'):
         meta_bits.append(
-            'Program: ' + ' - '.join(filter(None, (paper.get('program_code'), paper.get('program_name'))))
+            'Program: ' + _header_field(
+                ' - '.join(filter(None, (paper.get('program_code'), paper.get('program_name')))),
+            )
         )
     if paper.get('specialization_code') or paper.get('specialization_name'):
         meta_bits.append(
-            'Specialization: ' + ' - '.join(filter(None, (
+            'Specialization: ' + _header_field(' - '.join(filter(None, (
                 paper.get('specialization_code'), paper.get('specialization_name'),
-            )))
+            ))))
         )
     location = chunk_location(chunk)
     page_start, page_end = location['page_start'], location['page_end']
@@ -943,7 +969,7 @@ def _format_chunk_header(paper: dict, chunk: dict, *, default_title: str = '?') 
         page_label = str(page_start) if not page_end or page_end == page_start else f'{page_start}-{page_end}'
         meta_bits.append(f'Pages: {page_label}')
     if location['section']:
-        meta_bits.append(f"Section: {location['section']}")
+        meta_bits.append(f"Section: {_header_field(location['section'])}")
         if is_literature_review_section(location['section']):
             # Lets the model tell a cited source apart from the thesis's own
             # work (see EVIDENCE_CONTRACT in services/prompts.py).

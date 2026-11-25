@@ -80,6 +80,8 @@ The critical suite covers protected-route redirects, grounded guest chat and ref
 
 Run `npm.cmd run build` and deploy the generated `dist` directory. Configure the host to serve `index.html` for unknown browser routes so hard refreshes on `/chat`, `/upload`, and other React routes do not return 404. Configure the production backend URL and CORS origin explicitly.
 
+The container serves the security headers (Content-Security-Policy, Permissions-Policy, HSTS, frame and MIME protections) from `nginx/default.conf.template`; any other static host must be configured to send the same set. Check a deployment with `npm.cmd run security:headers -- https://your-deployment.example`.
+
 ## Troubleshooting
 
 - Backend unavailable or repeated connection errors: start FastAPI on port 8000 and confirm `/health` returns 200.

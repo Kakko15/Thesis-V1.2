@@ -595,6 +595,42 @@ class TestRetrievalAndGenerationFlow:
         assert captured['is_overview'] is False
         assert response.sources[0]['id'] == 'p2'
 
+    def test_library_compare_prompt_scopes_retrieval_to_every_quoted_thesis(self, monkeypatch):
+        first = 'A Centralized AI-Powered Thesis Library Using Retrieval-Augmented Generation'
+        second = 'FindMe: A Computer Vision-based Detector for Missing Person'
+        ids_by_title = {first: 'p1', second: 'p2'}
+        monkeypatch.setattr(chat, 'find_papers_by_title', lambda title, *_args: [{
+            'id': ids_by_title[title], 'title': title,
+        }])
+        captured = {}
+
+        async def retrieve(question, _department, paper_id, is_overview, _category=None, per_paper_cap=None):
+            captured.update(question=question, paper_id=paper_id, is_overview=is_overview)
+            return ('[1] Library evidence\n\n[2] FindMe evidence', [
+                {'citation_id': 1, 'id': 'p1', 'chunk_id': 1, 'title': first},
+                {'citation_id': 2, 'id': 'p2', 'chunk_id': 2, 'title': second},
+            ], 1.0), None
+
+        async def generate(*_args):
+            return SimpleNamespace(
+                content=f'{first} builds a RAG library [1]. {second} detects missing persons [2].',
+            ), None
+
+        monkeypatch.setattr(chat, '_retrieve_evidence', retrieve)
+        monkeypatch.setattr(chat, '_invoke_generation', generate)
+        question = (
+            f'Compare the following 2 archived theses side by side — 1. "{first}" (2026, BSCS); '
+            f'2. "{second}" (2024, BSCS) — focusing on their research objectives, '
+            'methodologies, key findings, and unexplored research gaps.'
+        )
+        response = run(chat._chat_impl(
+            ChatRequest(question=question), _NoRequest(), BackgroundTasks(), None,
+        ))
+
+        assert captured['paper_id'] == ['p1', 'p2']
+        assert captured['is_overview'] is False
+        assert [source['id'] for source in response.sources] == ['p1', 'p2']
+
     def test_numbered_session_followup_uses_the_last_answer_source_order(self, monkeypatch):
         references = [
             {'id': 'p1', 'title': 'First Thesis', 'authors': 'Author One'},
@@ -898,6 +934,63 @@ class TestChatPersistence:
         ))
         assert response.session_id is None
         assert response.history_saved is False
+
+    def test_a_turn_over_the_ceiling_answers_with_a_timeout_notice(self, monkeypatch):
+        # Measured 2026-11-25: turns hung past 60 s with nothing bounding the
+        # chain of model calls. The wrapper now cancels the turn and answers.
+        saved = []
+
+        async def slow_implementation(*_args, **_kwargs):
+            await asyncio.sleep(5)
+            return ChatResponse(answer='Grounded [1].', sources=[{'id': 'p1'}])
+
+        def persist(_req, response, *_args):
+            saved.append(response.kind)
+            return 'session-1'
+
+        monkeypatch.setattr(chat, '_chat_impl', slow_implementation)
+        monkeypatch.setattr(chat.settings, 'chat_turn_timeout_seconds', 0.05)
+        monkeypatch.setattr(chat, 'safe_trace', no_trace)
+        monkeypatch.setattr(chat, 'resolve_effective_department', lambda *_args: 'CCSICT')
+        monkeypatch.setattr(chat, '_persist_chat_exchange', persist)
+        endpoint = inspect.unwrap(chat.chat)
+        response = run(endpoint(
+            ChatRequest(question='Explain the method'),
+            request(),
+            BackgroundTasks(),
+            SimpleNamespace(id='u1'),
+        ))
+        assert response.answer == chat.chat_notices.TIMEOUT_MESSAGE
+        assert response.kind == 'notice'
+        assert response.sources == []
+        assert saved == ['notice']
+        assert response.history_saved is True
+
+    def test_a_turn_inside_the_ceiling_is_untouched(self, monkeypatch):
+        async def implementation(*_args, **_kwargs):
+            return ChatResponse(answer='Grounded [1].', sources=[{'id': 'p1'}], kind='answer')
+
+        monkeypatch.setattr(chat, '_chat_impl', implementation)
+        monkeypatch.setattr(chat, 'safe_trace', no_trace)
+        endpoint = inspect.unwrap(chat.chat)
+        response = run(endpoint(
+            ChatRequest(question='Explain the method'),
+            request(),
+            BackgroundTasks(),
+            None,
+        ))
+        assert response.answer == 'Grounded [1].'
+
+    def test_http_errors_inside_the_turn_still_propagate(self, monkeypatch):
+        async def refuse(*_args, **_kwargs):
+            raise HTTPException(status_code=503, detail='archive unavailable')
+
+        monkeypatch.setattr(chat, '_chat_impl', refuse)
+        monkeypatch.setattr(chat, 'safe_trace', no_trace)
+        endpoint = inspect.unwrap(chat.chat)
+        with pytest.raises(HTTPException) as raised:
+            run(endpoint(ChatRequest(question='Explain the method'), request(), BackgroundTasks(), None))
+        assert raised.value.status_code == 503
 
 
 async def _async_value(value):

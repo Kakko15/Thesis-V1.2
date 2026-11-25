@@ -234,11 +234,13 @@ export default function AdminOverview() {
           <div className="max-h-80 space-y-2.5 overflow-y-auto pr-1">
             {loadingUsers && USER_SKELETONS.map((slotId) => <Skeleton key={slotId} className="h-14" />)}
             {users.map((u) => (
-              <div key={u.id} className="glass flex items-center gap-3 rounded-2xl p-3">
+              // flex-wrap drops the role picker under the name on a narrow card;
+              // inline, it truncated names to 2-3 characters (2026-11-26).
+              <div key={u.id} className="glass flex flex-wrap items-center gap-3 rounded-2xl p-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-forest-600 to-forest-800 text-xs font-bold text-white">
                   {(u.full_name || u.email || '?').slice(0, 1).toUpperCase()}
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-[9rem] flex-1">
                   <div className="truncate text-sm font-semibold">{u.full_name || u.email}</div>
                   <div className="mt-0.5"><RoleBadge role={u.role} /></div>
                 </div>
@@ -247,7 +249,7 @@ export default function AdminOverview() {
                     value={u.role}
                     disabled={changing === u.id}
                     onChange={(e) => changeRole(u, e.target.value)}
-                    className="h-8 w-28 rounded-xl px-2.5 text-xs"
+                    className="ml-auto h-8 w-28 rounded-xl px-2.5 text-xs"
                     aria-label={`Role for ${u.email}`}
                   >
                     <option value="student">Student</option>

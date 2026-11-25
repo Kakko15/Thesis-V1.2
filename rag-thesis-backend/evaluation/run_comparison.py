@@ -559,18 +559,30 @@ GEMINI_OPENAI_COMPAT_BASE_URL = 'https://generativelanguage.googleapis.com/v1bet
 _EVALUATOR_MAX_TOKENS = 16384
 
 
-async def _score_with_ragas(rows: list[dict], checkpoint: Path | None = None) -> dict:
-    """Use explicit Gemini-backed Ragas metrics with valid pathway semantics.
+def _evaluator_api_keys() -> list[str]:
+    """Primary Gemini key followed by any distinct configured reserve keys."""
+    keys: list[str] = []
+    for key in (settings.gemini_api_key, *settings.gemini_reserve_key_list):
+        cleaned = (key or '').strip()
+        if cleaned and cleaned not in keys:
+            keys.append(cleaned)
+    return keys or [settings.gemini_api_key]
 
-    Scoring is the longer half of a run: three judged metrics per query, each
-    its own model call. Every query's scores are checkpointed as they land, and
-    a judge call that fails transiently is retried rather than taking the whole
-    run with it.
 
-    A row the provider never processed is not scored at all. Its `rag_answer`
-    is an outage notice, and scoring that against the ground truth would record
-    the RAG arm as wrong for a question it was never asked.
-    """
+def _is_capacity_exception(error: BaseException) -> bool:
+    """True when an exception or its cause chain represents a 429/quota error."""
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, Exception) and chat_notices.is_capacity_error(current):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _build_ragas_metrics(api_key: str):
+    """Construct Ragas judge metrics bound to one Gemini API key."""
     from google import genai
     from openai import AsyncOpenAI
     from ragas.embeddings import GoogleEmbeddings
@@ -581,21 +593,44 @@ async def _score_with_ragas(rows: list[dict], checkpoint: Path | None = None) ->
         settings.gemini_verdict_model,
         provider='openai',
         client=AsyncOpenAI(
-            api_key=settings.gemini_api_key,
+            api_key=api_key,
             base_url=GEMINI_OPENAI_COMPAT_BASE_URL,
         ),
         max_tokens=_EVALUATOR_MAX_TOKENS,
     )
     evaluator_embeddings = GoogleEmbeddings(
-        client=genai.Client(api_key=settings.gemini_api_key),
+        client=genai.Client(api_key=api_key),
         model=settings.gemini_embed_model.removeprefix('models/'),
     )
-    answer_correctness = AnswerCorrectness(
-        llm=evaluator_llm,
-        embeddings=evaluator_embeddings,
+    return (
+        AnswerCorrectness(llm=evaluator_llm, embeddings=evaluator_embeddings),
+        Faithfulness(llm=evaluator_llm),
+        ContextPrecision(llm=evaluator_llm),
     )
-    faithfulness = Faithfulness(llm=evaluator_llm)
-    context_precision = ContextPrecision(llm=evaluator_llm)
+
+
+async def _score_with_ragas(rows: list[dict], checkpoint: Path | None = None) -> dict:
+    """Use explicit Gemini-backed Ragas metrics with valid pathway semantics.
+
+    Scoring is the longer half of a run: three judged metrics per query, each
+    its own model call. Every query's scores are checkpointed as they land, and
+    a judge call that fails transiently is retried rather than taking the whole
+    run with it. Capacity (429/quota) errors rotate across the same reserve
+    Gemini key pool that `run_pathways` uses, keeping the judge model identical
+    while preventing a single key's 500-RPD cap from stranding a 40-query run.
+
+    A row the provider never processed is not scored at all. Its `rag_answer`
+    is an outage notice, and scoring that against the ground truth would record
+    the RAG arm as wrong for a question it was never asked.
+    """
+    api_keys = _evaluator_api_keys()
+    metrics_cache: dict[int, tuple] = {}
+    active_key_index = 0
+
+    def active_metrics():
+        if active_key_index not in metrics_cache:
+            metrics_cache[active_key_index] = _build_ragas_metrics(api_keys[active_key_index])
+        return metrics_cache[active_key_index]
 
     baseline_scores: list[dict] = []
     rag_scores: list[dict] = []
@@ -604,18 +639,31 @@ async def _score_with_ragas(rows: list[dict], checkpoint: Path | None = None) ->
         print(f'  resuming: {len(done)} of {len(rows)} queries already scored')
 
     async def judged(label, call):
-        """Await one judge call, retrying transient provider failures."""
+        """Await one judge call, rotating reserve keys on capacity errors."""
+        nonlocal active_key_index
         for attempt in range(1, _UNATTEMPTED_MAX_ATTEMPTS + 1):
-            try:
-                return await call()
-            except Exception as error:  # pylint: disable=broad-exception-caught
-                if attempt == _UNATTEMPTED_MAX_ATTEMPTS:
-                    raise
-                delay = _UNATTEMPTED_BACKOFF_SECONDS[
-                    min(attempt - 1, len(_UNATTEMPTED_BACKOFF_SECONDS) - 1)
-                ]
-                print(f'      {label} failed ({type(error).__name__}); retrying in {delay}s')
-                await asyncio.sleep(delay)
+            tried_slots = 0
+            while True:
+                try:
+                    return await call(*active_metrics())
+                except Exception as error:  # pylint: disable=broad-exception-caught
+                    tried_slots += 1
+                    if _is_capacity_exception(error) and tried_slots < len(api_keys):
+                        failed_slot = active_key_index + 1
+                        active_key_index = (active_key_index + 1) % len(api_keys)
+                        print(
+                            f'      {label} hit capacity on key {failed_slot}/{len(api_keys)}; '
+                            f'rotating to key {active_key_index + 1}/{len(api_keys)}'
+                        )
+                        continue
+                    if attempt == _UNATTEMPTED_MAX_ATTEMPTS:
+                        raise
+                    delay = _UNATTEMPTED_BACKOFF_SECONDS[
+                        min(attempt - 1, len(_UNATTEMPTED_BACKOFF_SECONDS) - 1)
+                    ]
+                    print(f'      {label} failed ({type(error).__name__}); retrying in {delay}s')
+                    await asyncio.sleep(delay)
+                    break
         raise AssertionError('unreachable')
 
     for index, row in enumerate(rows, start=1):
@@ -637,13 +685,13 @@ async def _score_with_ragas(rows: list[dict], checkpoint: Path | None = None) ->
             common = {'user_input': row['question'], 'reference': row['ground_truth']}
             baseline_correctness = await judged(
                 'baseline answer_correctness',
-                lambda common=common, row=row: answer_correctness.ascore(
+                lambda ac, _f, _cp, common=common, row=row: ac.ascore(
                     **common, response=row['baseline_answer'],
                 ),
             )
             rag_correctness = await judged(
                 'rag answer_correctness',
-                lambda common=common, row=row: answer_correctness.ascore(
+                lambda ac, _f, _cp, common=common, row=row: ac.ascore(
                     **common, response=row['rag_answer'],
                 ),
             )
@@ -653,7 +701,7 @@ async def _score_with_ragas(rows: list[dict], checkpoint: Path | None = None) ->
             if contexts:
                 rag_faithfulness = await judged(
                     'rag faithfulness',
-                    lambda row=row, contexts=contexts: faithfulness.ascore(
+                    lambda _ac, faith, _cp, row=row, contexts=contexts: faith.ascore(
                         user_input=row['question'],
                         response=row['rag_answer'],
                         retrieved_contexts=contexts,
@@ -661,7 +709,7 @@ async def _score_with_ragas(rows: list[dict], checkpoint: Path | None = None) ->
                 )
                 rag_context_precision = await judged(
                     'rag context_precision',
-                    lambda common=common, contexts=contexts: context_precision.ascore(
+                    lambda _ac, _f, cp, common=common, contexts=contexts: cp.ascore(
                         **common, retrieved_contexts=contexts,
                     ),
                 )

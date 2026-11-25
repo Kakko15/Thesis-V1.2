@@ -668,3 +668,139 @@ def test_the_row_records_whether_the_rag_arm_answered_or_only_noticed(monkeypatc
     # Still scored and never retried — but not a research answer.
     assert refused[0]['rag_kind'] == chat_notices.KIND_NOTICE
     assert refused[0]['rag_unattempted'] is False
+
+
+# --- Ragas judge reserve-key failover --------------------------------------
+
+
+def test_ragas_scoring_rotates_to_reserve_key_on_capacity_error(monkeypatch):
+    """A 429 on the primary key rotates immediately and stays on the healthy key."""
+    calls: list[tuple[str, str]] = []
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    class _FakeMetric:
+        def __init__(self, key: str, name: str, score: float):
+            self._key = key
+            self._name = name
+            self._score = score
+
+        async def ascore(self, **_kwargs):
+            calls.append((self._key, self._name))
+            if self._key == 'primary-key':
+                raise RuntimeError(
+                    'Error code: 429 - RESOURCE_EXHAUSTED: quota exceeded'
+                )
+            return SimpleNamespace(value=self._score)
+
+    monkeypatch.setattr(run_comparison.asyncio, 'sleep', fake_sleep)
+    monkeypatch.setattr(
+        run_comparison,
+        '_evaluator_api_keys',
+        lambda: ['primary-key', 'reserve-key'],
+    )
+    monkeypatch.setattr(
+        run_comparison,
+        '_build_ragas_metrics',
+        lambda api_key: (
+            _FakeMetric(api_key, 'ac', 0.8),
+            _FakeMetric(api_key, 'faith', 0.9),
+            _FakeMetric(api_key, 'cp', 0.7),
+        ),
+    )
+
+    rows = [
+        {
+            'id': 1,
+            'question': 'Q1',
+            'ground_truth': 'GT1',
+            'baseline_answer': 'B1',
+            'rag_answer': 'R1',
+            'rag_contexts': ['C1'],
+            'rag_unattempted': False,
+        },
+        {
+            'id': 2,
+            'question': 'Q2',
+            'ground_truth': 'GT2',
+            'baseline_answer': 'B2',
+            'rag_answer': 'R2',
+            'rag_contexts': ['C2'],
+            'rag_unattempted': False,
+        },
+    ]
+
+    result = asyncio.run(run_comparison._score_with_ragas(rows))
+
+    assert sleeps == []
+    assert calls[0] == ('primary-key', 'ac')
+    # Every call after the initial 429 stays on the reserve key without retrying the dead key.
+    assert all(key == 'reserve-key' for key, _name in calls[1:])
+    assert result['baseline'] == [{'answer_correctness': 0.8}, {'answer_correctness': 0.8}]
+    assert result['rag'][0] == {
+        'answer_correctness': 0.8,
+        'faithfulness': 0.9,
+        'context_precision': 0.7,
+    }
+
+
+def test_ragas_scoring_retries_non_capacity_errors_without_rotating(monkeypatch):
+    """Transient non-quota errors use backoff on the same key instead of rotating."""
+    keys_seen: list[str] = []
+    sleeps: list[float] = []
+    attempts = {'ac': 0}
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    class _FlakyMetric:
+        def __init__(self, key: str, flaky: bool):
+            self._key = key
+            self._flaky = flaky
+
+        async def ascore(self, **_kwargs):
+            keys_seen.append(self._key)
+            if self._flaky:
+                attempts['ac'] += 1
+                if attempts['ac'] == 1:
+                    raise ValueError('malformed judge JSON')
+            return SimpleNamespace(value=0.5)
+
+    monkeypatch.setattr(run_comparison.asyncio, 'sleep', fake_sleep)
+    monkeypatch.setattr(
+        run_comparison,
+        '_evaluator_api_keys',
+        lambda: ['primary-key', 'reserve-key'],
+    )
+    monkeypatch.setattr(
+        run_comparison,
+        '_build_ragas_metrics',
+        lambda api_key: (
+            _FlakyMetric(api_key, True),
+            _FlakyMetric(api_key, False),
+            _FlakyMetric(api_key, False),
+        ),
+    )
+
+    row = {
+        'id': 1,
+        'question': 'Q1',
+        'ground_truth': 'GT1',
+        'baseline_answer': 'B1',
+        'rag_answer': 'R1',
+        'rag_contexts': [],
+        'rag_unattempted': False,
+    }
+
+    result = asyncio.run(run_comparison._score_with_ragas([row]))
+
+    assert len(sleeps) == 1
+    assert set(keys_seen) == {'primary-key'}
+    assert result['baseline'] == [{'answer_correctness': 0.5}]
+    assert result['rag'] == [{
+        'answer_correctness': 0.5,
+        'faithfulness': None,
+        'context_precision': None,
+    }]

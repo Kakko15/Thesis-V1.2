@@ -2,10 +2,36 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-import { branchBeforePrompt, dropPendingPrompt } from './transcript.js'
+import {
+  answerAnnouncement, branchBeforePrompt, dropPendingPrompt, editWarningMessage, laterTurnCount,
+  matchesSavedRows, settledTranscript,
+} from './transcript.js'
 
 const user = (text) => ({ id: text, kind: 'user', text })
 const ai = (answer) => ({ id: answer, kind: 'ai', answer })
+
+test('a freshly arrived answer is announced as plain prose', () => {
+  const fresh = { ...ai('**ISU-CANNER** used a CNN [1][2, 3]. See [the paper](https://x.test).\n\n| a | b |\n|---|---|'), isNew: true }
+  assert.equal(
+    answerAnnouncement([user('q'), fresh]),
+    'IskAI answered: ISU-CANNER used a CNN. See the paper. a b',
+  )
+})
+
+test('restored, pending and empty transcripts announce nothing new', () => {
+  assert.equal(answerAnnouncement([user('q'), ai('saved answer')]), '')
+  assert.equal(answerAnnouncement([user('q')]), '')
+  assert.equal(answerAnnouncement([]), '')
+  assert.equal(answerAnnouncement(null), '')
+  assert.equal(answerAnnouncement([{ kind: 'ai', isNew: true, answer: '```code```' }]), 'IskAI answered.')
+})
+
+test('a long answer is cut at a word boundary', () => {
+  const long = { ...ai('word '.repeat(100)), isNew: true }
+  const spoken = answerAnnouncement([long], 20)
+  assert.equal(spoken, 'IskAI answered: word word word word…')
+  assert.equal(answerAnnouncement([{ kind: 'ai', isNew: true, answer: 'x'.repeat(30) }], 10), `IskAI answered: ${'x'.repeat(10)}…`)
+})
 
 test('an abandoned question is withdrawn from the transcript', () => {
   assert.deepEqual(
@@ -137,4 +163,81 @@ test('the request carries visible conversation replies for no-repeat selection',
   assert.match(chat, /message\.notice_type === 'conversation'/)
   assert.match(chat, /\.map\(\(message\) => message\.answer\)/)
   assert.match(chat, /\.slice\(-30\)/)
+})
+
+test('a cached transcript never replays entrance animations', () => {
+  const fresh = { ...ai('new answer'), isNew: true }
+  const prompt = { ...user('asked'), isNew: true }
+  const settled = settledTranscript([user('old'), ai('old answer'), prompt, fresh])
+  assert.equal(settled.some((message) => message.isNew), false)
+  assert.deepEqual(settled[3], { ...fresh, isNew: false })
+  // Entries that never animated are passed through untouched.
+  assert.equal(settled[0].id, 'old')
+  for (const messages of [undefined, null, 'not-a-list']) {
+    assert.deepEqual(settledTranscript(messages), [])
+  }
+})
+
+test('a cached transcript matches the saved rows it was built from', () => {
+  const rows = [
+    { question: 'first', answer: 'first answer' },
+    { question: 'second', answer: 'second answer' },
+  ]
+  const shown = [user('first'), ai('first answer'), user('second'), ai('second answer')]
+  assert.equal(matchesSavedRows(shown, rows), true)
+  assert.equal(matchesSavedRows([], []), true)
+})
+
+test('any saved change elsewhere makes the cached transcript stale', () => {
+  const rows = [{ question: 'first', answer: 'first answer' }]
+  const shown = [user('first'), ai('first answer')]
+  // Another device added a turn.
+  assert.equal(matchesSavedRows(shown, [...rows, { question: 'more', answer: 'x' }]), false)
+  // A regenerated answer.
+  assert.equal(matchesSavedRows(shown, [{ question: 'first', answer: 'rewritten' }]), false)
+  // An edited prompt.
+  assert.equal(matchesSavedRows(shown, [{ question: 'edited', answer: 'first answer' }]), false)
+  // A pending prompt on screen is not a saved turn.
+  assert.equal(matchesSavedRows([...shown, user('pending')], rows), false)
+  assert.equal(matchesSavedRows(null, rows), false)
+  assert.equal(matchesSavedRows(shown, null), false)
+})
+
+test('opening a conversation paints from the cache before any fetch', () => {
+  /* The click must not wait on the network when the transcript is cached or
+   * already being prefetched: the cached copy is read synchronously first, a
+   * miss joins any in-flight prefetch through fetchQuery, and the sidebar
+   * starts that prefetch on hover, focus and press. */
+  const chat = readFileSync(new URL('../Chat.jsx', import.meta.url), 'utf8')
+  const start = chat.indexOf('const loadSession = ')
+  const rest = chat.slice(start)
+  const body = rest.slice(0, rest.search(/\n {2}const newConversation = /))
+  const cacheRead = body.indexOf('queryClient.getQueryData(query.queryKey)')
+  const networkRead = body.indexOf('getSessionMessages(')
+  assert.notEqual(cacheRead, -1, 'loadSession no longer reads the transcript cache')
+  assert.ok(cacheRead < networkRead, 'loadSession fetches before consulting the cache')
+  assert.match(body, /queryClient\.fetchQuery\(query\)/)
+  for (const handler of ['onPointerEnter', 'onFocus', 'onPointerDown']) {
+    assert.match(chat, new RegExp(`${handler}=\\{\\(\\) => onPrefetch\\?\\.\\(s\\)\\}`))
+  }
+})
+
+test('an edit warns only about the questions that come after it', () => {
+  const messages = [
+    { id: 'u1', kind: 'user' }, { id: 'a1', kind: 'ai' },
+    { id: 'u2', kind: 'user' }, { id: 'a2', kind: 'ai' },
+    { id: 'u3', kind: 'user' }, { id: 'a3', kind: 'ai' },
+  ]
+  assert.equal(laterTurnCount(messages, 'u1'), 2)
+  assert.equal(laterTurnCount(messages, 'u2'), 1)
+  // Editing the newest question only replaces its own answer.
+  assert.equal(laterTurnCount(messages, 'u3'), 0)
+  assert.equal(laterTurnCount(messages, 'a1'), 0)
+  assert.equal(laterTurnCount(messages, 'missing'), 0)
+  assert.equal(laterTurnCount(null, 'u1'), 0)
+})
+
+test('the edit warning names what will be lost', () => {
+  assert.equal(editWarningMessage(1, true), 'Your edited question will be answered again, and the question that follows it and its answer will be permanently deleted from this conversation.')
+  assert.equal(editWarningMessage(3, false), 'Your edited question will be answered again, and the 3 questions that follow it and their answers will be removed.')
 })

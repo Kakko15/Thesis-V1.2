@@ -4,6 +4,7 @@ import { normalizeDepartments } from './lib/catalog'
 import { isPublicUnauthenticatedRequest, waitUntilReady } from './lib/backendReadiness'
 import { loginPathWithNext } from './lib/idleSession'
 import { isPrivilegedMfaRefusal, reportPrivilegedMfaRequired } from './lib/privilegedMfa.js'
+import { isAuthServiceUnavailable } from './lib/apiErrors.js'
 import { isE2ETestMode, readE2EAuthFixture } from './testing/e2eSession'
 
 const api = axios.create({
@@ -17,6 +18,9 @@ const api = axios.create({
 // Keep automatic GET retries only for genuinely transient gateway failures.
 const TRANSIENT_GATEWAY_STATUSES = new Set([502, 504])
 const MAX_TRANSIENT_GET_RETRIES = 2
+// The one 503 worth a single quiet retry: the API briefly could not reach
+// Supabase Auth to check the token (it has already retried once itself).
+const AUTH_UNAVAILABLE_RETRY_DELAY_MS = 1500
 const SHOULD_WAIT_FOR_DEV_BACKEND = import.meta.env.DEV && !import.meta.env.VITE_API_URL
 
 let backendReady = !SHOULD_WAIT_FOR_DEV_BACKEND
@@ -119,6 +123,16 @@ api.interceptors.response.use(
       backendReady = false
       config.__transientGetRetries = (config.__transientGetRetries || 0) + 1
       await retryDelay(config.__transientGetRetries)
+      return api.request(config)
+    }
+
+    if (
+      config?.method?.toLowerCase() === 'get'
+      && !config.__authUnavailableRetried
+      && isAuthServiceUnavailable(error)
+    ) {
+      config.__authUnavailableRetried = true
+      await new Promise((resolve) => window.setTimeout(resolve, AUTH_UNAVAILABLE_RETRY_DELAY_MS))
       return api.request(config)
     }
 

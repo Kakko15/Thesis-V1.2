@@ -2,6 +2,8 @@ import { useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useIsDark } from '../../hooks/useIsDark'
+import { useMalwareScanEnabled } from '../../hooks/useMalwareScanEnabled'
+import { scanPhaseCopy } from '../../lib/malwareScan'
 import { useSceneRuntime } from './useSceneRuntime'
 import { makeGlowTexture, mulberry32 } from './constellation'
 
@@ -712,8 +714,14 @@ function Css3DFallback({ progress, activeStageKey }) {
 export default function IngestScene3D({ progress = 8, stage = 'Secure source', stageKey }) {
   const isDark = useIsDark()
   const { degraded, lost, paused, onCreated, pointerRef } = useSceneRuntime()
+  const malwareScanEnabled = useMalwareScanEnabled()
   const activeStageKey = normalizeStageKey(stageKey || stage)
-  const cfg = PHASE_CONFIGS[activeStageKey] ?? PHASE_CONFIGS.download
+  const baseCfg = PHASE_CONFIGS[activeStageKey] ?? PHASE_CONFIGS.download
+  // The malware phase used to announce "CLAMAV HEURISTIC RADAR ACTIVE" even
+  // with scanning turned off; its copy now follows the live policy.
+  const cfg = activeStageKey === 'malware_scan'
+    ? { ...baseCfg, ...scanPhaseCopy(malwareScanEnabled) }
+    : baseCfg
 
   if (lost) {
     return <Css3DFallback progress={progress} activeStageKey={activeStageKey} />

@@ -7,11 +7,16 @@ import {
   deriveHealthStatus,
 } from './healthStatus.js'
 
-test('the initial in-flight check is neutral, never "Offline"', () => {
+test('the initial in-flight check reads online at once, never "Checking" or "Offline"', () => {
   const status = deriveHealthStatus({ data: undefined, isError: false, isPending: true })
-  assert.equal(status.state, HEALTH_STATES.CHECKING)
-  assert.equal(status.label, 'Checking…')
-  assert.equal(status.ariaLabel, 'System checking')
+  assert.equal(status.state, HEALTH_STATES.ONLINE)
+  assert.equal(status.label, 'Online')
+  assert.equal(status.ariaLabel, 'System online')
+  assert.equal(Object.values(HEALTH_STATES).includes('checking'), false)
+})
+
+test('a first check that fails after its retries turns the badge offline', () => {
+  assert.equal(deriveHealthStatus({ isError: true, isPending: false }).state, HEALTH_STATES.OFFLINE)
 })
 
 test('settled states keep their existing labels and aria-labels', () => {

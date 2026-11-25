@@ -366,7 +366,14 @@ def _should_continue(label: str, error: BaseException) -> bool:
         return True
     if label == 'groq':
         # Last hop: its failure must not replace the Gemini capacity error.
-        logger.warning('Groq fallback failed (%s)', type(error).__name__)
+        # The status code is the whole diagnosis (429 = Groq rate limit,
+        # 401 = rejected key, 413 = request too large, 5xx = Groq outage), and
+        # the bare class name `APIStatusError` said none of it.
+        logger.warning(
+            'Groq fallback failed (%s, HTTP %s)',
+            type(error).__name__,
+            getattr(error, 'status_code', None) or 'n/a',
+        )
         return True
     return is_capacity_error(error)
 

@@ -300,6 +300,10 @@ def _prewarm_contract_cache() -> None:
         _cached_database_contract()
     except Exception as error:  # pylint: disable=broad-exception-caught
         logger.warning('Health contract pre-warm failed (%s)', type(error).__name__)
+    # Same reason for the token-signing keys: with them cached, the first
+    # signed-in request verifies its token locally instead of fetching them.
+    from dependencies.auth import prewarm_signing_keys
+    prewarm_signing_keys()
 
 
 def start_contract_prewarm() -> None:

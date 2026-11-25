@@ -1,6 +1,7 @@
 import threading
 import time
 import logging
+import httpx
 import jwt
 
 from fastapi import Security, HTTPException, status
@@ -8,6 +9,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import create_client
 
 from config import settings
+from services.network_retry import is_transient_network_error, retry_transient
 
 logger = logging.getLogger(__name__)
 
@@ -130,18 +132,46 @@ def resolve_effective_department(user, requested: str | None = None) -> str:
 
 
 def invalidate_role_cache(user_id: str | None = None):
-    """Drop cached roles (e.g. after an admin changes someone's role)."""
+    """Drop cached roles and approvals (e.g. after an admin changes someone's role)."""
     with _role_cache_lock:
         if user_id:
             _ROLE_CACHE.pop(user_id, None)
         else:
             _ROLE_CACHE.clear()
+    with _approved_cache_lock:
+        if user_id:
+            _APPROVED_CACHE.pop(user_id, None)
+        else:
+            _APPROVED_CACHE.clear()
+
+
+# Approved accounts only: {user_id: expires_at}. Every authenticated request
+# re-read `profiles.status`, so a dashboard opening six requests at once made
+# six identical reads, and one stalled Supabase connection (4.6 s measured
+# 2026-11-24) held the whole page on skeletons. A pending or rejected answer is
+# never cached, so an approval takes effect on the next request; revoking an
+# approval goes through the admin endpoints, which call invalidate_role_cache,
+# and otherwise lapses within the TTL, the same bound the role cache accepts.
+_APPROVED_CACHE: dict[str, float] = {}
+_APPROVED_CACHE_TTL = 30.0
+_APPROVED_CACHE_MAX_ENTRIES = 2048
+_approved_cache_lock = threading.Lock()
 
 
 def _ensure_approved_account(user_id: str) -> None:
     """Reject missing, pending, or rejected profiles at the API boundary."""
+    with _approved_cache_lock:
+        expires_at = _APPROVED_CACHE.get(user_id)
+        if expires_at and expires_at > time.monotonic():
+            return
     try:
-        result = sb.table('profiles').select('status').eq('id', user_id).limit(1).execute()
+        result = retry_transient(
+            lambda: sb.table('profiles').select('status').eq('id', user_id).limit(1).execute(),
+            label='Account status lookup',
+            attempts=3,
+            base_delay_seconds=0.2,
+            logger=logger,
+        )
     except Exception as error:
         logger.exception('Failed to validate account status (%s)', type(error).__name__)
         raise HTTPException(
@@ -153,6 +183,14 @@ def _ensure_approved_account(user_id: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail='This account is pending approval or has been rejected.',
         )
+    now = time.monotonic()
+    with _approved_cache_lock:
+        if len(_APPROVED_CACHE) >= _APPROVED_CACHE_MAX_ENTRIES:
+            for stale in [uid for uid, until in _APPROVED_CACHE.items() if until <= now]:
+                del _APPROVED_CACHE[stale]
+            if len(_APPROVED_CACHE) >= _APPROVED_CACHE_MAX_ENTRIES:
+                _APPROVED_CACHE.clear()
+        _APPROVED_CACHE[user_id] = now + _APPROVED_CACHE_TTL
 
 
 def _token_aal(
@@ -240,19 +278,213 @@ def _require_privileged_mfa(
         )
 
 
+AUTH_UNAVAILABLE_DETAIL = 'Authentication is temporarily unavailable. Please try again in a moment.'
+
+
+# --- Local verification of Supabase access tokens -------------------------
+#
+# Every authenticated request used to call `sb.auth.get_user`, a network round
+# trip to Supabase Auth. Measured 2026-11-24 on the development machine: TLS
+# handshakes to Supabase intermittently stalled past httpx's 5 s timeout, so a
+# dashboard (six parallel requests) sat on skeletons for 10-15 s while each
+# request waited out one or two handshakes just to learn who the caller was.
+#
+# This project signs access tokens with an asymmetric key (ES256), whose public
+# half Supabase publishes at /auth/v1/.well-known/jwks.json. A token verified
+# against that key, with its expiry and `authenticated` audience checked, is
+# the identity Supabase vouches for; this is what supabase-js `getClaims()`
+# does. The key set is fetched once, refreshed every ten minutes, and kept when
+# a refresh fails, so token checks no longer touch the network at all.
+#
+# Trade-off, the same one Supabase documents for `getClaims()`: signing out does
+# not revoke an access token that was already issued, so it stays usable until
+# its `exp` (one hour by default). Account state is NOT on that path: pending,
+# rejected and deleted accounts are still refused by `_ensure_approved_account`
+# on the profile row, which the delete cascade removes.
+#
+# Tokens this cannot verify locally (legacy HS256 without a configured secret,
+# or anything that is not a JWT at all) still go to Supabase Auth as before.
+_JWKS_URL = f"{settings.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+_JWKS_REFRESH_SECONDS = 600.0
+# An unknown `kid` forces a refetch (Supabase rotated its key), but no more
+# often than this, so random `kid` values cannot turn into a request flood.
+_JWKS_MIN_REFETCH_SECONDS = 30.0
+_LOCAL_JWT_ALGORITHMS = frozenset({'ES256', 'RS256', 'EdDSA'})
+_JWT_AUDIENCE = 'authenticated'
+_jwks_state: dict = {'keys': {}, 'fetched_at': 0.0, 'refreshing': False}
+# Guards `_jwks_state`; never held across a download.
+_jwks_lock = threading.Lock()
+# Single-flight for the one blocking case: a `kid` this process has never seen.
+_jwks_fetch_lock = threading.Lock()
+
+
+class VerifiedUser:  # pylint: disable=too-few-public-methods
+    """The caller identity carried by a locally verified Supabase access token.
+
+    Routers read only `.id`; the claims are kept for anything that needs more.
+    """
+
+    def __init__(self, claims: dict):
+        self.claims = claims
+        self.id = claims['sub']
+        self.email = claims.get('email')
+        self.role = claims.get('role')
+        self.aal = claims.get('aal')
+        self.user_metadata = claims.get('user_metadata') or {}
+        self.app_metadata = claims.get('app_metadata') or {}
+
+
+def _download_jwks() -> dict[str, dict]:
+    def fetch() -> dict[str, dict]:
+        response = httpx.get(_JWKS_URL, timeout=5.0)
+        response.raise_for_status()
+        return {key['kid']: key for key in response.json().get('keys', []) if key.get('kid')}
+
+    return retry_transient(
+        fetch, label='Supabase signing-key fetch', attempts=2, base_delay_seconds=0.2, logger=logger,
+    )
+
+
+def _store_jwks(keys: dict[str, dict]) -> None:
+    with _jwks_lock:
+        _jwks_state['keys'] = keys
+        _jwks_state['fetched_at'] = time.monotonic()
+
+
+def _refresh_jwks_in_background() -> None:
+    """Refresh a stale key set without making any request wait for it."""
+    with _jwks_lock:
+        if _jwks_state['refreshing']:
+            return
+        _jwks_state['refreshing'] = True
+
+    def run() -> None:
+        try:
+            _store_jwks(_download_jwks())
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            # Stale-if-error: a published key does not stop being valid
+            # because one refresh could not reach Supabase.
+            logger.warning('Signing-key refresh failed (%s); keeping the cached keys', type(error).__name__)
+        finally:
+            with _jwks_lock:
+                _jwks_state['refreshing'] = False
+
+    threading.Thread(target=run, name='jwks-refresh', daemon=True).start()
+
+
+def _signing_jwk(kid: str) -> dict:
+    """The published signing key for `kid`, from cache whenever possible."""
+    with _jwks_lock:
+        keys = _jwks_state['keys']
+        age = time.monotonic() - _jwks_state['fetched_at']
+    if kid in keys:
+        if age >= _JWKS_REFRESH_SECONDS:
+            _refresh_jwks_in_background()
+        return keys[kid]
+    # Unknown key: first request after startup, or Supabase rotated its key.
+    with _jwks_fetch_lock:
+        with _jwks_lock:
+            keys = _jwks_state['keys']
+            age = time.monotonic() - _jwks_state['fetched_at']
+        if kid in keys:  # another request fetched it while this one waited
+            return keys[kid]
+        if keys and age < _JWKS_MIN_REFETCH_SECONDS:
+            raise jwt.InvalidTokenError('Unknown signing key')
+        latest = _download_jwks()
+        _store_jwks(latest)
+    if kid not in latest:
+        raise jwt.InvalidTokenError('Unknown signing key')
+    return latest[kid]
+
+
+def _verify_token_locally(token: str) -> VerifiedUser | None:
+    """Verify an asymmetric Supabase JWT without a network call.
+
+    Returns None when the token is not one this can check (so the caller asks
+    Supabase instead); raises a `jwt.PyJWTError` when it is checkable and bad.
+    """
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.PyJWTError:
+        return None
+    algorithm, kid = header.get('alg'), header.get('kid')
+    if algorithm in _LOCAL_JWT_ALGORITHMS and kid:
+        key = jwt.PyJWK(_signing_jwk(kid), algorithm=algorithm).key
+    elif algorithm == 'HS256' and settings.supabase_jwt_secret:
+        key = settings.supabase_jwt_secret
+    else:
+        return None
+    claims = jwt.decode(
+        token,
+        key=key,
+        algorithms=[algorithm],
+        audience=_JWT_AUDIENCE,
+        options={'require': ['exp', 'sub', 'aud']},
+        leeway=30,
+    )
+    return VerifiedUser(claims)
+
+
+def _validate_token(token: str):
+    """Ask Supabase Auth who owns `token`, riding out brief network failures.
+
+    Measured 2026-11-24: `sb.auth.get_user` raised httpx ConnectTimeout during
+    an ordinary page load, and the handlers below turned it into 401. A 401
+    tells the browser its session is invalid, so api.js refreshed the token and
+    replayed the call (and signs the user out when that refresh also fails) even
+    though nothing was wrong with the session. A transient failure is retried
+    here, and one that persists is reported as 503 by `_auth_failure`. One retry
+    only: each attempt can wait out httpx's 5 s connect timeout, so a third
+    would hold the request for ~15 s before the reader hears anything.
+    """
+    return retry_transient(
+        lambda: sb.auth.get_user(token),
+        label='Supabase token validation',
+        attempts=2,
+        base_delay_seconds=0.2,
+        logger=logger,
+    )
+
+
+def _auth_failure(error: Exception, context: str) -> HTTPException:
+    """401 for a token Supabase rejected; 503 when Supabase could not be reached."""
+    if is_transient_network_error(error):
+        logger.warning('%s: authentication service unreachable (%s)', context, type(error).__name__)
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=AUTH_UNAVAILABLE_DETAIL,
+            headers={'Retry-After': '2'},
+        )
+    logger.warning('%s (%s)', context, type(error).__name__)
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail='Invalid or expired authentication token',
+        headers={'WWW-Authenticate': 'Bearer'},
+    )
+
+
+def _authenticated_user(token: str):
+    """The caller behind `token`: verified locally when possible, else by Supabase."""
+    verified = _verify_token_locally(token)
+    if verified is not None:
+        return verified
+    res = _validate_token(token)
+    return res.user if res and res.user else None
+
+
 def get_optional_user(credentials: HTTPAuthorizationCredentials = Security(optional_security)):
     """Validate an optional JWT; an invalid supplied token never becomes a guest."""
     if not credentials:
         return None
     try:
-        res = sb.auth.get_user(credentials.credentials)
-        if res and res.user:
-            _ensure_approved_account(res.user.id)
-            return res.user
+        user = _authenticated_user(credentials.credentials)
+        if user:
+            _ensure_approved_account(user.id)
+            return user
     except HTTPException:
         raise
     except Exception as error:
-        logger.warning('Optional authentication failed: %s', type(error).__name__)
+        raise _auth_failure(error, 'Optional authentication failed') from error
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail='Invalid or expired authentication token',
@@ -261,22 +493,67 @@ def get_optional_user(credentials: HTTPAuthorizationCredentials = Security(optio
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
-    """Validates the JWT token and returns the Supabase user object."""
+    """Validates the JWT token and returns the authenticated user."""
     try:
-        res = sb.auth.get_user(credentials.credentials)
-        if not res or not res.user:
+        user = _authenticated_user(credentials.credentials)
+        if not user:
             raise ValueError('Invalid token')
-        _ensure_approved_account(res.user.id)
-        return res.user
+        _ensure_approved_account(user.id)
+        return user
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning('Authentication failed (%s)', type(e).__name__)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Invalid or expired authentication token',
-            headers={'WWW-Authenticate': 'Bearer'},
-        ) from e
+        raise _auth_failure(e, 'Authentication failed') from e
+
+
+def prewarm_signing_keys() -> None:
+    """Fetch the signing keys at startup so the first sign-in does not wait on it."""
+    try:
+        _store_jwks(_download_jwks())
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        logger.warning('Signing-key prefetch failed (%s); the first request will fetch them', type(error).__name__)
+
+
+def cached_token_subject(token: str) -> str | None:
+    """The verified `sub` of a Supabase token, using only keys already cached.
+
+    For the rate limiter, which runs on the event loop before any route
+    dependency: it must never wait on the network, so an unknown `kid` simply
+    yields None (the caller falls back to an IP bucket) instead of fetching the
+    key set the way `_verify_token_locally` does. Expiry is not checked -- a
+    validly signed token still identifies whose bucket a request belongs to,
+    and authorization is decided separately by the route's own dependency.
+    """
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.PyJWTError:
+        return None
+    algorithm, kid = header.get('alg'), header.get('kid')
+    if algorithm in _LOCAL_JWT_ALGORITHMS and kid:
+        with _jwks_lock:
+            jwk = _jwks_state['keys'].get(kid)
+        if not jwk:
+            return None
+        try:
+            key = jwt.PyJWK(jwk, algorithm=algorithm).key
+        except jwt.PyJWTError:
+            return None
+    elif algorithm == 'HS256' and settings.supabase_jwt_secret:
+        key = settings.supabase_jwt_secret
+    else:
+        return None
+    try:
+        claims = jwt.decode(
+            token,
+            key=key,
+            algorithms=[algorithm],
+            audience=_JWT_AUDIENCE,
+            options={'require': ['sub', 'aud'], 'verify_exp': False},
+        )
+    except jwt.PyJWTError:
+        return None
+    subject = claims.get('sub')
+    return subject if isinstance(subject, str) and subject else None
 
 
 def require_admin(

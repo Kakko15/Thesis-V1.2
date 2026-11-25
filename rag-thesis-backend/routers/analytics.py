@@ -220,6 +220,11 @@ def overview(user: AdminUser):
             query = sb.table(table).select(fields, count='exact')
             if table == 'papers':
                 query = query.eq('ingestion_status', 'ready')
+            if table == 'profiles' and scope:
+                # Match the user directory, which hides superadmins from a
+                # department admin: the tile read "8 registered users" over a
+                # directory of 6 (measured 2026-11-25, two superadmins in CCSICT).
+                query = query.neq('role', 'superadmin')
             return query.eq('department', scope) if scope else query
         return build
 
@@ -294,14 +299,37 @@ def overview(user: AdminUser):
 
 @router.get('/activity', responses=errors(403))
 def recent_activity(user: AdminUser, limit: int = 25):
-    """Return recent audit activity for authorized administrators."""
+    """Return recent audit activity, without superadmin activity for department admins."""
     limit = max(1, min(limit, 100))
     role, department = _admin_scope(user)
     query = sb.table('activity_log').select(_ACTIVITY_FIELDS)
     if role != 'superadmin':
         query = query.eq('department', department)
-    result = query.order('created_at', desc=True).limit(limit).execute()
-    return result.data or []
+        limit_with_headroom = limit + _SUPERADMIN_ACTIVITY_HEADROOM
+    else:
+        limit_with_headroom = limit
+    result = query.order('created_at', desc=True).limit(limit_with_headroom).execute()
+    rows = result.data or []
+    if role != 'superadmin':
+        rows = _without_superadmin_activity(rows)
+    return rows[:limit]
+
+
+# Rows read beyond the requested page so removing superadmin activity from a
+# department admin's view does not leave the page short.
+_SUPERADMIN_ACTIVITY_HEADROOM = 100
+
+
+def _without_superadmin_activity(rows: list[dict]) -> list[dict]:
+    """Drop activity performed by superadmins, for a department admin's view."""
+    user_ids = list({row['user_id'] for row in rows if row.get('user_id')})
+    if not user_ids:
+        return rows
+    result = sb.table('profiles').select('id,role').in_('id', user_ids).execute()
+    superadmins = {
+        profile['id'] for profile in (result.data or []) if profile.get('role') == 'superadmin'
+    }
+    return [row for row in rows if row.get('user_id') not in superadmins]
 
 
 # ---------------------------------------------------------------------------
@@ -470,15 +498,22 @@ def update_user_details(user_id: str, data: UserUpdate, curr_user: AdminUser):
 
 @router.get('/logs/system')
 def get_system_logs(user: AdminUser, limit: int = 200):
-    """Return department-isolated activity logs."""
+    """Return department-isolated activity logs, without superadmin activity for admins."""
+    # Superadmins carry a department too (CCSICT here), so the department filter
+    # alone used to show a department admin every superadmin action and email
+    # address -- measured 2026-11-25. The user directory already hides
+    # superadmins from admins; the logs now agree with it. Extra rows are read so
+    # the filtering does not shrink the page below `limit`.
     limit = max(1, min(limit, 1000))
     current_result = sb.table('profiles').select('role,department').eq('id', user.id).execute()
     current_profile = current_result.data[0] if current_result.data else {}
+    viewer_is_superadmin = current_profile.get('role') == 'superadmin'
 
     logs_query = sb.table('activity_log').select(_ACTIVITY_FIELDS)
-    if current_profile.get('role') != 'superadmin':
+    if not viewer_is_superadmin:
         logs_query = logs_query.eq('department', current_profile.get('department'))
-    logs_result = logs_query.order('created_at', desc=True).limit(limit).execute()
+    fetch = limit if viewer_is_superadmin else min(limit + _SUPERADMIN_ACTIVITY_HEADROOM, 1000)
+    logs_result = logs_query.order('created_at', desc=True).limit(fetch).execute()
     logs = logs_result.data or []
 
     user_ids = list({log['user_id'] for log in logs if log.get('user_id')})
@@ -486,20 +521,24 @@ def get_system_logs(user: AdminUser, limit: int = 200):
     if user_ids:
         profile_result = (
             sb.table('profiles')
-            .select('id,email,full_name,department')
+            .select('id,email,full_name,department,role')
             .in_('id', user_ids)
             .execute()
         )
         profiles = {profile['id']: profile for profile in (profile_result.data or [])}
+    if not viewer_is_superadmin:
+        logs = [
+            log for log in logs
+            if (profiles.get(log.get('user_id')) or {}).get('role') != 'superadmin'
+        ]
 
-    # PostgREST already applies .limit(limit), so this slice is only a defensive
-    # bound for a client layer that ignores it. It replaces an in-loop
-    # `if len(...) >= limit: break`, which against a limit-honouring query could
-    # never fire and read as though a filter were being applied here.
+    # PostgREST already applies .limit(), so this slice bounds the page after
+    # superadmin rows were removed, and guards a client layer that ignores it.
     logs = logs[:limit]
     for log in logs:
         if log.get('user_id'):
-            log['user'] = profiles.get(log['user_id'])
+            profile = profiles.get(log['user_id'])
+            log['user'] = {key: value for key, value in profile.items() if key != 'role'} if profile else None
 
     return logs
 

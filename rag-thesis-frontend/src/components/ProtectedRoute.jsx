@@ -51,15 +51,14 @@ export function ProtectedRoute({ children, roles, isAllowed, allowGuest = false 
           <AlertTriangle size={28} className="text-gold-500" />
         </div>
         <h2 className="font-display text-2xl font-bold">Pending Approval</h2>
-        {/* The institutional-domain hold was removed by
-            20260828_allow_any_email_signup.sql: student sign-ups are approved on
-            creation, so the domain half of this copy described a rule the
-            database no longer applies. An administrator can still place any
-            account under review, which is the other way to land here. */}
+        {/* Matches handle_new_user (migrations/20261126_institutional_signup_domain_gate.sql):
+            students outside the institutional email domain and every faculty
+            request wait for an administrator; an administrator can also place
+            any account under review. */}
         <p className="mt-2 max-w-sm text-sm text-ink-muted">
           Your account request has been received. An administrator will review it before
-          access is granted. Faculty accounts always need approval, and an administrator
-          can place any account under review.
+          access is granted. Faculty accounts and accounts that do not use an @isu.edu.ph
+          email address always need approval.
         </p>
         <button onClick={signOut} className="mt-6 text-sm font-semibold text-forest-700 hover:text-forest-500">
           Sign out

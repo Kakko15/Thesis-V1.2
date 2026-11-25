@@ -35,6 +35,66 @@ const COMPOUND_SURNAME_PREFIXES = new Set([
 
 const NAME_SUFFIXES = new Set(['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv'])
 
+// Proper nouns a Title Case archive title is likely to carry. APA 7 keeps
+// them capitalized in sentence case; everything else after the first word
+// (and after a colon) is lowercased.
+const PROPER_NOUNS = new Set([
+  'isabela', 'echague', 'cauayan', 'ilagan', 'cabagan', 'santiago', 'roxas', 'angadanan', 'jones',
+  'philippines', 'philippine', 'filipino', 'filipinos', 'luzon', 'cagayan', 'nueva', 'vizcaya', 'quirino',
+  'manila', 'tagalog', 'ilocano', 'ibanag', 'english', 'google', 'android', 'python', 'java', 'javascript',
+  'arduino', 'raspberry', 'facebook', 'messenger', 'microsoft', 'windows', 'excel', 'firebase', 'flutter',
+  'kotlin', 'laravel', 'react', 'unity', 'bayesian', 'gaussian', 'markov', 'agile', 'scrum',
+])
+
+// Capitalized only while continuing a proper name: "Isabela State
+// University", "Echague Campus", but "the state of practice".
+const INSTITUTION_WORDS = new Set(['state', 'university', 'campus', 'college', 'city', 'province'])
+
+/** One hyphen-free piece of a mixed-case title, and whether it stays a name. */
+function caseMixedSegment(segment, capitalize, afterProper) {
+  const letters = segment.replace(/[^A-Za-z]/g, '')
+  if (!letters) return { text: segment, proper: false }
+  const lower = letters.toLowerCase()
+  if (PRESERVED_ACRONYMS.has(lower)) return { text: formatWordSegment(segment, capitalize), proper: true }
+  // Digits, inner capitals (LinkedIn, YOLOv8, iOS) and acronyms are kept as written.
+  if (/\d/.test(segment) || /[a-z][A-Z]/.test(segment) || letters === 'I'
+    || (letters.length > 1 && letters === letters.toUpperCase())) {
+    return { text: segment, proper: true }
+  }
+  const startsUpper = /^[^A-Za-z]*[A-Z]/.test(segment)
+  if (startsUpper && (PROPER_NOUNS.has(lower) || (afterProper && INSTITUTION_WORDS.has(lower)))) {
+    return { text: segment, proper: true }
+  }
+  return { text: formatWordSegment(segment, capitalize), proper: false }
+}
+
+/**
+ * APA 7 sentence case for a title that is not shouted in capitals.
+ *
+ * Until 2026-11-26 only all-caps titles were converted, so a Title Case
+ * archive entry was cited in Title Case, which APA 7 does not use for
+ * thesis titles (2026-11-25 user testing).
+ */
+function sentenceCaseMixedTitle(raw) {
+  let capitalizeNext = true
+  let afterProper = false
+  return raw
+    .split(' ')
+    .map((token) => {
+      if (!/[A-Za-z]/.test(token)) {
+        capitalizeNext = capitalizeNext || token.endsWith(':')
+        return token
+      }
+      const pieces = token.split('-').map((segment, index) => caseMixedSegment(
+        segment, index === 0 && capitalizeNext, index === 0 && afterProper,
+      ))
+      afterProper = pieces[pieces.length - 1].proper
+      capitalizeNext = token.endsWith(':')
+      return pieces.map((piece) => piece.text).join('-')
+    })
+    .join(' ')
+}
+
 function formatWordSegment(segment, capitalizeFirst) {
   const clean = segment.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '')
   const lower = clean.toLowerCase()
@@ -57,10 +117,14 @@ export function toSentenceCaseTitle(title) {
   const letters = raw.replace(/[^a-zA-Z]/g, '')
   const upperCount = letters.replace(/[^A-Z]/g, '').length
   const isAllCaps = letters.length > 0 && upperCount / letters.length >= 0.75
-  if (!isAllCaps) return raw
+  if (!isAllCaps) return sentenceCaseMixedTitle(raw)
 
   const words = raw.split(' ')
   let capitalizeNext = true
+  // Shouted titles carry proper nouns too: "ISABELA STATE UNIVERSITY –
+  // ECHAGUE CAMPUS" was cited as "isabela state university – echague campus"
+  // (2026-11-26 browser check).
+  let afterProper = false
 
   return words
     .map((token) => {
@@ -74,6 +138,7 @@ export function toSentenceCaseTitle(title) {
           PRESERVED_ACRONYMS.get(lower),
         )
         capitalizeNext = hadColon
+        afterProper = false
         return replacement
       }
 
@@ -81,11 +146,14 @@ export function toSentenceCaseTitle(title) {
         const parts = token.split('-')
         const formattedParts = parts.map((seg, idx) => formatWordSegment(seg, idx === 0 && capitalizeNext))
         capitalizeNext = hadColon
+        afterProper = false
         return formattedParts.join('-')
       }
 
-      const formatted = formatWordSegment(token, capitalizeNext)
+      const name = PROPER_NOUNS.has(lower) || (afterProper && INSTITUTION_WORDS.has(lower))
+      const formatted = formatWordSegment(token, capitalizeNext || name)
       capitalizeNext = hadColon
+      if (/[a-z]/.test(lower)) afterProper = name
       return formatted
     })
     .join(' ')
@@ -177,13 +245,20 @@ export function formatBibtexCitation(paper) {
   const title = toSentenceCaseTitle(paper?.title)
   const dept = typeof paper?.department === 'string' && paper.department.trim() ? paper.department.trim() : 'CCSICT'
   const trackNote = paper?.track ? `,\n  note = {Track: ${paper.track}}` : ''
+  // @mastersthesis mislabelled every undergraduate thesis as a master's
+  // (2026-11-25 user testing). @thesis with a type is the biblatex form;
+  // faculty research is a report, not a thesis, so it is @techreport.
+  const isFaculty = paper?.thesis_category === 'faculty'
+  const entryType = isFaculty ? 'techreport' : 'thesis'
+  const workType = isFaculty ? 'Faculty research' : 'Undergraduate thesis'
 
   return (
-    `@mastersthesis{${citeKey},\n`
+    `@${entryType}{${citeKey},\n`
     + `  title = {${title}},\n`
     + `  author = {${rawAuthors}},\n`
     + `  year = {${paper?.year || 'n.d.'}},\n`
-    + `  school = {Isabela State University -- Echague Campus (${dept})}${trackNote}\n`
+    + `  type = {${workType}},\n`
+    + `  institution = {Isabela State University -- Echague Campus (${dept})}${trackNote}\n`
     + `}`
   )
 }

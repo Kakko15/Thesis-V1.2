@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import ReactMarkdown from 'react-markdown'
+import { SafeMarkdown } from '../../components/ui/SafeMarkdown'
 import { toast } from 'sonner'
 import { ClipboardList, Download, FileText, Info, PenLine } from 'lucide-react'
 import { scanDuplicationChat, apiErrorMessage } from '../../api'
@@ -15,6 +15,7 @@ import {
   downloadNoveltyReport,
 } from './report'
 import { isCapsuleScan } from './capsule'
+import { passageRows, readableReportText } from './reportView'
 
 /** Google Fonts (Material Symbols Outlined: arrow_upward_alt, fill 0 / wght 400 / opsz 24). */
 const ARROW_UPWARD_ALT_PATH =
@@ -79,6 +80,49 @@ function CapsuleSections({ sections }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+/**
+ * Which parts of the manuscript matched, each expandable to the reviewer's
+ * own wording. The archived side is citation metadata only: the archived
+ * passage is never served (indirect access), so the row names the thesis,
+ * section and pages a reviewer would request through the library.
+ */
+function MatchedPassages({ rows }) {
+  if (rows.length === 0) return null
+  const keys = contentKeys(rows.map((row) => `${row.title}|${row.excerpt}`), 'passage')
+  return (
+    <div className="mt-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-muted">Matched passages</h3>
+      <ul className="mt-2 space-y-2" aria-label="Matched passages">
+        {rows.map((row, index) => (
+          <li key={keys[index]}>
+            <details className="group rounded-2xl border border-[var(--border)] px-4 py-2.5">
+              <summary className="flex cursor-pointer list-none items-center gap-3 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium" title={row.title}>
+                    {index + 1}. {row.yourWhere} ↔ {row.title}{row.year ? ` (${row.year})` : ''}
+                  </span>
+                  {row.archivedWhere && (
+                    <span className="block truncate text-xs text-ink-muted">{row.archivedWhere}</span>
+                  )}
+                </span>
+                <span className="shrink-0 font-display text-sm font-bold tabular-nums">
+                  {normalizePercent(row.similarity).toFixed(1)}%
+                </span>
+              </summary>
+              <blockquote className="mt-2 border-l-2 border-[var(--primary)] pl-3 text-sm leading-relaxed">
+                {row.excerpt}
+              </blockquote>
+              <p className="mt-1.5 text-xs text-ink-muted">
+                Your text. The archived passage is not shown; request the thesis from the library to compare.
+              </p>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -248,8 +292,10 @@ export function ScanReport({ scan, onAsk }) {
     >
       <ReportHeader scan={scan} capsule={capsule} />
 
-      {/* Verdict and figures */}
-      <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:gap-6 sm:px-6">
+      {/* Verdict and figures. Wraps by available width, not viewport: beside the
+          history panel the card is ~440px wide at 1280px, and the side-by-side
+          figures overlapped ("100.00%100.00%") (2026-11-26). */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-4 px-5 py-5 sm:px-6">
         <div className="flex items-center gap-4">
           <ProgressRing value={metrics.concentration} size={96} strokeWidth={8} className="shrink-0" />
           <div className="min-w-0">
@@ -261,7 +307,7 @@ export function ScanReport({ scan, onAsk }) {
             </p>
           </div>
         </div>
-        <dl className="grid flex-1 grid-cols-2 gap-x-5 gap-y-3 border-t border-[var(--border)] pt-4 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
+        <dl className="grid min-w-[15rem] flex-1 grid-cols-2 gap-x-5 gap-y-3">
           {figures.map(([label, value]) => (
             <div key={label} className="min-w-0">
               <dt className="truncate text-xs text-ink-muted" title={label}>{label}</dt>
@@ -336,6 +382,7 @@ export function ScanReport({ scan, onAsk }) {
                 ))}
               </ul>
             )}
+            {!capsule && <MatchedPassages rows={passageRows(scan)} />}
             <p className="mt-3 flex items-start gap-2 border-t border-[var(--border)] pt-3 text-xs leading-relaxed text-ink-muted">
               <Info size={14} className="mt-px shrink-0" aria-hidden="true" />
               {capsule
@@ -347,7 +394,7 @@ export function ScanReport({ scan, onAsk }) {
 
         {tab === 'explanation' && (
           <div className="prose-chat">
-            <ReactMarkdown>{scan.verdict_summary || ''}</ReactMarkdown>
+            <SafeMarkdown>{readableReportText(scan.verdict_summary)}</SafeMarkdown>
           </div>
         )}
 
@@ -370,7 +417,7 @@ export function ScanReport({ scan, onAsk }) {
                     )}
                   >
                     {m.role === 'user' ? m.content : (
-                      <div className="prose-chat"><ReactMarkdown>{m.content}</ReactMarkdown></div>
+                      <div className="prose-chat"><SafeMarkdown>{readableReportText(m.content)}</SafeMarkdown></div>
                     )}
                   </div>
                 </div>

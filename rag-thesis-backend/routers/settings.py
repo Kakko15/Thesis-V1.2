@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from config import settings
-from dependencies.auth import get_current_user, invalidate_features_cache, require_superadmin, sb
+from dependencies.auth import (
+    get_current_user, invalidate_features_cache, require_superadmin, require_upload_access, sb,
+)
 from routers.openapi_responses import errors
 from services.activity import log_activity
 from services.malware import (
@@ -19,6 +21,7 @@ router = APIRouter(prefix='/settings', tags=['settings'])
 # The Supabase SDK returns an opaque user record, so Any is the honest type.
 CurrentUser = Annotated[Any, Depends(get_current_user)]
 SuperadminUser = Annotated[Any, Depends(require_superadmin)]
+UploadUser = Annotated[Any, Depends(require_upload_access)]
 
 DEFAULT_FEATURES = {
     'student': {'chat': True, 'archive': True, 'novelty': False, 'upload': False},
@@ -105,8 +108,13 @@ def _malware_setting_response(*, refresh: bool = False) -> dict[str, Any]:
 
 
 @router.get('/malware-scanning')
-def get_malware_scanning(user: SuperadminUser):
+def get_malware_scanning(user: UploadUser):
     """Return the effective global malware-scanning policy and scanner state."""
+    # Readable by everyone who may upload, not only superadmins, so the upload
+    # pages can say truthfully whether files will be scanned. They used to print
+    # a fixed "ClamAV Scanned" badge and "Malware screening completed"; measured
+    # 2026-11-25, scanning had been off since 2026-11-08 while both still claimed
+    # it ran. Changing the policy stays superadmin-only.
     del user
     return _malware_setting_response(refresh=True)
 

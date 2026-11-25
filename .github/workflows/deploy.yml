@@ -15,20 +15,54 @@ jobs:
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    # A GitHub environment, so required reviewers and a branch rule can gate
+    # production in the repository settings (Settings -> Environments).
+    environment: production
     permissions:
       contents: read
+      actions: read
+    env:
+      # The exact commit that passed the quality gate. The VM used to run
+      # `git pull`, which deployed whatever main pointed at when the job ran --
+      # possibly a newer, unchecked commit (2026-11-25 review).
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
-      - name: Pull and rebuild on the VM
-        uses: appleboy/ssh-action@v1
+      - name: Refuse a manual deploy of a commit that has not passed the quality gate
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh api "repos/${{ github.repository }}/actions/workflows/quality.yml/runs?head_sha=${DEPLOY_SHA}&status=success" --jq '.total_count')
+          if [ "${passed:-0}" -lt 1 ]; then
+            echo "::error::The quality workflow has not succeeded for ${DEPLOY_SHA}; refusing to deploy it."
+            exit 1
+          fi
+
+      - name: Check out the verified commit and rebuild on the VM
+        # Pinned to the commit behind tag v1.2.5: this step holds the deploy key,
+        # so a moved tag must not be able to change the code that receives it.
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          # SHA256 fingerprint of the VM's SSH host key (`ssh-keygen -lf
+          # /etc/ssh/ssh_host_ed25519_key.pub`). Set this secret: without it
+          # the host key is not verified.
+          fingerprint: ${{ secrets.DEPLOY_HOST_FINGERPRINT }}
+          envs: DEPLOY_SHA
           script: |
             set -e
             cd ~/Thesis-V1
-            git pull --ff-only
+            git fetch --prune origin
+            git checkout --detach "$DEPLOY_SHA"
             API_DOMAIN=${{ secrets.API_DOMAIN }} docker compose -f docker-compose.prod.yml up -d --build
             docker image prune -f
-            sleep 20
-            curl -fsS https://${{ secrets.API_DOMAIN }}/health
+            # /ready, not /health: /health answers 200 even when the database
+            # is unreachable, so it could not fail a broken deploy.
+            for attempt in $(seq 1 12); do
+              if curl -fsS "https://${{ secrets.API_DOMAIN }}/ready"; then exit 0; fi
+              sleep 10
+            done
+            echo "API did not become ready after deploying $DEPLOY_SHA" >&2
+            exit 1

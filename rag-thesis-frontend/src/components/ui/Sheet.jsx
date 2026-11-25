@@ -31,7 +31,17 @@ export function Sheet({ open, onClose, title, children, className, responsiveCla
                 className={cn('fixed inset-0 z-50 bg-[var(--scrim)] backdrop-blur-xs', responsiveClass)}
               />
             </Dialog.Overlay>
-            <Dialog.Content asChild forceMount onInteractOutside={(event) => event.preventDefault()}>
+            {/* Radix renders the dialog element (role, labelling, focus trap);
+                only the panel inside it slides. See ui/Modal for why `asChild`
+                onto a motion element was dropped. */}
+            <Dialog.Content
+              forceMount
+              onInteractOutside={(event) => event.preventDefault()}
+              className={cn(
+                'fixed bottom-3 right-3 top-3 z-[51] w-[min(22rem,calc(100%-1.5rem))] outline-none',
+                responsiveClass,
+              )}
+            >
               <motion.aside
                 initial={{ x: '100%' }}
                 animate={{ x: 0 }}
@@ -39,8 +49,7 @@ export function Sheet({ open, onClose, title, children, className, responsiveCla
                 transition={{ type: 'spring', stiffness: 380, damping: 38 }}
                 style={{ willChange: 'transform' }}
                 className={cn(
-                  'surface-glass fixed bottom-3 right-3 top-3 z-[51] w-[min(22rem,calc(100%-1.5rem))] overscroll-contain overflow-y-auto rounded-[2rem] p-5 shadow-2xl touch-manipulation',
-                  responsiveClass,
+                  'surface-glass h-full overscroll-contain overflow-y-auto rounded-[2rem] p-5 shadow-2xl touch-manipulation',
                   className,
                 )}
               >

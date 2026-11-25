@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { apiErrorMessage, apiErrorStatus, isRetryableFailure } from './apiErrors.js'
+import {
+  AUTH_UNAVAILABLE_DETAIL, apiErrorMessage, apiErrorStatus, isAuthServiceUnavailable, isRetryableFailure,
+} from './apiErrors.js'
 
 const failure = (status, data) => ({ response: { status, data } })
 
@@ -61,4 +63,14 @@ test('a validation error with no usable location is attributed to "Field"', () =
     apiErrorMessage(invalid),
     'Field: value is not a valid email, Field: request body is empty, query.page: must be positive',
   )
+})
+
+test('a brief authentication-service outage is recognised by its exact refusal', () => {
+  assert.equal(isAuthServiceUnavailable(failure(503, { detail: AUTH_UNAVAILABLE_DETAIL })), true)
+  // Any other 503 (capacity, readiness, archive outage) is not this case.
+  assert.equal(isAuthServiceUnavailable(failure(503, { detail: 'The thesis archive is temporarily unavailable.' })), false)
+  // A real token rejection stays a 401 and must never be retried as an outage.
+  assert.equal(isAuthServiceUnavailable(failure(401, { detail: AUTH_UNAVAILABLE_DETAIL })), false)
+  assert.equal(isAuthServiceUnavailable({}), false)
+  assert.equal(isAuthServiceUnavailable(null), false)
 })

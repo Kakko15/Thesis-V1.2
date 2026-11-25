@@ -1,9 +1,11 @@
 import { useCallback, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { UploadCloud, FileText, X, CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react'
+import { UploadCloud, FileText, X, CheckCircle2, ShieldAlert, ShieldCheck, Sparkles } from 'lucide-react'
 import { Button } from '../ui/Button'
 import { cn } from '../../lib/utils'
+import { scanBadge } from '../../lib/malwareScan'
+import { useMalwareScanEnabled } from '../../hooks/useMalwareScanEnabled'
 import { motionTokens } from '../../design/motion'
 import { formatFileSize } from '../../pages/upload/wizardSteps'
 import { fileValidationError, MAX_BATCH_FILES } from '../../pages/upload/batchState'
@@ -50,6 +52,7 @@ const iconMotion = {
  * PDF drop target shared by the single-file wizard and the batch page.
  */
 export function Dropzone({ file, onFile, onFiles, multiple = false, disabled = false }) {
+  const badge = scanBadge(useMalwareScanEnabled())
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef(null)
 
@@ -170,17 +173,38 @@ export function Dropzone({ file, onFile, onFiles, multiple = false, disabled = f
                   : 'or click to browse · PDF only · up to 25 MB · scanned copies are OCR-processed'}
               </span>
 
-              {/* Enterprise specs pill strip */}
-              <div className="mt-4 hidden sm:flex items-center gap-2 text-[11px] font-medium text-ink-faint">
-                <span className="flex items-center gap-1 rounded-full bg-[var(--surface-2)] px-2.5 py-0.5">
-                  <ShieldCheck size={12} className="text-forest-600 dark:text-forest-400" /> ClamAV Scanned
-                </span>
-                <span>•</span>
-                <span className="flex items-center gap-1 rounded-full bg-[var(--surface-2)] px-2.5 py-0.5">
+              {/* Enterprise specs pill strip. Decorative pills stay desktop-only,
+                  but a "scan off" warning is shown at every width: on a phone
+                  the uploader would otherwise never learn files go unscanned. */}
+              <div
+                className={cn(
+                  'mt-4 items-center gap-2 text-[11px] font-medium text-ink-faint',
+                  badge?.tone === 'warn' ? 'flex' : 'hidden sm:flex',
+                )}
+              >
+                {badge && (
+                  <>
+                    <span
+                      className={cn(
+                        'items-center gap-1 rounded-full px-2.5 py-0.5',
+                        badge.tone === 'warn'
+                          ? 'flex bg-flame-500/10 text-flame-700 dark:text-flame-200'
+                          : 'hidden sm:flex bg-[var(--surface-2)]',
+                      )}
+                    >
+                      {badge.tone === 'warn'
+                        ? <ShieldAlert size={12} aria-hidden="true" />
+                        : <ShieldCheck size={12} className="text-forest-600 dark:text-forest-400" aria-hidden="true" />}
+                      {badge.label}
+                    </span>
+                    <span className="hidden sm:inline">•</span>
+                  </>
+                )}
+                <span className="hidden sm:flex items-center gap-1 rounded-full bg-[var(--surface-2)] px-2.5 py-0.5">
                   PyMuPDF + OCR
                 </span>
-                <span>•</span>
-                <span className="flex items-center gap-1 rounded-full bg-[var(--surface-2)] px-2.5 py-0.5">
+                <span className="hidden sm:inline">•</span>
+                <span className="hidden sm:flex items-center gap-1 rounded-full bg-[var(--surface-2)] px-2.5 py-0.5">
                   PII Protected
                 </span>
               </div>

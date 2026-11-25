@@ -54,7 +54,6 @@ function HealthStatus({ compact = false }) {
           state === HEALTH_STATES.ONLINE && 'bg-emerald-500',
           state === HEALTH_STATES.DEGRADED && 'bg-amber-400',
           state === HEALTH_STATES.OFFLINE && 'bg-red-500',
-          state === HEALTH_STATES.CHECKING && 'bg-[var(--muted-foreground)] opacity-60 motion-safe:animate-pulse',
         )}
       />
       {!compact && <span>{label}</span>}

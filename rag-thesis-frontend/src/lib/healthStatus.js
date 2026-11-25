@@ -3,24 +3,26 @@
  *
  * The badge used to compute `online` from `data` alone, so while the very first
  * `/health` request was still in flight (`data === undefined`) it rendered a red
- * "Offline" dot on every page load, and a single failed cold-start probe kept it
- * red until the next 30-second poll. `pending` is the React Query state before
- * any result exists (including while its bounded retries run); it maps to a
- * neutral "Checking…" state instead of a failure.
+ * "Offline" dot on every page load. That was later softened to a neutral
+ * "Checking…" state, which still greeted every page load with a grey pulse for
+ * as long as the first probe (and its cold-start retries) took. The badge is
+ * now optimistic: it reads "Online" from the first frame and changes only when
+ * a check actually reports a problem, which is the only news worth showing.
+ * `pending` is the React Query state before any result exists (including while
+ * its bounded retries run), so a cold-start failure still turns the badge red
+ * once those retries are exhausted.
  *
  * Settled states keep their exact labels and `aria-label`s ("System online",
  * "System degraded", "System offline"), which the E2E specs assert on.
  */
 
 export const HEALTH_STATES = Object.freeze({
-  CHECKING: 'checking',
   ONLINE: 'online',
   DEGRADED: 'degraded',
   OFFLINE: 'offline',
 })
 
 const LABELS = Object.freeze({
-  [HEALTH_STATES.CHECKING]: 'Checking…',
   [HEALTH_STATES.ONLINE]: 'Online',
   [HEALTH_STATES.DEGRADED]: 'Degraded',
   [HEALTH_STATES.OFFLINE]: 'Offline',
@@ -34,7 +36,7 @@ const LABELS = Object.freeze({
 export function deriveHealthStatus({ data, isError = false, isPending = false } = {}) {
   let state
   if (isPending && !data) {
-    state = HEALTH_STATES.CHECKING
+    state = HEALTH_STATES.ONLINE
   } else if (isError || !data?.status) {
     state = HEALTH_STATES.OFFLINE
   } else if (data.status === 'ok') {

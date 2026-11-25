@@ -2,6 +2,7 @@ import { Children, cloneElement, forwardRef, isValidElement, useId } from 'react
 import * as SelectPrimitive from '@radix-ui/react-select'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { fromItemValue, resolveSelectOptions, toRootValue } from './selectOptions'
 
 const FLOAT_EASE = 'ease-[cubic-bezier(0.2,0,0,1)]'
 
@@ -241,7 +242,7 @@ export const Textarea = forwardRef(function Textarea(
   )
 })
 
-function SelectDropdownPortal({ options, resolvedPlaceholder, contentClassName }) {
+function SelectDropdownPortal({ items, resolvedPlaceholder, contentClassName }) {
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
@@ -257,13 +258,12 @@ function SelectDropdownPortal({ options, resolvedPlaceholder, contentClassName }
           <ChevronUp size={15} aria-hidden="true" />
         </SelectPrimitive.ScrollUpButton>
         <SelectPrimitive.Viewport>
-          {options.length > 0 ? options.map((option) => {
-            const optionValue = String(option.props.value)
+          {items.length > 0 ? items.map((item) => {
             return (
               <SelectPrimitive.Item
-                key={option.key || optionValue}
-                value={optionValue}
-                disabled={option.props.disabled}
+                key={item.key}
+                value={item.value}
+                disabled={item.disabled}
                 className={cn(
                   'relative flex min-h-10 cursor-default select-none items-center justify-start rounded-xl px-3.5 py-2 text-left text-sm outline-none',
                   'text-[var(--popover-foreground)] data-[highlighted]:bg-[var(--accent)] data-[highlighted]:text-[var(--accent-foreground)]',
@@ -273,7 +273,7 @@ function SelectDropdownPortal({ options, resolvedPlaceholder, contentClassName }
               >
                 <SelectPrimitive.ItemText>
                   <span className="block w-full max-w-[min(28rem,calc(100vw-5rem))] truncate text-left">
-                    {option.props.children}
+                    {item.label}
                   </span>
                 </SelectPrimitive.ItemText>
               </SelectPrimitive.Item>
@@ -346,11 +346,14 @@ export const Select = forwardRef(function Select(
   const options = Children.toArray(children).filter(
     (child) => isValidElement(child) && child.type === 'option',
   )
-  const placeholderOption = options.find((option) => String(option.props.value ?? '') === '')
-  const selectableOptions = options.filter((option) => String(option.props.value ?? '') !== '')
+  // An empty-value option is a real choice ("All categories") unless it is
+  // marked `hidden`, which keeps it as placeholder text only ("Select
+  // program…"). See selectOptions.js for why.
+  const { placeholderOption, emptySelectable, items } = resolveSelectOptions(options)
   const resolvedPlaceholder = placeholder || placeholderOption?.props.children || 'Select an option'
 
-  const handleValueChange = (nextValue) => {
+  const handleValueChange = (itemValue) => {
+    const nextValue = fromItemValue(itemValue)
     onValueChange?.(nextValue)
     onChange?.({
       target: { name, value: nextValue },
@@ -410,8 +413,8 @@ export const Select = forwardRef(function Select(
 
   const content = (
     <SelectPrimitive.Root
-      value={value == null ? undefined : String(value)}
-      defaultValue={defaultValue == null ? undefined : String(defaultValue)}
+      value={toRootValue(value, emptySelectable)}
+      defaultValue={toRootValue(defaultValue, emptySelectable)}
       onValueChange={handleValueChange}
       disabled={disabled}
       name={name}
@@ -419,7 +422,7 @@ export const Select = forwardRef(function Select(
     >
       {trigger}
       <SelectDropdownPortal
-        options={selectableOptions}
+        items={items}
         resolvedPlaceholder={resolvedPlaceholder}
         contentClassName={contentClassName}
       />

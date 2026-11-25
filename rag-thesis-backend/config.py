@@ -20,6 +20,19 @@ class Settings(BaseSettings):
     # an explicit database migration rather than an environment-only switch.
     embedding_dimensions: Literal[768] = 768
     gemini_timeout_seconds: float = 60.0
+    # Ceiling on one whole /chat turn, applied by the route wrapper only (the
+    # Objective 2 harness calls `_chat_impl` directly and is unaffected). Each
+    # model call has its own `gemini_timeout_seconds`, but a turn can chain a
+    # rewrite, a translation, generation, a duplication summary and two citation
+    # repairs across the provider fallback chain, with nothing bounding the sum:
+    # measured 2026-11-25, user-testing turns hung past 60 s while the browser
+    # waits up to 180 s. A turn over this limit answers with TIMEOUT_MESSAGE.
+    # Kept below the frontend's 180 s request timeout.
+    chat_turn_timeout_seconds: float = Field(default=90.0, ge=15.0, le=170.0)
+    # Passages one /duplication/scan may embed and match. Archived theses run
+    # ~30 passages, so 300 is ten times a typical manuscript while bounding a
+    # single request's embedding and database cost.
+    max_novelty_scan_chunks: int = Field(default=300, ge=20, le=5000)
     gemini_max_retries: int = 1
     # Shared by the reasoning trace and the visible answer, not just the answer.
     # At 700 with thinking_level='low', a measured call spent 609 tokens reasoning

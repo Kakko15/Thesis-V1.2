@@ -39,3 +39,17 @@ export function isRetryableFailure(error) {
   const status = apiErrorStatus(error)
   return status === 0 || status >= 500
 }
+
+/**
+ * The backend's refusal when it could not reach Supabase Auth to check a token
+ * (`dependencies/auth.py::AUTH_UNAVAILABLE_DETAIL`; keep the two identical).
+ * It is a 503, not a 401, because the session itself is fine: treating it as
+ * a rejected token is what used to trigger a refresh-and-replay, and a sign-out
+ * whenever that refresh also failed.
+ */
+export const AUTH_UNAVAILABLE_DETAIL = 'Authentication is temporarily unavailable. Please try again in a moment.'
+
+/** Whether a failure is that brief authentication-service outage. */
+export function isAuthServiceUnavailable(error) {
+  return apiErrorStatus(error) === 503 && error?.response?.data?.detail === AUTH_UNAVAILABLE_DETAIL
+}

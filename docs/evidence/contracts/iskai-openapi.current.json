@@ -1649,7 +1649,7 @@
   "paths": {
     "/analytics/activity": {
       "get": {
-        "description": "Return recent audit activity for authorized administrators.",
+        "description": "Return recent audit activity, without superadmin activity for department admins.",
         "operationId": "recent_activity_analytics_activity_get",
         "parameters": [
           {
@@ -1699,7 +1699,7 @@
     },
     "/analytics/logs/system": {
       "get": {
-        "description": "Return department-isolated activity logs.",
+        "description": "Return department-isolated activity logs, without superadmin activity for admins.",
         "operationId": "get_system_logs_analytics_logs_system_get",
         "parameters": [
           {

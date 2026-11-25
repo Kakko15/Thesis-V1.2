@@ -178,6 +178,9 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
           onChange={changeField('email', setEmail)}
           onBlur={blurField('email')}
           autoComplete="email"
+          // Mirrors the sign-up trigger: only the institutional domain is
+          // approved on creation, so say so before the account is made.
+          hint="Use your @isu.edu.ph address for immediate access. Other addresses need administrator approval."
           endAdornment={<ValidTick show={isValidEmail(email) && !errors.email} />}
         />
       </Rise>

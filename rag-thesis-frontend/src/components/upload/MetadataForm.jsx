@@ -288,7 +288,7 @@ export function MetadataForm({
                   disabled={loadingDepts}
                   aria-label="Select thesis department"
                 >
-                  <option value="">Select a Department…</option>
+                  <option value="" hidden>Select a Department…</option>
                   {departments.map((department) => (
                     <option key={department.id} value={department.name}>{department.name}</option>
                   ))}
@@ -335,7 +335,7 @@ export function MetadataForm({
                   disabled={programsUnavailable}
                   aria-label="Select academic program"
                 >
-                  <option value="">Select program…</option>
+                  <option value="" hidden>Select program…</option>
                   {programs.map((program) => (
                     <option key={program.id} value={program.id}>{program.code} — {program.name}</option>
                   ))}
@@ -372,7 +372,7 @@ export function MetadataForm({
                     error={errors.specialization_id}
                     aria-label="Select academic specialization"
                   >
-                    <option value="">Select specialization…</option>
+                    <option value="" hidden>Select specialization…</option>
                     {specializations.map((item) => (
                       <option key={item.id} value={item.id}>{item.code} — {item.name}</option>
                     ))}

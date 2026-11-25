@@ -256,7 +256,9 @@ function SystemLogsPanel({ logs, loading, error, onRetry }) {
     if (loading) return <div className="opacity-50">Loading system logs...</div>
     if (logs.length === 0) return <div className="opacity-50">No activity has been logged yet.</div>
     return logs.map(log => (
-      <div key={log.id} className="border-b border-white/10 pb-2">
+      // JSON detail has no spaces to break on, so without overflow-wrap a
+      // long payload ran off the panel instead of wrapping (2026-11-26).
+      <div key={log.id} className="border-b border-white/10 pb-2 [overflow-wrap:anywhere]">
         <span className="text-forest-400">[{new Date(log.created_at).toISOString()}]</span>{' '}
         <span className="text-gold-400">{log.action}</span>{' '}
         <span className="opacity-60">USER:{log.user?.email || log.user_id || 'system'}</span>{' '}
@@ -696,7 +698,7 @@ export default function SystemManagementTab() {
             <div className="relative">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
               <Input
-                className="pl-9 h-8 text-xs w-[160px] rounded-xl"
+                className="pl-9 h-8 text-xs w-[200px] rounded-xl"
                 placeholder="Search users..."
                 value={searchQuery}
                 onChange={(e) => { setSearchQuery(e.target.value); setUserPage(1); }}
@@ -727,12 +729,12 @@ export default function SystemManagementTab() {
           <table className="w-full text-left text-sm">
             <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
               <tr>
-                <th className="px-6 py-3">User</th>
-                <th className="px-6 py-3">Role</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Dept</th>
-                <th className="px-6 py-3">Joined</th>
-                <th className="px-6 py-3 text-right">Actions</th>
+                <th className="px-4 py-3">User</th>
+                <th className="px-4 py-3">Role</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Dept</th>
+                <th className="px-4 py-3">Joined</th>
+                <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-forest-900/5 dark:divide-white/5">
@@ -750,8 +752,17 @@ export default function SystemManagementTab() {
                 // Declarative table-cell variants are intentionally colocated for editing consistency.
                 // eslint-disable-next-line complexity
                 paginatedUsers.map(u => (
-                  <tr key={u.id} className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5">
-                    <td className="px-6 py-4">
+                  <tr
+                    key={u.id}
+                    className="transition-colors hover:bg-forest-900/5 dark:hover:bg-white/5"
+                    // Esc abandons an inline edit, as the Cancel button does.
+                    // An open role/department dropdown handles its own Esc in a
+                    // portal, so this fires only when focus is on the row.
+                    onKeyDown={editingUser?.id === u.id ? (event) => {
+                      if (event.key === 'Escape') setEditingUser(null)
+                    } : undefined}
+                  >
+                    <td className="px-4 py-4">
                       {editingUser?.id === u.id ? (
                         <Input 
                           value={editingUser.full_name} 
@@ -767,7 +778,7 @@ export default function SystemManagementTab() {
                               {(u.full_name || u.email || '?').charAt(0)}
                             </div>
                           )}
-                          <div>
+                          <div className="min-w-0 [overflow-wrap:anywhere]">
                             <div className="font-bold">{u.full_name || u.email}</div>
                             <div className="mt-0.5 text-xs font-semibold text-forest-700 dark:text-gold-400 capitalize">
                               {u.role === 'superadmin' ? 'Super Admin at System' : <>{u.role === 'admin' ? 'Administrator' : u.role} at {u.department || 'Unassigned'}</>}
@@ -777,7 +788,7 @@ export default function SystemManagementTab() {
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-4">
                       {editingUser?.id === u.id ? (
                         <Select
                           value={editingUser.role}
@@ -794,7 +805,7 @@ export default function SystemManagementTab() {
                         <RoleBadge role={u.role} />
                       )}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-4">
                       {editingUser?.id === u.id && isSuperadmin ? (
                         <Select
                           value={editingUser.status || 'approved'}
@@ -812,7 +823,7 @@ export default function SystemManagementTab() {
                         </Badge>
                       )}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-4">
                       {editingUser?.id === u.id ? (
                         <Select
                           value={editingUser.department || ''}
@@ -828,10 +839,12 @@ export default function SystemManagementTab() {
                         <Badge tone="neutral">{u.department || 'Unassigned'}</Badge>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-xs text-ink-muted">{formatDate(u.created_at)}</td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="whitespace-nowrap px-4 py-4 text-xs text-ink-muted">{formatDate(u.created_at)}</td>
+                    <td className="px-4 py-4 text-right">
                       {u.id !== me?.id && (
-                        <div className="flex justify-end gap-2">
+                        // Wrap rather than push Approve/Reject/Edit/Delete past the
+                        // card edge: at 1024-1280px the four actions overflowed (2026-11-26).
+                        <div className="flex min-w-[5.5rem] flex-wrap justify-end gap-2">
                           {u.status === 'pending' && (isSuperadmin || !['admin', 'superadmin'].includes(u.role)) && (
                             <>
                               <Button 
@@ -853,7 +866,11 @@ export default function SystemManagementTab() {
                             </>
                           )}
                           {editingUser?.id === u.id ? (
-                            <Button size="icon-sm" onClick={() => handleUpdate(u.id, editingUser)} aria-label="Save"><Save size={14} /></Button>
+                            <>
+                              <Button size="icon-sm" onClick={() => handleUpdate(u.id, editingUser)} aria-label="Save"><Save size={14} /></Button>
+                              {/* Without this the only ways out of an edit were Save and Delete. */}
+                              <Button size="icon-sm" variant="ghost" onClick={() => setEditingUser(null)} aria-label="Cancel editing"><CloseIcon size={14} /></Button>
+                            </>
                           ) : (
                             (isSuperadmin || !['admin', 'superadmin'].includes(u.role)) && (
                               <Button size="icon-sm" variant="ghost" onClick={() => setEditingUser(u)} aria-label="Edit"><UserCog size={14} /></Button>
@@ -898,7 +915,7 @@ export default function SystemManagementTab() {
             <div className="relative">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
               <Input
-                className="pl-9 h-8 text-xs w-[160px] rounded-xl"
+                className="pl-9 h-8 text-xs w-[200px] rounded-xl"
                 placeholder="Search titles, authors..."
                 value={paperSearchQuery}
                 onChange={(e) => { setPaperSearchQuery(e.target.value); setPaperPage(1); }}

@@ -125,10 +125,24 @@ _MARKER_RUN = re.compile(r'\s*\[\d+\]')
 # between the two studies spans method, dataset, and scope."). The per-thesis
 # bullets that follow carry the cited claims. A framing line that ranks the
 # studies is a claim and stays substantive.
+#
+# Measured 2026-11-25 on the app's own "Compare the BSCS alumni tracer study
+# and the BLIS alumni profiling study" starter: drafts opened with
+# "**The comparison concerns ... results.**" (bold-wrapped, so the anchor never
+# saw "The"), "The question compares the **methodology** of ..." and "The two
+# studies differ primarily in their **method** and **scope** ...". Each was
+# flagged as an uncited claim, and when the repair call did not fix it the
+# whole cited comparison was replaced by "I could not verify a direct answer".
 _COMPARISON_FRAMING = re.compile(
-    r'^(?:the|this)\s+comparison\b[^.!?\n]{0,220}[.!?]?$',
+    r'^(?:'
+    r'(?:the|this)\s+comparison\b'
+    r'|(?:the|this|your)\s+question\s+(?:compares|contrasts|concerns|asks\s+about)\b'
+    r'|(?:the|these|both)\s+(?:two\s+)?(?:studies|theses|papers|projects)\s+'
+    r'(?:are\s+compared|can\s+be\s+compared|are\s+contrasted|differ)\b'
+    r')[^.!?\n]{0,220}[.!?]?$',
     re.IGNORECASE,
 )
+_EMPHASIS = re.compile(r'\*\*|__')
 _COMPARATIVE_CLAIM = re.compile(
     r'\b(?:outperform\w*|better|worse|higher|lower|faster|slower|superior|inferior|'
     r'more\s+accurate|less\s+accurate|beats?|exceed\w*|surpass\w*)\b',
@@ -158,7 +172,7 @@ def is_archive_gap_statement(text: str) -> bool:
 
 
 def _is_comparison_framing(plain: str) -> bool:
-    text = _strip_markers(plain)
+    text = _EMPHASIS.sub('', _strip_markers(plain)).strip()
     return bool(
         _COMPARISON_FRAMING.fullmatch(text)
         and not _has_figures(text)
@@ -347,6 +361,36 @@ def enforce_citation_coverage(answer: str, sources: list[dict]) -> str:
         if not cited_ids(unit):
             repaired = f'{repaired[:end]} [{fallback}]{repaired[end:]}'
     return repaired
+
+
+def prune_uncited_units(answer: str, sources: list[dict]) -> str:
+    """Remove substantive units that carry no valid citation; keep the cited rest.
+
+    The last rung before the grounded fallback, after the AI repair and
+    `enforce_citation_coverage` have both failed. Unlike that function it never
+    INVENTS an attribution: an uncited sentence is dropped, not assigned to a
+    thesis, so everything left is exactly what the model itself cited. Measured
+    2026-11-25: multi-thesis comparisons arrived as fully cited per-thesis
+    bullets plus one uncited opening or closing summary, and the fallback threw
+    the cited bullets away with it. Returns '' when no cited unit would remain,
+    so the caller still falls back rather than serving an empty answer.
+    """
+    allowed = {
+        source_citation_id(source, position)
+        for position, source in enumerate(sources, start=1)
+    }
+    text = answer or ''
+    kept_cited = False
+    for start, end, unit in reversed(_substantive_spans(text, _source_titles(sources))):
+        unit_ids = cited_ids(unit)
+        if unit_ids and unit_ids.issubset(allowed):
+            kept_cited = True
+            continue
+        text = f'{text[:start]}{text[end:]}'
+    if not kept_cited:
+        return ''
+    text = re.sub(r'[ \t]+\n', '\n', text)
+    return re.sub(r'\n{3,}', '\n\n', text).strip()
 
 
 def uncited_units(answer: str, sources: list[dict]) -> list[tuple[int, str]]:

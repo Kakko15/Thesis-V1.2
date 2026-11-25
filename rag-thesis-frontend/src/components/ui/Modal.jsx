@@ -91,23 +91,36 @@ export function Modal({ open, onClose, title, description, children, className, 
                 className="fixed inset-0 z-[80] bg-[var(--scrim)] backdrop-blur-sm"
               />
             </Dialog.Overlay>
-            <Dialog.Content asChild forceMount onInteractOutside={onInteractOutside} onOpenAutoFocus={(event) => {
-              const autofocus = event.currentTarget.querySelector('[data-autofocus]')
-              if (autofocus) {
-                event.preventDefault()
-                autofocus.focus()
-              }
-            }}>
+            {/* Radix renders the dialog element itself (role, aria-modal,
+                labelling, focus trap) and only the visible box is animated.
+                With `asChild` onto a motion.div, none of those props reached the
+                DOM: measured 2026-11-25, every modal exposed no dialog role, no
+                accessible name, and no focus containment -- Enter after Ctrl+K
+                could land on the page behind. */}
+            <Dialog.Content
+              forceMount
+              onInteractOutside={onInteractOutside}
+              onOpenAutoFocus={(event) => {
+                const autofocus = event.currentTarget.querySelector('[data-autofocus]')
+                if (autofocus) {
+                  event.preventDefault()
+                  autofocus.focus()
+                }
+              }}
+              onPointerDownCapture={onContentPointerDownCapture}
+              onChangeCapture={onContentChangeCapture}
+              className={cn(
+                'fixed left-1/2 top-1/2 z-[81] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 outline-none',
+                sizes[size],
+              )}
+            >
               <motion.div
                 initial={{ opacity: 0, scale: 0.96, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.97, y: 10 }}
                 transition={{ type: 'spring', stiffness: 420, damping: 36 }}
-                onPointerDownCapture={onContentPointerDownCapture}
-                onChangeCapture={onContentChangeCapture}
                 className={cn(
-                  'surface-glass fixed left-1/2 top-1/2 z-[81] max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 overscroll-contain overflow-y-auto rounded-[1.75rem] p-6 sm:p-8 touch-manipulation',
-                  sizes[size],
+                  'surface-glass relative max-h-[calc(100vh-2rem)] overscroll-contain overflow-y-auto rounded-[1.75rem] p-6 sm:p-8 touch-manipulation',
                   className,
                 )}
               >
@@ -151,13 +164,17 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, message, confir
                 className="fixed inset-0 z-[90] bg-[var(--scrim)] backdrop-blur-sm"
               />
             </AlertDialog.Overlay>
-            <AlertDialog.Content asChild forceMount onInteractOutside={onInteractOutside}>
+            <AlertDialog.Content
+              forceMount
+              onInteractOutside={onInteractOutside}
+              className="fixed left-1/2 top-1/2 z-[91] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 outline-none"
+            >
               <motion.div
                 initial={{ opacity: 0, scale: 0.96, y: 18 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.97, y: 8 }}
                 transition={{ type: 'spring', stiffness: 420, damping: 36 }}
-                className="surface-glass fixed left-1/2 top-1/2 z-[91] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 overscroll-contain rounded-[1.75rem] p-6 sm:p-8 touch-manipulation"
+                className="surface-glass overscroll-contain rounded-[1.75rem] p-6 sm:p-8 touch-manipulation"
               >
                 <AlertDialog.Title className="font-display text-xl font-bold tracking-tight">
                   {title}
