@@ -409,6 +409,21 @@ export default function Login() {
                 <Sparkles size={14} className="transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
                 Continue as Guest Researcher — no account needed
               </button>
+              <p className="mt-4 text-[11px] leading-relaxed text-ink-faint">
+                By continuing, you agree to our{' '}
+                <Link to="/legal/agreement" className="font-semibold text-ink-muted underline underline-offset-2 hover:text-ink">
+                  Terms of Agreement
+                </Link>
+                ,{' '}
+                <Link to="/legal/terms" className="font-semibold text-ink-muted underline underline-offset-2 hover:text-ink">
+                  Terms of Service
+                </Link>
+                , and{' '}
+                <Link to="/legal/privacy" className="font-semibold text-ink-muted underline underline-offset-2 hover:text-ink">
+                  Privacy Policy
+                </Link>
+                .
+              </p>
             </motion.div>
           )}
         </motion.div>

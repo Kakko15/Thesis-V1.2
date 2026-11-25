@@ -8,6 +8,7 @@ const AppShell = lazy(() => import('./components/AppShell').then((m) => ({ defau
 
 const Landing = lazy(() => import('./pages/Landing'))
 const Login = lazy(() => import('./pages/Login'))
+const Legal = lazy(() => import('./pages/Legal'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Archive = lazy(() => import('./pages/Archive'))
 const Chat = lazy(() => import('./pages/Chat'))
@@ -89,6 +90,11 @@ export default function App() {
         {/* Full-bleed surfaces (no shell) */}
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/legal" element={<Legal defaultDoc="agreement" />} />
+        <Route path="/legal/:doc" element={<Legal />} />
+        <Route path="/agreement" element={<Legal defaultDoc="agreement" />} />
+        <Route path="/terms" element={<Legal defaultDoc="terms" />} />
+        <Route path="/privacy" element={<Legal defaultDoc="privacy" />} />
         {/* Everything else lives inside the app shell */}
         <Route path="*" element={<ShellRoutes />} />
       </Routes>

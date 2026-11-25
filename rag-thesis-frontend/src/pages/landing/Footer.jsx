@@ -23,13 +23,19 @@ const EXPLORE_LINKS = [
   { label: 'Features', href: '#features' },
 ]
 
+const LEGAL_LINKS = [
+  { label: 'Terms of Agreement', to: '/legal/agreement' },
+  { label: 'Terms of Service', to: '/legal/terms' },
+  { label: 'Privacy Policy', to: '/legal/privacy' },
+]
+
 const linkClass =
   'text-sm text-ink-muted transition hover:text-forest-700 dark:hover:text-gold-300'
 
 export function Footer() {
   return (
     <footer className="relative border-t border-forest-900/10 px-6 py-14 dark:border-white/10">
-      <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.4fr_1fr_1fr]">
+      <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
         {/* Brand */}
         <div>
           <BrandMark />
@@ -90,6 +96,22 @@ export function Footer() {
           </ul>
         </nav>
 
+        {/* Legal */}
+        <nav aria-label="Legal">
+          <h3 className="font-display mb-4 text-sm font-bold uppercase tracking-wider text-ink-muted">
+            Legal
+          </h3>
+          <ul className="space-y-2.5">
+            {LEGAL_LINKS.map((link) => (
+              <li key={link.to}>
+                <Link to={link.to} className={linkClass}>
+                  {link.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
         {/* Institution */}
         <div>
           <h3 className="font-display mb-4 text-sm font-bold uppercase tracking-wider text-ink-muted">
@@ -105,6 +127,13 @@ export function Footer() {
 
       <div className="mx-auto mt-12 flex max-w-6xl flex-col items-center justify-between gap-3 border-t border-forest-900/10 pt-6 text-xs text-ink-faint dark:border-white/10 sm:flex-row">
         <span>© {new Date().getFullYear()} Isabela State University · Est. 1978</span>
+        <div className="flex flex-wrap items-center justify-center gap-4">
+          {LEGAL_LINKS.map((link) => (
+            <Link key={link.to} to={link.to} className="transition hover:text-forest-700 dark:hover:text-gold-300">
+              {link.label}
+            </Link>
+          ))}
+        </div>
         <span>Built by CCSICT, for CCSICT.</span>
       </div>
     </footer>

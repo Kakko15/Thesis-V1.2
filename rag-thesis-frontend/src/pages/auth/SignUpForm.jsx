@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { ArrowRight, Lock } from 'lucide-react'
@@ -24,6 +25,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
   const [showPassword, setShowPassword] = useState(false)
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [acceptedPolicies, setAcceptedPolicies] = useState(false)
   const [touched, setTouched] = useState({})
   const [errors, setErrors] = useState({})
   const [errorNonce, setErrorNonce] = useState(0)
@@ -99,6 +101,9 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       const message = fieldError(name, values)
       if (message) next[name] = message
     }
+    if (!acceptedPolicies) {
+      next.policies = 'Please accept the Terms of Agreement, Terms of Service, and Privacy Policy to continue'
+    }
     setTouched({ fullName: true, email: true, password: true, confirmPassword: true })
     failWith(next)
     return Object.keys(next).length === 0
@@ -138,9 +143,10 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
         email: email.trim(),
         password,
         options: authOptions({
-          data: { 
+          data: {
             full_name: fullName.trim(),
-            requested_role: role
+            requested_role: role,
+            accepted_terms_at: new Date().toISOString(),
           },
           emailRedirectTo: `${window.location.origin}/login`,
         }, captcha.token),
@@ -303,6 +309,65 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
       )}
 
       {errors.form && <ErrorAlert key={errorNonce}>{errors.form}</ErrorAlert>}
+
+      <Rise>
+        <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-0)]/70 px-3.5 py-3 text-xs leading-relaxed text-ink-muted transition-colors hover:border-forest-900/30 dark:hover:border-white/25">
+          <input
+            type="checkbox"
+            checked={acceptedPolicies}
+            onChange={(e) => {
+              const checked = e.target.checked
+              setAcceptedPolicies(checked)
+              setPendingSubmit(false)
+              if (checked) {
+                setErrors((prev) => {
+                  if (!prev.policies) return prev
+                  const next = { ...prev }
+                  delete next.policies
+                  return next
+                })
+              }
+            }}
+            aria-invalid={errors.policies ? 'true' : undefined}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-[var(--input)] accent-[var(--primary)]"
+          />
+          <span>
+            I have read and agree to the{' '}
+            <Link
+              to="/legal/agreement"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-forest-700 underline underline-offset-2 hover:text-forest-500 dark:text-gold-300 dark:hover:text-gold-200"
+            >
+              Terms of Agreement
+            </Link>
+            ,{' '}
+            <Link
+              to="/legal/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-forest-700 underline underline-offset-2 hover:text-forest-500 dark:text-gold-300 dark:hover:text-gold-200"
+            >
+              Terms of Service
+            </Link>
+            , and{' '}
+            <Link
+              to="/legal/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-forest-700 underline underline-offset-2 hover:text-forest-500 dark:text-gold-300 dark:hover:text-gold-200"
+            >
+              Privacy Policy
+            </Link>
+            .
+          </span>
+        </label>
+        {errors.policies && (
+          <p role="alert" className="pt-1.5 text-xs font-medium text-flame-500">
+            {errors.policies}
+          </p>
+        )}
+      </Rise>
 
       <Rise>
         <SecurityCheck variant="inline" quiet action="signup" onToken={captcha.onToken} onStatusChange={captcha.onStatusChange} resetKey={captchaReset} />

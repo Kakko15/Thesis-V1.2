@@ -346,6 +346,40 @@ html[data-contrast="high"] :where(button, a, input, select, textarea):focus-visi
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-forest-600/60;
   }
+  /* Scrollbar stays invisible until the user hovers or keyboard-focuses inside
+     the scroll container. Uses `:has(:focus-visible)` instead of `:focus-within`
+     so mouse-clicking a conversation or its 3-dot button doesn't pin the
+     scrollbar open after the pointer leaves (2026-11-26). */
+  .scrollbar-hover {
+    scrollbar-gutter: stable;
+  }
+  .scrollbar-hover::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-hover::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-hover::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 9999px;
+  }
+  .scrollbar-hover:hover::-webkit-scrollbar-thumb,
+  .scrollbar-hover:has(:focus-visible)::-webkit-scrollbar-thumb {
+    @apply bg-forest-700/35;
+  }
+  .scrollbar-hover:hover::-webkit-scrollbar-thumb:hover {
+    @apply bg-forest-600/60;
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    .scrollbar-hover {
+      scrollbar-width: thin;
+      scrollbar-color: transparent transparent;
+    }
+    .scrollbar-hover:hover,
+    .scrollbar-hover:has(:focus-visible) {
+      scrollbar-color: rgba(4, 106, 56, 0.35) transparent;
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.01ms !important;

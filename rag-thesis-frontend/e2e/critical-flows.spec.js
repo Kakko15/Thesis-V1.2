@@ -262,10 +262,32 @@ test('pressing Enter submits sign-in and sign-up automatically, even while Turns
     window.__resolveTurnstile?.()
     document.activeElement?.blur?.()
   })
+  // Submitting before checking the legal agreement checkbox shows the validation error.
+  await page.keyboard.press('Enter')
+  await expect(page.getByText(/Please accept the Terms of Agreement/)).toBeVisible()
+
+  await page.getByRole('checkbox', { name: /Terms of Agreement/ }).check()
+  await page.evaluate(() => document.activeElement?.blur?.())
   await page.keyboard.press('Enter')
   await expect(page.getByRole('heading', { name: /Verify your email|Check your email/i })).toBeVisible()
   expect(requests[1].url).toContain('/auth/v1/signup')
   expect(requests[1].body.gotrue_meta_security?.captcha_token).toBe('e2e-enter-token')
+  expect(requests[1].body.data?.accepted_terms_at).toBeTruthy()
+})
+
+test('legal pages display Terms of Agreement, Terms of Service, and Privacy Policy', async ({ page }) => {
+  await page.goto('/legal/agreement')
+  await expect(page.getByRole('heading', { name: 'Terms of Agreement', level: 1 })).toBeVisible()
+  await expect(page.getByText(/Republic Act No\. 8293/)).toBeVisible()
+
+  await page.getByRole('navigation', { name: 'Legal documents' }).getByRole('link', { name: 'Terms of Service' }).click()
+  await expect(page).toHaveURL(/\/legal\/terms$/)
+  await expect(page.getByRole('heading', { name: 'Terms of Service', level: 1 })).toBeVisible()
+
+  await page.getByRole('navigation', { name: 'Legal documents' }).getByRole('link', { name: 'Privacy Policy' }).click()
+  await expect(page).toHaveURL(/\/legal\/privacy$/)
+  await expect(page.getByRole('heading', { name: 'Privacy Policy', level: 1 })).toBeVisible()
+  await expect(page.getByText(/Republic Act No\. 10173/)).toBeVisible()
 })
 
 test('guest RAG answer stays grounded and survives a hard route refresh', async ({ page }) => {
@@ -469,6 +491,73 @@ test('editing an earlier question warns before the later turns are deleted', asy
   await expect(page.locator('p', { hasText: 'Answer to: First question, reworded?' })).toBeVisible()
   await expect(page.getByText('Answer to: Second research question?')).toHaveCount(0)
   expect(asked).toEqual(['First research question?', 'Second research question?', 'First question, reworded?'])
+  expect(unexpected).toEqual([])
+})
+
+test('conversation history reveals 3-dot menu on hover with Pin, Rename, Delete and hover scrollbar', async ({ page }) => {
+  await useAuthenticatedSession(page)
+  const sessions = [
+    { id: 'sess-1', title: 'First study summary', department: 'CCSICT', created_at: '2026-11-26T03:00:00Z' },
+    { id: 'sess-2', title: 'Alumni tracer comparison', department: 'CCSICT', created_at: '2026-11-26T02:00:00Z' },
+  ]
+  const unexpected = await mockApi(page, {
+    'GET /sessions': () => [...sessions],
+    'GET /sessions/sess-1/messages': [],
+    'GET /sessions/sess-2/messages': [],
+    'PUT /sessions/sess-2': async (request) => {
+      const { title } = request.postDataJSON()
+      sessions[1] = { ...sessions[1], title }
+      return sessions[1]
+    },
+  })
+
+  await page.setViewportSize({ width: 1366, height: 800 })
+  await page.goto('/chat')
+
+  const secondRow = page.getByRole('button', { name: /^Alumni tracer comparison/ })
+  await expect(secondRow).toBeVisible()
+
+  const menuBtn = page.getByRole('button', { name: 'Conversation options for Alumni tracer comparison' })
+  // Hidden at rest before hovering the conversation row.
+  const idleOpacity = await menuBtn.evaluate((el) => Number.parseFloat(getComputedStyle(el).opacity))
+  expect(idleOpacity).toBe(0)
+
+  // Scrollbar container carries the hover-only scrollbar utility.
+  await expect(page.locator('.scrollbar-hover').first()).toBeVisible()
+
+  // Clicking 3-dots twice to close and moving the mouse away (without clicking outside)
+  // must hide both the 3-dots trigger and the hover scrollbar (2026-11-26).
+  await secondRow.hover()
+  await expect(menuBtn).toHaveCSS('opacity', '1')
+  await menuBtn.click()
+  await menuBtn.click()
+  await expect(page.getByRole('menu', { name: 'Actions for Alumni tracer comparison' })).toHaveCount(0)
+  await page.mouse.move(900, 400)
+  const afterLeave = await page.locator('.scrollbar-hover').first().evaluate((el) => ({
+    scrollbarActive: el.matches(':hover') || el.matches(':has(:focus-visible)'),
+  }))
+  expect(afterLeave.scrollbarActive).toBe(false)
+  await expect(menuBtn).toHaveCSS('opacity', '0')
+
+  await secondRow.hover()
+  await menuBtn.click()
+
+  const menu = page.getByRole('menu', { name: 'Actions for Alumni tracer comparison' })
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitem')).toHaveText(['Pin', 'Rename', 'Delete'])
+
+  // Pin floats the second conversation to the top of the list.
+  await menu.getByRole('menuitem', { name: 'Pin' }).click()
+  const orderedButtons = page.locator('.scrollbar-hover').first().locator('button[class*="text-left"]')
+  await expect(orderedButtons.first()).toContainText('Alumni tracer comparison')
+
+  // Re-open menu on the pinned item and confirm Pin changed to Unpin, and Rename opens modal.
+  await orderedButtons.first().hover()
+  await page.getByRole('button', { name: 'Conversation options for Alumni tracer comparison' }).click()
+  const pinnedMenu = page.getByRole('menu', { name: 'Actions for Alumni tracer comparison' })
+  await expect(pinnedMenu.getByRole('menuitem')).toHaveText(['Unpin', 'Rename', 'Delete'])
+  await pinnedMenu.getByRole('menuitem', { name: 'Rename' }).click()
+  await expect(page.getByRole('dialog', { name: 'Rename conversation' })).toBeVisible()
   expect(unexpected).toEqual([])
 })
 

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { SafeMarkdown } from '../components/ui/SafeMarkdown'
 import { toast } from 'sonner'
 import {
-  Plus, MessageSquareText, Trash2, PencilLine,
+  Plus, MessageSquareText, Trash2, PencilLine, MoreVertical,
   AlertTriangle, BookMarked, History, Info, GraduationCap, Loader2, Square, X,
   Copy, Check, RotateCcw, MoreHorizontal, Volume2, VolumeX, FileDown,
   MessageCircleQuestion, ListTree, BookCopy,
@@ -20,6 +21,10 @@ import {
   answerAnnouncement, branchBeforePrompt, dropPendingPrompt, editWarningMessage, laterTurnCount,
   matchesSavedRows, settledTranscript,
 } from './chat/transcript'
+import {
+  computeSessionMenuPosition, orderSessionsByPin, readPinnedIds, removePinnedId, togglePinnedId,
+  writePinnedIds,
+} from './chat/pinnedSessions'
 import {
   copyText, downloadResearchNote, plainResponseText, responseDetails,
   responseWithSources,
@@ -1080,7 +1085,135 @@ function TypingIndicator() {
 /* ------------------------------------------------------------------ */
 /* Session sidebar                                                     */
 /* ------------------------------------------------------------------ */
-function SessionList({ sessions, activeId, onSelect, onPrefetch, onRename, onDelete, onNew, error, onRetry }) {
+const GOOGLE_PIN_OUTLINED =
+  'm640-480 80 80v80H520v240l-40 40-40-40v-240H240v-80l80-80v-280h-40v-80h400v80h-40v280Zm-286 80h252l-46-46v-314H400v314l-46 46Zm126 0Z'
+const GOOGLE_PIN_FILLED =
+  'm640-480 80 80v80H520v240l-40 40-40-40v-240H240v-80l80-80v-280h-40v-80h400v80h-40v280Z'
+
+function PinGoogleIcon({ pinned = false, size = 14 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 -960 960 960"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d={pinned ? GOOGLE_PIN_FILLED : GOOGLE_PIN_OUTLINED} />
+    </svg>
+  )
+}
+
+function SessionActionMenu({ session, isPinned, onTogglePin, onRename, onDelete }) {
+  const [open, setOpen] = useState(false)
+  const [coords, setCoords] = useState({ top: 0, left: 0 })
+  const triggerRef = useRef(null)
+  const menuRef = useRef(null)
+
+  const toggleMenu = () => {
+    if (open) {
+      setOpen(false)
+      return
+    }
+    const rect = triggerRef.current?.getBoundingClientRect()
+    setCoords(
+      computeSessionMenuPosition(rect, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      }),
+    )
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return undefined
+    const handlePointerDown = (event) => {
+      if (triggerRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return
+      setOpen(false)
+    }
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    const handleScroll = () => setOpen(false)
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('scroll', handleScroll, true)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('scroll', handleScroll, true)
+    }
+  }, [open])
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={toggleMenu}
+        aria-label={`Conversation options for ${session.title}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="More options"
+        className={cn(
+          'flex shrink-0 items-center justify-center rounded-full text-ink-muted transition-all duration-150',
+          'hover:bg-forest-900/10 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] dark:hover:bg-white/10',
+          open
+            ? 'h-7 w-7 opacity-100 pointer-events-auto bg-forest-900/10 text-ink dark:bg-white/10'
+            : 'h-7 w-0 overflow-hidden opacity-0 pointer-events-none group-hover/session:w-7 group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-has-[:focus-visible]/session:w-7 group-has-[:focus-visible]/session:opacity-100 group-has-[:focus-visible]/session:pointer-events-auto [@media(hover:none)]:w-7 [@media(hover:none)]:opacity-80 [@media(hover:none)]:pointer-events-auto',
+        )}
+      >
+        <MoreVertical size={15} aria-hidden="true" />
+      </button>
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label={`Actions for ${session.title}`}
+          style={{ top: `${coords.top}px`, left: `${coords.left}px` }}
+          className="fixed z-[160] min-w-[11rem] rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-1.5 text-[var(--popover-foreground)] shadow-2xl ring-1 ring-black/5 dark:ring-white/10"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => { setOpen(false); onTogglePin?.(session) }}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)] focus-visible:bg-[var(--accent)] focus-visible:text-[var(--accent-foreground)] focus-visible:outline-none"
+          >
+            <PinGoogleIcon pinned={isPinned} size={16} />
+            <span>{isPinned ? 'Unpin' : 'Pin'}</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => { setOpen(false); onRename(session) }}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-[var(--accent)] hover:text-[var(--accent-foreground)] focus-visible:bg-[var(--accent)] focus-visible:text-[var(--accent-foreground)] focus-visible:outline-none"
+          >
+            <PencilLine size={15} aria-hidden="true" />
+            <span>Rename</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => { setOpen(false); onDelete(session) }}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-flame-600 transition-colors hover:bg-flame-500/10 focus-visible:bg-flame-500/10 focus-visible:outline-none dark:text-flame-400"
+          >
+            <Trash2 size={15} aria-hidden="true" />
+            <span>Delete</span>
+          </button>
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}
+
+function SessionList({
+  sessions, activeId, pinnedIds, onSelect, onPrefetch, onTogglePin, onRename, onDelete, onNew, error, onRetry,
+}) {
+  const pinnedSet = useMemo(() => new Set((pinnedIds || []).map((id) => String(id))), [pinnedIds])
   return (
     <div className="flex h-full flex-col">
       <div className="px-1 pb-3">
@@ -1097,63 +1230,61 @@ function SessionList({ sessions, activeId, onSelect, onPrefetch, onRename, onDel
           <History size={12} aria-hidden="true" /> Recent conversations
         </div>
       </div>
-      <div className="flex-1 space-y-1 overflow-y-auto pr-1">
+      <div className="scrollbar-hover flex-1 space-y-1 overflow-y-auto pr-1">
         <AnimatePresence initial={false}>
-          {sessions.map((s) => (
-            <motion.div
-              key={s.id}
-              layout
-              initial={{ opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -12 }}
-              className={cn(
-                'group flex items-center gap-1 rounded-2xl px-2.5 py-1.5 transition-colors duration-150',
-                activeId === s.id
-                  ? 'bg-[var(--primary-container)]/75 text-[var(--primary-container-foreground)] shadow-2xs'
-                  : 'hover:bg-[var(--accent)]/70',
-              )}
-            >
-              <button
-                type="button"
-                onClick={() => onSelect(s)}
-                // Intent prefetch: pointer hover, keyboard focus and the press
-                // itself (pointerdown lands ~100 ms before click on touch) all
-                // start the transcript fetch, so the click usually finds it
-                // already cached.
-                onPointerEnter={() => onPrefetch?.(s)}
-                onFocus={() => onPrefetch?.(s)}
-                onPointerDown={() => onPrefetch?.(s)}
-                aria-current={activeId === s.id ? 'true' : undefined}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1 py-1 text-left"
+          {sessions.map((s) => {
+            const isPinned = pinnedSet.has(String(s.id))
+            return (
+              <motion.div
+                key={s.id}
+                layout
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -12 }}
+                className={cn(
+                  'group/session flex items-center gap-1 rounded-2xl px-2.5 py-1.5 transition-colors duration-150',
+                  activeId === s.id
+                    ? 'bg-[var(--primary-container)]/75 text-[var(--primary-container-foreground)] shadow-2xs'
+                    : 'hover:bg-[var(--accent)]/70',
+                )}
               >
-                <MessageSquareText size={14} className="shrink-0 opacity-50" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium" title={s.title}>{s.title}</span>
-                  <span className="block text-xs text-ink-faint">
-                    {s.department || 'CCSICT'} · {timeAgo(s.created_at)}
+                <button
+                  type="button"
+                  onClick={() => onSelect(s)}
+                  // Intent prefetch: pointer hover, keyboard focus and the press
+                  // itself (pointerdown lands ~100 ms before click on touch) all
+                  // start the transcript fetch, so the click usually finds it
+                  // already cached.
+                  onPointerEnter={() => onPrefetch?.(s)}
+                  onFocus={() => onPrefetch?.(s)}
+                  onPointerDown={() => onPrefetch?.(s)}
+                  aria-current={activeId === s.id ? 'true' : undefined}
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1 py-1 text-left"
+                >
+                  {isPinned ? (
+                    <span className="shrink-0 text-forest-700 dark:text-gold-300" title="Pinned conversation">
+                      <PinGoogleIcon pinned size={14} />
+                    </span>
+                  ) : (
+                    <MessageSquareText size={14} className="shrink-0 opacity-50" />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium" title={s.title}>{s.title}</span>
+                    <span className="block text-xs text-ink-faint">
+                      {s.department || 'CCSICT'} · {timeAgo(s.created_at)}
+                    </span>
                   </span>
-                </span>
-              </button>
-              <div className="flex shrink-0 gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => onRename(s)}
-                  aria-label={`Rename ${s.title}`}
-                  className="rounded-lg p-1.5 opacity-50 hover:bg-forest-900/10 hover:opacity-100 dark:hover:bg-white/10"
-                >
-                  <PencilLine size={13} />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(s)}
-                  aria-label={`Delete ${s.title}`}
-                  className="rounded-lg p-1.5 text-flame-500 opacity-50 hover:bg-flame-500/10 hover:opacity-100"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            </motion.div>
-          ))}
+                <SessionActionMenu
+                  session={s}
+                  isPinned={isPinned}
+                  onTogglePin={onTogglePin}
+                  onRename={onRename}
+                  onDelete={onDelete}
+                />
+              </motion.div>
+            )
+          })}
         </AnimatePresence>
         {error ? (
           <div role="alert" className="px-3 py-6 text-center text-xs">
@@ -1301,6 +1432,38 @@ function ChatTranscript({
   )
 }
 
+function usePinnedSessions(userId) {
+  const [state, setState] = useState(() => ({
+    userId,
+    ids: readPinnedIds(window.localStorage, userId),
+  }))
+  const pinnedIds = state.userId === userId
+    ? state.ids
+    : readPinnedIds(window.localStorage, userId)
+  if (state.userId !== userId) {
+    setState({ userId, ids: pinnedIds })
+  }
+  const togglePin = useCallback((session) => {
+    if (!session?.id) return
+    setState((prev) => {
+      const base = prev.userId === userId ? prev.ids : readPinnedIds(window.localStorage, userId)
+      const next = togglePinnedId(base, session.id)
+      writePinnedIds(window.localStorage, userId, next)
+      return { userId, ids: next }
+    })
+  }, [userId])
+  const removePin = useCallback((id) => {
+    if (!id) return
+    setState((prev) => {
+      const base = prev.userId === userId ? prev.ids : readPinnedIds(window.localStorage, userId)
+      const next = removePinnedId(base, id)
+      writePinnedIds(window.localStorage, userId, next)
+      return { userId, ids: next }
+    })
+  }, [userId])
+  return { pinnedIds, togglePin, removePin }
+}
+
 /* ------------------------------------------------------------------ */
 /* Main chat page                                                      */
 /* ------------------------------------------------------------------ */
@@ -1378,6 +1541,8 @@ export default function Chat() {
     queryFn: getSessions,
     enabled: !!user,
   })
+  const { pinnedIds, togglePin: togglePinSession, removePin: removePinSession } = usePinnedSessions(user?.id)
+  const orderedSessions = useMemo(() => orderSessionsByPin(sessions, pinnedIds), [sessions, pinnedIds])
 
   const { data: departments = [], isError: departmentsError } = useQuery({
     queryKey: ['departments'],
@@ -1803,6 +1968,7 @@ export default function Chat() {
     try {
       await deleteSession(deleteTarget.id)
       forgetTranscript(deleteTarget.id)
+      removePinSession(deleteTarget.id)
       queryClient.invalidateQueries({ queryKey: ['sessions'] })
       if (deleteTarget.id === sessionId) newConversation()
       toast.success('Conversation deleted')
@@ -1820,10 +1986,12 @@ export default function Chat() {
       {user && (
         <GlassCard className="hidden w-72 shrink-0 rounded-[2rem] p-4 xl:block 2xl:w-80">
           <SessionList
-            sessions={sessions}
+            sessions={orderedSessions}
             activeId={sessionId}
+            pinnedIds={pinnedIds}
             onSelect={loadSession}
             onPrefetch={prefetchSession}
+            onTogglePin={togglePinSession}
             onRename={(s) => { setRenameTarget(s); setRenameValue(s.title) }}
             onDelete={setDeleteTarget}
             onNew={newConversation}
@@ -1842,10 +2010,12 @@ export default function Chat() {
         responsiveClass="xl:hidden"
       >
         <SessionList
-          sessions={sessions}
+          sessions={orderedSessions}
           activeId={sessionId}
+          pinnedIds={pinnedIds}
           onSelect={loadSession}
           onPrefetch={prefetchSession}
+          onTogglePin={togglePinSession}
           onRename={(s) => { setRenameTarget(s); setRenameValue(s.title) }}
           onDelete={setDeleteTarget}
           onNew={newConversation}
