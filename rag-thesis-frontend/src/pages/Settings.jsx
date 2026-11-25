@@ -57,7 +57,7 @@ export default function Settings() {
             navigated. The descriptions now head the section itself. Below lg
             it scrolls sideways as a row of pills. */}
         <nav
-          className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 lg:sticky lg:top-6 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0"
+          className="flex flex-wrap gap-1.5 lg:sticky lg:top-6 lg:flex-col lg:gap-1"
           role="tablist"
           aria-label="Settings sections"
         >
@@ -73,7 +73,7 @@ export default function Settings() {
                 aria-controls="settings-panel"
                 onClick={() => select(id)}
                 className={cn(
-                  'state-layer flex h-11 shrink-0 items-center gap-3 rounded-full px-4 text-left text-sm transition-colors duration-200',
+                  'state-layer flex h-10 shrink-0 items-center gap-2 rounded-full px-3.5 text-left text-xs transition-colors duration-200 sm:h-11 sm:gap-3 sm:px-4 sm:text-sm',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
                   selected
                     ? 'bg-[var(--primary-container)] font-semibold text-[var(--primary-container-foreground)]'

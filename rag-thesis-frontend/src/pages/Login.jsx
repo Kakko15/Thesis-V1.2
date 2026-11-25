@@ -258,7 +258,7 @@ export default function Login() {
       </div>
 
       {/* Auth panel */}
-      <div className="relative flex flex-1 items-center justify-center px-5 py-10">
+      <div className="relative flex flex-1 items-center justify-center px-3.5 py-6 sm:px-5 sm:py-10">
         {/* Soft glow orbs behind the card — pointer-parallax for depth */}
         <div aria-hidden="true" className="effects-decorative pointer-events-none absolute inset-0 overflow-hidden">
           <motion.div
@@ -279,7 +279,7 @@ export default function Login() {
           animate="show"
           onPointerMove={onCardPointerMove}
           className={cn(
-            'gradient-border gradient-border-glass relative w-full max-w-md rounded-[2rem] p-8 sm:p-10',
+            'gradient-border gradient-border-glass relative w-full max-w-md rounded-[2rem] p-6 sm:p-10',
             // Deeper fill than the .gradient-border-glass default so the gold
             // aurora blob can't wash out copy behind the card.
             '[--gb-fill:rgba(255,255,255,0.8)] dark:[--gb-fill:rgba(7,31,18,0.8)]',

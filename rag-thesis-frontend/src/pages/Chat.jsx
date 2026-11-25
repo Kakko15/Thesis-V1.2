@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { SafeMarkdown } from '../components/ui/SafeMarkdown'
 import { toast } from 'sonner'
 import {
-  Plus, MessageSquareText, Trash2, PencilLine, MoreVertical,
+  Plus, MessageSquareText, Trash2, PencilLine, MoreVertical, SlidersHorizontal,
   AlertTriangle, BookMarked, History, Info, GraduationCap, Loader2, Square, X,
   Copy, Check, RotateCcw, MoreHorizontal, Volume2, VolumeX, FileDown,
   MessageCircleQuestion, ListTree, BookCopy,
@@ -371,7 +371,7 @@ function Composer({
   }, [value, isExpanded])
 
   return (
-    <div className="border-t border-forest-900/8 px-4 pb-3 pt-2.5 sm:px-6 sm:pb-4 sm:pt-3 dark:border-white/8">
+    <div className="border-t border-forest-900/8 px-3 pb-2.5 pt-2 sm:px-6 sm:pb-4 sm:pt-3 dark:border-white/8">
       <div className="mx-auto w-full max-w-4xl">
         {children}
         <form
@@ -383,7 +383,7 @@ function Composer({
             onSend()
           }}
           className={cn(
-            'relative flex items-end gap-2.5 rounded-[1.75rem] border border-[var(--border)] bg-[var(--surface-0)]/95 p-2.5 pl-5 backdrop-blur-2xl',
+            'relative flex items-end gap-2 rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface-0)]/95 p-1.5 pl-4 backdrop-blur-2xl sm:gap-2.5 sm:rounded-[1.75rem] sm:p-2.5 sm:pl-5',
             'shadow-[0_4px_24px_rgba(4,42,24,0.08)] transition-[border-color,box-shadow,background-color] duration-200',
             'hover:border-forest-900/25 focus-within:border-[var(--primary)]',
             'focus-within:shadow-[0_6px_28px_rgba(4,42,24,0.12),0_0_0_3px_color-mix(in_srgb,var(--primary)_14%,transparent)]',
@@ -1017,7 +1017,7 @@ function AiBubble({ message, animate, onRegenerate, onFollowUp, disabled }) {
   const groupedSources = groupEvidenceSources(message.sources)
   const noticeLabel = messageNoticeLabel(message)
   return (
-    <div className="flex gap-3">
+    <div className="flex gap-2 sm:gap-3">
       <AiAvatar />
       <motion.div
         initial={animate ? { opacity: 0, filter: 'blur(4px)' } : false}
@@ -1025,7 +1025,7 @@ function AiBubble({ message, animate, onRegenerate, onFollowUp, disabled }) {
         transition={{ duration: 0.4, ease: [0.2, 0, 0, 1] }}
         className="min-w-0 max-w-full flex-1 sm:max-w-[92%]"
       >
-        <div className="glass rounded-[1.5rem] rounded-tl-md px-5 py-4 sm:px-6 sm:py-5">
+        <div className="glass rounded-[1.5rem] rounded-tl-md px-4 py-3.5 sm:px-6 sm:py-5">
           <div className="prose-chat">
             <SafeMarkdown>{message.answer}</SafeMarkdown>
           </div>
@@ -1354,10 +1354,10 @@ function ChatTranscript({
       // transcript's full height and the card itself scrolled: the header
       // vanished and a blank band opened under the composer (2026-11-26).
       className={cn(
-        'relative min-h-0 flex-1 overflow-x-hidden overscroll-contain px-4 sm:px-6 lg:px-10',
+        'relative min-h-0 flex-1 overflow-x-hidden overscroll-contain px-3.5 sm:px-6 lg:px-10',
         isEmpty
-          ? 'flex flex-col items-center justify-center overflow-y-hidden py-4'
-          : 'overflow-y-auto py-6 sm:py-8',
+          ? 'flex flex-col items-center overflow-y-auto py-3 sm:justify-center sm:overflow-y-hidden sm:py-4'
+          : 'overflow-y-auto py-4 sm:py-8',
       )}
     >
       {showSkeleton ? (
@@ -1365,19 +1365,19 @@ function ChatTranscript({
           <TranscriptSkeleton />
         </div>
       ) : isEmpty ? (
-        <div className="mx-auto flex w-full max-w-2xl flex-col items-center justify-center">
-          <div className="mb-6 flex flex-col items-center text-center sm:mb-8">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-[var(--surface-1)] shadow-sm ring-1 ring-[var(--border)]">
-              <Logo size={38} glow />
+        <div className="mx-auto my-auto flex w-full max-w-2xl flex-col items-center justify-center py-2">
+          <div className="mb-4 flex flex-col items-center text-center sm:mb-8">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--surface-1)] shadow-sm ring-1 ring-[var(--border)] sm:mb-4 sm:h-16 sm:w-16 sm:rounded-3xl">
+              <Logo size={32} glow />
             </div>
-            <h2 className="font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+            <h2 className="font-display text-xl font-extrabold tracking-tight text-ink sm:text-3xl">
               Ask IskAI anything
             </h2>
-            <p className="mt-2 max-w-lg text-sm leading-relaxed text-ink-muted sm:text-[15px]">
+            <p className="mt-1.5 max-w-lg text-xs leading-relaxed text-ink-muted sm:mt-2 sm:text-[15px]">
               Semantic search across indexed {effectiveDepartment} theses — methodologies, scopes, findings, and related literature.
             </p>
           </div>
-          <div className="grid w-full gap-3 sm:grid-cols-2">
+          <div className="grid w-full gap-2 sm:grid-cols-2 sm:gap-3">
             {STARTERS.map((s, i) => (
               <motion.button
                 key={s}
@@ -1386,7 +1386,7 @@ function ChatTranscript({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 + i * 0.06 }}
                 onClick={() => onSendStarter(s)}
-                className="state-layer rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/85 px-5 py-4 text-left text-sm font-medium leading-relaxed text-ink/90 shadow-2xs transition-all hover:border-forest-500/35 hover:bg-[var(--surface-2)] hover:text-ink hover:shadow-sm"
+                className="state-layer rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/85 px-3.5 py-2.5 text-left text-xs font-medium leading-relaxed text-ink/90 shadow-2xs transition-all hover:border-forest-500/35 hover:bg-[var(--surface-2)] hover:text-ink hover:shadow-sm sm:px-5 sm:py-4 sm:text-sm"
               >
                 {s}
               </motion.button>
@@ -1462,6 +1462,136 @@ function usePinnedSessions(userId) {
     })
   }, [userId])
   return { pinnedIds, togglePin, removePin }
+}
+
+function ChatHeader({
+  effectiveDepartment,
+  recencyScope,
+  setRecencyScope,
+  filterCategory,
+  setFilterCategory,
+  isSuperadmin,
+  filterDepartment,
+  setFilterDepartment,
+  userDepartment,
+  evaluationDepartment,
+  departments,
+  newConversation,
+  user,
+  onOpenSidebar,
+  onNavigateLogin,
+}) {
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const activeFilterCount = (recencyScope !== 'all' ? 1 : 0)
+    + (filterCategory ? 1 : 0)
+    + (isSuperadmin && filterDepartment ? 1 : 0)
+
+  return (
+    <div className="border-b border-forest-900/10 px-3.5 py-2.5 dark:border-white/10 sm:px-6 sm:py-3.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:flex-[1_1_14rem] sm:gap-3">
+          <Logo size={30} />
+          <div className="min-w-0">
+            <h1 className="font-display text-sm font-extrabold tracking-tight sm:text-base">IskAI</h1>
+            <div className="truncate text-[11px] text-ink-faint sm:text-xs">
+              Grounded in the {effectiveDepartment} archive · citations included
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile compact actions: Filters toggle + History / Sign in on one single row */}
+        <div className="flex shrink-0 items-center gap-1.5 sm:hidden">
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((open) => !open)}
+            aria-expanded={filtersOpen}
+            aria-controls="chat-filter-controls"
+            aria-label="Toggle chat filters"
+            className={cn(
+              'relative inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold transition-colors',
+              filtersOpen || activeFilterCount > 0
+                ? 'border-[var(--primary)] bg-[var(--primary-container)] text-[var(--primary-container-foreground)]'
+                : 'border-[var(--border)] bg-[var(--surface-0)] text-ink-muted',
+            )}
+          >
+            <SlidersHorizontal size={13} aria-hidden="true" />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[10px] font-bold text-[var(--primary-foreground)]">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          {user ? (
+            <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={onOpenSidebar} aria-label="Conversations">
+              <History size={16} />
+            </Button>
+          ) : (
+            <Button variant="gold" size="sm" className="h-8 shrink-0 px-2.5 text-xs whitespace-nowrap" onClick={onNavigateLogin}>
+              <GraduationCap size={13} /> Sign in
+            </Button>
+          )}
+        </div>
+
+        {/* Filter controls: collapsible drawer row on mobile, always inline on sm+ */}
+        <div
+          id="chat-filter-controls"
+          className={cn(
+            'min-w-0 flex-wrap items-center gap-2',
+            filtersOpen ? 'flex w-full pt-1 sm:w-auto sm:pt-0' : 'hidden sm:flex',
+          )}
+        >
+          <Select
+            value={recencyScope}
+            onChange={(e) => setRecencyScope(e.target.value)}
+            className="h-9 min-w-[8.5rem] flex-1 rounded-full sm:w-auto sm:flex-none"
+            aria-label="Filter research by publication recency"
+          >
+            <option value="all">All theses</option>
+            <option value="recent_5">Last 5 years</option>
+          </Select>
+          <Select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="h-9 min-w-[8.5rem] flex-1 rounded-full sm:w-auto sm:flex-none"
+            aria-label="Filter research by thesis category"
+          >
+            <option value="">All categories</option>
+            {THESIS_CATEGORIES.map((category) => (
+              <option key={category.value} value={category.value}>{category.label}</option>
+            ))}
+          </Select>
+          {isSuperadmin ? (
+            <Select
+              value={filterDepartment}
+              onChange={(e) => {
+                setFilterDepartment(e.target.value)
+                newConversation()
+              }}
+              className="h-9 min-w-[8.5rem] flex-1 rounded-full sm:w-auto sm:flex-none"
+              aria-label="Filter research by department"
+            >
+              <option value="">Default ({userDepartment || evaluationDepartment})</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.name}>{d.name}</option>
+              ))}
+            </Select>
+          ) : (
+            <Badge tone="neutral" className="hidden shrink-0 sm:inline-flex">{effectiveDepartment}</Badge>
+          )}
+          {user ? (
+            <Button variant="ghost" size="icon-sm" className="hidden shrink-0 sm:inline-flex xl:hidden" onClick={onOpenSidebar} aria-label="Conversations">
+              <History size={16} />
+            </Button>
+          ) : (
+            <Button variant="gold" size="sm" className="hidden shrink-0 whitespace-nowrap sm:inline-flex" onClick={onNavigateLogin}>
+              <GraduationCap size={14} /> Sign in to save chats
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -1981,7 +2111,7 @@ export default function Chat() {
   }
 
   return (
-    <PageTransition className="flex h-[calc(100dvh-11.5rem)] w-full gap-3 md:h-[calc(100dvh-1.5rem)]">
+    <PageTransition className="flex h-[calc(100dvh-10rem)] w-full gap-3 md:h-[calc(100dvh-1.5rem)]">
       {/* Session sidebar (desktop) */}
       {user && (
         <GlassCard className="hidden w-72 shrink-0 rounded-[2rem] p-4 xl:block 2xl:w-80">
@@ -2027,71 +2157,24 @@ export default function Chat() {
       {/* Chat column */}
       {/* overflow-clip, not overflow-hidden: a hidden box is still a scroll
           container that script can scroll, a clipped one is not (2026-11-26). */}
-      <GlassCard className="flex min-w-0 flex-1 flex-col overflow-clip rounded-[2rem]">
-        {/* Header. It wraps instead of switching to a row at a fixed breakpoint:
-            the chat card's width depends on the sidebar, so at 1280px and 800px
-            the department pill and sign-in button were clipped, and at 390px the
-            filters shrank to ovals (2026-11-26). */}
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-forest-900/10 px-5 py-3.5 dark:border-white/10 sm:px-6">
-          <div className="flex min-w-0 flex-[1_1_14rem] items-center gap-3">
-            <Logo size={34} />
-            <div className="min-w-0">
-              <h1 className="font-display text-base font-extrabold tracking-tight">IskAI</h1>
-              <div className="truncate text-xs text-ink-faint">
-                Grounded in the {effectiveDepartment} archive · citations included
-              </div>
-            </div>
-          </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Select
-              value={recencyScope}
-              onChange={(e) => setRecencyScope(e.target.value)}
-              className="h-9 min-w-[8.5rem] flex-1 rounded-full sm:w-auto sm:flex-none"
-              aria-label="Filter research by publication recency"
-            >
-              <option value="all">All theses</option>
-              <option value="recent_5">Last 5 years</option>
-            </Select>
-            <Select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="h-9 min-w-[8.5rem] flex-1 rounded-full sm:w-auto sm:flex-none"
-              aria-label="Filter research by thesis category"
-            >
-              <option value="">All categories</option>
-              {THESIS_CATEGORIES.map((category) => (
-                <option key={category.value} value={category.value}>{category.label}</option>
-              ))}
-            </Select>
-            {isSuperadmin ? (
-              <Select
-                value={filterDepartment}
-                onChange={(e) => {
-                  setFilterDepartment(e.target.value)
-                  newConversation()
-                }}
-                className="h-9 min-w-[8.5rem] flex-1 rounded-full sm:w-auto sm:flex-none"
-                aria-label="Filter research by department"
-              >
-                <option value="">Default ({userDepartment || evaluationDepartment})</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.name}>{d.name}</option>
-                ))}
-              </Select>
-            ) : (
-              <Badge tone="neutral" className="shrink-0">{effectiveDepartment}</Badge>
-            )}
-            {user ? (
-              <Button variant="ghost" size="icon-sm" className="shrink-0 xl:hidden" onClick={() => setSidebarOpen(true)} aria-label="Conversations">
-                <History size={16} />
-              </Button>
-            ) : (
-              <Button variant="gold" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => navigate('/login')}>
-                <GraduationCap size={14} /> Sign in to save chats
-              </Button>
-            )}
-          </div>
-        </div>
+      <GlassCard className="flex min-w-0 flex-1 flex-col overflow-clip rounded-[1.5rem] sm:rounded-[2rem]">
+        <ChatHeader
+          effectiveDepartment={effectiveDepartment}
+          recencyScope={recencyScope}
+          setRecencyScope={setRecencyScope}
+          filterCategory={filterCategory}
+          setFilterCategory={setFilterCategory}
+          isSuperadmin={isSuperadmin}
+          filterDepartment={filterDepartment}
+          setFilterDepartment={setFilterDepartment}
+          userDepartment={userDepartment}
+          evaluationDepartment={evaluationDepartment}
+          departments={departments}
+          newConversation={newConversation}
+          user={user}
+          onOpenSidebar={() => setSidebarOpen(true)}
+          onNavigateLogin={() => navigate('/login')}
+        />
 
         {/* Guest banner */}
         {!user && (

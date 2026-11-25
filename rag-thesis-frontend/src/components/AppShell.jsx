@@ -323,12 +323,13 @@ export function AppShell({ children }) {
       <main
         id="main-content"
         className={cn(
-          'px-3.5 pb-28 pt-20 sm:px-6 md:ml-[6.5rem] xl:ml-[19rem]',
+          'md:ml-[6.5rem] xl:ml-[19rem]',
           // Align the chat workspace flush with the floating nav rail (inset-y-3 / 12px)
-          // so the chat canvas fills the viewport instead of sitting inside extra padding.
+          // on desktop, and maximize viewport height between the fixed mobile header
+          // and bottom navigation bar on phones (2026-11-26).
           isChatRoute
-            ? 'md:px-3 md:py-3 xl:ml-[18.75rem] xl:px-3'
-            : 'md:pb-8 md:pt-6 xl:pr-6',
+            ? 'px-2.5 pb-[5.25rem] pt-[4.75rem] sm:px-4 md:px-3 md:py-3 xl:ml-[18.75rem] xl:px-3'
+            : 'px-3.5 pb-28 pt-20 sm:px-6 md:pb-8 md:pt-6 xl:pr-6',
         )}
       >
         {children}

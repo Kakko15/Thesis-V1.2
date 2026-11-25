@@ -345,12 +345,12 @@ function DepartmentsManagement() {
   return (
     <>
     <GlassCard className="flex flex-col justify-between overflow-hidden mb-6">
-      <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex items-center justify-between">
+      <div className="border-b border-forest-900/10 px-4 py-4 dark:border-white/10 flex flex-wrap items-center justify-between gap-2 sm:px-6">
         <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">Departments & Tracks Configuration</div>
         <Button size="sm" onClick={startCreate} disabled={editingId !== null}><Plus size={14} className="mr-1" /> Add Dept</Button>
       </div>
       <TableScroller label="Departments and tracks configuration" className="flex-1 min-h-[300px]">
-        <table className="w-full text-left text-sm">
+        <table className="w-full min-w-[38rem] text-left text-sm">
           <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
             <tr>
               <th className="px-6 py-3">Dept Name</th>
@@ -692,32 +692,32 @@ export default function SystemManagementTab() {
   return (
     <div className="space-y-6">
       <GlassCard className="flex flex-col justify-between overflow-hidden">
-        <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-col gap-4 sm:flex-row sm:items-center justify-between">
+        <div className="border-b border-forest-900/10 px-4 py-4 dark:border-white/10 flex flex-col gap-3 sm:flex-row sm:items-center sm:px-6 justify-between">
           <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">User Directory</div>
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="relative">
+          <div className="flex w-full flex-wrap gap-2 items-center sm:w-auto">
+            <div className="relative w-full sm:w-auto">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
               <Input
-                className="pl-9 h-8 text-xs w-[200px] rounded-xl"
+                className="pl-9 h-8 text-xs w-full sm:w-[200px] rounded-xl"
                 placeholder="Search users..."
                 value={searchQuery}
                 onChange={(e) => { setSearchQuery(e.target.value); setUserPage(1); }}
               />
             </div>
             {isSuperadmin && (
-              <Select value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setUserPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by department">
+              <Select value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setUserPage(1); }} className="h-8 flex-1 min-w-[6.5rem] sm:flex-none sm:w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by department">
                 <option value="all">All Depts</option>
                 {departmentNames.map((name) => <option key={name} value={name}>{name}</option>)}
               </Select>
             )}
-            <Select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setUserPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by role">
+            <Select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setUserPage(1); }} className="h-8 flex-1 min-w-[6.5rem] sm:flex-none sm:w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by role">
               <option value="all">All Roles</option>
               <option value="student">Student</option>
               <option value="faculty">Faculty</option>
               <option value="admin">Admin</option>
               {isSuperadmin && <option value="superadmin">Superadmin</option>}
             </Select>
-            <Select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setUserPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by status">
+            <Select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setUserPage(1); }} className="h-8 flex-1 min-w-[6.5rem] sm:flex-none sm:w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter users by status">
               <option value="all">All Status</option>
               <option value="approved">Approved</option>
               <option value="pending">Pending</option>
@@ -726,10 +726,10 @@ export default function SystemManagementTab() {
           </div>
         </div>
         <TableScroller label="User directory" className="flex-1 min-h-[350px]">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[46rem] text-left text-sm">
             <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
               <tr>
-                <th className="px-4 py-3">User</th>
+                <th className="min-w-[14rem] px-4 py-3">User</th>
                 <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Dept</th>
@@ -909,13 +909,13 @@ export default function SystemManagementTab() {
       <FiveYearStorageRetentionCard papers={papers} />
 
       <GlassCard className="flex flex-col justify-between overflow-hidden">
-        <div className="border-b border-forest-900/10 px-6 py-4 dark:border-white/10 flex flex-col gap-4 sm:flex-row sm:items-center justify-between">
+        <div className="border-b border-forest-900/10 px-4 py-4 dark:border-white/10 flex flex-col gap-3 sm:flex-row sm:items-center sm:px-6 justify-between">
           <div className="text-sm font-bold uppercase tracking-wider text-ink-muted">Database Papers & Buckets</div>
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="relative">
+          <div className="flex w-full flex-wrap gap-2 items-center sm:w-auto">
+            <div className="relative w-full sm:w-auto">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
               <Input
-                className="pl-9 h-8 text-xs w-[200px] rounded-xl"
+                className="pl-9 h-8 text-xs w-full sm:w-[200px] rounded-xl"
                 placeholder="Search titles, authors..."
                 value={paperSearchQuery}
                 onChange={(e) => { setPaperSearchQuery(e.target.value); setPaperPage(1); }}
@@ -924,7 +924,7 @@ export default function SystemManagementTab() {
             <Select
               value={paperRetentionFilter}
               onChange={(e) => { setPaperRetentionFilter(e.target.value); setPaperPage(1); }}
-              className="h-8 w-[140px] rounded-xl px-2.5 text-xs"
+              className="h-8 flex-1 min-w-[7.5rem] sm:flex-none sm:w-[140px] rounded-xl px-2.5 text-xs"
               aria-label="Filter papers by 5-year retention"
             >
               <option value="all">All Years</option>
@@ -932,7 +932,7 @@ export default function SystemManagementTab() {
               <option value="expired">Past 5 yrs</option>
             </Select>
             {isSuperadmin && (
-              <Select value={paperDeptFilter} onChange={e => { setPaperDeptFilter(e.target.value); setPaperPage(1); }} className="h-8 w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter papers by department">
+              <Select value={paperDeptFilter} onChange={e => { setPaperDeptFilter(e.target.value); setPaperPage(1); }} className="h-8 flex-1 min-w-[6.5rem] sm:flex-none sm:w-[110px] rounded-xl px-2.5 text-xs" aria-label="Filter papers by department">
                 <option value="all">All Depts</option>
                 {departmentNames.map((name) => <option key={name} value={name}>{name}</option>)}
               </Select>
@@ -940,7 +940,7 @@ export default function SystemManagementTab() {
           </div>
         </div>
         <TableScroller label="Database papers and buckets" className="flex-1 min-h-[350px]">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[34rem] text-left text-sm">
             <thead className="bg-forest-900/5 text-xs font-semibold uppercase tracking-wider text-ink-muted dark:bg-white/5">
               <tr>
                 <th className="px-6 py-3">Title & Authors</th>

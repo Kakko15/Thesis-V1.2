@@ -56,7 +56,7 @@ function ScanModeSwitch({ value, onChange, disabled }) {
     <div
       role="radiogroup"
       aria-label="Scan mode"
-      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-forest-900/10 bg-forest-900/[0.04] p-1 shadow-2xs dark:border-white/10 dark:bg-white/[0.04]"
+      className="grid w-full grid-cols-3 gap-1 rounded-full border border-forest-900/10 bg-forest-900/[0.04] p-1 shadow-2xs dark:border-white/10 dark:bg-white/[0.04] sm:inline-flex sm:w-auto sm:shrink-0 sm:items-center"
     >
       {SCAN_MODES.map(({ value: mode, label, icon: Icon }) => (
         <button
@@ -67,7 +67,7 @@ function ScanModeSwitch({ value, onChange, disabled }) {
           disabled={disabled}
           onClick={() => onChange(mode)}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-60',
+            'inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-60 sm:px-4',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
             value === mode
               ? 'bg-forest-800 font-bold text-white shadow-2xs dark:bg-forest-400 dark:text-forest-950'

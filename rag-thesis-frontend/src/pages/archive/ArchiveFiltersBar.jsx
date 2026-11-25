@@ -9,7 +9,7 @@ import { trackDisplayLabel } from './archiveFilters'
 // 2026-09-14, four filters stacked into four rows of empty space above the
 // results even though the row was already `flex-wrap`. `w-auto` is what makes
 // the row a row -- tailwind-merge drops the primitive's `w-full` for it.
-const FILTER_CHIP = 'h-9 w-auto max-w-[14rem] rounded-full px-3.5 text-xs font-medium shadow-2xs'
+const FILTER_CHIP = 'h-9 w-full max-w-none rounded-full px-3 text-xs font-medium shadow-2xs sm:w-auto sm:max-w-[14rem] sm:px-3.5'
 const FILTER_CHIP_IDLE =
   'border-forest-900/15 bg-white/80 hover:border-forest-900/30 '
   + 'dark:border-white/15 dark:bg-forest-950/70'
@@ -37,7 +37,7 @@ function CategoryTabs({ value, onChange }) {
     <div
       role="radiogroup"
       aria-label="Filter by thesis category"
-      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-forest-900/10 bg-forest-900/[0.04] p-1 shadow-2xs dark:border-white/10 dark:bg-white/[0.04]"
+      className="grid w-full grid-cols-3 gap-1 rounded-2xl border border-forest-900/10 bg-forest-900/[0.04] p-1 shadow-2xs dark:border-white/10 dark:bg-white/[0.04] sm:inline-flex sm:w-auto sm:shrink-0 sm:items-center sm:rounded-full"
     >
       {CATEGORY_TABS.map((tab) => (
         <button
@@ -47,7 +47,7 @@ function CategoryTabs({ value, onChange }) {
           aria-checked={value === tab.value}
           onClick={() => onChange(tab.value)}
           className={cn(
-            'rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all',
+            'rounded-xl px-2 py-1.5 text-center text-xs font-semibold transition-all sm:rounded-full sm:px-3.5',
             value === tab.value
               ? 'bg-forest-800 font-bold text-white shadow-2xs dark:bg-forest-400 dark:text-forest-950'
               : 'text-ink-muted hover:bg-forest-900/10 hover:text-ink dark:hover:bg-white/10',
@@ -198,8 +198,8 @@ export function ArchiveFiltersBar({
         />
       </div>
 
-      {/* Scope filters inline, sort anchored to the trailing edge. */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Scope filters: clean 2-column grid on mobile, inline flex row on sm+ */}
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
         {programs.length > 0 ? (
           <Select
             value={filters.program_id}

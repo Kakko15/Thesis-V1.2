@@ -150,7 +150,7 @@ export default function Admin() {
           </h1>
           <p className="mt-1 text-sm text-ink-muted">Evidence readiness, archive operations, academic catalog, and access governance.</p>
         </div>
-        <div className="glass flex max-w-full flex-wrap items-center gap-1 self-start rounded-2xl p-1" role="tablist" aria-label="Administration sections">
+        <div className="glass grid w-full grid-cols-2 gap-1 rounded-2xl p-1 sm:inline-flex sm:w-auto sm:flex-wrap sm:items-center sm:self-start" role="tablist" aria-label="Administration sections">
           {tabs.map((tab) => (
             <button
               key={tab.id}

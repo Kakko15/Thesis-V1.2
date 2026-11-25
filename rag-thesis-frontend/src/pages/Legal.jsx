@@ -62,7 +62,7 @@ export default function Legal({ defaultDoc }) {
         {/* Document switcher */}
         <nav
           aria-label="Legal documents"
-          className="mb-8 inline-flex flex-wrap gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-1)]/90 p-1.5 shadow-xs backdrop-blur-xl"
+          className="mb-6 grid w-full grid-cols-3 gap-1 rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/90 p-1 shadow-xs backdrop-blur-xl sm:mb-8 sm:inline-flex sm:w-auto sm:gap-1.5 sm:rounded-full sm:p-1.5"
         >
           {LEGAL_TABS.map((tab) => {
             const Icon = DOC_ICONS[tab.key] || FileText
@@ -72,15 +72,17 @@ export default function Legal({ defaultDoc }) {
                 key={tab.key}
                 to={tab.path}
                 aria-current={isActive ? 'page' : undefined}
+                aria-label={tab.label}
                 className={cn(
-                  'inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-all sm:text-sm',
+                  'inline-flex items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-center text-xs font-semibold transition-all sm:gap-2 sm:rounded-full sm:px-4 sm:text-sm',
                   isActive
                     ? 'bg-[var(--primary-container)] text-[var(--primary-container-foreground)] shadow-2xs'
                     : 'text-ink-muted hover:bg-[var(--accent)] hover:text-ink',
                 )}
               >
-                <Icon size={15} aria-hidden="true" />
-                {tab.label}
+                <Icon size={14} className="shrink-0" aria-hidden="true" />
+                <span className="sm:hidden">{tab.shortLabel}</span>
+                <span className="hidden sm:inline">{tab.label}</span>
               </Link>
             )
           })}
