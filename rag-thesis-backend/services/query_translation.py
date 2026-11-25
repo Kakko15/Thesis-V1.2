@@ -53,10 +53,13 @@ _DECISIVE_MARKERS = frozenset({
 })
 # Markers that also occur in English, or are too short to carry the decision
 # alone. Two or more of these together still say the question is not English.
+# Everyday English function words ('a', 'at', 'no') are deliberately excluded:
+# measured 2026-11-26, English comparison prompts containing "A ... at Isabela
+# State University" matched ('a', 'at') and paid for a wasted translation call.
 _WEAK_MARKERS = frozenset({
     'na', 'sa', 'ba', 'po', 'ho', 'ito', 'iyon', 'ka', 'mo', 'ko', 'ni', 'si',
-    'ay', 'at', 'para', 'lang', 'din', 'rin', 'naman', 'pala', 'kaya', 'daw',
-    'ti', 'ken', 'met', 'laeng', 'kadi', 'nga', 'a', 'idi', 'kas', 'no',
+    'ay', 'para', 'lang', 'din', 'rin', 'naman', 'pala', 'kaya', 'daw',
+    'ti', 'ken', 'met', 'laeng', 'kadi', 'nga', 'idi', 'kas',
     'da', 'mi', 'yo', 'tayo', 'kami',
 })
 

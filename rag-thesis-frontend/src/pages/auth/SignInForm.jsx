@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
@@ -8,7 +8,8 @@ import { Button } from '../../components/ui/Button'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
 import { useSecurityGate } from '../../components/security/useSecurityGate'
 import {
-  authOptions, friendlyAuthError, isRateLimitError, isValidEmail, retryAfterSeconds, useResendTimer,
+  authOptions, friendlyAuthError, isRateLimitError, isValidEmail, retryAfterSeconds,
+  shouldSubmitAuthFormOnEnter, useResendTimer,
 } from './authUtils'
 import {
   ErrorAlert, FloatingField, formStagger, PasswordEye, RateLimitAlert, Rise, Shine, UnderlineLink, ValidTick,
@@ -30,6 +31,8 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
   const [errorNonce, setErrorNonce] = useState(0)
   const [loading, setLoading] = useState(false)
   const [otpLoading, setOtpLoading] = useState(false)
+  const [pendingSubmit, setPendingSubmit] = useState(false)
+  const formRef = useRef(null)
   // Gated submission that fails open when Turnstile itself is unreachable.
   const captcha = useSecurityGate()
   const [captchaReset, setCaptchaReset] = useState(0)
@@ -43,6 +46,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
     const seconds = retryAfterSeconds(err) || 60
     setCooldownTotal(seconds)
     setCooldown(seconds)
+    setPendingSubmit(false)
     setErrors({})
   }
 
@@ -79,6 +83,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
   const changeField = (name, setter) => (e) => {
     const { value } = e.target
     setter(value)
+    setPendingSubmit(false)
     if (touched[name]) checkField(name, { [name]: value })
   }
 
@@ -90,9 +95,33 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
     return Object.keys(next).length === 0
   }
 
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (!shouldSubmitAuthFormOnEnter(e, formRef.current)) return
+      e.preventDefault()
+      formRef.current?.requestSubmit()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  useEffect(() => {
+    if (!pendingSubmit || captcha.blocked || loading || cooldown > 0) return
+    formRef.current?.requestSubmit()
+  }, [pendingSubmit, captcha.blocked, loading, cooldown])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!validate()) return
+    if (loading || cooldown > 0) return
+    if (!validate()) {
+      setPendingSubmit(false)
+      return
+    }
+    if (captcha.blocked) {
+      setPendingSubmit(true)
+      return
+    }
+    setPendingSubmit(false)
     setLoading(true)
     try {
       const { error } = await supabase.auth.signInWithPassword({
@@ -141,6 +170,7 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
 
   return (
     <motion.form
+      ref={formRef}
       variants={formStagger}
       initial="hidden"
       animate="show"
@@ -212,13 +242,17 @@ export function SignInForm({ email, setEmail, onForgot, onOtpSent, onNeedsVerify
         <Button
           type="submit"
           size="lg"
-          loading={loading}
+          loading={loading || pendingSubmit}
           disabled={captcha.blocked || cooldown > 0}
           className="group relative w-full overflow-hidden"
         >
           <Shine />
-          {cooldown > 0 ? `Try again in ${cooldown}s` : 'Sign in'}
-          {cooldown <= 0 && (
+          {cooldown > 0
+            ? `Try again in ${cooldown}s`
+            : pendingSubmit && captcha.blocked
+              ? 'Waiting for security check…'
+              : 'Sign in'}
+          {cooldown <= 0 && !(pendingSubmit && captcha.blocked) && (
             <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
           )}
         </Button>

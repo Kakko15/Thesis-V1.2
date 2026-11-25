@@ -30,7 +30,6 @@ import { GlassCard } from '../components/ui/GlassCard'
 import { Modal, ConfirmDialog } from '../components/ui/Modal'
 import { Input, Select } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
-import { EmptyState } from '../components/ui/EmptyState'
 import { PageTransition } from '../components/ui/Motion'
 import { Logo } from '../components/ui/Logo'
 import { AnimatedLogo } from '../components/ui/AnimatedLogo'
@@ -367,120 +366,122 @@ function Composer({
   }, [value, isExpanded])
 
   return (
-    <div className="border-t border-forest-900/10 p-3 sm:p-4 dark:border-white/10">
-      {children}
-      <form
-        ref={formRef}
-        onSubmit={(e) => {
-          e.preventDefault()
-          setExpanded(false)
-          setTallEnoughToExpand(false)
-          onSend()
-        }}
-        className={cn(
-          'relative flex items-end gap-2 rounded-[1.6rem] border border-forest-900/14 bg-white/80 p-2 pl-4 backdrop-blur-2xl',
-          'shadow-[0_8px_32px_rgba(4,42,24,0.08)] transition-[border-color,box-shadow,background-color] duration-200',
-          'hover:border-forest-900/25 focus-within:border-[var(--primary)]',
-          'focus-within:shadow-[0_8px_32px_rgba(4,42,24,0.10),0_0_0_3px_color-mix(in_srgb,var(--primary)_14%,transparent)]',
-          'dark:border-white/12 dark:bg-[var(--surface-2)]/90 dark:shadow-[0_8px_32px_rgba(0,0,0,0.35)]',
-          'dark:hover:border-white/22 dark:focus-within:border-[var(--primary)]',
-          isExpanded && 'h-[min(28rem,54dvh)] min-h-[18rem] items-stretch pt-3 pb-2.5',
-        )}
-      >
-        <textarea
-          ref={innerTextareaRef}
-          rows={1}
-          value={value}
-          placeholder={placeholder}
-          onChange={(e) => {
-            const nextValue = e.target.value
-            onChange(nextValue)
-            if (!nextValue) {
-              setExpanded(false)
-              setTallEnoughToExpand(false)
-            } else {
-              const el = e.target
-              const prevH = el.style.height
-              el.style.minHeight = '0px'
-              el.style.height = '0px'
-              const rawH = el.scrollHeight
-              el.style.height = prevH
-              setTallEnoughToExpand(rawH >= COMPOSER_EXPAND_THRESHOLD)
-            }
-          }}
-          onFocus={onFocus}
-          onKeyDown={(e) => {
-            // Enter commits an IME candidate rather than submitting, so
-            // without this a Filipino, Japanese, or Chinese speaker sends
-            // half-composed text mid-word.
-            if (e.nativeEvent.isComposing) return
-            if (e.key === 'Escape' && isExpanded) {
-              e.preventDefault()
-              setExpanded(false)
-              return
-            }
-            // sendKey preference from Settings → Chat & AI: default Enter sends
-            // (Shift+Enter newlines); 'ctrlEnter' flips it so Enter newlines and
-            // only Ctrl/Cmd+Enter sends.
-            const shouldSend = sendKey === 'ctrlEnter'
-              ? e.key === 'Enter' && (e.ctrlKey || e.metaKey)
-              : e.key === 'Enter' && !e.shiftKey
-            if (shouldSend) {
-              e.preventDefault()
-              setExpanded(false)
-              setTallEnoughToExpand(false)
-              onSend()
-            }
+    <div className="border-t border-forest-900/8 px-4 pb-3 pt-2.5 sm:px-6 sm:pb-4 sm:pt-3 dark:border-white/8">
+      <div className="mx-auto w-full max-w-4xl">
+        {children}
+        <form
+          ref={formRef}
+          onSubmit={(e) => {
+            e.preventDefault()
+            setExpanded(false)
+            setTallEnoughToExpand(false)
+            onSend()
           }}
           className={cn(
-            'min-h-11 flex-1 resize-none overflow-y-hidden bg-transparent py-2.5 pr-1 text-sm leading-6 text-[var(--foreground)] caret-[var(--primary)] outline-none focus:outline-none focus-visible:!outline-none placeholder:text-ink-faint',
-            isExpanded ? 'h-full' : 'max-h-[168px]',
+            'relative flex items-end gap-2.5 rounded-[1.75rem] border border-[var(--border)] bg-[var(--surface-0)]/95 p-2.5 pl-5 backdrop-blur-2xl',
+            'shadow-[0_4px_24px_rgba(4,42,24,0.08)] transition-[border-color,box-shadow,background-color] duration-200',
+            'hover:border-forest-900/25 focus-within:border-[var(--primary)]',
+            'focus-within:shadow-[0_6px_28px_rgba(4,42,24,0.12),0_0_0_3px_color-mix(in_srgb,var(--primary)_14%,transparent)]',
+            'dark:border-white/12 dark:bg-[var(--surface-2)]/95 dark:shadow-[0_8px_32px_rgba(0,0,0,0.35)]',
+            'dark:hover:border-white/22 dark:focus-within:border-[var(--primary)]',
+            isExpanded && 'h-[min(28rem,54dvh)] min-h-[18rem] items-stretch pt-3.5 pb-3',
           )}
-        />
-        <div className="flex shrink-0 flex-col items-end justify-between self-stretch">
-          {showExpandToggle ? (
-            <button
-              type="button"
-              onClick={() => {
-                setExpanded((prev) => !prev)
-                innerTextareaRef.current?.focus()
-              }}
-              aria-label={isExpanded ? 'Collapse input' : 'Expand input'}
-              title={isExpanded ? 'Collapse' : 'Expand'}
-              className="flex size-8 items-center justify-center rounded-full text-ink-muted transition hover:bg-forest-900/8 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] dark:hover:bg-white/10"
-            >
-              <ComposerExpandIcon expanded={isExpanded} size={18} />
-            </button>
-          ) : (
-            <span aria-hidden="true" />
-          )}
-          <div className="mt-auto flex items-center gap-1">
-            {hasText && !sending && (
+        >
+          <textarea
+            ref={innerTextareaRef}
+            rows={1}
+            value={value}
+            placeholder={placeholder}
+            onChange={(e) => {
+              const nextValue = e.target.value
+              onChange(nextValue)
+              if (!nextValue) {
+                setExpanded(false)
+                setTallEnoughToExpand(false)
+              } else {
+                const el = e.target
+                const prevH = el.style.height
+                el.style.minHeight = '0px'
+                el.style.height = '0px'
+                const rawH = el.scrollHeight
+                el.style.height = prevH
+                setTallEnoughToExpand(rawH >= COMPOSER_EXPAND_THRESHOLD)
+              }
+            }}
+            onFocus={onFocus}
+            onKeyDown={(e) => {
+              // Enter commits an IME candidate rather than submitting, so
+              // without this a Filipino, Japanese, or Chinese speaker sends
+              // half-composed text mid-word.
+              if (e.nativeEvent.isComposing) return
+              if (e.key === 'Escape' && isExpanded) {
+                e.preventDefault()
+                setExpanded(false)
+                return
+              }
+              // sendKey preference from Settings → Chat & AI: default Enter sends
+              // (Shift+Enter newlines); 'ctrlEnter' flips it so Enter newlines and
+              // only Ctrl/Cmd+Enter sends.
+              const shouldSend = sendKey === 'ctrlEnter'
+                ? e.key === 'Enter' && (e.ctrlKey || e.metaKey)
+                : e.key === 'Enter' && !e.shiftKey
+              if (shouldSend) {
+                e.preventDefault()
+                setExpanded(false)
+                setTallEnoughToExpand(false)
+                onSend()
+              }
+            }}
+            className={cn(
+              'min-h-11 flex-1 resize-none overflow-y-hidden bg-transparent py-2.5 pr-1 text-[15px] leading-6 text-[var(--foreground)] caret-[var(--primary)] outline-none focus:outline-none focus-visible:!outline-none placeholder:text-ink-faint',
+              isExpanded ? 'h-full' : 'max-h-[168px]',
+            )}
+          />
+          <div className="flex shrink-0 flex-col items-end justify-between self-stretch">
+            {showExpandToggle ? (
               <button
                 type="button"
                 onClick={() => {
-                  setExpanded(false)
-                  setTallEnoughToExpand(false)
-                  onChange('')
+                  setExpanded((prev) => !prev)
                   innerTextareaRef.current?.focus()
                 }}
-                aria-label="Clear question"
-                title="Clear question"
-                className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-muted transition hover:bg-forest-900/8 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] dark:hover:bg-white/10"
+                aria-label={isExpanded ? 'Collapse input' : 'Expand input'}
+                title={isExpanded ? 'Collapse' : 'Expand'}
+                className="flex size-8 items-center justify-center rounded-full text-ink-muted transition hover:bg-forest-900/8 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] dark:hover:bg-white/10"
               >
-                <X size={15} aria-hidden="true" />
+                <ComposerExpandIcon expanded={isExpanded} size={18} />
               </button>
+            ) : (
+              <span aria-hidden="true" />
             )}
-            <ComposerAction
-              sending={sending}
-              verifying={verifying}
-              hasInput={Boolean(value.trim())}
-              onStop={onStop}
-            />
+            <div className="mt-auto flex items-center gap-1">
+              {hasText && !sending && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpanded(false)
+                    setTallEnoughToExpand(false)
+                    onChange('')
+                    innerTextareaRef.current?.focus()
+                  }}
+                  aria-label="Clear question"
+                  title="Clear question"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-muted transition hover:bg-forest-900/8 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] dark:hover:bg-white/10"
+                >
+                  <X size={15} aria-hidden="true" />
+                </button>
+              )}
+              <ComposerAction
+                sending={sending}
+                verifying={verifying}
+                hasInput={Boolean(value.trim())}
+                onStop={onStop}
+              />
+            </div>
           </div>
-        </div>
-      </form>
-      <p className="mt-2 text-center text-[11px] sm:text-xs text-ink-faint line-clamp-2 sm:line-clamp-none">{footnote}</p>
+        </form>
+        <p className="mt-2 text-center text-[11px] sm:text-xs text-ink-faint line-clamp-2 sm:line-clamp-none">{footnote}</p>
+      </div>
     </div>
   )
 }
@@ -1017,9 +1018,9 @@ function AiBubble({ message, animate, onRegenerate, onFollowUp, disabled }) {
         initial={animate ? { opacity: 0, filter: 'blur(4px)' } : false}
         animate={{ opacity: 1, filter: 'blur(0px)' }}
         transition={{ duration: 0.4, ease: [0.2, 0, 0, 1] }}
-        className="min-w-0 max-w-full flex-1 sm:max-w-[85%]"
+        className="min-w-0 max-w-full flex-1 sm:max-w-[92%]"
       >
-        <div className="glass rounded-3xl rounded-tl-lg px-5 py-4">
+        <div className="glass rounded-[1.5rem] rounded-tl-md px-5 py-4 sm:px-6 sm:py-5">
           <div className="prose-chat">
             <SafeMarkdown>{message.answer}</SafeMarkdown>
           </div>
@@ -1082,13 +1083,19 @@ function TypingIndicator() {
 function SessionList({ sessions, activeId, onSelect, onPrefetch, onRename, onDelete, onNew, error, onRetry }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between px-1 pb-3">
-        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-ink-faint">
-          <History size={13} /> Conversations
+      <div className="px-1 pb-3">
+        <button
+          type="button"
+          onClick={onNew}
+          aria-label="New conversation"
+          className="state-layer mb-3.5 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--primary-container)] px-4 py-2.5 text-sm font-semibold text-[var(--primary-container-foreground)] shadow-xs transition-transform active:scale-[0.98]"
+        >
+          <Plus size={16} aria-hidden="true" />
+          New chat
+        </button>
+        <div className="flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-wider text-ink-faint">
+          <History size={12} aria-hidden="true" /> Recent conversations
         </div>
-        <Button variant="ghost" size="icon-sm" onClick={onNew} aria-label="New conversation">
-          <Plus size={16} />
-        </Button>
       </div>
       <div className="flex-1 space-y-1 overflow-y-auto pr-1">
         <AnimatePresence initial={false}>
@@ -1100,10 +1107,10 @@ function SessionList({ sessions, activeId, onSelect, onPrefetch, onRename, onDel
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -12 }}
               className={cn(
-                'group flex items-center gap-1 rounded-2xl px-2 py-1.5 transition-colors duration-100',
+                'group flex items-center gap-1 rounded-2xl px-2.5 py-1.5 transition-colors duration-150',
                 activeId === s.id
-                  ? 'bg-forest-600/12 dark:bg-forest-400/12'
-                  : 'hover:bg-forest-900/6 dark:hover:bg-white/6',
+                  ? 'bg-[var(--primary-container)]/75 text-[var(--primary-container-foreground)] shadow-2xs'
+                  : 'hover:bg-[var(--accent)]/70',
               )}
             >
               <button
@@ -1121,7 +1128,7 @@ function SessionList({ sessions, activeId, onSelect, onPrefetch, onRename, onDel
               >
                 <MessageSquareText size={14} className="shrink-0 opacity-50" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">{s.title}</span>
+                  <span className="block truncate text-sm font-medium" title={s.title}>{s.title}</span>
                   <span className="block text-xs text-ink-faint">
                     {s.department || 'CCSICT'} · {timeAgo(s.created_at)}
                   </span>
@@ -1201,39 +1208,54 @@ function ChatTranscript({
   onUpdatePrompt,
   onRegenerate,
   onFollowUp,
-  bottomRef,
+  scrollRef,
 }) {
   const showSkeleton = loading && messages.length === 0
   const isEmpty = messages.length === 0 && !sending && !showSkeleton
   return (
     <div
+      ref={scrollRef}
       role="region"
       aria-label="Conversation transcript"
+      // `relative` keeps the absolutely positioned sr-only live region inside
+      // this scroller. Without it the region's containing block was the chat
+      // card (backdrop-filter creates one), so it hung below the card at the
+      // transcript's full height and the card itself scrolled: the header
+      // vanished and a blank band opened under the composer (2026-11-26).
       className={cn(
-        'flex-1 overflow-x-hidden overscroll-contain px-4 sm:px-6',
+        'relative min-h-0 flex-1 overflow-x-hidden overscroll-contain px-4 sm:px-6 lg:px-10',
         isEmpty
           ? 'flex flex-col items-center justify-center overflow-y-hidden py-4'
-          : 'space-y-6 overflow-y-auto py-6',
+          : 'overflow-y-auto py-6 sm:py-8',
       )}
     >
       {showSkeleton ? (
-        <TranscriptSkeleton />
+        <div className="mx-auto w-full max-w-4xl">
+          <TranscriptSkeleton />
+        </div>
       ) : isEmpty ? (
-        <div className="flex w-full flex-col items-center justify-center [&>div:first-child]:py-6 sm:[&>div:first-child]:py-10">
-          <EmptyState
-            icon={Logo}
-            title="Ask IskAI anything"
-            message={`Semantic search across indexed ${effectiveDepartment} theses — methodologies, scopes, findings, and related literature.`}
-          />
-          <div className="grid w-full max-w-xl gap-2 sm:grid-cols-2">
+        <div className="mx-auto flex w-full max-w-2xl flex-col items-center justify-center">
+          <div className="mb-6 flex flex-col items-center text-center sm:mb-8">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-[var(--surface-1)] shadow-sm ring-1 ring-[var(--border)]">
+              <Logo size={38} glow />
+            </div>
+            <h2 className="font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+              Ask IskAI anything
+            </h2>
+            <p className="mt-2 max-w-lg text-sm leading-relaxed text-ink-muted sm:text-[15px]">
+              Semantic search across indexed {effectiveDepartment} theses — methodologies, scopes, findings, and related literature.
+            </p>
+          </div>
+          <div className="grid w-full gap-3 sm:grid-cols-2">
             {STARTERS.map((s, i) => (
               <motion.button
                 key={s}
+                type="button"
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25 + i * 0.08 }}
+                transition={{ delay: 0.2 + i * 0.06 }}
                 onClick={() => onSendStarter(s)}
-                className="glass state-layer rounded-2xl px-4 py-3 text-left text-xs font-medium leading-relaxed opacity-80 transition hover:opacity-100"
+                className="state-layer rounded-2xl border border-[var(--border)] bg-[var(--surface-1)]/85 px-5 py-4 text-left text-sm font-medium leading-relaxed text-ink/90 shadow-2xs transition-all hover:border-forest-500/35 hover:bg-[var(--surface-2)] hover:text-ink hover:shadow-sm"
               >
                 {s}
               </motion.button>
@@ -1241,7 +1263,7 @@ function ChatTranscript({
           </div>
         </div>
       ) : (
-        <>
+        <div className="mx-auto w-full max-w-4xl space-y-6">
           {messages.map((m) =>
             m.kind === 'user'
               ? (
@@ -1266,8 +1288,7 @@ function ChatTranscript({
               ),
           )}
           {isAwaitingAnswer && <TypingIndicator />}
-          <div ref={bottomRef} />
-        </>
+        </div>
       )}
       {/* Mounted before any answer so assistive tech is already watching it.
           One plain-prose summary per answer rather than role="log" on the
@@ -1314,7 +1335,7 @@ export default function Chat() {
   const [gateStatus, setGateStatus] = useState('pending')
   const [copiedMessageId, setCopiedMessageId] = useState(null)
   const copiedMessageTimeoutRef = useRef(null)
-  const bottomRef = useRef(null)
+  const transcriptRef = useRef(null)
   const inputRef = useRef(null)
   const requestControllerRef = useRef(null)
   const pendingQuestionRef = useRef('')
@@ -1370,7 +1391,11 @@ export default function Chat() {
     if (messages.length === 0 && !sending) return
     const instant = instantScrollRef.current
     instantScrollRef.current = false
-    bottomRef.current?.scrollIntoView({ behavior: instant ? 'auto' : 'smooth' })
+    // Scroll only the transcript. scrollIntoView also scrolls every ancestor,
+    // overflow-hidden ones and the page included, which is how the chat card
+    // got shifted off its header (2026-11-26).
+    const el = transcriptRef.current
+    el?.scrollTo?.({ top: el.scrollHeight, behavior: instant ? 'auto' : 'smooth' })
   }, [messages, sending])
 
   const transcriptQuery = useCallback((id) => ({
@@ -1790,10 +1815,10 @@ export default function Chat() {
   }
 
   return (
-    <PageTransition className="mx-auto flex h-[calc(100dvh-12rem)] max-w-6xl gap-4 md:h-[calc(100dvh-3.5rem)]">
+    <PageTransition className="flex h-[calc(100dvh-11.5rem)] w-full gap-3 md:h-[calc(100dvh-1.5rem)]">
       {/* Session sidebar (desktop) */}
       {user && (
-        <GlassCard className="hidden w-64 shrink-0 p-4 xl:block">
+        <GlassCard className="hidden w-72 shrink-0 rounded-[2rem] p-4 xl:block 2xl:w-80">
           <SessionList
             sessions={sessions}
             activeId={sessionId}
@@ -1830,16 +1855,18 @@ export default function Chat() {
       </Sheet>
 
       {/* Chat column */}
-      <GlassCard className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* overflow-clip, not overflow-hidden: a hidden box is still a scroll
+          container that script can scroll, a clipped one is not (2026-11-26). */}
+      <GlassCard className="flex min-w-0 flex-1 flex-col overflow-clip rounded-[2rem]">
         {/* Header. It wraps instead of switching to a row at a fixed breakpoint:
             the chat card's width depends on the sidebar, so at 1280px and 800px
             the department pill and sign-in button were clipped, and at 390px the
             filters shrank to ovals (2026-11-26). */}
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-forest-900/10 px-4 py-3 dark:border-white/10 sm:px-5 sm:py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-forest-900/10 px-5 py-3.5 dark:border-white/10 sm:px-6">
           <div className="flex min-w-0 flex-[1_1_14rem] items-center gap-3">
-            <Logo size={32} />
+            <Logo size={34} />
             <div className="min-w-0">
-              <h1 className="font-display text-sm font-extrabold">IskAI</h1>
+              <h1 className="font-display text-base font-extrabold tracking-tight">IskAI</h1>
               <div className="truncate text-xs text-ink-faint">
                 Grounded in the {effectiveDepartment} archive · citations included
               </div>
@@ -1849,7 +1876,7 @@ export default function Chat() {
             <Select
               value={recencyScope}
               onChange={(e) => setRecencyScope(e.target.value)}
-              className="h-9 min-w-[8.5rem] flex-1 sm:w-auto sm:flex-none"
+              className="h-9 min-w-[8.5rem] flex-1 rounded-full sm:w-auto sm:flex-none"
               aria-label="Filter research by publication recency"
             >
               <option value="all">All theses</option>
@@ -1858,7 +1885,7 @@ export default function Chat() {
             <Select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
-              className="h-9 min-w-[8.5rem] flex-1 sm:w-auto sm:flex-none"
+              className="h-9 min-w-[8.5rem] flex-1 rounded-full sm:w-auto sm:flex-none"
               aria-label="Filter research by thesis category"
             >
               <option value="">All categories</option>
@@ -1873,7 +1900,7 @@ export default function Chat() {
                   setFilterDepartment(e.target.value)
                   newConversation()
                 }}
-                className="h-9 min-w-[8.5rem] flex-1 sm:w-auto sm:flex-none"
+                className="h-9 min-w-[8.5rem] flex-1 rounded-full sm:w-auto sm:flex-none"
                 aria-label="Filter research by department"
               >
                 <option value="">Default ({userDepartment || evaluationDepartment})</option>
@@ -1948,7 +1975,7 @@ export default function Chat() {
           onUpdatePrompt={updatePrompt}
           onRegenerate={regenerateResponse}
           onFollowUp={startFollowUp}
-          bottomRef={bottomRef}
+          scrollRef={transcriptRef}
         />
 
         {/* Composer */}

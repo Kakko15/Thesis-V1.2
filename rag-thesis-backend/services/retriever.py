@@ -850,62 +850,112 @@ def _search_terms(text: str) -> list[str]:
     return terms
 
 
+def _aspect_buckets_requested(query_set: set[str]) -> int:
+    """How many distinct thesis-section aspects the question asks for."""
+    buckets = (
+        {'objective', 'objectives'},
+        {'scope', 'delimitation'},
+        {'method', 'methodology', 'methodologies'},
+        {'result', 'results', 'finding', 'findings'},
+        {'problem'},
+        {'conclusion', 'conclusions'},
+        {'recommendation', 'recommendations'},
+        {'gap', 'gaps', 'limitation', 'limitations', 'future', 'unexplored'},
+    )
+    return sum(1 for bucket in buckets if bucket & query_set)
+
+
+def _diversify_by_section(scored_chunks: list[tuple[int, dict]]) -> list[dict]:
+    """Spread multi-aspect selection across distinct sections before repeating one.
+
+    Measured 2026-11-26 on a 2-thesis Archive comparison asking for objectives,
+    methodologies, findings, and gaps: four `METHODOLOGY` chunks of one thesis
+    all received the +20 section bonus and filled 4 of 5 slots, crowding out its
+    findings and recommendations. Taking the top chunk per section first keeps
+    each aspect represented without losing score order within a section.
+    """
+    primary: list[dict] = []
+    overflow: list[dict] = []
+    seen_sections: set[str] = set()
+    for score, chunk in scored_chunks:
+        section = re.sub(r'\s+', ' ', (chunk_location(chunk).get('section') or '').strip().lower())
+        if score > 0 and section and section not in seen_sections:
+            seen_sections.add(section)
+            primary.append(chunk)
+        else:
+            overflow.append(chunk)
+    return primary + overflow
+
+
 def rank_paper_chunks(chunks: list[dict], question: str, paper: dict) -> list[dict]:
     """Rank chunks within a verified paper using section-aware lexical evidence."""
     paper_terms = set(_search_terms(f'{paper.get("title", "")} {paper.get("authors", "")}'))
     query_terms = [term for term in _search_terms(question) if term not in paper_terms]
     if not query_terms:
         return chunks
+    query_set = set(query_terms)
 
     ranked = []
     for chunk in chunks:
         location = chunk_location(chunk)
         content_terms = _search_terms(chunk.get('content', ''))
         section_terms = _search_terms(location.get('section') or '')
-        content_counts = {term: content_terms.count(term) for term in set(query_terms)}
-        section_counts = {term: section_terms.count(term) for term in set(query_terms)}
+        content_counts = {term: content_terms.count(term) for term in query_set}
+        section_counts = {term: section_terms.count(term) for term in query_set}
         score = sum(min(count, 4) for count in content_counts.values())
         score += 3 * sum(min(count, 2) for count in section_counts.values())
         normalized_content = re.sub(r'\s+', ' ', chunk.get('content', '').lower())
-        if 'objective' in query_terms and 'objectives of the study' in normalized_content:
+        if 'objective' in query_set and 'objectives of the study' in normalized_content:
             score += 20
-        if 'scope' in query_terms and 'scope and delimitation' in normalized_content:
+        if 'scope' in query_set and 'scope and delimitation' in normalized_content:
             score += 20
         section_lower = (location.get('section') or '').lower()
         method_hit = (
             any(k in normalized_content for k in ('3.2 methods', 'materials and methods'))
             or any(k in section_lower for k in ('methodology', 'research design', 'system architecture'))
         )
-        if {'method', 'methodology'} & set(query_terms) and method_hit:
+        if {'method', 'methodology'} & query_set and method_hit:
             score += 20
-        if {'result', 'finding'} & set(query_terms) and (
+        if {'result', 'finding'} & query_set and (
             'results and discussion' in normalized_content
             or 'results' in section_lower
             or 'findings' in section_lower
         ):
             score += 20
-        if 'problem' in query_terms and (
+        if 'problem' in query_set and (
             'statement of the problem' in normalized_content
             or 'background of the study' in normalized_content
             or 'introduction' in section_lower
         ):
             score += 20
-        if 'conclusion' in query_terms and (
+        if 'conclusion' in query_set and (
             'conclusion' in section_lower or 'summary of findings' in normalized_content
         ):
             score += 20
-        if 'recommendation' in query_terms and 'recommendation' in section_lower:
+        if 'recommendation' in query_set and 'recommendation' in section_lower:
+            score += 20
+        if {'gap', 'gaps', 'limitation', 'limitations', 'future', 'unexplored'} & query_set and (
+            any(
+                k in section_lower
+                for k in ('recommendation', 'conclusion', 'limitation', 'delimitation')
+            )
+            or any(
+                k in normalized_content
+                for k in ('recommendations', 'future researchers', 'limitations of the study')
+            )
+        ):
             score += 20
         ranked.append((score, chunk))
     if not any(score for score, _chunk in ranked):
         return chunks
-    return [
-        chunk for _score, chunk in sorted(
-            ranked,
-            key=lambda item: (item[0], -(item[1].get('chunk_index') or 0)),
-            reverse=True,
-        )
-    ]
+    ordered = sorted(
+        ranked,
+        key=lambda item: (item[0], -(item[1].get('chunk_index') or 0)),
+        reverse=True,
+    )
+    if _aspect_buckets_requested(query_set) >= 2:
+        return _diversify_by_section(ordered)
+    return [chunk for _score, chunk in ordered]
 
 
 def _header_field(value) -> str:
@@ -1034,6 +1084,7 @@ def get_paper_overview_context(
     paper_id: str,
     department_filter: str | None = None,
     question: str | None = None,
+    max_chunks: int = 5,
 ):
     """Load overview or question-ranked chunks from one verified paper index."""
     def fetch_paper():
@@ -1108,10 +1159,11 @@ def get_paper_overview_context(
     # sections, but retain it as a fallback for very short legacy indexes.
     substantive = [chunk for chunk in chunk_rows if (chunk.get('chunk_index') or 0) > 0]
     candidates = substantive or chunk_rows
+    limit = max(1, max_chunks)
     selected = (
-        rank_paper_chunks(candidates, question, paper)[:5]
+        rank_paper_chunks(candidates, question, paper)[:limit]
         if question
-        else candidates[:5]
+        else candidates[:limit]
     )
     if not selected:
         return '', [], 0.0

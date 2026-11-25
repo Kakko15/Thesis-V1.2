@@ -12,6 +12,7 @@ import {
   maskEmail,
   passwordStrength,
   retryAfterSeconds,
+  shouldSubmitAuthFormOnEnter,
   useResendTimer,
 } from './authUtils.js'
 
@@ -225,4 +226,52 @@ test('useResendTimer restarts when the setter is used and stops when unmounted',
   timer.unmount()
   t.mock.timers.tick(5000)
   assert.equal(timer.current[0], 1)
+})
+
+/* shouldSubmitAuthFormOnEnter --------------------------------------------- */
+
+function makeForm({ openOverlay = false } = {}) {
+  return {
+    ownerDocument: {
+      querySelector: () => (openOverlay ? {} : null),
+    },
+  }
+}
+
+function makeTarget({ interactive = false, ownerForm = null } = {}) {
+  return {
+    closest(selector) {
+      if (selector === 'form') return ownerForm
+      return interactive ? {} : null
+    },
+  }
+}
+
+test('shouldSubmitAuthFormOnEnter allows plain Enter from the form or page body', () => {
+  const form = makeForm()
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', target: makeTarget({ ownerForm: form }) }, form), true)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', target: makeTarget() }, form), true)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', target: null }, form), true)
+})
+
+test('shouldSubmitAuthFormOnEnter ignores non-Enter, modified, composing, or prevented keys', () => {
+  const form = makeForm()
+  assert.equal(shouldSubmitAuthFormOnEnter(null, form), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter' }, null), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Escape' }, form), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', defaultPrevented: true }, form), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', isComposing: true }, form), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', repeat: true }, form), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', shiftKey: true }, form), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', ctrlKey: true }, form), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', metaKey: true }, form), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', altKey: true }, form), false)
+})
+
+test('shouldSubmitAuthFormOnEnter does not hijack interactive controls, other forms, or open overlays', () => {
+  const form = makeForm()
+  const otherForm = makeForm()
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', target: makeTarget({ interactive: true }) }, form), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', target: makeTarget({ ownerForm: otherForm }) }, form), false)
+  assert.equal(shouldSubmitAuthFormOnEnter({ key: 'Enter', target: makeTarget() }, makeForm({ openOverlay: true })), false)
 })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { ArrowRight, Lock } from 'lucide-react'
@@ -8,7 +8,7 @@ import { Field, Select } from '../../components/ui/Input'
 import { SecurityCheck } from '../../components/security/SecurityCheck'
 import { useSecurityGate } from '../../components/security/useSecurityGate'
 import {
-  authOptions, friendlyAuthError, isStrongPassword, isValidEmail,
+  authOptions, friendlyAuthError, isStrongPassword, isValidEmail, shouldSubmitAuthFormOnEnter,
 } from './authUtils'
 import {
   ErrorAlert, FloatingField, formStagger, PasswordEye, PasswordGuide, Rise, Shine, UnderlineLink,
@@ -28,7 +28,9 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
   const [errors, setErrors] = useState({})
   const [errorNonce, setErrorNonce] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [pendingSubmit, setPendingSubmit] = useState(false)
   const [exists, setExists] = useState(false)
+  const formRef = useRef(null)
   // Gated submission that fails open when Turnstile itself is unreachable.
   const captcha = useSecurityGate()
   const [captchaReset, setCaptchaReset] = useState(0)
@@ -82,6 +84,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
   const changeField = (name, setter) => (e) => {
     const { value } = e.target
     setter(value)
+    setPendingSubmit(false)
     if (touched[name]) checkField(name, { [name]: value })
     // Confirm password follows edits to the password it must match.
     if (name === 'password' && touched.confirmPassword) {
@@ -101,10 +104,34 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
     return Object.keys(next).length === 0
   }
 
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (!shouldSubmitAuthFormOnEnter(e, formRef.current)) return
+      e.preventDefault()
+      formRef.current?.requestSubmit()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  useEffect(() => {
+    if (!pendingSubmit || captcha.blocked || loading) return
+    formRef.current?.requestSubmit()
+  }, [pendingSubmit, captcha.blocked, loading])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (loading) return
     setExists(false)
-    if (!validate()) return
+    if (!validate()) {
+      setPendingSubmit(false)
+      return
+    }
+    if (captcha.blocked) {
+      setPendingSubmit(true)
+      return
+    }
+    setPendingSubmit(false)
     setLoading(true)
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -146,6 +173,7 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
 
   return (
     <motion.form
+      ref={formRef}
       variants={formStagger}
       initial="hidden"
       animate="show"
@@ -197,7 +225,10 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
           <Field label="Account Type" required>
             <Select
               value={role}
-              onChange={(e) => setRole(e.target.value)}
+              onChange={(e) => {
+                setRole(e.target.value)
+                setPendingSubmit(false)
+              }}
               aria-label="Account type"
             >
               <option value="student">Student</option>
@@ -281,13 +312,15 @@ export function SignUpForm({ email, setEmail, onVerifyNeeded, onSwitchToSignIn }
         <Button
           type="submit"
           size="lg"
-          loading={loading}
+          loading={loading || pendingSubmit}
           disabled={captcha.blocked}
           className="group relative w-full overflow-hidden"
         >
           <Shine />
-          Create my account
-          <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
+          {pendingSubmit && captcha.blocked ? 'Waiting for security check…' : 'Create my account'}
+          {!(pendingSubmit && captcha.blocked) && (
+            <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
+          )}
         </Button>
       </Rise>
 

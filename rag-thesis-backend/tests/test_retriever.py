@@ -339,6 +339,45 @@ class TestChunkRetrieval:
         assert objective_ranked[0]['chunk_index'] == 1
         assert methodology_ranked[0]['chunk_index'] == 2
 
+    def test_multi_aspect_ranking_diversifies_across_sections(self):
+        paper = {'title': 'BLIS Beyond Graduation', 'authors': 'Author One'}
+        chunks = [
+            {'chunk_index': 1, 'section': 'METHODOLOGY', 'content': 'Methodology survey design and sampling.'},
+            {'chunk_index': 2, 'section': 'METHODOLOGY', 'content': 'Methodology data gathering instrument.'},
+            {'chunk_index': 3, 'section': 'METHODOLOGY', 'content': 'Methodology statistical treatment.'},
+            {'chunk_index': 4, 'section': 'RESULTS AND FINDINGS', 'content': 'Key findings on graduate employment.'},
+            {
+                'chunk_index': 5,
+                'section': 'RECOMMENDATIONS',
+                'content': 'Recommendations and limitations of the study for future researchers.',
+            },
+        ]
+        ranked = retriever.rank_paper_chunks(
+            chunks,
+            'Compare their methodologies, key findings, and unexplored research gaps.',
+            paper,
+        )
+        top_sections = [c['section'] for c in ranked[:3]]
+        assert len(set(top_sections)) == 3
+        assert set(top_sections) == {'METHODOLOGY', 'RESULTS AND FINDINGS', 'RECOMMENDATIONS'}
+
+    def test_get_paper_overview_context_respects_max_chunks(self, monkeypatch):
+        class MultiChunkClient:
+            def table(self, name):
+                if name == 'papers':
+                    return _Query([{
+                        'id': 'p1', 'title': 'Sample Study', 'authors': 'A. Author',
+                        'year': 2026, 'track': 'BSCS', 'department': 'CCSICT',
+                    }])
+                return _Query([
+                    {'id': i, 'paper_id': 'p1', 'chunk_index': i, 'content': f'Chunk body {i}'}
+                    for i in range(1, 6)
+                ])
+
+        monkeypatch.setattr(retriever, 'sb', MultiChunkClient())
+        _context, sources, _top = retriever.get_paper_overview_context('p1', 'CCSICT', None, 3)
+        assert len(sources) == 3
+
     def test_missing_column_error_is_recognized_for_legacy_fallback(self):
         error = RuntimeError({
             'message': 'column papers.active_index_version does not exist',

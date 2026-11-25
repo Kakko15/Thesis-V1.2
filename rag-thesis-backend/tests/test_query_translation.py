@@ -39,6 +39,11 @@ STAYS_AS_ASKED = (
     'compare the two attendance systems',
     'OCR',
     'what is retrieval augmented generation',
+    (
+        'Compare "A Centralized AI-Powered Thesis Library" and '
+        '"BLIS BEYOND GRADUATION AT ISABELA STATE UNIVERSITY" focusing on objectives'
+    ),
+    'Is there a study at ISU with no deep learning dependency?',
 )
 
 

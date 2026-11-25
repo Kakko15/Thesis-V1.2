@@ -36,11 +36,13 @@ class Settings(BaseSettings):
     gemini_max_retries: int = 1
     # Shared by the reasoning trace and the visible answer, not just the answer.
     # At 700 with thinking_level='low', a measured call spent 609 tokens reasoning
-    # and returned finish_reason=MAX_TOKENS with the reply cut off mid-word. That is
-    # the real cause of the truncation the 500 -> 700 bump was meant to fix. A
-    # truncated answer also scores near-zero on Ragas Answer Correctness, so this
-    # silently penalised the RAG arm of the Objective 2 comparison.
-    gemini_max_output_tokens: int = 2000
+    # and returned finish_reason=MAX_TOKENS with the reply cut off mid-word. Even
+    # at 2000, a measured 2-thesis Archive comparison on gemini-3.5-flash-lite
+    # (2026-11-26) spent 1,916 tokens reasoning and stopped after 341 visible
+    # characters, triggering the false "I could not verify a direct answer"
+    # fallback. 4096 gives reasoning + multi-thesis comparisons headroom to finish
+    # cleanly while staying distinct from llm_gateway_max_output_tokens (6000).
+    gemini_max_output_tokens: int = 4096
     # 'minimal' stays in the Literal for models that accept it (such as the lite
     # tier), while non-lite Gemini 3 Flash tiers reject it with 400
     # INVALID_ARGUMENT ("Thinking level MINIMAL is not supported for this

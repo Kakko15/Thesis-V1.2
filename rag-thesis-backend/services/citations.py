@@ -121,6 +121,13 @@ _NEGATION_WORD = re.compile(
     r'\b(?:not|no|none|nothing|neither|nor|without|lacks?|cannot|n\'t)\b|n\'t\b', re.IGNORECASE,
 )
 _MARKER_RUN = re.compile(r'\s*\[\d+\]')
+# Leading aspect label on a comparison bullet, e.g. `**Unexplored research gaps**: `.
+# Stripped before gap-statement detection so an honest "The provided evidence does
+# not state unexplored gaps for this study." bullet is not flagged as an uncited
+# claim and deleted by citation repair (measured 2026-11-26).
+_LEADING_ASPECT_LABEL = re.compile(
+    r'^(?:\*\*[^*\n]{1,80}\*\*|[A-Za-z][A-Za-z0-9 /&()-]{0,50})\s*:\s*'
+)
 # A framing sentence that only announces the comparison axis ("The comparison
 # between the two studies spans method, dataset, and scope."). The per-thesis
 # bullets that follow carry the cited claims. A framing line that ranks the
@@ -161,6 +168,7 @@ def _has_figures(text: str) -> bool:
 def is_archive_gap_statement(text: str) -> bool:
     """Whether a unit only states what the archive or retrieved evidence lacks."""
     plain = _strip_markers(_LIST_MARKER.sub('', (text or '').strip()))
+    plain = _LEADING_ASPECT_LABEL.sub('', plain, count=1).strip()
     if not plain or '\n' in plain or re.search(r'[.!?]\s+\S', plain):
         return False
     if _has_figures(plain) or _GAP_CONTRAST.search(plain):

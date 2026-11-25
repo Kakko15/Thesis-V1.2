@@ -478,6 +478,8 @@ class TestCitationValidation:
         'The archive does not contain a blockchain voting thesis to compare against this study.',
         'The retrieved evidence does not provide the results of either thesis.',
         'However, the archive lacks any campus network security study.',
+        '* **Unexplored research gaps**: The provided evidence does not state unexplored gaps for this study.',
+        '- **Unexplored research gaps**: The retrieved passages do not mention unexplored research gaps.',
     ])
     def test_archive_gap_statements_need_no_citation(self, line):
         assert is_archive_gap_statement(line)
@@ -491,6 +493,7 @@ class TestCitationValidation:
         'The archive does not contain voting studies. FindMe detects missing persons.',
         'The archive does not cover federated learning, but it does cover on-device inference [1].',
         'The evidence covers the objectives for the BSCS platform, but the archive does not provide its findings.',
+        '* **Key findings**: The evidence shows 98% accuracy on the campus benchmark.',
     ])
     def test_thesis_claims_phrased_negatively_still_require_citations(self, line):
         assert not is_archive_gap_statement(line)

@@ -716,7 +716,11 @@ class TestTracingBoundaries:
         assert semantic[0] == 'semantic' and alert['flagged']
 
     def test_retrieve_evidence_merges_multiple_exact_papers_with_unique_citations(self, monkeypatch):
+        seen_limits = []
+
         def exact_context(paper_id, *_args):
+            if len(_args) >= 3:
+                seen_limits.append(_args[2])
             return (
                 '[1] Evidence',
                 [{'citation_id': 1, 'id': paper_id, 'chunk_id': paper_id, 'title': paper_id}],
@@ -729,6 +733,7 @@ class TestTracingBoundaries:
         assert alert is None
         assert result[0] == '[1] Evidence\n\n[2] Evidence'
         assert [(source['id'], source['citation_id']) for source in result[1]] == [('p1', 1), ('p2', 2)]
+        assert seen_limits == [3, 3]
 
     def test_generation_helper_with_and_without_duplication(self, monkeypatch):
         class Chain:

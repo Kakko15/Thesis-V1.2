@@ -207,6 +207,67 @@ test('sign-in reports server-side CAPTCHA misconfiguration accurately', async ({
   await expect(page.getByText(/Authentication security is misconfigured/)).toBeVisible()
 })
 
+test('pressing Enter submits sign-in and sign-up automatically, even while Turnstile is resolving', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('isu_e2e_turnstile', '1')
+    window.__resolveTurnstile = null
+    window.turnstile = {
+      render: (_element, options) => {
+        window.__resolveTurnstile = () => options.callback?.('e2e-enter-token')
+        return 'e2e-turnstile-widget'
+      },
+      remove: () => {},
+    }
+  })
+
+  const requests = []
+  await page.route('**/__e2e_supabase/**', async (route) => {
+    const req = route.request()
+    requests.push({ url: req.url(), body: req.postDataJSON() })
+    if (req.url().includes('/auth/v1/signup')) {
+      await route.fulfill({
+        status: 200,
+        json: {
+          id: 'new-user-1',
+          email: 'student@isu.edu.ph',
+          identities: [{ id: 'identity-1' }],
+        },
+      })
+      return
+    }
+    await route.fulfill({
+      status: 400,
+      json: { code: 400, error_code: 'invalid_credentials', msg: 'Invalid login credentials' },
+    })
+  })
+
+  await page.goto('/login')
+  await page.getByRole('textbox', { name: 'Email *' }).fill('student@isu.edu.ph')
+  await page.getByLabel('Password *').fill('Example1!')
+  // Press Enter while Turnstile is still pending — should queue and auto-submit once solved.
+  await page.getByLabel('Password *').press('Enter')
+  await expect(page.locator('form').getByRole('button', { name: /Waiting for security check/ })).toBeVisible()
+  await page.evaluate(() => window.__resolveTurnstile?.())
+  await expect(page.getByText(/Incorrect email or password/)).toBeVisible()
+  expect(requests[0].url).toContain('/auth/v1/token')
+  expect(requests[0].body.gotrue_meta_security?.captcha_token).toBe('e2e-enter-token')
+
+  // Switch to Create account, fill all fields, blur to body, and press Enter.
+  await page.getByRole('tab', { name: 'Create account' }).click()
+  await page.getByRole('textbox', { name: 'Full name *' }).fill('Juan Dela Cruz')
+  await page.getByRole('textbox', { name: 'Email *' }).fill('student@isu.edu.ph')
+  await page.getByLabel('Password *', { exact: true }).fill('Example1!')
+  await page.getByLabel('Confirm password *').fill('Example1!')
+  await page.evaluate(() => {
+    window.__resolveTurnstile?.()
+    document.activeElement?.blur?.()
+  })
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('heading', { name: /Verify your email|Check your email/i })).toBeVisible()
+  expect(requests[1].url).toContain('/auth/v1/signup')
+  expect(requests[1].body.gotrue_meta_security?.captcha_token).toBe('e2e-enter-token')
+})
+
 test('guest RAG answer stays grounded and survives a hard route refresh', async ({ page }) => {
   let chatPayload
   const unexpected = await mockApi(page, {
@@ -264,6 +325,44 @@ test('guest RAG answer stays grounded and survives a hard route refresh', async 
   await expect(page.getByText(/Guest Researcher/)).toBeVisible()
   await expect(page.getByText(/chats aren.t saved/)).toBeVisible()
   await expect(page.getByPlaceholder(/Ask IskAI about CCSICT thesis research/)).toBeVisible()
+  expect(unexpected).toEqual([])
+})
+
+test('a long answer scrolls inside the transcript and keeps the chat card in place', async ({ page }) => {
+  // Regression (2026-11-26): the sr-only live region escaped the transcript
+  // scroller, so scrolling to the newest answer shifted the whole chat card,
+  // hiding its header and opening a blank band under the composer.
+  const paragraphs = Array.from({ length: 40 }, (_, i) => `Finding ${i + 1} of the archived study [1].`)
+  const unexpected = await mockApi(page, {
+    'POST /chat': async () => ({
+      answer: paragraphs.join('\n\n'),
+      sources: [],
+      duplication_alert: null,
+      session_id: null,
+      history_saved: false,
+      no_relevant_thesis: false,
+    }),
+  })
+
+  await page.goto('/chat')
+  await page.getByPlaceholder(/Ask IskAI about CCSICT thesis research/).fill('List every finding.')
+  await page.getByRole('button', { name: 'Send' }).click()
+  await expect(page.locator('p', { hasText: 'Finding 40 of the archived study' })).toBeInViewport()
+
+  const transcript = page.getByRole('region', { name: 'Conversation transcript' })
+  const layout = await transcript.evaluate((el) => {
+    const card = el.parentElement
+    const composer = card.lastElementChild.getBoundingClientRect()
+    return {
+      transcriptScrolled: el.scrollTop > 0,
+      cardScrollTop: card.scrollTop,
+      gapUnderComposer: card.getBoundingClientRect().bottom - composer.bottom,
+    }
+  })
+  expect(layout.transcriptScrolled).toBe(true)
+  expect(layout.cardScrollTop).toBe(0)
+  expect(layout.gapUnderComposer).toBeLessThan(4)
+  await expect(page.getByRole('heading', { name: 'IskAI', level: 1 })).toBeInViewport()
   expect(unexpected).toEqual([])
 })
 

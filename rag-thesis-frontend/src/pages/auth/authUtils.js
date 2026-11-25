@@ -110,3 +110,30 @@ export function useResendTimer(initial = 0) {
   }, [seconds])
   return [seconds, setSeconds]
 }
+
+const INTERACTIVE_ENTER_SELECTOR =
+  'button, a[href], textarea, select, [role="button"], [role="tab"], [role="combobox"], [role="listbox"], [role="option"], [role="menuitem"], [contenteditable="true"]'
+
+/**
+ * True when an unadorned Enter keypress should submit the given auth form:
+ * works both from its inputs (including while the submit button is temporarily
+ * disabled behind Turnstile) and from non-interactive page areas (e.g. after
+ * browser autofill or completing Turnstile), without hijacking buttons, links,
+ * dropdowns, or open dialogs.
+ */
+export function shouldSubmitAuthFormOnEnter(event, form) {
+  if (!event || !form) return false
+  if (event.key !== 'Enter' || event.defaultPrevented || event.isComposing || event.repeat) return false
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false
+
+  const target = event.target
+  if (target && typeof target.closest === 'function') {
+    if (target.closest(INTERACTIVE_ENTER_SELECTOR)) return false
+    const ownerForm = target.closest('form')
+    if (ownerForm && ownerForm !== form) return false
+  }
+
+  const doc = form.ownerDocument
+  if (doc?.querySelector?.('[role="dialog"], [role="alertdialog"], [role="listbox"]')) return false
+  return true
+}

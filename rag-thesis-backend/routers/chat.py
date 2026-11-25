@@ -2636,12 +2636,19 @@ async def _retrieve_evidence(
 ):
     """Run the current-evidence retrieval path under one traceable boundary."""
     if isinstance(referenced_paper_id, list):
+        # Bound total comparison context to ~6 chunks across the selected theses
+        # (3/paper for 2 theses, 2/paper for 3 theses; each still carries its
+        # stored abstract). Fetching 5/paper produced >10k-token prompts that
+        # drove Gemini reasoning into MAX_TOKENS and caused Groq 413 failures
+        # (measured 2026-11-26).
+        per_paper_chunks = max(2, min(5, 6 // max(1, len(referenced_paper_id))))
         results = await asyncio.gather(*(
             asyncio.to_thread(
                 get_paper_overview_context,
                 paper_id,
                 department,
                 None if is_overview_followup else question,
+                per_paper_chunks,
             )
             for paper_id in referenced_paper_id
         ))

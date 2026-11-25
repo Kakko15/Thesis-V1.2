@@ -147,6 +147,7 @@ export function AppShell({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
   const activeItem = items.find((item) => location.pathname.startsWith(item.to))
+  const isChatRoute = location.pathname.startsWith('/chat')
   const mobilePrimary = items.slice(0, 4)
 
   useEffect(() => {
@@ -319,7 +320,17 @@ export function AppShell({ children }) {
               </div>
       </Sheet>
 
-      <main id="main-content" className="px-3.5 pb-28 pt-20 sm:px-6 md:ml-[6.5rem] md:pb-8 md:pt-6 xl:ml-[19rem] xl:pr-6">
+      <main
+        id="main-content"
+        className={cn(
+          'px-3.5 pb-28 pt-20 sm:px-6 md:ml-[6.5rem] xl:ml-[19rem]',
+          // Align the chat workspace flush with the floating nav rail (inset-y-3 / 12px)
+          // so the chat canvas fills the viewport instead of sitting inside extra padding.
+          isChatRoute
+            ? 'md:px-3 md:py-3 xl:ml-[18.75rem] xl:px-3'
+            : 'md:pb-8 md:pt-6 xl:pr-6',
+        )}
+      >
         {children}
       </main>
 
